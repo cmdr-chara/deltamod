@@ -4,18 +4,20 @@ var theme = null;
 var pageN = null;
 var addedStyle = null;
 var update = false;
-var lockFunnyCredits = false;
-var pressCredits = 0;
 
 async function htmlAlert(title, message, buttons) {
     return new Promise((resolve, reject) => {
         var alertMain = document.getElementsByClassName('alertMain')[0];
         var alertMsg = alertMain.getElementsByClassName('alertMsg')[0];
 
-        alertMsg.innerHTML = `
-            <h1>${(title)}</h1>
-            <p>${(message)}</p>
-        `;
+        alertMsg.innerHTML = '';
+
+        var titleElement = document.createElement('h1');
+        titleElement.innerText = title;
+        var messageElement = document.createElement('p');
+        messageElement.innerText = message;
+        alertMsg.appendChild(titleElement);
+        alertMsg.appendChild(messageElement);
 
         var buttonsHTML = document.createElement('div');
         buttonsHTML.style.textAlign = 'right';
@@ -44,21 +46,7 @@ async function htmlAlert(title, message, buttons) {
 }
 
 function credits(funny) {
-    pressCredits++;
-    if (!funny) funny = false;
-
-    var random = Math.floor(Math.random() * 100);
-
-    var range = [98, 99]; // 5% chance
-
-    if (random >= range[0] && random <= range[1]) funny = true;
-    if (lockFunnyCredits || pressCredits >= 25) funny = false;
-    
-    page('credits' + (funny ? '-funny' : ''));
-
-    if (funny) {
-        lockFunnyCredits = true;
-    }
+    page('credits');
 }
 
 window.preloadAPI.onUpdateAvailable((info) => {
@@ -66,12 +54,36 @@ window.preloadAPI.onUpdateAvailable((info) => {
     update = true;
     window.ustack = {};
     window.ustack.updateInfo = info;
-    page('update');
+
+    htmlAlert('Update available', `A new version of Deltamod (${info.version}) is available for download. Do you wish to update?`, [
+        { text: 'Yes', resolveWith: "a" },
+        { text: 'No', rejectWith: "a" }
+    ]).then(async (result) => {
+        await window.electronAPI.invoke('start-update', [window.ustack.updateInfo]);
+    }).catch(async (result) => {
+        await window.electronAPI.invoke('ignore-update', []);
+    });
 });
 
 window.preloadAPI.onDDS((info) => {
     if (window.currentPageStack.du) {
         window.currentPageStack.du(info.percentage);
+    }
+});
+
+window.preloadAPI.onRefresh(() => {
+    page(pageN);
+});
+
+window.preloadAPI.onUpdateProgress((info) => {
+    if (window.currentPageStack.u) {
+        window.currentPageStack.u(info.perc);
+    }
+});
+
+window.preloadAPI.onFinishedPatch(() => {
+    if (window.currentPageStack.fp) {
+        window.currentPageStack.fp();
     }
 });
 
@@ -128,9 +140,42 @@ async function refreshTheme() {
 }
 window.preloadAPI.onThemeChange(refreshTheme);
 
+let lockRandoms = false;
+
 async function page(name) {
+    if (name == "") {
+        name = pageN;
+    }
+    // make sure nobody can escape to home
+    if (await window.electronAPI.invoke('isBaked', []) && name == 'main') {
+        name = 'bakedhome';
+    }
+    window.electronAPI.invoke('showWindow', []);
     theme = await fetch('./themes/' + await window.electronAPI.invoke('getTheme', []) + '.theme.json').then(response => response.json());
-    document.getElementsByClassName('viewport')[0].style.backgroundImage = 'url(./' + theme.background + ')';
+    // first render the fantastidynamic
+    try {
+        theme.dynamic.forEach(dynamicEvent => {
+            switch (dynamicEvent.type) {
+                case "RANDOM_OCCURENCE":
+                    if (lockRandoms) return;
+                    lockRandoms = true;
+                    if (Math.random()*100 <= 2) {
+                        console.log(`Dynamic event triggered: ${dynamicEvent.description}`);
+                        if (dynamicEvent.override) {
+                            Object.keys(dynamicEvent.override).forEach(key => {
+                                theme[key] = dynamicEvent.override[key];
+                            });
+                            console.log('Theme updated with dynamic event overrides:', dynamicEvent.override);
+                        }
+                    }
+                    break;
+            }
+        });
+    }
+    catch(e) {
+        console.log('no dynamic theme');
+    }
+    document.getElementsByClassName('bg')[0].style.backgroundImage = 'url(./' + theme.background + ')';
     window.currentPageStack = {};
     var purifiedHTML =  await fetch('./views/' + name + '/index.html').then(response => response.text());
     var runScripts = false;
@@ -165,8 +210,12 @@ async function page(name) {
             button.disabled = false;
         });
     }
-    if (purifiedHTML.includes('AUDIO[')) {
+    if (true) {
         var audioSrc = purifiedHTML.match(/AUDIO\[(.*?)\]/);
+        console.log('Audio source found:' + audioSrc);
+        if (!audioSrc || !audioSrc[1]) {
+            audioSrc = ['AUDIO[mainTheme.mp3]','mainTheme.mp3'];
+        }
         if (audioSrc && audioSrc[1] && audioSrc[1] !== currentAudio) {
             currentAudio = audioSrc[1];
             audio.pause();
@@ -200,10 +249,33 @@ async function page(name) {
             button.classList.remove('active');
         }
     });
+    try {
+        const vp = document.getElementsByClassName('viewport')[0];
+        if (vp && typeof vp.scrollTo === 'function') {
+            vp.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+        } else {
+            window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+        }
+    } catch (e) {
+        window.scrollTo(0, 0);
+    }
     pageN = name;
     if (runScripts)
         eval(await fetch('./views/' + name + '/index.js').then(response => response.text()));
 }
+
+window.addEventListener('blur', () => {
+    if (audio) {
+        audio.volume = 0.2;
+    }
+});
+
+window.addEventListener('focus', async () => {
+    let shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
+    if (audio && shouldPlayAudio) {
+        audio.volume = 0.7;
+    }
+});
 
 if (!window.electronAPI) {
     window.alert('This application cannot run in this environment.');
@@ -212,6 +284,10 @@ if (!window.electronAPI) {
 }
 
 (async function() {
+    var os = await window.electronAPI.invoke('getOS',[]);
+    if (os.platform == 'win32' && os.version.startsWith('Windows 11')) {
+        document.getElementsByClassName('winb')[0].style.borderRadius = "8px";
+    }
     // Check if deltarune is loaded
     var loaded = await window.electronAPI.invoke('loadedDeltarune',[]);
 
@@ -223,14 +299,13 @@ if (!window.electronAPI) {
     if (loaded.loaded) {
         var available = await window.electronAPI.invoke('fireUpdate', []);
         console.log('Update check complete. Update available:', available);
-        if (!available) {
-            await page('main');
-        }
-        else {
-            await page('update');
-        }
+
+        await page('main');
+
+        window.electronAPI.invoke('executeArgumentCmd',[]);
     } else {
         await page('locate');
+        window.electronAPI.invoke('executeArgumentCmd',[]);
     }
 
 })();

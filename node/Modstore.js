@@ -63,7 +63,7 @@ function removeModSafe(modid) {
         fs.rmSync(modPath, { recursive: true });
     } else console.warn("Error: Mod", modPath, "doesn't seem to be a valid mod with a __deltaID.json.");
 
-    page("main");
+    page("");
 }
 
 // [ADDED] depth-first search for a file by name anywhere under root
@@ -133,11 +133,29 @@ function modList() {
             let deltamodExclusive = safeReadJSON(idPath);
 
             failureReason = "Failed to generate unique __deltaID for mod.";
+
+            try {
+                if (deltamodExclusive.new == null) {
+                    deltamodExclusive.new = false; // backfill old mods
+                    fs.writeFileSync(idPath, JSON.stringify(deltamodExclusive, null, 2), 'utf8');
+                }
+
+                if (deltamodExclusive.uniqueId.split('_')[3] !== require('../package.json').version) {
+                    // if the version is different, regenerate the uniqueId
+                    console.log('mod version mismatch, regenerating uniqueId for mod:', mod);
+                    deltamodExclusive = null; // force regeneration below
+                }
+            }
+            catch {
+                console.log('deltamodExclusive uniqueId version parse failed, regenerating uniqueId for mod:', mod);
+            }
+
             if (!deltamodExclusive || !deltamodExclusive.uniqueId) {
                 console.log('generating unique uid for mod:', mod);
                 deltamodExclusive = {
                     uniqueId: system.generateUniqueId(),
                     validFor: computerName,
+                    new: true
                 };
                 try {
                     fs.writeFileSync(idPath, JSON.stringify(deltamodExclusive, null, 2), 'utf8');
@@ -146,6 +164,7 @@ function modList() {
 
             // de-dupe in memory so list has unique rows (don’t rewrite disk)
             let uid = deltamodExclusive.uniqueId;
+
             if (uniqueIdSet.has(uid)) uid = `${uid}#${mod}`;
             uniqueIdSet.add(uid);
 
@@ -174,7 +193,8 @@ function modList() {
                 }
             }
             calculateFolderSize(modPath);
-            modSize = Math.round(modSize / (1024 * 1024)); // size
+            // convert bytes to megabytes, round to 2 decimals; non-zero values are at least 0.01 MB
+            modSize = modSize === 0 ? 0 : Math.max(0.01, Math.round((modSize / (1024 * 1024)) * 100) / 100);
             // keep your return shape; just add ids (non-breaking)
             modList.push({
                 name:        meta.name || mod,
@@ -187,6 +207,8 @@ function modList() {
                 dependencies: modInfo.dependencies || [],
                 packageID: validatePID(meta.packageID),
                 // NEW: give the renderer stable identifiers
+                new: deltamodExclusive.new || false, // Used in UI
+
                 uniqueId: uid,
                 uid:      uid,   // <- many UIs look for this name
                 id:       uid

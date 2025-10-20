@@ -11,3 +11,5 @@ node/ItchKeys.js
 installbuilder/dotnet.exe
 installbuilder/project.xml.backup
 installbuilder/git.exe
+/.idea
+/cache

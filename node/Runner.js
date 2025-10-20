@@ -1,8 +1,10 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol, session, net, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, session, net, shell, globalShortcut, screen, Notification } = require('electron');
 const Paths = require('./Paths.js');
 const KeyValue = require('./KeyValue.js');
 const fs = require('fs');
+const { execSync } = require('child_process');
 const mime = require('mime-types');
+const winShortcuts = require('windows-shortcuts');
 const _7z = require("7zip-min");
 const {Downloader} = require("nodejs-file-downloader");
 const { getSystemFile, getSystemFolder, getPacketDatabase, setSystemIndex, getSystemFolderOfIndex } = require('./System.js');
@@ -19,6 +21,8 @@ const Netlayer = require('./Netlayer.js');
 const path = require('path');
 
 let abortController;
+let callbackNPS;
+let callbackNPSPassWith;
 
 const { getConfig, config } = require('7zip-min');
 const { path7za } = require('7zip-bin');
@@ -117,6 +121,7 @@ async function getInstallations(suppressWarnings = false) {
             steam: KeyValue.readKVSOfIndex('isSteam', parseInt(file.split('-')[1])) === true,
             type: KeyValue.readKVSOfIndex('deltaruneEdition', parseInt(file.split('-')[1])),
             appid: KeyValue.readKVSOfIndex('steamAppId', parseInt(file.split('-')[1])),
+            bakedInstallation: KeyValue.readKVSOfIndex('baked', parseInt(file.split('-')[1])) === true,
         });
     });
 
@@ -279,6 +284,49 @@ function createWindow() {
         KeyValue.writeUniqueFlag('audio', 'true');
     }
 
+    try {
+        if (process.platform === 'win32') {
+            try {
+                const procs = execSync('tasklist', { encoding: 'utf8' }).toLowerCase();
+                const found = [];
+                if (procs.includes('gm3p.exe')) found.push('GM3P.exe');
+                if (procs.includes('gamemakermodmerger.exe')) found.push('GamemakerModMerger.exe');
+
+                if (found.length > 0) {
+                    var res = dialog.showMessageBoxSync({
+                        type: 'warning',
+                        title: 'Close running processes',
+                        message: `Deltamod detected these running process${found.length > 1 ? 'es' : ''}: ${found.join(', ')}.\n\nPlease close them before opening Deltamod as when the app closes these may terminate.`,
+                        buttons: ['Kill them for me', 'Close the app', 'Ignore (may cause issues)'],
+                    });
+                    if (res === 0) {
+                        try {
+                            if (found.includes('GM3P.exe')) {
+                                console.log('Killing GM3P.exe processes...');
+                                execSync('taskkill /IM GM3P.exe /F', { stdio: 'ignore' });
+                            }
+                            if (found.includes('GamemakerModMerger.exe')) {
+                                console.log('Killing DEVICE_FUSION.exe processes...');
+                                execSync('taskkill /IM GamemakerModMerger.exe /F', { stdio: 'ignore' });
+                            }
+                            console.log('Processes terminated.');
+                        } catch (e) {
+                            console.warn('Failed to kill processes:', e && e.message ? e.message : e);
+                        }
+                    } else if (res === 1) {
+                        app.quit();
+                        return;
+                    }
+                    // if 2, ignore
+                }
+            } catch (e) {
+                console.warn('Could not enumerate processes to check for GM3P/Device Fusion:', e && e.message ? e.message : e);
+            }
+        }
+    } catch (e) {
+        console.warn('Process-check wrapper failed:', e && e.message ? e.message : e);
+    }
+
     // 7-zip fix for electron
     config({ ...getConfig(), binaryPath: path7za });
 
@@ -288,6 +336,22 @@ function createWindow() {
     // lets check if we need to change part
     var threrror = "";
     var partOverride = getSystemFile('_sysindex',true);
+    // if caller passed ---system_index=<n> on CLI, persist it to the _sysindex file
+    const sysArg = process.argv.find(a => a.startsWith('---system_index='));
+    if (sysArg) {
+        try {
+            const val = sysArg.split('=')[1];
+            if (val !== undefined && /^-?\d+$/.test(val)) {
+                const sysIndexPath = getSystemFile('_sysindex', true);
+                fs.writeFileSync(sysIndexPath, val.toString(), 'utf8');
+                console.log(`Wrote system index override ${val} to ${sysIndexPath}`);
+            } else {
+                console.warn('Invalid ---system_index value:', val);
+            }
+        } catch (e) {
+            console.error('Failed to write system index override:', e);
+        }
+    }
     if (fs.existsSync(partOverride)) {
         var overrideData = fs.readFileSync(partOverride, 'utf8');
         if (parseInt(overrideData) < 0) {
@@ -401,14 +465,18 @@ function createWindow() {
         }
     }
 
+    var totalScreenWidth = screen.getPrimaryDisplay().workAreaSize.width;
+    var totalScreenHeight = screen.getPrimaryDisplay().workAreaSize.height;
+    var w = totalScreenWidth * 0.4;
+    var h = totalScreenHeight * 0.7;
+
     KeyValue.retrieve();
     win = new BrowserWindow({
-        width: 800,
-        height: 800,
+        width: w,
+        height: h,
         titleBarStyle: 'hidden',
         resizable: true,
-        maximizable: false,
-        fullscreenable: false,
+        show: false,
         titleBarOverlay: {
             color: 'rgba(249,249,249,0)',
             symbolColor: 'rgb(255, 255, 255)',
@@ -419,6 +487,31 @@ function createWindow() {
             partition: partition,
             preload: Paths.file('web', 'preload.js'),
         }
+    });
+
+    win.once('ready-to-show', () => {
+        globalShortcut.register('Control+R', () => {
+            win.webContents.executeJavaScript('window.location.reload()');
+        });
+        globalShortcut.register('Control+Shift+R', () => {
+            win.webContents.refresh();
+        });
+        globalShortcut.register('Control+Alt+S', async () => {
+            const screenshotPath = path.join(app.getPath('desktop'), `screenshot-${Date.now()}.png`);
+            try {
+                const image = await win.capturePage();
+                fs.writeFileSync(screenshotPath, image.toPNG());
+                dialog.showMessageBox(win, {
+                    type: 'info',
+                    title: 'Screenshot Saved',
+                    message: `Screenshot saved to: ${screenshotPath}`,
+                    buttons: ['OK']
+                });
+            } catch (err) {
+                console.error('Failed to take screenshot:', err);
+                dialog.showErrorBox('Screenshot Error', 'Failed to take screenshot.');
+            }
+        });
     });
 
     win.webContents.session.webRequest.onBeforeRequest((details, callback) => {
@@ -447,23 +540,6 @@ function createWindow() {
     win.webContents.on('devtools-opened', () => {
         if (!devToolsEnabled) {
             win.webContents.closeDevTools();
-            
-            dialog.showMessageBox(win, {
-                type: 'warning',
-                title: 'DevTools Warning',
-                message: 'Are you sure you want to open the DevTools? This is not recommended for normal users.\n\nIf you were told by someone to open the DevTools, please make sure you trust them! You can possibly hack your PC if you don\'t know what you are doing.',
-                buttons: ['Yes', 'No'],
-                defaultId: 1,
-            }).then((choice) => {
-                if (choice.response === 0) {
-                    devToolsEnabled = true;
-                    win.webContents.send('warn', 'Please be careful when using the DevTools! You can possibly hack your PC if you don\'t know what you are doing.');
-                    win.webContents.openDevTools({ mode: 'detach' });
-                }
-                else {
-                    win.webContents.closeDevTools();
-                }
-            });    
         }
     });
 
@@ -482,6 +558,241 @@ function createWindow() {
         return { action: 'allow' };
     });
 
+    ipcMain.handle('getOS', () => {
+        return {
+            platform: process.platform,
+            release: require('os').release(),
+            version: require('os').version()
+        };
+    });
+    ipcMain.handle('rebootDev', async () => {
+        if (process.argv.includes('--developer')) {
+            dialog.showMessageBoxSync({
+                type: 'info',
+                title: 'Already running in dev mode.',
+                message: 'The app is already running in developer mode.',
+            });
+            return;
+        }
+        var existingArgs = process.argv.slice(1).filter(a => !a.startsWith('---system_index=') || a === '---initialize_deltamod' || a.startsWith('deltamod:') );
+        app.relaunch({ args: [...existingArgs, '--developer'] });
+        app.exit(0);
+    });
+
+    ipcMain.handle('createInstallLink', async (event, args) => {
+        if (process.platform !== 'win32') {
+            dialog.showErrorBox('Unsupported OS', 'Creating installation links is only supported on Windows.');
+            return;
+        }
+
+        if (!args[0]) {
+            dialog.showErrorBox('Invalid Argument', 'Please provide a valid system index.');
+            return;
+        }
+
+        var thisProgramEXE = process.execPath;
+        console.log('This program EXE: ' + thisProgramEXE); 
+
+        var lnkPath = path.join(require('os').homedir(), 'Desktop', args[1] + '.lnk');
+
+        winShortcuts.create(lnkPath, {
+            target : thisProgramEXE,
+            args : '---system_index=' + args[0] + '',
+            desc : "Boots Deltamod with the " + args[1] + " installation of Deltarune.",
+        }, function(err) {
+            if (err)
+                dialog.showErrorBox('Error', 'An error occurred while creating the shortcut: ' + err);
+            else
+                console.log("Shortcut created!");
+                dialog.showMessageBox(win, {
+                    type: 'info',
+                    title: 'Shortcut Created',
+                    message: 'The installation shortcut has been created on your desktop.',
+                });
+        });
+    });
+
+    ipcMain.handle('isBaked', async (event, args) => {
+        return KeyValue.readKVS('baked');
+    });
+
+    ipcMain.handle('getBakedMods', async (event, args) => {
+        return {modList: KeyValue.readKVS("bakeList"), errors: [] };
+    });
+
+    // NPS callbacks can be used for everything, so feel free.
+    ipcMain.handle('npsCallback', async (event, args) => {
+        if (!callbackNPS) return;
+        callbackNPS(...callbackNPSPassWith);
+        callbackNPS = null;
+    });
+
+    ipcMain.handle('downloadGM3P', async (event, args) => {
+        var url = args[0];
+
+        var modal = new BrowserWindow({
+            width: 200,
+            height: 100,
+            resizable: false,
+            maximizable: false,
+            minimizable: false,
+            closable: false,
+            fullscreenable: false,
+            modal: true,
+            parent: win,
+            webPreferences: {
+                devTools: (process.env.DELTAMOD_ENV === 'dev' ? true : false),
+                nodeIntegration: true,
+                preload: Paths.file('web', 'views', 'gm3p-modal', 'preload.js'),
+                partition: partition
+            }
+        });
+
+        modal.loadURL('deltapack://web/views/gm3p-modal/index.html');
+        modal.setMenuBarVisibility(false);
+
+        const fileName = "gm3p_pkg.zip";
+        const destPath = path.join(app.getPath('downloads'), fileName);
+
+        const writer = fs.createWriteStream(destPath);
+
+        const response = await axios({
+            method: 'get',
+            url,
+            responseType: 'stream'
+        });
+
+        const totalLength = response.headers['content-length'] ? parseInt(response.headers['content-length'], 10) : null;
+        let downloaded = 0;
+
+        response.data.on('data', (chunk) => {
+            downloaded += chunk.length;
+            if (totalLength) {
+                const percent = ((downloaded / totalLength) * 100).toFixed(2);
+                console.log(`Downloaded ${percent}%`);
+                modal.webContents.send('progress', percent);
+            } else {
+                console.log(`Downloaded ${downloaded} bytes`);
+            }
+        });
+
+        response.data.pipe(writer);
+
+        writer.on('finish', async () => {
+            console.log('Download completed successfully');
+            fs.rmdirSync(path.join(__dirname, '..', 'gm3p'), { recursive: true, force: true });
+            fs.mkdirSync(path.join(__dirname, '..', 'gm3p'), { recursive: true });
+            await _7z.unpack(destPath, path.join(__dirname, '..', 'gm3p'));
+            dialog.showMessageBoxSync(win, {
+                type: 'info',
+                title: 'Download Complete',
+                message: 'Patcher package downloaded and extracted successfully.',
+            });
+            app.relaunch(properRelaunch());
+            app.quit();
+            process.exit(0);
+        });
+
+        writer.on('error', (err) => {
+            console.error('Error downloading file:', err);
+            dialog.showErrorBoxSync('Download Error', 'An error occurred while downloading the Patcher package. The app will now reboot.');
+            app.relaunch(properRelaunch());
+            app.quit();
+            process.exit(1);
+        });
+
+        return destPath;
+    });
+
+    ipcMain.handle('executeArgumentCmd', async (event, args) => {
+        if (process.argv.includes('---initialize_deltamod')) {
+            win.hide();
+            const confirm = dialog.showMessageBoxSync({
+                type: 'warning',
+                buttons: ['Yes', 'No'],
+                defaultId: 1,
+                cancelId: 1,
+                title: 'Initialize Deltamod',
+                message: 'A request was received for Deltamod to initialize and remove every installation and mod from the system. This action is irreversible. Do you want to continue?'
+            });
+            if (confirm !== 0) {
+                process.exit(0);
+                app.quit();
+                return;
+            }
+            page('busy');
+
+            console.log('Initializing Deltamod...');
+
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            var appdata = path.join(app.getPath('appData'), 'deltamod');
+
+            fs.readdirSync(appdata).forEach(file => {
+                if (file.startsWith('deltamod_system')) {
+                    const fullPath = path.join(appdata, file);
+                    console.log('Removing old system folder: ' + fullPath);
+                    try {
+                        fs.rmSync(fullPath, { recursive: true, force: true });
+                    } catch (e) {
+                        console.error(`Failed to remove ${fullPath}:`, e);
+                    }
+                }
+            });
+
+            fs.rmdirSync(path.join(app.getPath('appData'), 'deltamod', 'pkg.db'), { recursive: true, force: true });
+
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            app.quit();
+        }
+    });
+
+    ipcMain.handle('myCommitInfo', async (event, args) => {
+        var toreturn = "";
+        var dontcheckgit = false;
+        if (!fs.existsSync(path.join(__dirname, '..', '.git'))) {
+            dontcheckgit = true;
+        }
+        if (!dontcheckgit) {
+            try {
+                const commitId = execSync('git rev-parse HEAD', { cwd: path.join(__dirname, '..') }).toString().trim();
+                const commitTitle = execSync('git log -1 --pretty=%s', { cwd: path.join(__dirname, '..') }).toString().trim();
+                toreturn += `<br>(Commit ${commitId.substring(0,5)} "${commitTitle}")`;
+            } catch (error) {
+                console.error('Failed to retrieve commit info:', error);
+                toreturn += '';
+            }
+        }
+
+        var gm3ppath = path.join(__dirname, '..', 'gm3p', 'GM3P.exe');
+        var devicefusionpath = path.join(__dirname, '..', 'gm3p', 'GamemakerModMerger.exe');
+        if (fs.existsSync(gm3ppath) && !fs.existsSync(devicefusionpath)) {
+            var attributes = require('./Utils.js').getFileVersion(gm3ppath);
+            if (attributes) {
+                toreturn += `<br>(Using GM3P version ${attributes})`;
+            }
+            else {
+                toreturn += `<br>(Using GM3P, version unknown)`;
+            }
+        }
+
+        if (fs.existsSync(devicefusionpath)) {
+            var attributes = require('./Utils.js').getFileVersion(devicefusionpath);
+            if (attributes) {
+                toreturn += `<br>(Using DEVICE_FUSION version ${attributes})`;
+            }
+            else {
+                toreturn += `<br>(Using DEVICE_FUSION, version unknown)`;
+            }
+        }
+
+        return toreturn;
+    });
+
+    ipcMain.handle('showWindow', (event) => {
+        BrowserWindow.fromWebContents(event.sender).show();
+    });
     ipcMain.handle('openExternal', (event, args) => {
         shell.openExternal(args[0]);
     });
@@ -513,6 +824,54 @@ function createWindow() {
         fs.writeFileSync(themeHost, theme.id);
         win.webContents.send('themeChange');
     });
+    ipcMain.handle('setSponsor', async (event, args) => {
+        let base = path.join(__dirname, '..', 'web', 'views', 'patching', 'sponsors');
+
+        let buttons = [];
+        let names = [];
+
+        var sponsors = fs.readdirSync(base);
+        if (Math.random() >= 0.08) {
+            sponsors = sponsors.filter(s => s !== 'musical');
+        }
+        sponsors.forEach(s => {
+            var json = JSON.parse(fs.readFileSync(path.join(base, s, 'config.sponsor.json'), 'utf8'));
+            names.push(s);
+            buttons.push(json.name);
+        });
+
+        var choice = dialog.showMessageBoxSync(win, {
+            type: 'question',
+            title: 'Select a patching character',
+            message: 'Select a patching character from the list below:',
+            buttons: [...buttons, 'Cancel'],
+        });
+
+        if (choice === buttons.length) return; // Cancel
+
+        fs.writeFileSync(System.getSystemFile('_sponsor', true), names[choice]);
+    });
+    ipcMain.handle('getSponsor', async () => {
+        var sponsorHost = System.getSystemFile('_sponsor', true);
+        if (fs.existsSync(sponsorHost)) {
+            var sponsor = fs.readFileSync(sponsorHost, 'utf8');
+            return sponsor;
+        }
+        else {
+            fs.writeFileSync(sponsorHost, 'cd');
+            return 'cd';
+        }
+    });
+    ipcMain.handle('setTheme', async (event, args) => {
+        var themeHost = System.getSystemFile('_theme', true);
+        fs.writeFileSync(themeHost, args[0]);
+    });
+    ipcMain.handle('getThemes', async () => {
+        var available = fs.readdirSync(path.join(__dirname, '..', 'web', 'themes')).filter(f => f.endsWith('.theme.json'));
+        return available.map(f => {
+            return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'web', 'themes', f), 'utf8'));
+        });
+    });
     /*
      * getTheme
      * returns theme name as specified in the themes folder.
@@ -522,7 +881,7 @@ function createWindow() {
         if (fs.existsSync(themeHost)) {
             var theme = fs.readFileSync(themeHost, 'utf8');
             if (!fs.existsSync(path.join(__dirname, '..', 'web', 'themes', theme + '.theme.json'))) {
-                errorWin('The theme "' + theme + '" does not exist. Please select a valid theme.');
+                //errorWin('The theme "' + theme + '" does not exist. Please select a valid theme.');
                 return 'base';
             }
             return theme;
@@ -814,7 +1173,16 @@ function createWindow() {
 
         try {
             const installerpath = path.join(System.getTemporary(), `installer.${args[0].version.replaceAll(".", "")}.exe`);
-            const bytes = await (await fetch(args[0].newVersionLink)).arrayBuffer();
+            const { data: bytes } = await axios.get(args[0].newVersionLink, {
+                responseType: 'arraybuffer',
+                onDownloadProgress: (progressEvent) => {
+                    const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                    console.log(`Download progress: ${percentCompleted}%`);
+                    win.webContents.send('updateProgress', {
+                        perc: percentCompleted
+                    });
+                }
+            });
             console.log(`Fetched ${bytes.byteLength} bytes from ${args[0].newVersionLink}. Prompting for installation.`);
 
             // i trust the deltamod team to not fuck up the version and put invalid characters into the file name
@@ -964,6 +1332,94 @@ function createWindow() {
         return Modstore.modList();
     });
 
+    // Used as a relay to allow async handling
+    ipcMain.handle('startGame', async (event, args) => {
+        ipcMain.emit('startGame', event, args);
+    });
+
+    ipcMain.on('startGame', async (event, args) => {
+        console.log('Starting game...');
+        var pathname = path.join(app.getPath('userData'), 'deltamod_system-' + System.getCurrentSystemIndex(), 'deltaruneInstall');
+        if (!fs.existsSync(pathname)) {
+            dialog.showErrorBox('This command cannot be run', 'Please import a Deltarune install first.');
+            return false;
+        }
+
+        // Hide UI and stop audio before launching
+        win.hide();
+        win.webContents.send('audio', false);
+
+        const exeCandidate = KeyValue.readKVS('deltaruneExecutable');
+        const exe = (exeCandidate && fs.existsSync(exeCandidate))
+            ? exeCandidate
+            : (fs.existsSync(path.join(pathname, 'DELTARUNE.exe')) ? path.join(pathname, 'DELTARUNE.exe') : null);
+
+        if (!exe) {
+            errorWin('Could not find a Deltarune executable to run.');
+            win.show();
+            win.webContents.send('audio', true);
+            win.webContents.send('page', 'main');
+            return false;
+        }
+
+        // Build args
+        let argsStr = '';
+        if (KeyValue.readUniqueFlag('outputDelta')) {
+            const consoleFile = path.join(path.dirname(exe), '_console.txt');
+            try {
+                if (fs.existsSync(consoleFile)) fs.unlinkSync(consoleFile);
+            } catch (e) {
+                console.warn('Could not remove previous console file:', e);
+            }
+            argsStr = '-output _console.txt';
+        }
+
+        // If this install is steam-managed, launch via steam protocol and quit
+        if (KeyValue.readKVS('isSteam')) {
+            dialog.showMessageBoxSync({
+                type: 'info',
+                title: 'Launching via Steam',
+                message: 'Deltarune will now be launched via Steam. Deltamod will close.',
+            });
+            shell.openExternal(`steam://rungameid/${KeyValue.readKVS('steamAppId')}`);
+            app.quit();
+            process.exit(0);
+            return true;
+        }
+
+        // Launch executable
+        exec(`"${exe}" ${argsStr}`, { cwd: path.dirname(exe) }, (error, stdout, stderr) => {
+            // Always restore originals after the game closes
+            try {
+                GamePatching.restoreOriginalsIfAny(pathname);
+            } catch (e) {
+                console.error('Failed to restore originals after run:', e);
+            }
+
+            win.show();
+
+            if (error) {
+                errorWin(error);
+            }
+
+            if (KeyValue.readUniqueFlag('outputDelta')) {
+                try {
+                    const consoleFile = path.join(path.dirname(exe), '_console.txt');
+                    const consoleContent = fs.readFileSync(consoleFile, 'utf8');
+                    fs.unlinkSync(consoleFile);
+                    setSharedVar('deltaruneLogs', consoleContent);
+                } catch (e) {
+                    console.error('Failed to read or remove console file:', e);
+                }
+            }
+
+            win.webContents.send('audio', true);
+            win.webContents.send('page', KeyValue.readUniqueFlag('outputDelta') ? 'deltalogs' : 'main');
+        });
+
+        return true;
+    });
+
     /*
      * patchAndRun
      * Patches the Deltarune install and runs the game.
@@ -971,14 +1427,30 @@ function createWindow() {
     */
     ipcMain.handle('patchAndRun', async (event, args) => {
         try {
+            var baking = args[1] == 'baker';
             var pathname = KeyValue.readKVS('deltarunePath');
             if (!pathname) {
                 dialog.showErrorBox('This command cannot be run', 'Please import a Deltarune install first.');
                 return false;
             }
 
+            // Fix for DEVICE_FUSION not creating output folder
+            // techy here: this code was redundant because GamePatching.js already creates the output folder if it doesn't exist. The reason why that error appeared was due to a misconfiguration on Ego's end (which has been fixed and we are now just waiting for a build with the fix)
+
             // In case a previous run crashed mid-restore
             GamePatching.restoreOriginalsIfAny(pathname);
+
+            var mods = fs.readdirSync(getPacketDatabase());
+            mods = mods.filter(f => fs.existsSync(path.join(getPacketDatabase(), f, '__deltaID.json')));
+            mods = mods.map(f => {
+                var data = JSON.parse(fs.readFileSync(path.join(getPacketDatabase(), f, '__deltaID.json'), 'utf8'));
+                if (args[0].includes(data.uniqueId)) {
+                    console.log('No more new for you, ' + data.uniqueId);
+                    data.new = false;
+                    fs.writeFileSync(path.join(getPacketDatabase(), f, '__deltaID.json'), JSON.stringify(data, null, 4), 'utf8');
+                }
+                return data;
+            });
 
             // Patch the REAL install in-place (GamePatching backs up to *.original)
             var log = await GamePatching.startGamePatch(pathname, getPacketDatabase(), args[0], BrowserWindow.fromWebContents(event.sender));
@@ -992,62 +1464,45 @@ function createWindow() {
             }
             console.log('Patching log: ', log);
 
-            // Launch the game from the install (no temp copy)
-            win.hide();
-            win.webContents.send('audio', false); // Stop audio before launching the game
-            //win.webContents.executeJavaScript('closeAudio();');
-
-            const exeCandidate = KeyValue.readKVS('deltaruneExecutable');
-            const exe = exeCandidate && fs.existsSync(exeCandidate)
-                ? exeCandidate
-                : (fs.existsSync(path.join(pathname, 'DELTARUNE.exe'))
-                    ? path.join(pathname, 'DELTARUNE.exe')
-                    : null);
-
-            if (!exe) {
-                errorWin('Could not find a Deltarune executable to run.');
-                win.show();
-                win.webContents.send('audio', true);
-                win.webContents.send('page', 'main');
-                //win.webContents.executeJavaScript('openAudio(); page(\'main\');');
-                return false;
-            }
-
-            var args = "";
-            if (KeyValue.readUniqueFlag("outputDelta")) {
-                if (fs.existsSync(path.join(path.dirname(exe), '_console.txt'))) {
-                    fs.unlinkSync(path.join(path.dirname(exe), '_console.txt'));
-                }
-                args += '-output _console.txt';
-            }
-            if (KeyValue.readKVS('isSteam')) {
-                dialog.showMessageBoxSync({
-                    type: 'info',
-                    title: 'Launching via Steam',
-                    message: 'Deltarune will now be launched via Steam. Deltamod will close.',
-                });
-                shell.openExternal(`steam://rungameid/` + KeyValue.readKVS('steamAppId'));
-                app.quit();
-                process.exit(0);
-            } else {
-                exec(`"${exe}" ${args}`, { cwd: path.dirname(exe) }, (error, stdout, stderr) => {
-                    // Always restore originals after the game closes
-                    GamePatching.restoreOriginalsIfAny(pathname);
+            const notif = new Notification({
+                title: 'Patch complete!',
+                body: 'Deltarune has been patched successfully! Reopen Deltamod to launch the game.',
+                silent: false
+            });
+            notif.show();
+            notif.on('click', () => {
+                try {
+                    if (!win) return;
+                    if (win.isMinimized()) win.restore();
                     win.show();
-                    if (error != null) {
-                        errorWin(error);
-                    }
+                    win.focus();
+                    // sometimes forcing briefly on top helps bring to front
+                    win.setAlwaysOnTop(true);
+                    setTimeout(() => win.setAlwaysOnTop(false), 100);
+                } catch (e) {
+                    console.error('Failed to focus window on notification click:', e);
+                }
+            });
 
-                    if (KeyValue.readUniqueFlag('outputDelta')) {
-                        var consoleFile = path.join(path.dirname(exe), '_console.txt');
-                        var consoleContent = fs.readFileSync(consoleFile, 'utf8');
-                        fs.unlinkSync(consoleFile);
-                        setSharedVar('deltaruneLogs', consoleContent);
-                    }
-                    win.webContents.send('audio', true);
-                    win.webContents.send('page', (KeyValue.readUniqueFlag('outputDelta') ? 'deltalogs' : 'main'));
-                    //win.webContents.executeJavaScript('openAudio(); page(\'main\');');
-                });
+            callbackNPS = function(pathname) {
+                ipcMain.emit('startGame', null, []);
+            };
+            if (!baking) {
+                callbackNPSPassWith = [pathname];
+                win.webContents.send('finishedPatch',mods);
+            }
+            else {
+                KeyValue.setKVS('baked', true);
+                var allMods = Modstore.modList().modList.filter(m => (args[0].includes(m.uniqueId))).map(m => ({
+                    name: m.name,
+                    description: m.description,
+                    author: m.author,
+                    version: m.version,
+                }));
+                KeyValue.setKVS('bakeList', allMods);
+                GamePatching.deleteOriginals(pathname);
+                app.relaunch(properRelaunch());
+                app.exit();
             }
         } catch (err) {
             errorWin('Coudn\'t patch and run Deltarune: ' + err.toString());
@@ -1373,6 +1828,10 @@ function createWindow() {
         shell.openExternal(getSystemFolderOfIndex('deltaruneInstall', args[0]));
     });
 
+    ipcMain.handle('isDevMode', async (event, args) => {
+        return (ignoreUpdate || process.argv.includes('--developer'));
+    });
+
 
     setWindow(win);
 }
@@ -1414,6 +1873,16 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+    try {
+        if (process.platform === 'win32') {
+            console.log('Killing GM3P.exe processes...');
+            execSync('taskkill /IM GM3P.exe /F', { stdio: 'ignore' });
+            console.log('Killing DEVICE_FUSION.exe processes...');
+            execSync('taskkill /IM GamemakerModMerger.exe /F', { stdio: 'ignore' });
+        }
+    } catch (e) {
+        console.warn('Failed to terminate GM3P processes:', e && e.message ? e.message : e);
+    }
     if (process.platform !== 'darwin') app.quit();
 });
 

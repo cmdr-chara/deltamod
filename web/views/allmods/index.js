@@ -1,8 +1,14 @@
 function purifyDescription(desc) {
-    var final = desc;
-    final = desc.replace(/\n/g, ' ').substring(0, 100);
-    if (desc.length > 100) final += '...';
-    return final;
+    if (desc === null || desc === undefined) return '';
+    let text = String(desc);
+    // Remove any HTML tags first
+    text = purify(text);
+    // Normalize whitespace/newlines to single spaces
+    text = text.replace(/\s+/g, ' ').trim();
+    // Truncate safely
+    const max = 100;
+    if (text.length > max) return text.substring(0, max) + '...';
+    return text;
 }
 
 function purify(text) {
@@ -20,8 +26,21 @@ async function createMod(mod) {
     modNameContainer.appendChild(titleSpan);
     modNameContainer.appendChild(document.createElement('br'));
 
+    if (window._pageArguments && window._pageArguments.highlightMod === mod.uid) {
+        modNameContainer.style.backgroundColor = '#b5b5b544';
+        setTimeout(() => {
+            try {
+                modNameContainer.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+            } catch (e) {
+                modNameContainer.scrollIntoView();
+            }
+        }, 50);
+        window._pageArguments = null; // Clear it so it doesn't affect other mods
+    }
+
     const descSpan = document.createElement('span');
     descSpan.className = 'calibri';
+    descSpan.style = 'font-size: 10px; color: #ffffffdd;';
     descSpan.innerText = purifyDescription(mod.description);
     descSpan.id = `moddesc-${mod.uid}`;
     modNameContainer.appendChild(descSpan);
@@ -33,7 +52,7 @@ async function createMod(mod) {
     authorSpan.className = 'calibri';
     authorSpan.style.fontSize = 'smaller';
     authorSpan.style.color = '#888';
-    authorSpan.innerHTML = `${icon('person', 'small')} ${purify(mod.author.join(', '))}`;
+    authorSpan.innerHTML = `${icon('attribution', 'small')} ${purify(mod.author.join(', '))}`;
     authorSpan.id = `modauthor-${mod.uid}`;
     modNameContainer.appendChild(document.createElement('br'));
     modNameContainer.appendChild(authorSpan);
@@ -49,19 +68,35 @@ async function createMod(mod) {
     sizeSpan.id = `modsize-${mod.uid}`;
     modNameContainer.appendChild(sizeSpan);
 
+    let compatibilitySpan = document.createElement('p');
+    compatibilitySpan = adaptForIcons(compatibilitySpan);
+    compatibilitySpan.style.margin = '0px';
+    compatibilitySpan.style.marginTop = '4px';
+    compatibilitySpan.className = 'calibri';
+    compatibilitySpan.style.fontSize = 'smaller';
+    compatibilitySpan.style.color = '#888';
+    compatibilitySpan.innerHTML = `${icon('task_alt', 'small')} Compatible with ${mod.demo ? 'demo version' : 'full version'}`;
+    compatibilitySpan.id = `modcompat-${mod.uid}`;
+    modNameContainer.appendChild(compatibilitySpan);
+
     // Column 2 (Actions)
     const actionContainer = document.createElement('td');
+    actionContainer.style.textAlign = 'center';
     actionContainer.className = 'modlist-actions-column';
     {
+        let bdiv = document.createElement('div');
+        bdiv.className = 'modlist-actions-column-bdiv';
+        actionContainer.appendChild(bdiv);
+
         const exploreModButton = document.createElement('button');
         exploreModButton.onclick = () => window.electronAPI.invoke('openModFolder', [mod.folder]);
         exploreModButton.innerHTML = icon('folder_eye', '20px');
-        actionContainer.appendChild(exploreModButton);
+        bdiv.appendChild(exploreModButton);
 
         const deleteModButton = document.createElement('button');
         deleteModButton.onclick = () => window.electronAPI.invoke('removeMod', [mod.folder]);
         deleteModButton.innerHTML = icon('delete_forever', '20px');
-        actionContainer.appendChild(deleteModButton);
+        bdiv.appendChild(deleteModButton);
     }
 
     modRow.appendChild(modNameContainer);

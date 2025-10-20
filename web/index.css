@@ -73,6 +73,19 @@
     height: 70px;
 }
 
+.winb {
+    z-index: 100000;
+    border: 3px solid rgba(255, 255, 255, 0.582);
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0;
+    margin: 0;
+    pointer-events: none;
+}
+
 body {
     margin: 0;
     position: fixed;
@@ -83,25 +96,55 @@ body {
     padding: 10px;
 }
 
+@keyframes sidebarFadeIn {
+    from {
+        padding-top: 50px;
+        width: calc(var(--sidebar-size) * 1 - 20px);
+        padding-bottom: 50px;
+        opacity: 0.4;
+        filter: blur(10px);
+        transform: translateX(-40px) translateY(-50%);
+    }
+    to {
+        padding-top: 15px;
+        padding-bottom: 15px;
+        width: calc(var(--sidebar-size) * 1 + 10px);
+        opacity: 1;
+        filter: blur(0px);
+        transform: translateX(0px) translateY(-50%);
+    }
+}
+
 .sidebar {
     position: absolute;
-    top: calc(var(--topbar-height) * 1);
-    left: 0;
-    opacity: 0.6;
+    top: 50%;
+    transform: translateY(-50%);
+    left: 15px;
+    border-radius: 50px;
+    opacity: 1;
     width: calc(var(--sidebar-size) * 1 + 10px);
     border: 1px solid gray;
-    height: calc(100% - calc(var(--topbar-height) * 1) - 20px);
-    background-color: rgba(0, 0, 0, 1);
+    height: fit-content;
+    padding-top: 15px;
+    padding-bottom: 15px;
+    backdrop-filter: blur(7px);
+    background-color: rgba(0, 0, 0, 0.3);
     overflow-x: hidden;
     display: flex;
     justify-content: left;
     align-items: center;
-    transition: 0.4s all cubic-bezier(0.25, 1, 0.5, 1);
+    transition: 0.9s all cubic-bezier(0.16, 1, 0.3, 1);
     z-index: 100;
+    animation: 0.5s sidebarFadeIn cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 .sidebar:hover {
+    padding-left: 10px;
+    padding-right: 10px;
+    border-radius: 10px;
     width: calc(var(--sidebar-size) * 3.2 + 10px);
+    transform: translateY(-50%) translateX(10px);
+    background-color: rgba(0, 0, 0, 0.5);
     opacity: 1;
 }
 .sidebar > div {
@@ -113,12 +156,6 @@ body {
     align-items: baseline;
     flex-direction: column;
     gap: 10px
-}
-
-.sidebar-buttons > button {
-    border-radius: 20%;
-    padding: 5px;
-    transition: 0.4s all;
 }
 
 @keyframes sidebarBtnFadeIn {
@@ -134,18 +171,33 @@ body {
     }
 }
 
-.sidebar-button {
-    animation: 0.9s sidebarBtnFadeIn cubic-bezier(0.25, 1, 0.5, 1);
-    transition: 0.5s all cubic-bezier(0.25, 1, 0.5, 1);
+h1 {
+    margin-top: 0;
 }
-.sidebar-buttons > button:hover {
-    scale: 1.06;
+
+.sidebar-button {
+    transition: 0.3s all cubic-bezier(0.25, 1, 0.5, 1);
+    border-radius: 50%;
+    background-color: none;
+    background: none;
+    border: none;
+    padding: 7px;
+    transition: 0.2s all;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.sidebar-button:hover {
+    scale: 1.2;
+    color: rgb(255,255,255) !important /* override basic style */;
+    border-radius: 10%;
+    background-color: rgb(72, 72, 72);
 }
 
 .sidebar-button.active {
-    scale: 1.05;
-    background-color: rgb(72, 72, 72);
+    background-color: rgba(107, 107, 107, 0.2);
 }
+
 .sidebar-button:disabled {
     opacity: 0.7;
     cursor: not-allowed;
@@ -154,16 +206,28 @@ body {
 .viewport {
     position: absolute;
     top: calc(var(--topbar-height) * 1);
-    left: calc(var(--sidebar-size) + 15px);
-    width: calc(100% - 45px - (var(--sidebar-size) * 1));
-    height: calc(100% - calc(var(--topbar-height) * 1) - 20px);
-    overflow-y: hidden;
+    left: calc(var(--sidebar-size) + 30px);
+    width: calc(100% - 65px - (var(--sidebar-size) * 1));
+    height: calc(100% - calc(var(--topbar-height) * 1) - 35px);
+    overflow-y: scroll;
     padding: 20px;
     box-sizing: border-box;
+}
+
+.bg {
+    top: 0;
+    left: 0;
+    margin: 0;
+    padding: 0;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    opacity: 0.3;
+    z-index: -100;
     background-size: cover;
-    background-position-x: 40px;
     background-position: center;
     background-repeat: no-repeat;
+    image-rendering: pixelated;
 }
 
 @keyframes fadeIn {
@@ -196,7 +260,8 @@ body {
     padding-left: 20px;
     height: calc(var(--topbar-height) * 1);
     font-size: 10px;
-    background-color: rgba(0, 0, 0, 1);
+    background-color: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(3px);
     border-bottom: 1px solid rgb(255, 255, 255);
     -webkit-app-region: drag;
     z-index: 1000;

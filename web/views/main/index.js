@@ -1,49 +1,90 @@
 function purifyDescription(desc) {
-    var final = desc;
-    final = desc.replace(/\n/g, ' ').substring(0, 100);
-    if (desc.length > 100) final += '...';
-    return final;
+    if (desc === null || desc === undefined) return '';
+    let text = String(desc);
+    // Remove any HTML tags first
+    text = purify(text);
+    // Normalize whitespace/newlines to single spaces
+    text = text.replace(/\s+/g, ' ').trim();
+    // Truncate safely
+    const max = 100;
+    if (text.length > max) return text.substring(0, max) + '...';
+    return text;
 }
 
+var baking = false;
+
+function adaptForIconsA(elem) {
+    elem.style.display = 'inline-flex';
+    elem.style.alignItems = 'center';
+    elem.style.gap = '4px';
+    elem.style.justifyContent = 'left';
+    return elem;
+}
 function purify(text) {
     return text.replace(/<[^>]*>/g, '');
 }
 
 setTimeout(() => {
-    document.getElementsByClassName('buttons')[0].style.display = 'block';
+    document.getElementsByClassName('buttons')[0].style.display = 'flex';
 }, 500);
 
-function packageAtropos(container) {
-    let atroposContainer = document.createElement('div');
-    atroposContainer.className = 'atropos-inner';
-    atroposContainer.style.width = container.style.width + 10 + 'px';
-    atroposContainer.style.height = container.style.height + 10 + 'px';
-    atroposContainer.style.display = 'flex';
-    atroposContainer.style.alignItems = 'center';
-    atroposContainer.style.justifyContent = 'center';
-    atroposContainer.appendChild(container);
+function getPredominantColor(img) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
 
-    let atroposRotate = document.createElement('div');
-    atroposRotate.className = 'atropos-rotate';
-    atroposRotate.appendChild(atroposContainer);
+    const width = canvas.width = 256;
+    const height = canvas.height = 256;
 
-    let atroposScale = document.createElement('div');
-    atroposScale.className = 'atropos-scale';
-    atroposScale.appendChild(atroposRotate);
+    ctx.drawImage(img, 0, 0, width, height);
 
-    let atropos = document.createElement('div');
-    atropos.classList.add('atropos');
-    atropos.appendChild(atroposScale);
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
 
-    const atroposIniter = Atropos({
-        el: atropos,
-        activeOffset: 60,
-        shadowScale: 1.05,
-        highlight: false
-    });
+    const colorCount = {};
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const key = `${r},${g},${b}`;
+        colorCount[key] = (colorCount[key] || 0) + 1;
+    }
 
-    return atropos;
+    let top = null;
+    let second = null;
+    for (const [key, count] of Object.entries(colorCount)) {
+        if (!top || count > top.count) {
+            second = top;
+            top = { key, count };
+        } else if (!second || count > second.count) {
+            second = { key, count };
+        }
+    }
+
+    const parseKey = (k) => {
+        const [r, g, b] = k.split(',').map(Number);
+        return { r, g, b };
+    };
+
+    const isBlackOrWhite = ({ r, g, b }, tol = 16) => {
+        const isBlack = r <= tol && g <= tol && b <= tol;
+        const isWhite = r >= 255 - tol && g >= 255 - tol && b >= 255 - tol;
+        return isBlack || isWhite;
+    };
+
+    let dominantColor = top ? parseKey(top.key) : { r: 0, g: 0, b: 0 };
+    if (top && isBlackOrWhite(dominantColor) && second) {
+        dominantColor = parseKey(second.key);
+    }
+
+    return dominantColor;
 }
+
+function noHTML(elem) {
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = elem;
+    return tempDiv.textContent || tempDiv.innerText || '';
+}
+
 
 async function createMod(mod) {
     let modRow = document.createElement('tr');
@@ -52,18 +93,31 @@ async function createMod(mod) {
 
     // Column 1 (Mod)
     let modNameContainer = document.createElement('td');
-    
+
     let bigAhhContainer = document.createElement('div');
     bigAhhContainer.style.display = 'flex';
     bigAhhContainer.style.alignItems = 'center';
     bigAhhContainer.style.gap = '10px';
     bigAhhContainer.style.justifyContent = 'left';
 
-    let IMAGE_DIMENSION = 55;
+    let IMAGE_DIMENSION = 50;
     let imageContainer = document.createElement('div');
     imageContainer.style.width = IMAGE_DIMENSION + 'px';
     imageContainer.style.height = IMAGE_DIMENSION + 'px';
-    
+    imageContainer.style.margin = '4px';
+    imageContainer.style.marginLeft = '2px';
+
+    tippy(imageContainer, {
+        content: 'Right click to view in mod manager',
+        placement: 'right',
+        delay: [100, 0],
+        onMount(instance) {
+            const box = instance.popper.querySelector('.tippy-box');
+            box.classList.add('calibri');
+            if (box) box.style.border = '3px solid #ffffffff';
+        }
+    });
+
     let imeta = await window.electronAPI.invoke('getModImage', [mod.uid]);
     if (!imeta.path) {
         imeta.path = 'deltapack://web/mod-placeholder.png';
@@ -73,24 +127,39 @@ async function createMod(mod) {
     img.src = (imeta.path.includes('deltapack') ? '' : "packet://") + imeta.path;
     img.style.width = IMAGE_DIMENSION + 'px';
     img.style.height = IMAGE_DIMENSION + 'px';
-    // img.style.borderRadius = '8px';
-    img.style.objectFit = 'contain';
-    img.setAttribute('data-atropos-offset', '10');
     img.classList.add('mod-image');
     imageContainer.appendChild(img);
 
-    var atroposImgContainer = packageAtropos(img);
+    imageContainer.oncontextmenu = e => {
+        htmlAlert(mod.name,"Do you wish to view this mod in the Mod Manager?",[{text:'Yes',resolveWith:'accept'},{text:'No',rejectWith:'close'}]).then(result => {
+            if (result === 'accept') {
+                window._pageArguments = { highlightMod: mod.uid };
+                page('allmods');
+            }
+        }).catch(() => {});
+    };
 
     let infoContainer = document.createElement('div');
     let titleSpan = document.createElement('span');
     titleSpan.innerText = mod.name;
+    if (mod.new) {
+        titleSpan = adaptForIconsA(titleSpan);
+        titleSpan.style.marginBottom = '0px';
+        titleSpan.innerHTML += ` ${icon('fiber_new', '20px')}`;
+    }
     titleSpan.id = `modtitle-${mod.uid}`;
     infoContainer.appendChild(titleSpan);
+
     infoContainer.appendChild(document.createElement('br'));
 
     let descSpan = document.createElement('span');
     descSpan.className = 'calibri';
+    descSpan.style = 'font-size: 10px; color: #ffffffdd;';
     descSpan.innerText = purifyDescription(mod.description);
+    descSpan.onclick = () => {
+        htmlAlert(mod.name,(mod.description),[{text:'Close',resolveWith:'close'}]);
+    };
+    descSpan.style.cursor = 'pointer';
     descSpan.id = `moddesc-${mod.uid}`;
     infoContainer.appendChild(descSpan);
 
@@ -99,63 +168,53 @@ async function createMod(mod) {
     flexContnainer.style.alignItems = 'center';
     flexContnainer.style.justifyContent = 'left';
     flexContnainer.style.gap = '6px';
+    flexContnainer.style.marginTop = '4px';
+    flexContnainer.style.border = '3px solid #474747a0';
+    flexContnainer.style.backgroundColor = '#1a1a1a54';
+    flexContnainer.style.borderRadius = '5px';
+    flexContnainer.style.width = 'fit-content';
+    flexContnainer.style.padding = '4px';
+    flexContnainer.style.paddingLeft = '10px';
+    flexContnainer.style.paddingRight = '10px';
     infoContainer.appendChild(flexContnainer);
 
+    var fontSize = 13;
     let authorSpan = document.createElement('p');
-    authorSpan = adaptForIcons(authorSpan);
+    authorSpan = adaptForIconsA(authorSpan);
     authorSpan.style.margin = '0px';
-    authorSpan.style.marginTop = '4px';
     authorSpan.className = 'calibri';
-    authorSpan.style.fontSize = 'smaller';
+    authorSpan.style.fontSize = fontSize + 'px';
     authorSpan.style.color = '#888';
-    authorSpan.innerHTML = `${icon('person', 'small')} ${purify(mod.author.join(', '))}`;
+    authorSpan.innerHTML = `${icon('attribution', fontSize + 'px')} ${purify(mod.author.join(', '))}`;
     authorSpan.id = `modauthor-${mod.uid}`;
     flexContnainer.appendChild(authorSpan);
 
-    let sizeSpan = document.createElement('p');
-    sizeSpan = adaptForIcons(sizeSpan);
-    sizeSpan.style.margin = '0px';
-    sizeSpan.style.marginTop = '4px';
-    sizeSpan.className = 'calibri';
-    sizeSpan.style.fontSize = 'smaller';
-    sizeSpan.style.color = '#888';
-    sizeSpan.innerHTML = `${icon('hard_disk', 'small')} ${mod.size} MB`;
-    sizeSpan.id = `modsize-${mod.uid}`;
-    flexContnainer.appendChild(sizeSpan);
-
     let versionSpan = document.createElement('p');
-    versionSpan = adaptForIcons(versionSpan);
+    versionSpan = adaptForIconsA(versionSpan);
     versionSpan.style.margin = '0px';
-    versionSpan.style.marginTop = '4px';
     versionSpan.className = 'calibri';
-    versionSpan.style.fontSize = 'smaller';
+    versionSpan.style.fontSize = fontSize + 'px';
     versionSpan.style.color = '#888';
-    versionSpan.innerHTML = `${icon('deployed_code_update', 'small')} ${(mod.version ? mod.version : 'Unknown')}`;
+    versionSpan.innerHTML = `${icon('change_history', fontSize + 'px')} ${(mod.version ? mod.version : 'Unknown')}`;
     versionSpan.id = `modsize-${mod.uid}`;
     flexContnainer.appendChild(versionSpan);
 
-    bigAhhContainer.appendChild(atroposImgContainer);
+    bigAhhContainer.appendChild(imageContainer);
     bigAhhContainer.appendChild(infoContainer);
 
     modNameContainer.appendChild(bigAhhContainer);
 
-    let actionContainer = document.createElement('td');
-    actionContainer.style.textAlign = 'center';
-    actionContainer.className = 'modlist-actions-column';
-
-    let bdiv = document.createElement('div');
-    bdiv.className = 'modlist-actions-column-bdiv';
-    actionContainer.appendChild(bdiv);
-
-    let exploreModButton = document.createElement('button');
-    exploreModButton.onclick = () => window.electronAPI.invoke('openModFolder', [mod.folder]);
-    exploreModButton.innerHTML = icon('folder_eye', '20px');
-    bdiv.appendChild(exploreModButton);
-
-    let deleteModButton = document.createElement('button');
-    deleteModButton.onclick = () => window.electronAPI.invoke('removeMod', [mod.folder]);
-    deleteModButton.innerHTML = icon('delete_forever', '20px');
-    bdiv.appendChild(deleteModButton);
+    var developermode = await window.electronAPI.invoke('isDevMode', [""]);
+    if (developermode) {
+        let idSpan = document.createElement('p');
+        idSpan = adaptForIconsA(idSpan);
+        idSpan.className = 'calibri';
+        idSpan.style.fontSize = fontSize + 'px';
+        idSpan.style.color = '#888';
+        idSpan.innerHTML = `${icon('tag', fontSize + 'px')} ${mod.packageID}`;
+        idSpan.style.margin = '0px';
+        flexContnainer.appendChild(idSpan);
+    }
 
     // Column 2 (Actions)
     let enabledContainer = document.createElement('td');
@@ -176,9 +235,11 @@ async function createMod(mod) {
         enabledContainer.appendChild(enabled);
     }
 
+    var prevalColor = getPredominantColor(img);
+    var cssStyle = `linear-gradient(90deg,rgba(${prevalColor.r}, ${prevalColor.g}, ${prevalColor.b}, 0.5) 0%, rgba(40, 40, 40, 0) 100px)`;
+    modNameContainer.style.background = `${cssStyle}`;
     modRow.appendChild(modNameContainer);
     modRow.appendChild(enabledContainer);
-    modRow.appendChild(actionContainer);
 
     document.getElementById('modlist').appendChild(modRow);
     return modRow;
@@ -228,14 +289,43 @@ function createErroringMods(errors) {
 }
 
 function loadInst(index) {
-    window.electronAPI.invoke('changeSystemIndex', [""+index])
+    window.electronAPI.invoke('changeSystemIndex', ["" + index])
 }
 
 (async () => {
     const errorBanner = document.getElementById("error-banner");
 
     var { modList, errors } = await window.electronAPI.invoke('getModList', []);
+    if (window._pageArguments && window._pageArguments.sortfunc && window._pageArguments.sortid) {
+        modList = modList.sort(window._pageArguments.sortfunc);
+        document.getElementById('sortWay').value = window._pageArguments.sortid;
+    }
+    else {
+        // sort by name ascending by default
+        modList = modList.sort((a, b) => a.name.localeCompare(b.name));
+    }
     modList.forEach(x => createMod(x));
+
+    document.getElementById('sortWay').onchange = (e) => {
+        switch (e.target.value) {
+            case 'asc':
+                window._pageArguments = { sortfunc: (a, b) => a.name.localeCompare(b.name), sortid: 'asc' };
+                page('');
+                break;
+            case 'desc':
+                window._pageArguments = { sortfunc: (a, b) => b.name.localeCompare(a.name), sortid: 'desc' };
+                page('');
+                break;
+            case 'size-asc':
+                window._pageArguments = { sortfunc: (a, b) => (a.size || 0) - (b.size || 0), sortid: 'size-asc' };
+                page('');
+                break;
+            case 'size-desc':
+                window._pageArguments = { sortfunc: (a, b) => (b.size || 0) - (a.size || 0), sortid: 'size-desc' };
+                page('');
+                break;
+        }
+    };
 
     if (errors.length > 0) {
         errorBanner.onclick = () => createErroringMods(errors);
@@ -262,19 +352,48 @@ function loadInst(index) {
 
         //document.getElementById('par').innerText = 'Run without patches';
     }
+
+    baking = window._pageArguments && window._pageArguments.baker;
+    if (baking) {
+        document.getElementById('ptitle').innerText = 'Select mods to bake';
+        document.getElementById('importModBtn').disabled = true;
+        document.getElementById('importModBtn').style.opacity = 0.3;
+    }
+    window._pageArguments = null;
 })();
 
 function patchAndRun() {
     var allChecks = Array.from(document.querySelectorAll('input[type="checkbox"]')).filter(cb => cb.id.startsWith('modcheck-'));
     var selectedMods = allChecks.filter(cb => cb.checked).map(cb => cb.id.replace('modcheck-', ''));
     console.log('Selected mods:', selectedMods);
-    page('patching');
-    window.electronAPI.invoke('patchAndRun',[selectedMods]);
+    if (baking && selectedMods.length === 0) {
+        htmlAlert('No mods selected', 'You need to select at least one mod to bake into the game.', [{ text: 'Close', resolveWith: 'close' }]);
+        return;
+    }
+    if (baking) {
+        window._pageArguments = { baker: true, customPatchingText: 'Baking installation...', customPatchingDesc: 'Please wait while the installation is baked.' };
+        var msg = [
+            'You are about to bake the selected mods into the game installation.',
+            'This installation will not be able to use any other mods apart from the ones you selected now.',
+            'You can still add a new installation and it will be unaffected by this.',
+            'Are you sure you want to continue?'
+        ]
+        if (!window.confirm(msg.join('\n'))) {
+            return;
+        }
+    }
+    if (selectedMods.length === 0) {
+        window.electronAPI.invoke('startGame', []);
+    }
+    else {
+        window.electronAPI.invoke('patchAndRun', [selectedMods, (baking ? 'baker' : '')]);
+        page('patching');
+    }
 }
 
 window.currentPageStack.patchAndRun = patchAndRun;
 
-window.currentPageStack.disableMusic = async function(button) {
+window.currentPageStack.disableMusic = async function (button) {
     audio.pause();
     audio.currentTime = 0;
     button.style.display = 'none';
