@@ -2,7 +2,13 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
     invoke: (channel, data) => {
-        return ipcRenderer.invoke(channel, data);
+        var leResponse = ipcRenderer.invoke(channel, data);
+        if (channel != 'log') {
+          leResponse.then((response) => {
+            ipcRenderer.invoke('logElectronAPI', [{ channel, args: data, leResponse: (response) }]);
+          });
+        }
+        return leResponse;
     }
 });
 
@@ -16,6 +22,8 @@ contextBridge.exposeInMainWorld('preloadAPI', {
   onUpdateProgress: (callback) => ipcRenderer.on('updateProgress', (_, info) => callback(info)),
   onRefresh: (callback) => ipcRenderer.on('refresh', () => callback()),
   onFinishedPatch: (callback) => ipcRenderer.on('finishedPatch', () => callback()),
+  onDLMODProgress: (callback) => ipcRenderer.on('dlmodURL-progress', (_, info) => callback(info)),
+  onWRA: (callback) => ipcRenderer.on('winResAlert', (_, info) => callback(info)),
 });
 
 ipcRenderer.on('warn', (_, message) => {

@@ -1,6 +1,8 @@
 <div style="overflow: hidden;">
-    <h1 style="margin-bottom: 0;">All installed mods</h1>
-    <br>
+    <h1 style="margin-bottom: 0;">$$allModsTitle$$</h1>
+    <select name="gamesShow" id="gamesShow" style="margin-top: 5px; margin-bottom: 10px;">
+        <option value="all">All</option>
+    </select>
     <div style="overflow-y: scroll; overflow-x: hidden;">
         <table style="width: 100%; max-height: 200px; overflow-y: scroll;" id="modtable">
             <colgroup>
@@ -9,19 +11,32 @@
             </colgroup>
             <thead style="position: sticky; top: -2px;">
                 <tr>
-                    <th>Mod</th>
-                    <th>Actions</th>
+                    <th>$$mod$$</th>
+                    <th>$$actions$$</th>
                 </tr>
             </thead>
             <div style="display: none;" class="modlist-error" id="error-banner">
-                <h2>{x} mod(s) failed to load</h2>
-                <span class="calibri">Click on this banner to view more details.</span>
+                <h2>$$modFail_bannerTitle$$</h2>
+                <span class="calibri">$$modFail_bannerClick$$</span>
             </div>
             <tbody id="modlist">
             </tbody>
         </table>
     </div>
+
+    <dialog class="error-list-dialog" id="error-list-dialog">
+            <h2>$$modFail_dialogTitle$$</h2>
+            <span class="calibri">$$modFail_dialogSubtitle$$</span>
+            <div class="error-list-div" id="error-list-div">
+
+            </div>
+            <div class="error-buttons">
+                <!-- forgive me for this MASSIVE onclick thing, but keeping this and allmods unified is a pain in the ass -->
+                <button onclick="rew(); document.getElementById('error-list-dialog').style.animation = '0.3s closeError ease forwards'; setTimeout(() => { document.getElementById('error-list-dialog').close(); document.getElementById('error-list-dialog').style.animation = '0.3s openError ease forwards'; }, 300);" style="width: 100%; padding: 10px;">OK</button>
+            </div>
+        </dialog>
 </div>
 JSL
 AUDIO[mainTheme.mp3]
-STYLESHEET[main]
+STYLESHEET[../main/main]
+TITLEKEY[allModsTitle]

@@ -7,37 +7,27 @@
 
 .credits-avatar {
     background-color: rgba(255, 255, 255, 0.5);
-    width:20px;
-    height:20px;
-    border-radius:50%;
-    vertical-align:middle;
-    margin-right:6px;
-}
-
-.credits-group {
-    border: 2px solid white;
-    background-color: black;
-    padding: 12px;
-}
-
-.credits-header {
-    font-size: medium;
-    color: gray;
-}
-
-.credits-developers {
-    margin-top: 4px;
-
-    display: flex;
-    gap: 12px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    vertical-align: middle;
+    margin-right: 6px;
 }
 
 .credits-author {
     cursor: pointer;
     color: white;
     text-decoration: none;
+    width: fit-content;
 }
 
 .credits-author:hover {
     color: yellow;
+}
+
+#discordBtn {
+    display: flex;
+    justify-content: left;
+    align-items: center;
+    gap: 15px;
 }

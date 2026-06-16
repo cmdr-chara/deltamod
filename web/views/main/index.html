@@ -1,15 +1,32 @@
 <div style="overflow: hidden;">
-    <h1 id="ptitle" style="margin-bottom: 5px;">Patch menu</h1>
-    <span style="display: flex; justify-content: left; align-items: center; gap: 10px; margin-bottom: 10px;">
-        <span>
-            Sort by
-        </span> <select name="sortWay" id="sortWay" style="width: 100px !important; margin: 0;">
-            <option value="asc">Name (A-Z)</option>
-            <option value="desc">Name (Z-A)</option>
-            <option value="size-asc">Size (Smallest)</option>
-            <option value="size-desc">Size (Largest)</option>
-        </select>
-    </span>
+    <div class="spacebet">
+        <div class="p1">
+            <h1 id="ptitle" style="margin-bottom: 5px;">$$main_title$$</h1>
+            <span style="display: flex; justify-content: left; align-items: center; gap: 10px; margin-bottom: 10px;">
+                <span>
+                    $$sortBy$$
+                </span> <select name="sortWay" id="sortWay" style="width: 100px !important; margin: 0;">
+                    <option value="asc">$$sort_asc$$</option>
+                    <option value="desc">$$sort_desc$$</option>
+                    <option value="size-asc">$$sort_sizeAsc$$</option>
+                    <option value="size-desc">$$sort_sizeDesc$$</option>
+                    <option value="author">$$sort_author$$</option>
+                </select>
+            </span>
+        </div>
+        <div class="p2">
+            <button onclick="window.electronAPI.invoke('importMod',[])" id="importModBtn">
+                <span class="material-symbols-outlined">
+                    add_box
+                </span>
+            </button>
+            <button onclick="window.currentPageStack.patchAndRun()" id="par">
+                <span class="material-symbols-outlined" style="scale: 1.2;">
+                    arrow_circle_right
+                </span>
+            </button>
+        </div>
+    </div>
     <div style="overflow-y: scroll; min-height: 530px; overflow-x: hidden; mask-image: linear-gradient(180deg, black 90%, transparent 100%); padding: 0 0 20px 0;">
         <table style="width: 100%; max-height: 200px; overflow-y: scroll;" id="modtable">
             <colgroup>
@@ -18,41 +35,32 @@
             </colgroup>
             <thead style="position: sticky; top: -2px;">
                 <tr>
-                    <th>Mod</th>
-                    <th>Enabled</th>
+                    <th>$$mod$$</th>
+                    <th>$$enabled$$</th>
                 </tr>
             </thead>
             <div style="display: none;" class="modlist-error" id="error-banner">
-                <h2>{x} mod(s) failed to load</h2>
-                <span class="calibri">Click on this banner to view more details.</span>
+                <h2>$$modFail_bannerTitle$$</h2>
+                <span class="calibri">$$modFail_bannerClick$$</span>
             </div>
             <tbody id="modlist">
             </tbody>
         </table>
     </div>
-    <div class="buttons">
-        <button onclick="window.electronAPI.invoke('importMod',[])" id="importModBtn">
-            <span class="material-symbols-outlined">
-                add_box
-            </span>
-        </button>
-        <button onclick="window.currentPageStack.patchAndRun()" id="par">
-            <span class="material-symbols-outlined" style="scale: 1.2;">
-                arrow_circle_right
-            </span>
-        </button>
+
         <dialog class="error-list-dialog" id="error-list-dialog">
-            <h2>Some mods failed to load</h2>
-            <span class="calibri">Below is a list of mods that have failed to load along with the reason.</span>
+            <h2>$$modFail_dialogTitle$$</h2>
+            <span class="calibri">$$modFail_dialogSubtitle$$</span>
             <div class="error-list-div" id="error-list-div">
 
             </div>
             <div class="error-buttons">
-                <button onclick="document.getElementById('error-list-dialog').close()">OK</button>
+                <!-- forgive me for this MASSIVE onclick thing, but keeping this and allmods unified is a pain in the ass -->
+                <button onclick="rew(); document.getElementById('error-list-dialog').style.animation = '0.3s closeError ease forwards'; setTimeout(() => { document.getElementById('error-list-dialog').close(); document.getElementById('error-list-dialog').style.animation = '0.3s openError ease forwards'; }, 300);" style="width: 100%; padding: 10px;">OK</button>
             </div>
         </dialog>
-    </div>
 </div>
 JSL
 AUDIO[mainTheme.mp3]
 STYLESHEET[main]
+TITLEKEY[main_title]

@@ -1,0 +1,39 @@
+<div>
+    <div class="tspandiv">
+        <img src="" alt="" width="32" height="32" id="gbPic">
+        <button onclick="page('')">
+            <span class="material-symbols-outlined smicon">home</span>
+        </button>
+        <input type="text" id="searchInput" placeholder="$$shop_search$$">
+        <button onclick="window.currentPageStack.search()">
+            <span class="material-symbols-outlined smicon">search</span>
+        </button>
+    </div>
+    <p id="searchInd" style="display: none; font-style: italic !important;"></p>
+    <table>
+        <colgroup>
+            <col style="width: calc(100% - 200px);">
+            <col style="width: 200px;">
+        </colgroup>
+        <tr>
+            <th>
+                $$mod$$
+            </th>
+            <th>
+                $$download$$
+            </th>
+        </tr>
+        <tbody id="modsBody">
+            <tr>
+                <td colspan="2" style="text-align: center;">$$loading$$</td>
+            </tr>
+        </tbody>
+    </table>
+    <div class="scrollBottomDetector">
+        <div class="loadingBar"></div>
+    </div>
+</div>
+JSL
+STYLESHEET[indx]
+AUDIO[views/gamebanana-browse/leshop.mp3]
+TITLEKEY[gamebananaBrowseTitle]

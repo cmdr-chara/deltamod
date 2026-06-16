@@ -15,6 +15,21 @@
     /* bold fucks shit up the entire font */
 }
 
+/* I did everything to use Calibri but I realized I actually want a font from my library.... */
+@font-face {
+    font-family: "Calibri";
+    src: url("./Lato.ttf") format("truetype");
+}
+
+@font-face {
+    font-family: "Brands";
+    src: url("./brands.ttf");
+}
+
+brand-icon {
+    font-family: 'Brands';
+}
+
 /* Hide scrollbar for all browsers */
 * {
     scrollbar-width: none;
@@ -53,16 +68,23 @@ p {
     font-size: 16px;
 }
 
-button {
+button:not(.sidebar-button):not(:hover) {
+    background-color: var(--theme-color) !important; 
+}
+button, input, select {
     font-family: "Pixel", sans-serif;
     font-size: 16px;
     color: white;
-    background-color: rgb(15, 15, 15);
-    border: 1px solid rgb(66, 66, 66);
-    border-radius: 7px;
-    padding: 5px;
+    background-color: rgb(15,15,15);
+    border-radius: 5px;
+    padding: 9px;
     cursor: pointer;
-    transition: 0.2s all;
+    transition: 0.3s all;
+}
+
+input:focus {
+    outline: none;
+    scale: 1.1;
 }
 
 button:hover {
@@ -70,14 +92,17 @@ button:hover {
     color: rgb(15,15,15);
 }
 
+button:hover:not(.noScaleBTN) {
+    scale: 1.1;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.38);
+}
+
+button:active:not(.noScaleBTN) {
+    scale: 1.2;
+}
+
 input {
-    font-family: "Pixel", sans-serif;
-    font-size: 16px;
-    color: white;
-    margin-bottom: 20px;
-    background-color: rgb(15, 15, 15);
-    border: 1px solid rgb(66, 66, 66);
-    padding: 5px;
+    cursor: text;
 }
 
 input::placeholder {
@@ -114,11 +139,11 @@ h1 {
 
 table {
     width: 100%;
-    border-radius: 5px;
-    border: 1px solid rgb(66, 66, 66);
+    border: 1px solid var(--theme-color);
+    border-radius: 10px;
     padding: 10px;
-    background-color: rgba(40, 40, 40, 0.5);
-    backdrop-filter: blur(5px);
+    background: linear-gradient(90deg,rgba(40, 40, 40, 0.127) 0%, rgba(43, 43, 43, 0.4) 100%);
+    backdrop-filter: blur(10px);
     color: white;
     font-family: "Pixel", sans-serif;
     font-size: 16px;
@@ -126,13 +151,14 @@ table {
 }
 
 table:hover {
-    box-shadow: 0 0 40px rgb(100, 100, 100);
+    box-shadow: 0 0 40px var(--theme-color);
 }
+
 th,
 td {
-    border: 1px solid rgb(66, 66, 66);
-    border-radius: 4px;
-    padding: 8px 12px;
+    border: 1px solid var(--theme-color-rgbaless);
+    border-radius: 10px;
+    padding: 10px 18px;
     text-align: left;
     animation: 0.2s spawn ease-in-out;
     transition: 0.3s all;
@@ -148,8 +174,9 @@ td {
     }
 }
 th {
-    background-color: rgba(16, 16, 16, 0.6);
-    color: rgb(200, 200, 200);
-    border-radius: 4px;
+    color: rgba(255, 255, 255, 1);
+    border-radius: 10px;
+    background-color: var(--theme-color-rgbaless);
+    border: 2px solid var(--theme-color);
     animation: 0.5s spawn ease-in-out;
 }

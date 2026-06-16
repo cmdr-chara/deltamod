@@ -1,0 +1,17 @@
+{
+    "name": "DELTARUNE Demo",
+    "author": "Toby Fox",
+    "id": "toby.deltarune.demo",
+    "gamebanana": {
+        "id": 6755
+    },
+    "exeName": "DELTARUNE.exe",
+    "availableFeatures": [{
+        "feat": "steam",
+        "data": {
+            "folder": "DELTARUNEdemo",
+            "appid": "1690940",
+            "downloadable": true
+        }
+    }]
+}

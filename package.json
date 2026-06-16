@@ -1,8 +1,9 @@
 {
   "name": "deltamod",
-  "version": "1.3.0",
+  "version": "1.9.3",
   "description": "Deltarune mod manager",
   "main": "node/Runner.js",
+  "discordAPI": "https://discord.com/api/guilds/1390331292993982484/widget.json",
   "featureFlags": [
     "GB-OneClick"
   ],
@@ -10,7 +11,9 @@
     "test": "electron . --developer",
     "build-windows": "electron-builder --win",
     "build-linux": "electron-builder --linux",
-    "erase-data": "Erase.bat"
+    "erase-data": "Erase.bat",
+    "build-g3mtool-win": "dotnet publish G3MToolCLI/G3MToolCLI.csproj -c Release -r win-x64 --self-contained true -o tools",
+    "build-g3mtool-linux": "dotnet publish G3MToolCLI/G3MToolCLI.csproj -c Release -r linux-x64 --self-contained true -o tools"
   },
   "build": {
     "icon": "build/icon-big.png",
@@ -29,7 +32,8 @@
     },
     "files": [
       "!**/output",
-      "!**/installbuilder"
+      "!**/installbuilder",
+      "!G3MToolCLI/**"
     ],
     "linux": {
       "target": "AppImage",
@@ -48,19 +52,26 @@
   "author": "Deltamodders",
   "license": "EUPL-1.2",
   "devDependencies": {
-    "electron": "^37.3.1",
-    "electron-builder": "^26.0.12"
+    "electron": "^40.6.0",
+    "electron-builder": "^26.7.0"
   },
   "dependencies": {
     "@chainsafe/xdelta3-node": "^1.0.2",
+    "@sentry/node": "^10.43.0",
+    "7zip-bin": "5.1.1",
     "7zip-min": "^2.1.0",
     "axios": "^1.12.0",
+    "canvas": "^3.2.3",
+    "cheerio": "^1.1.2",
+    "create-desktop-shortcuts": "^1.11.1",
     "emit-keypress": "^1.0.1",
     "mime-types": "^3.0.1",
+    "node-gamepad": "^0.1.15",
     "node-html-parser": "^7.0.1",
     "nodejs": "^0.0.0",
     "nodejs-file-downloader": "^4.13.0",
-    "windows-shortcuts": "^0.1.6",
+    "robotjs": "^0.7.0",
+    "windows-elevate": "^1.0.1",
     "xml-js": "^1.6.11",
     "yoctocolors-cjs": "^2.1.3"
   }

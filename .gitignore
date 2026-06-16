@@ -13,3 +13,9 @@ installbuilder/project.xml.backup
 installbuilder/git.exe
 /.idea
 /cache
+/unreleased
+tools/dotnetinstaller.exe
+tools/gitinstaller.exe
+tools/G3MTool.exe
+tools/G3MTool
+/G3MToolCLI

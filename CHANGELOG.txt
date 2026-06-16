@@ -1,17 +1,11 @@
-New glassy style, Overhaul
-Now supports changing GM3P version, Addition
-Now supports using DEVICE_MAKER as patcher, Addition
-Changed theme selection UI, Overhaul
-More feature-fletched mod manager, Overhaul
-Added shortcuts for installations, Addition
-Main menu does no longer have options to remove mods as the feature is rendered available in the Mod Manager, Amendment
-Added support for baking installs, Addition
-Patching times now down by 50%, Optimization
-Added option to see the GM3P version, Addition
-Added 2 new themes, Addition
-Removed Green Room theme, Removal
-Changed UI for patching and allows you to change patching characters, Amendment
-Now allows sorting between mods, Addition
-General code improvements to optimize Deltamod, Improvement
-Now doesn't open the patching screen when no mods are selected, Amendment
-Right-click to view into Mod Manager, Addition
+Now supports other games, Addition
+New themes, Addition
+A refactored UI, Overhaul
+New original icons and new original music, Overhaul
+GM3P issues were fixed, Bugfix
+Fixed numerous minor UI bugs, Bugfix
+You can now toggle on hashing checks, Addition
+Select games can be downloaded directly via Deltamod, Addition
+Better error descriptions, Overhaul
+Mod Shop can be toggled off, Addition
+Partial custom themes support, Addition

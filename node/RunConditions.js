@@ -28,21 +28,6 @@ const conditions = [
             free = bfree * bsize;
             return free >= 2 * 1024 * 1024 * 1024;
         }
-    },
-    {
-        name: 'Windows 10 or later',
-        required: false,
-        checker: () => {
-            const os = require('os');
-            const platform = os.platform();
-            const release = os.release();
-            console.log(`OS Platform: ${platform}, Release: ${release}`);
-            if (platform === 'win32') {
-                const version = parseInt(release.split('.')[0], 10);
-                return version >= 10;
-            }
-            return false; // Not Windows or Linux
-        }
     }
 ];
 
@@ -60,4 +45,6 @@ function checkConditions() {
     return checkers;
 }
 
-module.exports = {checkConditions};
+module.exports = {
+    checkConditions
+};

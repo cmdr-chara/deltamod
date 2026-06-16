@@ -1,6 +1,9 @@
 const GB_URL = 'https://gamebanana.com/apiv11/Tool/20575/ProfilePage';
 
 (async() => {
+    document.querySelector('#credits').innerHTML = '';
+    document.querySelector('#credits').style.opacity = 0;
+
     try {
         console.log('Obtaining credits from ' + GB_URL);
         var gbpage = await fetch(GB_URL).then(r => r.json());
@@ -17,47 +20,55 @@ const GB_URL = 'https://gamebanana.com/apiv11/Tool/20575/ProfilePage';
         }
     }
 
-    var credits = document.querySelector('.gbcredits');
-    credits.innerHTML = '';
+
+    var madeUsers = [];
 
     gbpage._aCredits.forEach(group => {
-        var div = document.createElement('div');
-        div.className = 'credits-group';
-
-        var groupname = document.createElement('span');
-        groupname.className = 'credits-header';
-        groupname.innerText = group._sGroupName;
-
-        var authorsDiv = document.createElement('div');
-        authorsDiv.className = 'credits-developers';
-
         group._aAuthors.forEach(credit => {
-            var personname = document.createElement('span');
-            console.log(JSON.stringify(credit));
-            personname.onclick = () => window.open(credit._sProfileUrl);
-            personname.innerHTML = `<img src="${credit._sAvatarUrl}" alt="${credit._sName}" class="credits-avatar"> ${credit._sName}`;
-            personname.className = 'credits-author';
+            var pcard = document.createElement('div');
+            pcard.className = 'credits-card';
+            pcard.style.display = 'inline-block';
+            pcard.style.margin = '10px';
+            pcard.style.textAlign = 'center';
+            document.querySelector('#credits').appendChild(pcard);
 
-            if (credit._sRole) {
-                tippy(personname, {
-                    content: credit._sRole,
-                });
-            }
+            var pfp = document.createElement('img');
+            pfp.className = 'credits-pfp';
+            pfp.style.borderRadius = '10px';
+            pfp.src = credit._sAvatarUrl;
+            pcard.appendChild(pfp);
 
-            authorsDiv.appendChild(personname);
+            var personname = document.createElement('div');
+            personname.className = 'credits-name';
+            personname.innerText = credit._sName;
+            pcard.appendChild(personname);
+
+            var desc = document.createElement('div');
+            desc.className = 'credits-desc';
+            desc.style.fontSize = '0.8em';
+            desc.style.opacity = 0.7;
+            desc.innerText = credit._sRole;
+            pcard.appendChild(desc);
+
+            document.querySelector('#credits').appendChild(pcard);
         });
-
-        div.appendChild(groupname);
-        div.appendChild(authorsDiv);
-        credits.appendChild(div);
     });
+
+    document.querySelector('#credits').style.opacity = 1;
 })();
 
 (async() => {
-    var version = await window.electronAPI.invoke('version',[]);
+    var version = (await window.electronAPI.invoke('version',[]));
+
     var gitCommit = await window.electronAPI.invoke('myCommitInfo',[]);
     document.querySelector('#version').innerText = `Deltamod ${version}`;
     if (gitCommit) {
         document.querySelector('#version').innerHTML += `${gitCommit}`;
+    }
+
+    if (!navigator.onLine) {
+        document.querySelector('#discordBtn').disabled = true;
+        document.querySelector('#discordBtn').style.opacity = 0.5;
+        document.querySelector('#discordBtn').innerHTML += ' (Offline)';
     }
 })();
