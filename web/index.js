@@ -7,15 +7,84 @@
 
 // Global Variables & State
 var audio = new Audio();
+audio.preload = "none";
 var currentAudio = "";
 var theme = null;
 var pageN = null;
 var addedStyle = null;
+var currentPageScript = null;
 var update = false;
 var TARGET_MUSIC_VOLUME = 0.5;
 var cmode = false; // Controller Mode
 
+function releaseAudioBuffer() {
+    audio.pause();
+    audio.currentTime = 0;
+    audio.removeAttribute('src');
+    audio.load();
+    currentAudio = "";
+}
+
+function loopMenuAudio() {
+    const loopBuffer = 0.44;
+    if (Number.isFinite(audio.duration) && audio.currentTime > audio.duration - loopBuffer) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+    }
+}
+
+audio.addEventListener('timeupdate', loopMenuAudio);
+
 window._onClosePage = window._onClosePage || [];
+
+const PAGE_STYLESHEET_OVERRIDES = Object.freeze({
+    allmods: './views/main/main.css'
+});
+
+const PAGE_REGISTRY = Object.freeze(Object.fromEntries([
+    'allmods',
+    'collection-exportchoose',
+    'collections',
+    'credits',
+    'deleteall',
+    'gamebanana-browse',
+    'gamebanana-leave-comment',
+    'goc-dl',
+    'installmanager',
+    'locate',
+    'main',
+    'options',
+    'patching',
+    'themesel'
+].map(name => [name, Object.freeze({
+    name,
+    html: `./views/${name}/index.html`,
+    script: `./views/${name}/index.js`,
+    base: `./views/${name}/`,
+    stylesheet: PAGE_STYLESHEET_OVERRIDES[name] || null
+})])));
+
+function loadPageScript(pageDefinition) {
+    if (currentPageScript) {
+        currentPageScript.remove();
+        currentPageScript = null;
+    }
+
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = pageDefinition.script;
+        script.async = false;
+        script.dataset.pageScript = pageDefinition.name;
+        script.addEventListener('load', () => resolve(), { once: true });
+        script.addEventListener(
+            'error',
+            () => reject(new Error(`Failed to load script for page: ${pageDefinition.name}`)),
+            { once: true }
+        );
+        currentPageScript = script;
+        document.body.appendChild(script);
+    });
+}
 
 /**
  * Wrapper for invoking Electron IPC calls.
@@ -45,16 +114,30 @@ async function makeGlyphs(jsonArr) {
     });
 }
 
+async function reapplyHAStyles() {
+    var alignment = localStorage.getItem('alertAlignment') || 'Bottom';
+    if (!localStorage.getItem('alertAlignment')) {
+        localStorage.setItem('alertAlignment', alignment);
+    }
+    var haDynamicStyle = document.getElementById('haDynamicStyle');
+    if (!haDynamicStyle) {
+        haDynamicStyle = document.createElement('style');
+        haDynamicStyle.id = 'haDynamicStyle';
+        document.head.appendChild(haDynamicStyle);
+    }
+    haDynamicStyle.innerHTML = await fetch('./haAlignments/' + alignment + '.css').then(res => res.text());
+}
+
 /**
  * Prompts the user to leave Controller Mode.
  */
 async function promptLeaveCMode() {
     htmlAlert(
-        await k('leave_cmode_title'), 
-        await k('leave_cmode_message'), 
+        "Exit controller mode", 
+        "Are you sure you want to exit controller mode? If you exit controller mode, Deltamod will close.", 
         [
-            { text: await k('yes'), resolveWith: true },
-            { text: await k('no'), resolveWith: false }
+            { text: "Yes", resolveWith: true },
+            { text: "No", resolveWith: false }
         ], 
         'stadia_controller'
     ).then((result) => {
@@ -86,32 +169,6 @@ function brightenColor(r, g, b, amount) {
     return `rgb(${r}, ${g}, ${b})`;
 }
 
-/**
- * Fetches an advanced localization key.
- */
-function k(key, ...args) {
-    return window.electronAPI.invoke('obtainLangKeyAdv', [key, args]);
-}
-
-/**
- * Replaces localization template keys ($$key$$) with localized strings in HTML.
- * @param {string} html - HTML string to process.
- */
-async function replaceLangKeys(html) {
-    const regex = /\$\$(.*?)\$\$/g;
-    const matches = [...html.matchAll(regex)];
-
-    const values = await Promise.all(
-        matches.map(m =>
-            window.electronAPI.invoke('obtainLangKey', [m[1]])
-                .catch(() => m[0])
-        )
-    );
-
-    let i = 0;
-    return html.replace(regex, () => values[i++]);
-}
-
 // Window Management
 function toggleFullscreen() { window.electronAPI.invoke('toggleFullscreen', []); }
 function toggleMinimize() { window.electronAPI.invoke('minimizeMe', []); }
@@ -122,6 +179,17 @@ window.preloadAPI.onWRA(() => rew());
 
 function error() {
     fetch('http://google.com'); // Force an error trigger if used in a specific context
+}
+
+function disableElem(elem) {
+    if (!elem) return;
+    elem.style.pointerEvents = 'none';
+    elem.style.opacity = '0';
+}
+function enableElem(elem) {
+    if (!elem) return;
+    elem.style.pointerEvents = 'auto';
+    elem.style.opacity = '1';
 }
 
 /**
@@ -151,11 +219,30 @@ async function htmlAlert(title, message, buttons, specialIcon) {
 async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
     return new Promise(async (resolve, reject) => {
         isAlertShowing = true;
+
+        if (localStorage.getItem('alertAlignment') == "Separate") {
+            var index = await window.electronAPI.invoke('htmlAlert_outwin', [title, message, buttons]);
+            isAlertShowing = false;
+            var button = buttons[index];
+
+            if (button.resolveWith) {
+                resolve(button.resolveWith);
+                return;
+            }
+
+            if (button.rejectWith) {
+                reject(button.rejectWith);
+                return;
+            }
+
+            return;
+        }
+
         var alertMain = document.getElementsByClassName('alertMain')[0];
         var alertMsgR = alertMain.getElementsByClassName('alertMsg')[0];
 
-        var animOptions = 'cubic-bezier(0.22, 1, 0.36, 1) forwards';
-        var animLength = 0.5;
+        var animOptions = 'cubic-bezier(0.16, 1, 0.3, 1) forwards';
+        var animLength = 0.6;
 
         alertMsgR.innerHTML = '';
 
@@ -170,7 +257,8 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
         
         // Message
         var messageElement = document.createElement('p');
-        messageElement.innerHTML = message.replace(/\n/g, '<br>');
+        messageElement.textContent = String(message);
+        messageElement.style.whiteSpace = 'pre-line';
         messageElement.style.opacity = '0';
         
         alertMsg.appendChild(titleElement);
@@ -181,10 +269,15 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
         buttonsHTML.style.textAlign = 'right';
         buttonsHTML.classList.add('alertButtons');
         buttonsHTML.style.opacity = '0';
+        buttonsHTML.style.display = 'flex';
+        buttonsHTML.style.gap = '8px';
+        buttonsHTML.style.justifyContent = 'flex-end';
+        
 
         buttons.forEach((button) => {
             var btn = document.createElement('button');
             btn.textContent = button.text;
+            btn.style.flex = '1 1 0';
             btn.onclick = function() {
                 // Outro animation
                 alertMsgR.style.animation = `${animLength}s alertFadeOut ${animOptions}`;
@@ -235,9 +328,9 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
         var bigIcon = document.createElement('span');
         bigIcon.classList.add('material-symbols-outlined', 'alertBigIcon');
         bigIcon.innerText = specialIcon;
-        bigIcon.style.fontSize = '400px';
+        bigIcon.style.fontSize = '490px';
         bigIcon.style.position = 'absolute';
-        bigIcon.style.top = '-100px';
+        bigIcon.style.top = '-140px';
         bigIcon.style.right = '-50px';
         bigIcon.style.opacity = '0.1';
         bigIcon.style.userSelect = 'none';
@@ -245,9 +338,9 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
         alertMsgR.appendChild(bigIcon);
 
         // Cascade Intro Animations
-        setTimeout(() => { titleElement.style.animation = `${animLength}s stuffFadeIn ${animOptions}`; }, 100);
-        setTimeout(() => { messageElement.style.animation = `${animLength}s stuffFadeIn ${animOptions}`; }, 200);
-        setTimeout(() => { buttonsHTML.style.animation = `${animLength}s stuffFadeIn ${animOptions}`; }, 300);
+        setTimeout(() => { titleElement.style.animation = `${animLength*1.2}s stuffFadeIn ${animOptions}`; }, 200);
+        setTimeout(() => { messageElement.style.animation = `${animLength*1.2}s stuffFadeIn ${animOptions}`; }, 300);
+        setTimeout(() => { buttonsHTML.style.animation = `${animLength*1.2}s stuffFadeIn ${animOptions}`; }, 400);
 
         // Play alert SFX
         var a = new Audio();
@@ -276,7 +369,7 @@ window.preloadAPI.onUpdateAvailable((info) => {
 
     htmlAlert(
         'Update available', 
-        `A new version of Deltamod (${info.version}) is available for download. Do you wish to update?`, 
+        `A new version of Deltamod Community (${info.version}) is available for download. Do you wish to update?`,
         [
             { text: 'Yes', resolveWith: "a" },
             { text: 'No', rejectWith: "a" }
@@ -291,17 +384,63 @@ window.preloadAPI.onUpdateAvailable((info) => {
 
 window.preloadAPI.onDLMODProgress((info) => window.currentPageStack.dlmod && window.currentPageStack.dlmod(info));
 window.preloadAPI.onDDS((info) => window.currentPageStack.du && window.currentPageStack.du(info.percentage));
+window.preloadAPI.onProtocolDownloadProgress((info) => window.currentPageStack.onDLP && window.currentPageStack.onDLP(info.percentage));
+window.preloadAPI.onProfileImportProgress((info) => window.currentPageStack.profileImportProgress && window.currentPageStack.profileImportProgress(info));
+window.preloadAPI.onHashProgress((info) => window.currentPageStack.hashProgress && window.currentPageStack.hashProgress(info));
 window.preloadAPI.onRefresh(() => page(pageN));
 window.preloadAPI.onUpdateProgress((info) => window.currentPageStack.u && window.currentPageStack.u(info.perc));
 window.preloadAPI.onFinishedPatch(() => window.currentPageStack.fp && window.currentPageStack.fp());
 window.preloadAPI.onGPL((message) => window.currentPageStack.gpl && window.currentPageStack.gpl(message));
 window.preloadAPI.onPage((title) => page(title));
 window.preloadAPI.onAudio((stat) => stat ? openAudio() : closeAudio());
+window.preloadAPI.onLeaveControllerMode(() => promptLeaveCMode());
 
 function sanitizeHTML(str) {
     var temp = document.createElement('div');
     temp.textContent = str;
     return temp.innerHTML;
+}
+
+function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return 'an unknown amount of space';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+    }
+    return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+async function offerOfficialProfileImport() {
+    try {
+        const summary = await window.communityAPI.profile.summary();
+        if (!summary.exists || summary.previousImport || localStorage.getItem('communityMigrationPromptDismissed') === 'true') {
+            return false;
+        }
+
+        const choice = await htmlAlert(
+            'Import your Deltamod data',
+            `Deltamod ${summary.version || ''} was found with ${summary.installations} installation(s), ${summary.mods} mod(s), and ${summary.themes} custom theme(s). A safe Community copy needs ${formatBytes(summary.totalBytes)}. Official Deltamod will not be changed.`,
+            [
+                { text: 'Review and import', resolveWith: 'import' },
+                { text: 'Later', resolveWith: 'later' }
+            ],
+            'database'
+        );
+
+        if (choice === 'import') {
+            window._pageArguments = { cat: 'data' };
+            await page('options');
+            return true;
+        }
+
+        localStorage.setItem('communityMigrationPromptDismissed', 'true');
+    } catch (error) {
+        console.warn('Could not inspect the official Deltamod profile:', error.message || error);
+    }
+    return false;
 }
 
 // Override console methods to tunnel logs through Electron IPC
@@ -337,17 +476,23 @@ function icon(name, fontSize) {
  * @param {boolean} refreshAudio - Whether to also reload and play the main theme song.
  */
 async function themeRefresh(refreshAudio = true) {
-    theme = await fetch('themeprot://data/' + await window.electronAPI.invoke('getTheme', []) + '.theme.json').then(response => response.json());
+    theme = await fetch('themeprot://data/' + (await window.electronAPI.invoke('getTheme', [])) + '.theme.json').then(response => response.json());
     document.getElementsByClassName('bg')[0].style.backgroundImage = 'url(themeprot://img/' + theme.background + ')';
     
     if (refreshAudio) {
-        audio.pause();
-        audio.currentTime = 0;
-        audio.loop = true;
-        audio.volume = TARGET_MUSIC_VOLUME;
-        audio.src = 'themeprot://mus/' + theme.mainSong;
-        audio.play();
-        page(pageN);
+        const shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
+        if (shouldPlayAudio) {
+            audio.pause();
+            audio.currentTime = 0;
+            audio.loop = true;
+            audio.volume = TARGET_MUSIC_VOLUME;
+            audio.src = 'themeprot://mus/' + theme.mainSong;
+            currentAudio = 'mainTheme.mp3';
+            await audio.play().catch(() => {});
+        } else {
+            releaseAudioBuffer();
+        }
+        await page(pageN);
     }
 }
 
@@ -366,7 +511,6 @@ function elisten(element, event, handler) {
  * @param {string} name - The identifier of the page to load.
  */
 async function page(name) {
-    var refreshing = (pageN == name || name == "");
     rew();
 
     // Clear existing intervals/listeners to prevent memory leaks
@@ -381,22 +525,40 @@ async function page(name) {
     window._eventListeners.forEach(({ element, event, handler }) => {
         element.removeEventListener(event, handler);
     });
+    window._eventListeners = [];
+
+    window._onClosePage = window._onClosePage || [];
+    window._onClosePage.forEach(func => func());
+    window._onClosePage = [];
+
+    if (currentPageScript) {
+        currentPageScript.remove();
+        currentPageScript = null;
+    }
+
+    if (addedStyle) {
+        addedStyle.remove();
+        addedStyle = null;
+    }
     
     if (name == "") {
         name = pageN;
     }
 
     // Prevents escaping to home if game is baked
-    if (await window.electronAPI.invoke('isBaked', []) && name == 'main') {
+    if (await window.electronAPI.invoke('isBaked', []) && name == 'main' && PAGE_REGISTRY.bakedhome) {
         name = 'bakedhome';
     }
+    const pageDefinition = PAGE_REGISTRY[name];
+    if (!pageDefinition) {
+        throw new Error(`Blocked unknown page: ${String(name)}`);
+    }
 
-    // Viewport animation reset
-    document.querySelector('.viewport').style.animation = 'none';
-    document.querySelector('.viewport').style.pointerEvents = 'none';
-    await new Promise(resolve => setTimeout(resolve, 50));
-    document.querySelector('.viewport').style.animation = '0.34s fadeIn cubic-bezier(0, 0.55, 0.45, 1)';
-    document.querySelector('.viewport').style.pointerEvents = 'auto';
+    // Keep navigation immediate. Animating the full viewport promotes every
+    // blurred panel to a large compositor surface and retains substantial GPU
+    // memory after each page change.
+    const viewport = document.querySelector('.viewport');
+    viewport.style.animation = 'none';
     window.electronAPI.invoke('showWindow', []);
 
     // Load theme if not yet initialized
@@ -407,8 +569,10 @@ async function page(name) {
     window.currentPageStack = {};
 
     // Process Page HTML
-    var purifiedHTML = await fetch(`./views/${name}/index.html`).then(response => response.text());
-    purifiedHTML = await replaceLangKeys(purifiedHTML);
+    var purifiedHTML = await fetch(pageDefinition.html).then(response => {
+        if (!response.ok) throw new Error(`Failed to load page ${name}: HTTP ${response.status}`);
+        return response.text();
+    });
     
     var runScripts = false;
     var changeAudio = false;
@@ -423,31 +587,42 @@ async function page(name) {
     if (purifiedHTML.includes('STYLESHEET[')) {
         var stylesheetSrc = purifiedHTML.match(/STYLESHEET\[(.*?)\]/);
         if (stylesheetSrc && stylesheetSrc[1]) {
-            var stylesheetContent = await fetch(`./views/${name}/${stylesheetSrc[1]}.css`).then(res => res.text());
-            var s = addedStyle ?? document.createElement("style");
-            s.innerHTML = stylesheetContent;
-
-            if (!addedStyle) {
-                var h = document.getElementById("head");
-                addedStyle = h.appendChild(s);
+            if (addedStyle) addedStyle.remove();
+            addedStyle = document.createElement('link');
+            addedStyle.rel = 'stylesheet';
+            addedStyle.dataset.pageStylesheet = name;
+            if (pageDefinition.stylesheet) {
+                addedStyle.href = pageDefinition.stylesheet;
+            } else {
+                if (!/^[a-z0-9_-]+$/i.test(stylesheetSrc[1])) {
+                    throw new Error(`Blocked unsafe stylesheet name on page ${name}.`);
+                }
+                addedStyle.href = `${pageDefinition.base}${stylesheetSrc[1]}.css`;
             }
+            document.getElementById('head').appendChild(addedStyle);
         }
         purifiedHTML = purifiedHTML.replace(/STYLESHEET\[(.*?)\]/g, '');
     } else if (addedStyle) {
-        addedStyle.innerHTML = ""; // Remove styles to not interfere with other pages
+        addedStyle.remove();
+        addedStyle = null;
     }
 
     // Handle NO-SIDEBAR tag
     if (purifiedHTML.includes('NO-SIDEBAR')) {
         purifiedHTML = purifiedHTML.replace('NO-SIDEBAR', '');
-        Array.from(document.getElementsByClassName('sidebar-button')).forEach(button => button.disabled = true);
+        ([...Array.from(document.getElementsByClassName('sidebar-button')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => button.setAttribute('data-disabled', 'true'));
     } else {
-        Array.from(document.getElementsByClassName('sidebar-button')).forEach(button => button.disabled = false);
+        ([...Array.from(document.getElementsByClassName('sidebar-button')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => button.setAttribute('data-disabled', 'false'));
     }
 
     // Extract Title Tag
-    var title = purifiedHTML.match(/TITLEKEY\[(.*?)\]/);
-    purifiedHTML = purifiedHTML.replace(/TITLEKEY\[(.*?)\]/g, '');
+    var title = purifiedHTML.match(/TITLE\[(.*?)\]/);
+    purifiedHTML = purifiedHTML.replace(/TITLE\[(.*?)\]/g, '');
+    const pageTitle = title?.[1] || 'Deltamod Community';
+    const pageTitleElement = document.getElementById('pageTitle');
+    if (pageTitleElement) {
+        pageTitleElement.textContent = pageTitle;
+    }
 
     // Extract Exclude Audio Tag
     var themeAudioExclude = purifiedHTML.match(/THEME-AUDIO-EXCLUDE\[(.*?)\]/);
@@ -464,8 +639,15 @@ async function page(name) {
         if (theme.id == themeAudioExclude?.[1]) {
             audioSrc = ['AUDIO[mainTheme.mp3]', 'mainTheme.mp3'];
         }
+        if (await window.electronAPI.invoke('getUniqueFlag', ["DYNAMUSIC"]) == false) {
+            audioSrc = ['AUDIO[mainTheme.mp3]', 'mainTheme.mp3'];
+        }
 
-        if (audioSrc && audioSrc[1] && audioSrc[1] !== currentAudio) {
+        const shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
+
+        if (!shouldPlayAudio) {
+            releaseAudioBuffer();
+        } else if (audioSrc && audioSrc[1] && (audioSrc[1] !== currentAudio || !audio.src)) {
             currentAudio = audioSrc[1];
             audio.pause();
             audio.currentTime = 0;
@@ -476,37 +658,32 @@ async function page(name) {
                 audio.src = './' + audioSrc[1];
             }
 
-            // Custom loop behavior
-            audio.addEventListener('timeupdate', function(){
-                var buffer = .44;
-                if(this.currentTime > this.duration - buffer) {
-                    this.currentTime = 0;
-                    this.play();
-                }
-            });
-
             audio.volume = TARGET_MUSIC_VOLUME;
             changeAudio = true;
         }
 
-        let shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
         if (shouldPlayAudio) {
-            audio.play();
-        } else {
-            audio.pause();
+            await audio.play().catch(() => {});
         }
         purifiedHTML = purifiedHTML.replace(/AUDIO\[(.*?)\]/g, '');
     }
 
     // Inject Viewport HTML
-    document.getElementsByClassName('viewport')[0].innerHTML = purifiedHTML;
+    const pageViewport = document.getElementsByClassName('viewport')[0];
+    pageViewport.querySelectorAll('img, video, source').forEach(media => {
+        media.removeAttribute('src');
+        media.removeAttribute('srcset');
+    });
+    pageViewport.innerHTML = purifiedHTML;
 
     // Set Active Sidebar Button
-    Array.from(document.getElementsByClassName('sidebar-button')).forEach(button => {
+    ([...Array.from(document.getElementsByClassName('sidebar-button')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => {
         if (button.getAttribute('data-page') === name) {
             button.classList.add('active');
+            button.setAttribute('aria-current', 'page');
         } else {
             button.classList.remove('active');
+            button.removeAttribute('aria-current');
         }
     });
 
@@ -514,16 +691,15 @@ async function page(name) {
     try {
         const vp = document.getElementsByClassName('viewport')[0];
         if (vp && typeof vp.scrollTo === 'function') {
-            vp.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+            vp.scrollTo({ top: 0, left: 0, behavior: 'auto' });
         } else {
-            window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+            window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
         }
     } catch (e) {
         window.scrollTo(0, 0);
     }
 
     pageN = name;
-    document.querySelector('.titleTxt').innerText = await k(title[1]);
 
     // Generate Dynamic CSS Colors based on Theme
     var rgbNumbers = {
@@ -538,9 +714,10 @@ async function page(name) {
         --theme-color: ${theme.color};
         --theme-color-rgbaless: rgba(${rgbNumbers.r}, ${rgbNumbers.g}, ${rgbNumbers.b}, 0.8);
         --theme-color-point2: rgba(${rgbNumbers.r}, ${rgbNumbers.g}, ${rgbNumbers.b}, 0.2);
+        --theme-color-point3: rgba(${rgbNumbers.r}, ${rgbNumbers.g}, ${rgbNumbers.b}, 0.3);
     }
-    button:not(.sidebar-button), input, select {
-        border: 1px solid rgba(${rgbNumbers.r}, ${rgbNumbers.g}, ${rgbNumbers.b}, 0.5);
+    input, select {
+        box-shadow: inset 0 0 0 1px rgba(${rgbNumbers.r}, ${rgbNumbers.g}, ${rgbNumbers.b}, 0.42);
     }
     input, progress {
         accent-color: ${theme.color};
@@ -552,43 +729,19 @@ async function page(name) {
     ${theme.specialCSS || ''}
     `;
 
-    // Execute Cleanup Functions
-    window._onClosePage = window._onClosePage || [];
-    window._onClosePage.forEach(func => func());
-    window._onClosePage = [];
-    
     // Inject Dynamic Style
     var styleTag = document.getElementById('dynamic-theme-styles');
-    styleTag.innerHTML = generatedCSS;
+    styleTag.textContent = generatedCSS;
 
     // Execute Page JS
     if (runScripts) {
         try {
-            eval(await fetch(`./views/${name}/index.js`).then(response => response.text()));
+            await loadPageScript(pageDefinition);
         } catch (error) {
-            console.error('Error occurred while evaluating script for page:', name, error);
+            console.error('Error occurred while loading script for page:', name, error);
         }
     }
 
-    // Trigger Initial Render Animations
-    if (!refreshing) {
-        var i = -1;
-        document.querySelectorAll('.viewport > *').forEach(el => {
-            i++;
-            const recursiveApply = (element) => {
-                if (element.classList.contains('noanim')) return;
-                
-                element.style.opacity = '0';
-                setTimeout(() => {
-                    element.style.animation = '0.5s elFadeIn cubic-bezier(0, 0.55, 0.45, 1)';
-                    element.style.opacity = '1';
-                }, 100 + (i * 50));
-                
-                element.children && Array.from(element.children).forEach(child => recursiveApply(child));
-            };
-            recursiveApply(el);
-        });
-    }
 }
 
 /**
@@ -597,12 +750,14 @@ async function page(name) {
  * ==========================================
  */
 window.addEventListener('blur', () => {
+    document.documentElement.classList.add('window-inactive');
     if (audio) {
         audio.volume = 0;
     }
 });
 
 window.addEventListener('focus', async () => {
+    document.documentElement.classList.remove('window-inactive');
     let shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
     if (audio && shouldPlayAudio) {
         audio.volume = TARGET_MUSIC_VOLUME;
@@ -615,13 +770,72 @@ if (!window.electronAPI) {
     window.location.href = 'about:blank';
 }
 
+var renderedUser = false;
+async function renderuser() {
+    if (!(await window.electronAPI.invoke('validateGamebananaToken')) || !navigator.onLine) {
+        renderedUser = true;
+        return;
+    }
+    var gbuser = await window.electronAPI.invoke('getGamebananaUserinfo', []);
+
+    var gbaccount = document.querySelector('.gamebanana-account');
+    gbaccount.replaceChildren();
+    const avatar = document.createElement('img');
+    avatar.src = typeof gbuser?._sAvatarUrl === 'string'
+        ? gbuser._sAvatarUrl
+        : './img/mod-placeholder.png';
+    avatar.alt = '';
+    avatar.width = 25;
+    avatar.height = 25;
+    avatar.style.borderRadius = '15px';
+    avatar.onerror = () => {
+        avatar.onerror = null;
+        avatar.src = './img/mod-placeholder.png';
+    };
+    const username = document.createElement('span');
+    username.textContent = String(gbuser?._sName || 'GameBanana user');
+    username.className = 'gamebanana-account-name';
+    gbaccount.append(avatar, username);
+    gbaccount.style.opacity = '1';
+    const openGameBananaSettings = async () => {
+        if (gbaccount.getAttribute('data-disabled') === 'true') {
+            return;
+        }
+        window._pageArguments = {
+            cat: 'gb'
+        };
+        page('options');
+    };
+    gbaccount.addEventListener('click', openGameBananaSettings);
+    gbaccount.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openGameBananaSettings();
+        }
+    });
+
+    renderedUser = true;
+}
+
 /**
  * ==========================================
  * Initialization Boot Sequence
  * ==========================================
  */
 (async function() {
+    await reapplyHAStyles();
+
     cmode = await window.electronAPI.invoke('isCMode', []);
+
+    var ribbon = document.querySelectorAll('.sidebar-button');
+    ribbon.forEach(r => {
+        r.addEventListener('click', async () => {
+            if (r.getAttribute('data-disabled') === 'true') {
+                return;
+            }
+            page(r.getAttribute('data-page'));
+        });
+    });
     
     // Initialize Theme prior to initial page loads
     await themeRefresh(false); 
@@ -634,44 +848,48 @@ if (!window.electronAPI) {
         document.querySelector('.maximize-button').style.display = 'none';
 
         makeGlyphs([
-            { icon: 'game_stick_left', description: await k('cmode_leftstick_glydesc') },
-            { icon: 'game_stick_right', description: await k('cmode_rightstick_glydesc') },
-            { icon: 'cancel', description: await k('cmode_abutton_glydesc') },
-            { icon: 'square_circle', description: await k('cmode_bbutton_glydesc') },
+            { icon: 'game_stick_left', description: "Move cursor" },
+            { icon: 'game_stick_right', description: "Scroll" },
+            { icon: 'cancel', description: "Click" },
+            { icon: 'square_circle', description: "Right click" },
         ]);
 
         if (!localStorage.getItem('seenCModeAlert')) {
             localStorage.setItem('seenCModeAlert', 'true');
             htmlAlert(
-                await k('controllermode_alert_title'), 
-                await k('controllermode_alert_message'), 
-                [{ text: await k('ok') }], 
+                "Controller mode enabled", 
+                "Controller mode is now enabled! Use Deltamod with your controller. Your left stick can help you move your mouse.", 
+                [{ text: "Ok" }], 
                 'stadia_controller'
             );
         }
     } else {
         document.querySelector('.glyph').style.display = 'none';
-        window.addEventListener("gamepadconnected", async (event) => {
-            if (await window.electronAPI.invoke('getUniqueFlag', ["CONTROLLER"]) === false) {
-                return;
-            }
-            if (!event.gamepad.id.toLowerCase().includes('dualshock') && !event.gamepad.id.toLowerCase().includes('dualsense')) {
-                return;
-            }
-            var res = await htmlAlert(
-                await k('prompt_cmode_title'),
-                await k('prompt_cmode_message'),
-                [
-                    { text: await k('yes'), resolveWith: true },
-                    { text: await k('no'), resolveWith: false }
-                ]
-            );
+        if ((await window.electronAPI.invoke('getOS', [])).platform != 'linux') {
+            window.addEventListener("gamepadconnected", async (event) => {
+                if (await window.electronAPI.invoke('getUniqueFlag', ["CONTROLLER"]) === false) {
+                    return;
+                }
+                if (!event.gamepad.id.toLowerCase().includes('dualshock') && !event.gamepad.id.toLowerCase().includes('dualsense')) {
+                    return;
+                }
+                var res = await htmlAlert(
+                    "Controller mode",
+                    "It looks like you have a controller connected. Do you want to enable controller mode? Controller mode allows you to use Deltamod with your controller. Your left stick can help you move your mouse.",
+                    [
+                        { text: "Yes", resolveWith: true },
+                        { text: "No", resolveWith: false }
+                    ]
+                );
 
-            if (res) {
-                invoke('cmode-on', []);
-            }
-        });
+                if (res) {
+                    invoke('cmode-on', []);
+                }
+            });
+        }
     }
+
+    if (await offerOfficialProfileImport()) return;
 
     var loaded = await window.electronAPI.invoke('loadedDeltarune',[]);
 
@@ -680,20 +898,14 @@ if (!window.electronAPI) {
         return;
     }
 
-    // Check prerequisites
-    var hasCore = await window.electronAPI.invoke('hasPatchingCore',[]);
-    if (!hasCore) {
-        await htmlAlert(
-            await k('criterrors_gm3palert_title'), 
-            await k('criterrors_gm3palert_message'), 
-            [{ text: await k('ok'), resolveWith: 'ok' }], 
-            'error_med'
-        );
-
-        window.close();
-        
-        return;
-    }
+    await new Promise(resolve => {
+        var int = setInterval(async () => {
+            if (renderedUser) {
+                clearInterval(int);
+                resolve();
+            }
+        }, 50);
+    });
 
     // Main App Branching Route
     if (loaded.loaded) {
@@ -708,22 +920,9 @@ if (!window.electronAPI) {
         }
 
         window.electronAPI.invoke('executeArgumentCmd',[]);
-        
-        // Fetch Developer Messages
-        try {
-            var anyMSG = await fetch('https://deltamodders.github.io/deltamod-msgrepo/msg.json?' + Date.now()).then(res => res.json());
-            anyMSG.availableMsg.forEach(async (msg) => {
-                if (localStorage.getItem('seenMSG_' + msg.id) != 'true' || msg.showEveryBoot) {
-                    localStorage.setItem('seenMSG_' + msg.id, 'true');
-                    await htmlAlert(msg.title, msg.message + "\n" + msg.sender, [{ text: await k('ok') }]);
-                }
-            });
-        } catch (e) {
-            console.log('No MSGs found or error fetching them.');
-        }
     } else {
         await page('locate');
-        document.querySelectorAll('.sidebar-button').forEach(button => button.disabled = true);
+        document.querySelectorAll('.sidebar-button').forEach(button => button.setAttribute('data-disabled', 'true'));
         window.electronAPI.invoke('executeArgumentCmd',[]);
     }
 })();
@@ -748,32 +947,9 @@ function openAudio() {
  * ==========================================
  */
 (async () => {
-    var gbflag = await window.electronAPI.invoke('getUniqueFlag', ['SHOP']);
-    
-    // Toggle Shop Ribbon
-    if (gbflag && navigator.onLine) {
-        document.getElementById('shopRibbon').style.display = 'block';
-    }
+    renderuser();
 
     if ((await window.electronAPI.invoke('validateGamebananaToken'))) {
-        document.getElementById('collectionsRibbon').style.display = 'block';
-    }
-
-    // Prompt Opt-in for GameBanana Shop functionality
-    if (!localStorage.getItem('seenShopAlert') && !gbflag && navigator.onLine) {
-        localStorage.setItem('seenShopAlert', 'true');
-        var res = await htmlAlert(
-            await k('gamebananaBrowseTitle'), 
-            await k('toggleShopPopup_msg'), 
-            [
-                { text: await k('yes'), resolveWith: true },
-                { text: await k('no'), resolveWith: false }
-            ]
-        );
-        
-        await window.electronAPI.invoke('setUniqueFlag', ['SHOP', res]);
-        if (res) {
-            window.location.reload();
-        }
+        document.getElementById('collectionsRibbon').style.display = 'inline-flex';
     }
 })();

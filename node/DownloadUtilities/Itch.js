@@ -7,7 +7,6 @@ async function run(id, data) {
             
     const $ = cheerio.load(itchIOPage);
     const csrfToken = $('meta[name="csrf_token"]').attr('value');
-    console.log('Got token: ', csrfToken);
 
     var api = await axios.post(data.homepage + '/file/' + data.fileID + '?source=view_game&as_props=1&after_download_lightbox=true', "csrf_token=" + csrfToken);
 

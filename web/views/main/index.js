@@ -1,3 +1,10 @@
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
 function purifyDescription(desc) {
     if (desc === null || desc === undefined) return '';
     let text = String(desc);
@@ -10,7 +17,7 @@ function purifyDescription(desc) {
     const words = text.split(' ').slice(0, maxWords);
     text = words.join(' ') + (words.length >= maxWords ? '...' : '');
     // If too long, truncate as last resort
-    const max = 150;
+    const max = 100;
     if (text.length > max) return text.substring(0, max) + '...';
     return text;
 }
@@ -28,9 +35,10 @@ function purify(text) {
     return text.replace(/<[^>]*>/g, '');
 }
 
-setTimeout(() => {
-    document.getElementsByClassName('buttons')[0].style.display = 'flex';
-}, 500);
+function setIconText(element, iconName, text, size = 'small') {
+    element.innerHTML = icon(iconName, size);
+    element.appendChild(document.createTextNode(` ${String(text ?? '')}`));
+}
 
 function getPredominantColor(img) {
     const canvas = document.createElement('canvas');
@@ -112,7 +120,7 @@ async function createMod(mod) {
     imageContainer.style.marginLeft = '2px';
 
     tippy(imageContainer, {
-        content: await k('main_rightclick'),
+        content: "Right click to view in library",
         placement: 'right',
         delay: [100, 0],
         onMount(instance) {
@@ -134,10 +142,15 @@ async function createMod(mod) {
     img.style.width = IMAGE_DIMENSION + 'px';
     img.style.height = IMAGE_DIMENSION + 'px';
     img.style.objectFit = 'cover';
+    img.alt = '';
+    img.onerror = () => {
+        img.onerror = null;
+        img.src = 'deltapack://web/img/mod-placeholder.png';
+    };
     imageContainer.appendChild(img);
 
     imageContainer.oncontextmenu = async e => {
-        htmlAlert(mod.name,await k("main_rightclick_confirm"),[{text:await k("yes"),resolveWith:'accept'},{text:await k("no"),rejectWith:'close'}]).then(result => {
+        htmlAlert(mod.name,"Do you wish to view this mod in the Library?",[{text:"Yes",resolveWith:'accept'},{text:"No",rejectWith:'close'}]).then(result => {
             if (result === 'accept') {
                 window._pageArguments = { highlightMod: mod.uid };
                 page('allmods');
@@ -145,14 +158,8 @@ async function createMod(mod) {
         }).catch(() => {});
     };
 
-    var prevalColor = mod.customRGB || getPredominantColor(img);
-    if (prevalColor.r < 30 && prevalColor.g < 30 && prevalColor.b < 30) {
-        prevalColor.r = Math.min(prevalColor.r + 60, 255);
-        prevalColor.g = Math.min(prevalColor.g + 60, 255);
-        prevalColor.b = Math.min(prevalColor.b + 60, 255);
-    }
 
-    img.style.border = '3px solid ' + `rgba(${prevalColor.r}, ${prevalColor.g}, ${prevalColor.b}, 0.5)`;
+    img.style.border = '3px solid ' + `var(--theme-color-point2)`;
     
     let infoContainer = document.createElement('div');
     let titleSpan = document.createElement('span');
@@ -161,7 +168,7 @@ async function createMod(mod) {
     if (mod.new) {
         titleSpan = adaptForIconsA(titleSpan);
         titleSpan.style.marginBottom = '0px';
-        titleSpan.innerHTML = `${icon('fiber_new', '30px')} ${titleSpan.innerHTML}`;
+        setIconText(titleSpan, 'fiber_new', mod.name, '30px');
     }
     titleSpan.id = `modtitle-${mod.uid}`;
     infoContainer.appendChild(titleSpan);
@@ -181,9 +188,8 @@ async function createMod(mod) {
     flexContnainer.style.justifyContent = 'left';
     flexContnainer.style.gap = '6px';
     flexContnainer.style.marginTop = '8px';
-    flexContnainer.style.backgroundColor = 'rgba(' + prevalColor.r + ', ' + prevalColor.g + ', ' + prevalColor.b + ', 0.2)';
+    flexContnainer.style.backgroundColor = 'var(--theme-color-point3)';
     flexContnainer.style.backdropFilter = 'blur(5px)';
-    flexContnainer.style.boxShadow = '0 0 5px ' + `rgba(${prevalColor.r}, ${prevalColor.g}, ${prevalColor.b}, 0.5)`;
     flexContnainer.style.borderRadius = '50px';
     flexContnainer.style.width = 'fit-content';
     flexContnainer.style.padding = '4px';
@@ -191,8 +197,9 @@ async function createMod(mod) {
     flexContnainer.style.paddingRight = '10px';
     infoContainer.appendChild(flexContnainer);
 
-    var reducedAuthorStr = mod.author.slice(0,2).join(', ');
-    if (mod.author.length > 2) reducedAuthorStr += ` ${await k('main_andmore', mod.author.length - 2)}`;
+    const authors = Array.isArray(mod.author) ? mod.author : [mod.author || 'Unknown'];
+    var reducedAuthorStr = authors.slice(0,2).join(', ');
+    if (authors.length > 2) reducedAuthorStr += ` and ${authors.length - 2} more`;
     var fontSize = 13;
     let authorSpan = document.createElement('p');
     authorSpan = adaptForIconsA(authorSpan);
@@ -200,7 +207,7 @@ async function createMod(mod) {
     authorSpan.className = 'calibri';
     authorSpan.style.fontSize = fontSize + 'px';
     authorSpan.style.color = '#ffffff';
-    authorSpan.innerHTML = `${icon('attribution', fontSize + 'px')} ${purify(reducedAuthorStr)}`;
+    setIconText(authorSpan, 'attribution', reducedAuthorStr, fontSize + 'px');
     authorSpan.id = `modauthor-${mod.uid}`;
     flexContnainer.appendChild(authorSpan);
 
@@ -210,7 +217,7 @@ async function createMod(mod) {
     versionSpan.className = 'calibri';
     versionSpan.style.fontSize = fontSize + 'px';
     versionSpan.style.color = '#ffffff';
-    versionSpan.innerHTML = `${icon('change_history', fontSize + 'px')} ${(mod.version ? mod.version : await k('unknown'))}`;
+    setIconText(versionSpan, 'change_history', mod.version || "Unknown", fontSize + 'px');
     versionSpan.id = `modsize-${mod.uid}`;
     flexContnainer.appendChild(versionSpan);
 
@@ -224,7 +231,7 @@ async function createMod(mod) {
         mergeSpan.className = 'calibri';
         mergeSpan.style.fontSize = fontSize + 'px';
         mergeSpan.style.color = '#ffffff';
-        mergeSpan.innerHTML = `${icon('warning', fontSize + 'px')} ${await k('main_incompatiblemerge')}`;
+        setIconText(mergeSpan, 'warning', "This mod is incompatible with multiple mod support", fontSize + 'px');
         mergeSpan.id = `modmerge-${mod.uid}`;
         infoContainer.appendChild(mergeSpan);
     }
@@ -232,26 +239,33 @@ async function createMod(mod) {
     if (mod.variants != null) {
         let variantSelect = document.createElement('select');
         variantSelect.style.marginTop = '10px';
-        variantSelect.className = 'calibri';
-        variantSelect.style.backgroundColor = 'rgba(' + (prevalColor.r - 80) + ', ' + (prevalColor.g - 80) + ', ' + (prevalColor.b - 80) + ', 1)';
-        variantSelect.style.border = '1px solid rgba(' + prevalColor.r + ', ' + prevalColor.g + ', ' + prevalColor.b + ', 0.5)';
+        variantSelect.classList.add('variant-select');
+        variantSelect.classList.add('calibri');
+        variantSelect.style.backgroundColor = 'var(--theme-color-point3)';
+        variantSelect.style.border = '1px solid var(--theme-color-point2)';
         variantSelect.style.fontSize = fontSize + 'px';
+        variantSelect.style.width = '40%';
         variantSelect.style.color = '#ffffff';
         for (const variant of mod.variants) {
             let option = document.createElement('option');
             option.value = variant.filename;
             option.innerText = variant.name;
+            if (variant.filename == null || variant.filename == undefined || variant.name == null || variant.name == undefined) {
+                continue;
+            }
             variantSelect.appendChild(option);
         }
-        variantSelect.onchange = e => {
-            const selectedVariant = e.target.value;
-            window.electronAPI.invoke('setModVariant', [selectedVariant, mod.folder]);
-        };
-        variantSelect.value = mod._selectedVariant || mod.variants[0].filename;
-        if (mod._selectedVariant == null || !mod.variants.some(v => v.filename === mod._selectedVariant)) {
-            window.electronAPI.invoke('setModVariant', [mod.variants[0].filename, mod.folder]);
+        if (variantSelect.children.length != 0) {
+            variantSelect.onchange = e => {
+                const selectedVariant = variantSelect.value;
+                window.electronAPI.invoke('setModVariant', [selectedVariant, mod.folder]);
+            };
+            variantSelect.value = mod._selectedVariant || mod.variants[0].filename;
+            if (mod._selectedVariant == null || !mod.variants.some(v => v.filename === mod._selectedVariant)) {
+                window.electronAPI.invoke('setModVariant', [mod.variants[0].filename, mod.folder]);
+            }
+            infoContainer.appendChild(variantSelect);
         }
-        infoContainer.appendChild(variantSelect);
     }
 
     bigAhhContainer.appendChild(imageContainer);
@@ -268,7 +282,6 @@ async function createMod(mod) {
         enabled.type = 'checkbox';
         enabled.id = `modcheck-${mod.uid}`;
         enabled.checked = await window.electronAPI.invoke('getModState', [mod.uid]);
-        enabled.style.accentColor = `rgb(${prevalColor.r}, ${prevalColor.g}, ${prevalColor.b})`;
         enabled.onchange = e => {
             const c = e.target;
             const isEnabled = c.checked;
@@ -279,10 +292,6 @@ async function createMod(mod) {
         enabledContainer.appendChild(enabled);
     }
 
-    var cssStyle1 = `rgba(${prevalColor.r}, ${prevalColor.g}, ${prevalColor.b}, 0.2)`;
-    var cssStyle2 = `rgba(${prevalColor.r}, ${prevalColor.g}, ${prevalColor.b}, 0.1)`;
-    modNameContainer.style.background = `${cssStyle1}`;
-    enabledContainer.style.background = `${cssStyle2}`;
     modRow.appendChild(modNameContainer);
     modRow.appendChild(enabledContainer);
 
@@ -302,13 +311,13 @@ async function createErroringMods(errors) {
         element.className = "error-holder";
 
         const modId = document.createElement("span");
-        modId.innerHTML = `Mod ID '${err.mod}'`;
+        modId.textContent = `Mod ID '${String(err.mod || '')}'`;
         modId.style.fontSize = '20px';
         modId.style.color = '#888';
 
         const reasoning = document.createElement("span");
         reasoning.className = 'calibri';
-        reasoning.innerHTML = `${icon('warning', '20px')} ${err.reason}`;
+        setIconText(reasoning, 'warning', err.reason, '20px');
         reasoning.style.display = 'flex';
         reasoning.style.alignItems = 'center';
         reasoning.style.gap = '8px';
@@ -318,7 +327,7 @@ async function createErroringMods(errors) {
         selectSpan.className = 'calibri';
         selectSpan.style.marginTop = '18px';
         selectSpan.style.display = 'block';
-        selectSpan.innerText = await k('modFail_howtoproceed');
+        selectSpan.innerText = "How do you want to proceed?";
         
 
         const actionRow = document.createElement("div");
@@ -326,12 +335,12 @@ async function createErroringMods(errors) {
         {
             // Action Row
             const exploreBtn = document.createElement("button");
-            exploreBtn.innerText = await k("open_mod_folder");
+            exploreBtn.innerText = "Open mod folder";
             exploreBtn.onclick = () => window.electronAPI.invoke("openModFolder", [err.mod]);
             actionRow.appendChild(exploreBtn);
 
             const deleteBtn = document.createElement("button");
-            deleteBtn.innerText = await k("delete_mod");
+            deleteBtn.innerText = "Delete mod";
             deleteBtn.onclick = () => window.electronAPI.invoke("removeMod", [err.mod]);
             actionRow.appendChild(deleteBtn);
         }
@@ -365,19 +374,20 @@ function loadInst(index) {
     }
     let addedAuthors = [];
     for (const x of modList.filter(x => !x.isIncompatible)) {
-        if (window._pageArguments && window._pageArguments.sortid === "author" && !addedAuthors.includes(x.author[0] || 'Unknown Author')) {
+        const primaryAuthor = (Array.isArray(x.author) ? x.author[0] : x.author) || 'Unknown Author';
+        if (window._pageArguments && window._pageArguments.sortid === "author" && !addedAuthors.includes(primaryAuthor)) {
             // also create author tr
             var tr = document.createElement('tr');
             var td = document.createElement('td');
             td.colSpan = 3;
-            td.style.paddingLeft = '10px';
+            td.style.paddingLeft = '20px';
             td.style.fontSize = '18px';
             td.style.fontWeight = 'bold';
-            td.style.backgroundColor = '#222';
+            td.style.backgroundColor = 'rgba(40, 40, 40, 0.05)';
             td.style.color = '#fff';
-            td.innerText = await k('main_authorsortsub', ((x.author[0] || await k('unknown'))));
+            td.textContent = `Mods by ${primaryAuthor}`;
             tr.appendChild(td);
-            addedAuthors.push(x.author[0] || await k('unknown'));
+            addedAuthors.push(primaryAuthor);
             document.getElementById('modlist').appendChild(tr);
         }
         await createMod(x);
@@ -418,7 +428,7 @@ function loadInst(index) {
             rew();
             createErroringMods(errors);
         };
-        errorBanner.children[0].innerText = await k('modFail_bannerTitle', errors.length);
+        errorBanner.children[0].innerText = `${errors.length} mod(s) failed to load`;
         errorBanner.style.display = "inherit";
     } else errorBanner.style.display = "none";
 
@@ -426,17 +436,50 @@ function loadInst(index) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
         td.colSpan = 3;
-        td.innerHTML = await k('main_nocompatiblemods') + (modList.filter(x => x.isIncompatible).length != 0 ? '<br><small class="calibri" style="color: #888;">' + await k('main_incompatiblemodsfound', modList.filter(x => x.isIncompatible).length) + '</small>' : '');
-        td.style.paddingLeft = '10px';
-        tr.appendChild(td);
-        if ((await window.electronAPI.invoke('howManyMods', [])) == 0) {
-            let small = document.createElement('small');
-            var hasShop = await window.electronAPI.invoke('getUniqueFlag', ['SHOP']);
-            small.innerHTML = hasShop ? await k('main_wheremods_shop') : await k('main_wheremods_noshop');
-            small.style.color = '#888';
-            td.appendChild(document.createElement('br'));
-            td.appendChild(small);
+        td.className = 'empty-state-cell';
+
+        const state = document.createElement('div');
+        state.className = 'empty-state';
+        const stateIcon = document.createElement('img');
+        stateIcon.className = 'empty-state-icon';
+        stateIcon.setAttribute('aria-hidden', 'true');
+        stateIcon.src = './sbar/main.png';
+        stateIcon.alt = '';
+
+        const copy = document.createElement('div');
+        copy.className = 'empty-state-copy';
+        const heading = document.createElement('h2');
+        heading.innerText = 'Your patch list is ready';
+        const description = document.createElement('p');
+        description.innerText = 'Import a compatible mod package or browse the Mod Shop. Installed mods will appear here before anything touches the game files.';
+        copy.append(heading, description);
+
+        const incompatibleCount = modList.filter(x => x.isIncompatible).length;
+        if (incompatibleCount > 0) {
+            const detail = document.createElement('small');
+            detail.className = 'empty-state-detail';
+            detail.innerText = `${incompatibleCount} incompatible mod(s) are hidden for this installation.`;
+            copy.appendChild(detail);
         }
+
+        if ((await window.electronAPI.invoke('howManyMods', [])) == 0) {
+            const actions = document.createElement('div');
+            actions.className = 'empty-state-actions';
+            const shopButton = document.createElement('button');
+            shopButton.innerText = 'Browse Mod Shop';
+            shopButton.onclick = () => page('gamebanana-browse');
+            actions.appendChild(shopButton);
+            const importButton = document.createElement('button');
+            importButton.className = 'secondary-action';
+            importButton.innerText = 'Import mod package';
+            importButton.onclick = () => window.electronAPI.invoke('importMod', []);
+            actions.appendChild(importButton);
+            copy.appendChild(actions);
+        }
+
+        state.append(stateIcon, copy);
+        td.appendChild(state);
+        tr.appendChild(td);
         document.getElementById('modlist').appendChild(tr);
 
         //document.getElementById('par').innerText = 'Run without patches';
@@ -458,9 +501,9 @@ async function patchAndRun() {
         if (!goOn) break;
         if (noMergeMods.map(x => x.uid).includes(modId) && selectedMods.length > 1) {
             await htmlAlert(
-                await k('main_incompatiblesetting'),
-                await k('main_incompatiblemodTxt', noMergeMods.find(x => x.uid === modId).name),
-                [{ text: await k('ok'), resolveWith: 'ok' }],
+                "Incompatible setting detected",
+                `${noMergeMods.find(x => x.uid === modId).name} is not compatible with multiple mod support, but you have multiple mods selected. Please deselect other mods or this mod to continue.`,
+                [{ text: "Ok", resolveWith: 'ok' }],
                 'join'
             );
             goOn = false;
@@ -480,3 +523,4 @@ async function patchAndRun() {
 }
 
 window.currentPageStack.patchAndRun = patchAndRun;
+})();

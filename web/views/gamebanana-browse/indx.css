@@ -1,28 +1,26 @@
 .tspandiv {
-    background-color: rgba(0, 0, 0, 0.078);
-    padding-top: 10px;
-    padding-left: 20px;
-    padding-right: 20px;
-    padding-bottom: 10px;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 58px;
+    height: auto;
+    padding: 10px 12px;
     position: sticky;
-    top: 5px;
+    top: 0;
     display: flex;
     align-items: center;
-    justify-content: left;
+    justify-content: flex-start;
     gap: 10px;
-    left: 60px;
     z-index: 99;
-    margin-bottom: 20px;
-    border-radius: 10px;
-    backdrop-filter: blur(15px);
-    box-shadow: 0 0 10px var(--theme-color);
-    border: 1px solid var(--theme-color);
-    overflow: hidden;
+    margin-bottom: 14px;
+    border: 0;
+    border-radius: 22px;
+    background: rgba(8, 8, 8, 0.72);
+    backdrop-filter: blur(var(--panel-blur)) brightness(0.76);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
 }
 
 .serietast {
     padding: 8px;
-    transition: 0.5s all;
 }
 
 @keyframes imgFadeIn {
@@ -46,8 +44,9 @@
 
 #gbPic {
     cursor: pointer;
-    border-radius: 10px;
-    border: 1px solid var(--theme-color);
+    border: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.06);
 }
 
 .modAvatarImg {
@@ -58,8 +57,69 @@
     background-color: var(--theme-color);
 }
 
+.content-filter-label,
+.content-filter-status {
+    font-family: "Pixel", sans-serif;
+}
+
+.content-filter-label {
+    color: #ddd;
+    font-size: var(--font-size-meta);
+}
+
+#contentRatingFilter {
+    min-width: 150px;
+}
+
+.content-filter-status {
+    min-height: 1.25rem;
+    margin: 0 0 12px;
+    color: #ddd;
+}
+
+.content-rating-chip {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    margin-top: 6px;
+    padding: 3px 7px;
+    border: 0;
+    border-radius: 4px;
+    background: rgba(68, 48, 4, 0.78);
+    color: #ffe29a;
+    font-family: "Pixel", sans-serif;
+    font-size: var(--font-size-meta);
+}
+
+.modThumbImg,
+.modAvatarImg {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.shop-page table {
+    overflow: hidden;
+    background: rgba(8, 8, 8, 0.58);
+}
+
+.shop-page tbody tr {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 126px;
+}
+
+.shop-page tbody tr:hover > td {
+    background: rgba(255, 255, 255, 0.045);
+}
+
+.shop-page .modTitleSpan {
+    font-family: "Pixel", sans-serif;
+}
+
+.shop-page .modOtherInfoSpan {
+    font-family: "Calibri", sans-serif;
+}
+
 .tspandiv > button {
-    border-radius: 10px;
+    border-radius: 50%;
     width: 35px;
     height: 35px;
     display: flex;
@@ -72,7 +132,8 @@
     gap: 6px;
     padding: 4px;
     border-radius: 20px;
-    border: 1px solid var(--theme-color);
+    border: 0;
+    background: rgba(0, 0, 0, 0.24);
 }
 .bfgroup > button {
     border-radius: 50%;
@@ -82,29 +143,42 @@
     align-items: center;
     justify-content: center;
 }
-.sbag {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    opacity: 0.1;
-    scale: 2.7;
-    z-index: -1;
-    pointer-events: none;
-    user-select: none;
-}
-
 .smicon {
-    font-size: 15px;
+    font-size: 18px;
 }
 
 input {
     margin-bottom: 0 !important;
 }
-
 #searchInput {
+    width: calc(100% - 20px);
+    border: 0;
+    border-radius: 13px;
+}
+
+.autocomplete {
+    position: relative;
+    display: inline-block;
     width: 100%;
-    border-radius: 10px;
-    border: 1px solid var(--theme-color);
+
+    z-index: 100;
+}
+
+.autocomplete > .results {
+    transition: 150ms opacity;
+}
+
+.autocomplete > .results > .result {
+    width: auto;
+    background-color: rgba(40, 40, 40);
+    border: 0;
+    margin: 0;
+    padding: 10px 20px;
+    cursor: pointer;
+}
+
+.autocomplete > .results > .result:hover {
+    background-color: rgb(60, 60, 60);
 }
 
 .modAuthorAvatar {
@@ -113,4 +187,234 @@ input {
     border-radius: 50%;
     vertical-align: middle;
     margin-right: 6px;
+}
+
+.mod-image-lightbox {
+    width: min(1180px, calc(100vw - 48px));
+    height: min(820px, calc(100vh - 48px));
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    border-radius: var(--panel-radius);
+    background: rgb(10, 10, 10);
+    color: white;
+}
+
+.mod-image-lightbox::backdrop {
+    background: rgba(0, 0, 0, 0.82);
+    backdrop-filter: blur(4px);
+}
+
+.mod-image-lightbox-shell {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: 100%;
+}
+
+.mod-image-lightbox-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--panel-divider);
+    background: var(--panel-bg-strong);
+}
+
+.mod-image-lightbox-heading {
+    min-width: 0;
+}
+
+.mod-image-lightbox-heading h2 {
+    overflow: hidden;
+    margin: 0 0 3px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mod-image-lightbox-heading span {
+    color: var(--muted-text);
+}
+
+.mod-image-lightbox-controls {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.mod-image-lightbox-controls button,
+.mod-image-nav,
+.mod-image-lightbox-thumbnail {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mod-image-lightbox-controls button {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+}
+
+#modImageZoomLevel {
+    min-width: 48px;
+    color: var(--muted-text);
+    text-align: center;
+}
+
+.mod-image-lightbox-stage {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) 48px;
+    min-height: 0;
+    background: #050505;
+}
+
+.mod-image-nav {
+    width: 40px;
+    height: 64px;
+    align-self: center;
+    padding: 0;
+    margin: 4px;
+}
+
+.mod-image-lightbox-viewport {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    padding: 16px;
+}
+
+.mod-image-lightbox-viewport img {
+    display: block;
+    height: auto;
+    object-fit: contain;
+    image-rendering: auto;
+}
+
+.mod-image-lightbox-thumbnails {
+    display: flex;
+    gap: 8px;
+    min-height: 72px;
+    overflow-x: auto;
+    padding: 10px 14px;
+    border-top: 1px solid var(--panel-divider);
+    background: var(--panel-bg-strong);
+}
+
+.mod-image-lightbox-thumbnail {
+    flex: 0 0 auto;
+    width: 86px;
+    height: 50px;
+    padding: 2px;
+    border-color: transparent !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.mod-image-lightbox-thumbnail[aria-current="true"] {
+    box-shadow: inset 0 0 0 2px var(--theme-color);
+}
+
+.mod-image-lightbox-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.shop-page .modThumbImg {
+    border: 0 !important;
+    border-radius: 9px !important;
+    box-shadow: 0 5px 14px rgba(0, 0, 0, 0.24);
+}
+
+.shop-page .modThumbGrid img {
+    border: 0 !important;
+    border-radius: 5px !important;
+    opacity: 0.82;
+}
+
+.shop-page tbody td {
+    border-bottom-color: var(--panel-divider);
+}
+
+.shop-page .serietast {
+    display: inline-grid;
+    width: 36px;
+    height: 36px;
+    margin: 0 0 0 8px !important;
+    padding: 0;
+    place-items: center;
+    border-radius: 50%;
+    line-height: 0;
+}
+
+.shop-page .serietast:first-child {
+    margin-left: 0 !important;
+}
+
+.download-progress {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+}
+
+.download-progress::after {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 0;
+    width: var(--download-progress, 0%);
+    background: rgba(255, 255, 255, 0.22);
+    pointer-events: none;
+}
+
+.download-progress > * {
+    position: relative;
+    z-index: 1;
+}
+
+@media (max-width: 900px) {
+    .tspandiv {
+        flex-wrap: wrap;
+    }
+
+    .tspandiv .autocomplete {
+        order: 2;
+        flex-basis: calc(100% - 52px);
+    }
+
+    .shop-page .modThumbGrid {
+        display: none !important;
+    }
+
+    .shop-page .modThumbImg {
+        width: 112px !important;
+    }
+
+    .shop-page .modCopy {
+        min-width: 0;
+        margin-left: 2px !important;
+    }
+
+    .mod-image-lightbox {
+        width: calc(100vw - 20px);
+        height: calc(100vh - 20px);
+    }
+
+    .mod-image-lightbox-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .mod-image-lightbox-stage {
+        grid-template-columns: 40px minmax(0, 1fr) 40px;
+    }
+
+    .mod-image-nav {
+        width: 34px;
+        margin: 3px;
+    }
 }

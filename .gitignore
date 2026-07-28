@@ -19,3 +19,8 @@ tools/gitinstaller.exe
 tools/G3MTool.exe
 tools/G3MTool
 /G3MToolCLI
+/tools/*
+!/tools/G3MTool.provenance.json
+/test-results
+/playwright-report
+/.codex-run/

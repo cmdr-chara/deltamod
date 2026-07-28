@@ -1,3 +1,10 @@
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
 window.currentPageStack.init = function() {
     var white = document.createElement('div');
     white.style.position = 'absolute';
@@ -19,7 +26,7 @@ window.currentPageStack.init = function() {
 };
 
 var btn = document.getElementById('initbtn');
-let holdTimer;
+let holdTimer = 0;
 let holding = false;
 btn.addEventListener('mousedown', () => {
     holding = true;
@@ -45,3 +52,4 @@ setInterval(() => {
         window.currentPageStack.init();
     }   
 }, 100);
+})();

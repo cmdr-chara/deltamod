@@ -1,43 +1,69 @@
-<p align="center"><img width="200" alt="Deltamod" src="./web/img/gblogo-outline.png" /></p><p align="center"><b>A Deltarune mod manager, written in Node.js and Electron.</b> </p>
+<p align="center">
+  <img width="180" alt="Deltamod logo" src="./web/img/gblogo-outline.png">
+</p>
 
-# Running Deltamod from source
-## Script
-We have a custom script that you can run to install dependencies. Use `Run.cmd` or `Run-Linux.sh` to run the program. If it doesn't find an installation of Node or GM3P, it will prompt the user to download them.
-## Manual (not recommended)
-If the script doesn't work, follow these steps:
-- Download Node.js [here](https://nodejs.org/en).
-- Download the latest GM3P version for your system from [here](https://gamebanana.com/tools/20063) and extract it to the `gm3p` folder. If it doesn't exist, create the folder.
-- Now you can open your preferred command prompt and run `npm test` to run Deltamod.
+<h1 align="center">Deltamod Community</h1>
 
-<br />
+<p align="center">A community-maintained desktop mod manager for DELTARUNE and other supported GameMaker games.</p>
 
-# Building
-## Note
-<img width="128" align="left" src="https://github.com/user-attachments/assets/23c5d57c-56eb-4287-a0ec-14a4fca03d3d" />
-To package Deltamod 1.2 and upwards using the reccomended project file, you will need an <b>InstallBuilder</b> license. <br /> <br />We understand that using commercial products may be an hassle to people wanting to build Deltamod installers, however we need to do so as the product is robust and fixes many of the hassles of the legacy installer tech. <br /><br /><i>We do not condone piracy of said software; Deltamod's owner has a regular copy that the team generously gave us free of charge, for use in open source development of Deltamod.</i><br /><br /> If you need to compile Deltamod, we encourage you download their 30-day free trial at https://installbuilder.com/ or to write to <a href="mailto:sales@installbuilder.com">sales@installbuilder.com</a> to request an open source license like we did. No piracy!
+<p align="center">
+  <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?style=flat-square"></a>
+  <a href="./LICENSE.txt"><img alt="License: EUPL 1.2" src="https://img.shields.io/badge/license-EUPL--1.2-4c8bf5?style=flat-square"></a>
+</p>
 
-<br />
+<p align="center">
+  <a href="https://github.com/cmdr-chara/deltamod/releases">Download</a> ·
+  <a href="https://gamebanana.com/tools/20575">GameBanana</a> ·
+  <a href="https://github.com/cmdr-chara/deltamod/issues">Issues</a>
+</p>
 
-## Process
-- Open InstallBuilder Enterprise.
-- Click `Open` and choose the `project.xml` file.
-- In the same folder, download a .NET 8.0 installer and name it `dotnet.exe`.
-- Also download a GitSCM installer and name it `git.exe`.
-- Press Build to build your Deltamod installer.
-- You can find the output in Documents > InstallBuilder > output.
+Deltamod Community manages multiple game installations, imports local mods, browses compatible GameBanana releases, and applies selected patches transactionally before launch. It installs beside official Deltamod and uses a separate profile.
 
-## OS support
-|               | Windows       | Native Linux  | Native macOS | _macOS/Linux_ (w/ CrossOver or Wine) | _All OSes_ (w/ Windows emulation) |
-| ------------- |:-------------:|:-----:|:--------:|:--------------:|:-----------------:|
-| Officially released | ✅ | All versions before 1.2 | ❌ | ❌ | ✅ |
-| Tested by devs | ✅ | ⚠️ Only one dev | ❌ | ❌ | ⚠️ Should work |
-| Devs provide support | ✅ | ❌ | ❌ | ❌ | ✅ _(Specify if you are using emulation when reporting issues)_ |
-| Usable | ✅ | ⚠️ Requires Proton | ❌ | ✅ | ✅ |
-| Can _theoretically_ be exported to platform | ✅ | ✅ | ✅ |  ✅ | ✅ |
-| DELTARUNE supports | ✅ | ⚠️ Supported using Proton | ✅ | ✅ | ✅ |
-| Autoupdating | ✅ | ❌ | ❌ | ✅ | ✅ |
+Supported games: **DELTARUNE**, **DELTARUNE Demo**, **DELTARUNE Demo (LTS)**, **UNDERTALE**, **Undertale Yellow**, and **Pizza Tower**. Compatibility still depends on the game version and how each mod is packaged.
+
+## Platform status
+
+| Setup | Stability | Notes |
+| --- | --- | --- |
+| Windows | In stabilization | NSIS beta builds are intentionally unsigned; Windows may show an unknown-publisher warning |
+| Native Linux | Experimental | AppImage build; configurable Wine-compatible launcher |
+| Native macOS | Unsupported | No maintained native build |
+| Windows build through Wine/CrossOver | Unofficial | Generally usable; mention emulation when reporting issues |
+
+## Run from source
+
+Install [Node.js](https://nodejs.org/), clone the repository, and install its dependencies:
+
+```console
+git clone https://github.com/cmdr-chara/deltamod.git
+cd deltamod
+npm ci
+```
+
+Run the app and automated checks:
+
+```console
+npm run dev
+npm test
+npm run typecheck
+npm run security:audit
+```
+
+Patching uses the GPL-3.0-only [G3MTool](https://github.com/y114git/G3MTool) executable. `npm run acquire:g3mtool` downloads the pinned Windows or Linux archive, enforces its size and SHA-256 checksums, validates its contents, and installs it under the ignored `tools/g3mtool/` directory. Release builds also publish the exact corresponding G3MTool source archive. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+
+## Import from official Deltamod
+
+On first launch, Community detects the standard official profile and offers **Import from Deltamod**. It stages and validates the copy before committing it; the official profile is never modified. Settings provides the same action later for importing changes. Conflicting installations are copied separately, conflicting themes are renamed, and conflicting mod package IDs are quarantined for review. GameBanana may request a new login when credentials cannot be migrated securely.
+
+## Build
+
+| Target | Command | Output |
+| --- | --- | --- |
+| Windows x64 | `npm run build-windows` | NSIS installer |
+| Linux x64 | `npm run build-linux` | AppImage |
+
+Artifacts are written to `dist/` by Electron Builder. Tags named `community-v<package version>` run the unsigned beta release workflow and create a GitHub prerelease. It refuses to publish when tests, the production dependency audit, G3MTool provenance, or version matching fail. Authenticode signing can be enabled later for stable releases without changing the application data format.
 
 ## License
-The main Deltamod software is licensed under the EUPL (revision 1.2). You can read the license [here](./LICENSE.txt).<br />
 
-Some parts of this repository may not be authored by Deltamodders: in that case they are distributed with their respective license.
+Deltamod Community is licensed under the [European Union Public Licence 1.2](./LICENSE.txt). Third-party components retain their respective licenses.

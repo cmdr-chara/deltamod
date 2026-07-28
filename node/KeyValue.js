@@ -6,6 +6,7 @@ const { getSystemFile, getSystemFolder, healthCheck, getSystemFileOfIndex, getSy
 const { get } = require('http');
 const crypto = require('crypto');
 const console = require('./Console.js');
+const { readJsonSync, writeFileAtomicSync, writeJsonAtomicSync } = require('./storage/AtomicStore');
 
 function hash(str) {
     return crypto.createHash('sha256').update(str).digest('hex');
@@ -18,8 +19,7 @@ function retrieve() {
         console.log('Creating blank store');
         fs.writeFileSync(pathname, '{}');
     }
-    var raw = fs.readFileSync(pathname, 'utf8');
-    kvs = JSON.parse(raw.split('##')[0]);
+    kvs = readJsonSync(pathname, {});
     console.log('Store loaded')
     return true;
 }
@@ -29,14 +29,14 @@ function kvsFlush() {
     var exportedKVS = kvs;
     
     exportedKVS.version = 'DELTAMOD_DATA_'+require('../package.json').version;
-    fs.writeFileSync(pathname, JSON.stringify(exportedKVS, null, 2));
+    writeJsonAtomicSync(pathname, exportedKVS);
     console.log('Store flushed.');
     return true;
 }
 
 function kvsFlushIndex(obj, index) {
     var pathname = getSystemFileOfIndex('store.json', index);
-    fs.writeFileSync(pathname, JSON.stringify(obj, null, 2));
+    writeJsonAtomicSync(pathname, obj);
     console.log('Store flushed for index ' + index);
     return true;
 }
@@ -45,12 +45,12 @@ function writeUniqueFlag(name, val) {
     try {
         var database = getSystemFile('flagDB.config', true);
         if (!fs.existsSync(database)) {
-            fs.writeFileSync(database, defFDBMsg);
+            writeFileAtomicSync(database, defFDBMsg);
         }
         var databaseContent = fs.readFileSync(database, 'utf8');
         var lines = databaseContent.split('\n').filter(l => l.trim() != '' && !l.startsWith(name.toUpperCase() + ' = '));
         lines.push(name.toUpperCase() + ' = ' + (val ? '1' : '0'));
-        fs.writeFileSync(database, lines.join('\n'));
+        writeFileAtomicSync(database, lines.join('\n'));
         return true;
     }
     catch (e) {
@@ -63,7 +63,7 @@ function existsUniqueFlag(name) {
     try {
         var database = getSystemFile('flagDB.config', true);
         if (!fs.existsSync(database)) {
-            fs.writeFileSync(database, "");
+            writeFileAtomicSync(database, "");
         }
         var databaseContent = fs.readFileSync(database, 'utf8');
 
@@ -78,7 +78,7 @@ function readUniqueFlag(name) {
     try {
         var database = getSystemFile('flagDB.config', true);
         if (!fs.existsSync(database)) {
-            fs.writeFileSync(database, '');
+            writeFileAtomicSync(database, '');
         }
         var databaseContent = fs.readFileSync(database, 'utf8');
 
@@ -88,7 +88,7 @@ function readUniqueFlag(name) {
             return value.toLowerCase() == '1';
         }
         databaseContent += "\n" + name.toUpperCase() + " = 0";
-        fs.writeFileSync(database, databaseContent);
+        writeFileAtomicSync(database, databaseContent);
         return false;
     }
     catch (e) {
@@ -100,7 +100,7 @@ function readUniqueFlag(name) {
 function kvsWipe() {
     kvs = {};
     var pathname = getSystemFile('store.json', false);
-    fs.writeFileSync(pathname, '{}##' + hash('{}'));
+    writeJsonAtomicSync(pathname, {});
     console.log('Wiped store');
     return true;
 }
@@ -108,58 +108,6 @@ function kvsWipe() {
 function setKVS(name, value) {
     kvs[name] = value;
     kvsFlush();
-}
-
-function upgradeStores() {
-    try {
-        var oldStorePath = app.getPath('userData');
-
-        console.log('Checking for old stores to upgrade in ' + oldStorePath);
-
-        fs.readdirSync(oldStorePath).filter(f => f.startsWith('deltamod_system-')).forEach(file => {
-            if (file.endsWith('unique')) return;
-
-            var indx = file.split('-')[1];
-            console.log('Checking install index ' + indx);
-
-            // upgrade edition flag to gamePid
-            var fff = readKVSOfIndex('deltaruneEdition', indx, "none");
-            console.log('Found edition ' + fff + ' in index ' + indx);
-            if (fff != "rem") {
-                console.log('Upgrading index ' + indx);
-                var pid = "toby.deltarune.demo";
-                if (readKVSOfIndex('deltaruneEdition', indx, "n") == "full") {
-                    pid = "toby.deltarune";
-                }
-                setKVSOfIndex('gamePid', pid, indx);
-                setKVSOfIndex('deltaruneEdition', "rem", indx);
-                console.log('Upgraded index ' + indx);
-            }
-
-            // upgrade deltaruneInstall path to store
-            var gamePath = readKVSOfIndex('gamePath', indx, "none");
-            if (gamePath == "none") {
-                setKVSOfIndex('gamePath', path.join(getSystemFolderOfIndex('deltaruneInstall', indx)), indx);
-            }
-
-            // upgrade toby.deltarune.demo -> toby.deltarune.demolts if needed
-            var pid = readKVSOfIndex('gamePid', indx, "none");
-            var doneCheck = readKVSOfIndex('drDemoCheck', indx, "none");
-            if (pid == "toby.deltarune.demo" && doneCheck != "done") {
-                var gamePath = readKVSOfIndex('gamePath', indx, "none");
-                var checkpath = path.join(gamePath, "chapter1_windows");
-                if (fs.existsSync(checkpath) && fs.statSync(checkpath).isDirectory()) {
-                    setKVSOfIndex('gamePid', "toby.deltarune.demolts", indx);
-                    console.log('Upgraded gamePid for index ' + indx);
-                }
-
-                setKVSOfIndex('drDemoCheck', "done", indx);
-            }
-        });
-    }
-    catch (e) {
-        console.log('No old stores found to upgrade: ' + e);
-    }
 }
 
 function loadUniqueDefaults() {
@@ -181,7 +129,7 @@ function loadUniqueDefaults() {
 
 function setKVSOfIndex(name, value, index) {
     try {
-        var odb = JSON.parse(fs.readFileSync(getSystemFileOfIndex("store.json", index), 'utf8').split('##')[0]);
+        var odb = readJsonSync(getSystemFileOfIndex("store.json", index), {});
     }
     catch (e) {
         var odb = {};
@@ -191,8 +139,67 @@ function setKVSOfIndex(name, value, index) {
 }
 
 function readKVSOfIndex(name, index, defaultTo = null) {
-    var odb = JSON.parse(fs.readFileSync(getSystemFileOfIndex("store.json", index), 'utf8').split('##')[0]);
+    var odb = readJsonSync(getSystemFileOfIndex("store.json", index), {});
     return odb[name] ?? defaultTo;
+}
+
+function upgradeStores() {
+    try {
+        var oldStorePath = app.getPath('userData');
+
+        console.log('Checking for old stores to upgrade in ' + oldStorePath);
+
+        fs.readdirSync(oldStorePath).filter(f => f.startsWith('deltamod_system-')).forEach(file => {
+            if (file.endsWith('unique')) return;
+
+            var indx = file.split('-')[1];
+            console.log('Checking install index ' + indx);
+            var edi = readKVSOfIndex('deltaruneEdition', indx, "none");
+
+            console.log('Found edition ' + edi + ' in index ' + indx);
+            if (edi != "rem") {
+                console.log('Upgrading index ' + indx);
+                var pid = "toby.deltarune.demo";
+                if (readKVSOfIndex('deltaruneEdition', indx, "n") == "full") {
+                    pid = "toby.deltarune";
+                }
+                setKVSOfIndex('gamePid', pid, indx);
+                setKVSOfIndex('deltaruneEdition', "rem", indx);
+                console.log('Upgraded index ' + indx + ' (Edition => GAMEID)');
+                return;
+            }
+
+            function scanFolderRecursively(folder) {
+                fs.readdirSync(folder).forEach(file => {
+                    var fullPath = path.join(folder, file);
+                    const stats = fs.lstatSync(fullPath);
+                    if (stats.isSymbolicLink()) return;
+                    if (stats.isDirectory()) {
+                        scanFolderRecursively(fullPath);
+                    }
+                    else if (
+                        stats.isFile()
+                        && stats.nlink === 1
+                        && file.endsWith('.hash')
+                        && /^[a-f0-9]{64}$/i.test(fs.readFileSync(fullPath, 'utf8').trim())
+                    ) {
+                        console.log('Found hash file: ' + fullPath);
+                        fs.rmSync(fullPath);
+                    }
+                });
+            }
+
+            var gpath = getSystemFolderOfIndex('', indx);
+            console.log('Scanning for .hash files in ' + gpath);
+
+            scanFolderRecursively(getSystemFolderOfIndex('', indx));
+
+            console.log('Finished upgrading index ' + indx);
+        });
+    }
+    catch (e) {
+        console.log('No old stores found to upgrade: ' + e);
+    }
 }
 
 function readKVS(name, defaultTo = null) {
@@ -207,9 +214,9 @@ module.exports = {
     readUniqueFlag,
     kvsWipe,
     setKVS,
-    upgradeStores,
     setKVSOfIndex,
     readKVSOfIndex,
     readKVS,
     loadUniqueDefaults,
+    upgradeStores
 };

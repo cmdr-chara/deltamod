@@ -1,101 +1,209 @@
-@keyframes scale-easeOutElastic {
-	0% {
-		transform: scale(1);
-	}
-
-	16% {
-		transform: scale(1.384);
-	}
-
-	28% {
-		transform: scale(1.174);
-	}
-
-	44% {
-		transform: scale(1.226);
-	}
-
-	59% {
-		transform: scale(1.192);
-	}
-
-	73% {
-		transform: scale(1.208);
-	}
-
-	88% {
-		transform: scale(1.2);
-	}
-
-	100% {
-		transform: scale(1.2);
-	}
+.options-layout {
+    display: grid;
+    grid-template-columns: minmax(240px, 290px) minmax(0, 1fr);
+    align-items: start;
+    gap: 22px;
 }
 
-tr {
-       transition: 0.1s all; 
-    }
-    tr:hover {
-        background-color: rgba(124,124,124, 0.2);
-    }
-    td, th:not(.center) {
-        text-align: left;
-    }
-    .center {
-        text-align: center;
-    }
-    .blur {
-       opacity: 0.5;
-       filter: grayscale(50%)
-    }
-    .input {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-    input[type="checkbox"] {
-        width: 20px;
-        height: 20px;
-        cursor: pointer;
-    }
-    .cat > button:not(.back) {
-        cursor: pointer;
-        width: 100%;
-    }
-    th {
-        height: 100%;
-    }
-    /* No seriously, why doesn't b work??? */
-    b {
-        font-weight: bold !important;
+.options-page {
+    position: relative;
+    isolation: isolate;
+}
+
+.options-page > *:not(.ingranaggio) {
+    position: relative;
+    z-index: 1;
+}
+
+.ingranaggio {
+    position: absolute;
+    top: 34px;
+    left: -175px;
+    z-index: 0;
+    color: rgba(255, 255, 255, 0.12);
+    line-height: 0;
+    pointer-events: none;
+    user-select: none;
+    animation: ingranaggioRotate 22s linear infinite;
+}
+
+.ingranaggio > span {
+    font-size: 520px;
+}
+
+@keyframes ingranaggioRotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.window-inactive .ingranaggio {
+    animation-play-state: paused;
+}
+
+.options-page .opt {
+    min-width: 0;
+}
+
+.options-page .setting-title {
+    font-family: "Pixel", sans-serif;
+}
+
+.options-page tbody small {
+    color: var(--muted-text);
+    line-height: 1.35;
+}
+
+.options-page #modtable {
+    table-layout: fixed;
+}
+
+.viewport #modtable tr {
+    transition: background-color 0.1s ease;
+}
+
+.viewport #modtable tr:hover {
+    background-color: rgba(124, 124, 124, 0.2);
+}
+
+.viewport #modtable td,
+.viewport #modtable th:not(.center) {
+    text-align: left;
+}
+
+.options-page #modtable tbody tr:not(:last-child) {
+    box-shadow: inset 0 -1px 0 var(--panel-divider);
+}
+
+.options-page #modtable tbody td {
+    border-bottom: 0;
+}
+
+.viewport #modtable .center {
+    text-align: center;
+}
+
+.viewport .cat > button.blur {
+    opacity: 0.5;
+    filter: grayscale(50%);
+}
+
+.setting-control {
+    display: flex;
+    width: 100%;
+    min-height: 34px;
+    align-items: center;
+    justify-content: center;
+}
+
+.setting-control-cell {
+    display: table-cell;
+    width: 22%;
+    min-width: 130px;
+    vertical-align: middle;
+}
+
+.setting-control select {
+    width: min(180px, 100%);
+    margin: 0;
+}
+
+.viewport input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.viewport .cat > button:not(.back) {
+    cursor: pointer;
+    width: 100%;
+}
+
+.viewport #modtable th {
+    height: 100%;
+}
+
+.viewport #modtable b {
+    font-weight: bold !important;
+}
+
+.viewport .cat {
+    background: var(--panel-bg);
+    width: auto;
+    padding: 12px;
+    margin-top: 0px;
+    border: 0;
+    border-radius: var(--panel-radius);
+    backdrop-filter: blur(var(--panel-blur)) brightness(0.76);
+}
+
+.viewport .cat > button.selected {
+    padding-left: 16px !important;
+    transform: none;
+    opacity: 1;
+    filter: none;
+    background: var(--theme-color) !important;
+    box-shadow: none;
+}
+
+.viewport .cat > button {
+    padding: 9px 12px;
+    padding-left: 12px;
+    text-align: left;
+    border-radius: 13px;
+    transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.viewport .cat > button:not(:last-child) {
+    margin-bottom: 10px;
+}
+
+.profile-import-progress {
+    display: grid;
+    gap: 8px;
+    min-width: 220px;
+}
+
+.profile-import-progress progress {
+    width: 100%;
+}
+
+.profile-destination-row > td {
+    vertical-align: top;
+}
+
+.profile-destination-path {
+    display: block;
+    max-width: 100%;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    white-space: normal;
+}
+
+@media (max-width: 900px) {
+    .options-layout {
+        grid-template-columns: 1fr;
     }
 
-    .cat {
-        background: rgba(0, 0, 0, 0.299);
-        width: 30%;
-        height: 100%;
-        padding: 15px;
-        margin-top: 0px;
-        border: 2px solid var(--theme-color);
-        border-radius: 10px;
-        box-shadow: 0 0 10px var(--theme-color);
-        backdrop-filter: blur(10px);
+    .viewport .cat {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
     }
 
-    .selected {
-        scale: 1.4;
-        padding-left: 19px !important;
-        transform: rotate(2deg);
-        box-shadow: 0 0 10px var(--theme-color);
+    .viewport .cat > button:not(:last-child) {
+        margin-bottom: 0;
     }
-    .cat > button {
-        padding: 7px;
-        
-        padding-left: 12px;
-        text-align: left;
+}
 
-        transition: 0.6s all cubic-bezier(0.16, 1, 0.3, 1);
+@media (prefers-reduced-motion: reduce) {
+    .viewport .cat > button,
+    .viewport #modtable tr {
+        transition: none;
     }
-    .cat > button:not(:last-child) {
-        margin-bottom: 10px;
+
+    .ingranaggio {
+        animation: none;
+        transform: rotate(18deg);
     }
+}

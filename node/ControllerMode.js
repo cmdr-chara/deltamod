@@ -1,4 +1,5 @@
-const { exec } = require('child_process');
+const { spawn } = require('child_process');
+const path = require('path');
 
 var proc;
 var running = false;
@@ -7,8 +8,20 @@ function start() {
     if (running) return;
 
     running = true;
-    var exepath = require('path').join(__dirname, '../', 'tools', 'cmodeutil.exe');
-    proc = require('child_process').exec('cmd /c "' + exepath + '"');
+    const exepath = path.join(__dirname, '..', 'tools', 'cmodeutil.exe');
+    proc = spawn(exepath, [], {
+        windowsHide: true,
+        shell: false,
+        stdio: 'ignore'
+    });
+    proc.once('error', () => {
+        running = false;
+        proc = null;
+    });
+    proc.once('close', () => {
+        running = false;
+        proc = null;
+    });
 }
 
 function stop() {
@@ -16,9 +29,10 @@ function stop() {
     
     running = false;
     try {
-        exec('taskkill /IM cmodeutil.exe /f /t');
+        proc?.kill();
     }
     catch (e) {}
+    proc = null;
 }
 
 module.exports = {

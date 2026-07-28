@@ -1,12 +1,5 @@
-const execSync = require('child_process').execSync;
-const path = require('path');
 const console = require('./Console.js');
-const fs = require('fs')
-const os = require('os');
-
-function betweenDoubleQuotes(str) {
-    return `"${str}"`;
-}
+const fs = require('fs');
 
 function createJunction(target, path) {
     console.log(`Creating junction from ${path} to ${target}`);
@@ -30,16 +23,10 @@ function deleteJunction(path) {
 
 function isJunction(path) {
     try {
-        const output = execSync(JUNCTION_EXE_PATH, ['-accepteula', '-nobanner', betweenDoubleQuotes(path)], { encoding: 'utf8' });
-        return output.includes('Junction');
-    } catch (error) {
+        return fs.lstatSync(path).isSymbolicLink();
+    } catch {
         return false;
     }
-}
-
-function isJunction(path) {
-    const stats = fs.lstatSync(path);
-    return stats.isSymbolicLink()
 }
 
 module.exports = {

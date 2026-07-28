@@ -1,11 +1,45 @@
-Now supports other games, Addition
-New themes, Addition
-A refactored UI, Overhaul
-New original icons and new original music, Overhaul
-GM3P issues were fixed, Bugfix
-Fixed numerous minor UI bugs, Bugfix
-You can now toggle on hashing checks, Addition
-Select games can be downloaded directly via Deltamod, Addition
-Better error descriptions, Overhaul
-Mod Shop can be toggled off, Addition
-Partial custom themes support, Addition
+Deltamod Community 2.0.3-beta.1
+2026-07-28
+
+This is an unsigned prerelease. Windows may show an unknown-publisher warning.
+
+Added
+- Separate Deltamod Community identity, protocol, update channel, and data directory.
+- Guided import of compatible official Deltamod profiles with staging, validation,
+  progress, cancellation, manifests, and conflict handling.
+- Transaction journals and rollback for patch operations.
+- GameBanana content-rating filters, resilient images, safer downloads, and
+  in-app image viewing.
+- Keyboard zoom controls and additional empty, error, progress, and repair states.
+- Windows NSIS and experimental Linux AppImage packaging through Electron Builder.
+
+Changed
+- Restored the original game-inspired visual structure while improving readability,
+  alignment, spacing, focus states, and reduced-motion behavior.
+- Replaced the website updater with fork-owned GitHub prereleases.
+- Pinned G3MTool 1.2.5 to official GPL-3.0-only release archives with size,
+  archive, and executable verification.
+- Renamed the interactive development command to `npm run dev`; `npm test` now
+  runs the automated test suite.
+
+Fixed
+- Removed the hidden GameBanana submission blacklist.
+- Corrected installation validation, staged copying, atomic JSON storage, and
+  interrupted-operation cleanup.
+- Corrected GameBanana comment failure handling, download containment, and
+  long-path presentation.
+- Corrected Options category overlap, table alignment, action-button centering,
+  excessive animation, and several small-window layout failures.
+
+Security
+- Enabled renderer context isolation and sandboxing with a restrictive CSP.
+- Replaced unrestricted renderer IPC access with allowlisted preload APIs and
+  validated main-process requests.
+- Added path, archive, protocol, image, redirect, and download containment checks.
+- GameBanana credentials are not stored as plaintext.
+- Production dependency audit currently reports zero known vulnerabilities.
+
+Known limitations
+- Windows builds are intentionally unsigned during the beta period.
+- Native Linux support remains experimental.
+- GameBanana may require login again after importing an official profile.

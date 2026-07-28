@@ -1,15 +1,27 @@
-<div>
+<div class="content-page shop-page">
     <div class="tspandiv">
         <img src="" alt="" width="32" height="32" id="gbPic">
-        <button onclick="page('')">
+        <button onclick="page('')" title="Return to the first Mod Shop page" aria-label="Return to the first Mod Shop page">
             <span class="material-symbols-outlined smicon">home</span>
         </button>
-        <input type="text" id="searchInput" placeholder="$$shop_search$$">
-        <button onclick="window.currentPageStack.search()">
+        <div class="autocomplete">
+            <input type="text" id="searchInput" placeholder="Search for mods...">
+            <div class="results" style="opacity: 0; pointer-events: none;">
+
+            </div>
+        </div>
+        <button onclick="window.currentPageStack.search()" title="Search mods" aria-label="Search mods">
             <span class="material-symbols-outlined smicon">search</span>
         </button>
+        <label class="content-filter-label" for="contentRatingFilter">Content</label>
+        <select id="contentRatingFilter" title="Filter GameBanana content ratings">
+            <option value="all">Show all</option>
+            <option value="unrated">Hide content-rated</option>
+            <option value="rated">Only content-rated</option>
+        </select>
     </div>
     <p id="searchInd" style="display: none; font-style: italic !important;"></p>
+    <p id="contentFilterStatus" class="calibri content-filter-status" aria-live="polite"></p>
     <table>
         <colgroup>
             <col style="width: calc(100% - 200px);">
@@ -17,15 +29,15 @@
         </colgroup>
         <tr>
             <th>
-                $$mod$$
+                Mod
             </th>
             <th>
-                $$download$$
+                Download
             </th>
         </tr>
         <tbody id="modsBody">
             <tr>
-                <td colspan="2" style="text-align: center;">$$loading$$</td>
+                <td colspan="2" style="text-align: center;">Loading...</td>
             </tr>
         </tbody>
     </table>
@@ -33,7 +45,44 @@
         <div class="loadingBar"></div>
     </div>
 </div>
+<dialog id="modImageLightbox" class="mod-image-lightbox" aria-labelledby="modImageLightboxTitle">
+    <div class="mod-image-lightbox-shell">
+        <header class="mod-image-lightbox-header">
+            <div class="mod-image-lightbox-heading">
+                <h2 id="modImageLightboxTitle">Image preview</h2>
+                <span id="modImageLightboxCounter" class="calibri"></span>
+            </div>
+            <div class="mod-image-lightbox-controls" aria-label="Image controls">
+                <button type="button" id="modImageZoomOut" title="Zoom out" aria-label="Zoom out">
+                    <span class="material-symbols-outlined">zoom_out</span>
+                </button>
+                <output id="modImageZoomLevel" class="calibri" aria-live="polite">100%</output>
+                <button type="button" id="modImageZoomIn" title="Zoom in" aria-label="Zoom in">
+                    <span class="material-symbols-outlined">zoom_in</span>
+                </button>
+                <button type="button" id="modImageZoomReset" title="Reset zoom" aria-label="Reset zoom">
+                    <span class="material-symbols-outlined">fit_screen</span>
+                </button>
+                <button type="button" id="modImageLightboxClose" title="Close image preview" aria-label="Close image preview">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+        </header>
+        <div class="mod-image-lightbox-stage">
+            <button type="button" id="modImagePrevious" class="mod-image-nav" title="Previous image" aria-label="Previous image">
+                <span class="material-symbols-outlined">chevron_left</span>
+            </button>
+            <div id="modImageViewport" class="mod-image-lightbox-viewport">
+                <img id="modImageLightboxImage" src="" alt="">
+            </div>
+            <button type="button" id="modImageNext" class="mod-image-nav" title="Next image" aria-label="Next image">
+                <span class="material-symbols-outlined">chevron_right</span>
+            </button>
+        </div>
+        <div id="modImageLightboxThumbnails" class="mod-image-lightbox-thumbnails" aria-label="Image thumbnails"></div>
+    </div>
+</dialog>
 JSL
 STYLESHEET[indx]
 AUDIO[views/gamebanana-browse/leshop.mp3]
-TITLEKEY[gamebananaBrowseTitle]
+TITLE[Mod Shop]

@@ -1,56 +1,81 @@
-const https = require('https');
+const { app } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const console = require('./Console.js');
-const { version } = require('os');
+const { isNewerVersion } = require('./updates/Versioning');
 
-function httpsPromisify(params) {
-    return new Promise((resolve, reject) => {
-        https.get(params, (res) => {
-            let data = '';
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            res.on('end', () => {
-                resolve(data);
-            });
-        }).on('error', (err) => {
-            reject(err);
-        });
-    });
+let configured = false;
+
+function configureUpdater() {
+    if (configured) return;
+    configured = true;
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.allowPrerelease = app.getVersion().includes('-');
+    autoUpdater.logger = {
+        info: (...args) => console.log('[UPDATER]', ...args),
+        warn: (...args) => console.warn('[UPDATER]', ...args),
+        error: (...args) => console.error('[UPDATER]', ...args),
+        debug: (...args) => console.log('[UPDATER/DEBUG]', ...args)
+    };
 }
 
 async function checkUpdates() {
+    configureUpdater();
+    if (!app.isPackaged) {
+        return {
+            update: false,
+            version: app.getVersion(),
+            releaseName: null,
+            reason: 'development-build'
+        };
+    }
+
     try {
-        var URL = "https://gamebanana.com/apiv11/Tool/20575/ProfilePage";
-        var DATA = await JSON.parse(await httpsPromisify(URL));
-        var ARTIFACT_NEEDED = process.platform === 'win32' ? 'A' : process.platform === 'linux' ? 'C' : 'U';
-        var VERSION = require('../package.json').version;
+        const result = await autoUpdater.checkForUpdates();
+        const version = result?.updateInfo?.version || app.getVersion();
+        return {
+            update: isNewerVersion(version, app.getVersion(), {
+                allowPrerelease: autoUpdater.allowPrerelease
+            }),
+            version,
+            releaseName: result?.updateInfo?.releaseName || null
+        };
+    } catch (error) {
+        console.warn('Failed to check Community GitHub releases:', error.message);
+        return {
+            update: false,
+            version: app.getVersion(),
+            releaseName: null,
+            reason: 'check-failed'
+        };
     }
-    catch (e) {
-        console.warn("Failed to check for updates");
-        return {update: false, newVersionLink: null, version: null};
+}
+
+async function downloadUpdate(onProgress) {
+    configureUpdater();
+    const progressListener = progress => onProgress?.({
+        operationId: 'community-update',
+        phase: 'download',
+        completed: progress.transferred,
+        total: progress.total,
+        currentItem: progress.bytesPerSecond,
+        percentage: progress.percent
+    });
+    autoUpdater.on('download-progress', progressListener);
+    try {
+        return await autoUpdater.downloadUpdate();
+    } finally {
+        autoUpdater.removeListener('download-progress', progressListener);
     }
+}
 
-    if (VERSION.includes("DiscordPreview")) {
-        console.warn("You are using a Discord Preview build. Auto-updates are disabled.");
-        return {update: false, newVersionLink: null, version: null};
-    }
-
-    if (ARTIFACT_NEEDED === 'C') {
-        console.warn("Auto-updates are not supported on Linux. Please check https://github.com/deltamodders/deltamod for updates.");
-        return {update: false, newVersionLink: null, version: null};
-    }
-
-    var versionOffline = VERSION + ARTIFACT_NEEDED;
-    var versionOnline = DATA._aFiles.find(f => f._sVersion.toLowerCase().endsWith(ARTIFACT_NEEDED.toLowerCase()));
-
-    if (versionOffline.toLowerCase() !== versionOnline._sVersion.toLowerCase()) {
-        console.warn(`A new version is available: ${versionOnline._sVersion} (You have ${versionOffline})`);
-        return {update: true, newVersionLink: versionOnline._sDownloadUrl.replace("/dl/", "/mmdl/"), version: versionOnline._sVersion.replace(ARTIFACT_NEEDED, '')};
-    }
-
-    return {update: false, newVersionLink: null, version: null};
+function installUpdate() {
+    configureUpdater();
+    autoUpdater.quitAndInstall(false, true);
 }
 
 module.exports = {
-    checkUpdates
+    checkUpdates,
+    downloadUpdate,
+    installUpdate
 };

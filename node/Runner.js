@@ -2,25 +2,40 @@ const { app, BrowserWindow, dialog, protocol, session, shell, screen, Menu } = r
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
 const { getConfig, config } = require('7zip-min');
 const { path7za } = require('7zip-bin');
+
+const PRODUCT_NAME = 'Deltamod Community';
+const PROTOCOL_SCHEME = 'deltamod-community';
+app.setName(PRODUCT_NAME);
+if (process.env.DELTAMOD_TEST === '1' && process.env.DELTAMOD_TEST_USER_DATA) {
+    const isolatedAppData = path.join(path.resolve(process.env.DELTAMOD_TEST_USER_DATA), 'appData');
+    fs.mkdirSync(isolatedAppData, { recursive: true });
+    app.setPath('appData', isolatedAppData);
+}
+const communityDataPath = process.env.DELTAMOD_TEST === '1' && process.env.DELTAMOD_TEST_USER_DATA
+    ? path.resolve(process.env.DELTAMOD_TEST_USER_DATA)
+    : path.join(app.getPath('appData'), PRODUCT_NAME);
+fs.mkdirSync(communityDataPath, { recursive: true });
+app.setPath('userData', communityDataPath);
 
 // Local modules
 const Paths = require('./Paths');
 const KeyValue = require('./KeyValue');
-const Language = require('./Language');
 const { getSystemFile, setSystemIndex } = require('./System');
 const System = require('./System');
 const { setWindow, page, between } = require('./Utils');
 const CMode = require('./ControllerMode');
 const GamePatching = require('./GamePatching');
+const ProfileMigration = require('./ProfileMigration');
 const Netlayer = require('./Netlayer');
+const { writeFileAtomicSync } = require('./storage/AtomicStore');
 const console = require('./Console');
 const { handleProtocolLaunch, registerProtocolSchemesAsPrivileged, registerProtocolHandlers } = require('./Protocol');
 const { isFeatureEnabled } = require('./FeatureFlags');
 const { PARTITION } = require('./Config');
 const registerIPCHandlers = require('./IPCHandlers');
+const { registerWindowZoomShortcuts } = require('./WindowZoom');
 
 // --- Global Setup & State ---
 let win;
@@ -48,19 +63,10 @@ if (process.argv.includes('--developer') && !isFeatureEnabled("AutoupdateNoMatte
 
 if (process.defaultApp) {
     if (process.argv.length >= 2) {
-        app.setAsDefaultProtocolClient('deltamod', process.execPath, [path.resolve(process.argv[1])]);
+        app.setAsDefaultProtocolClient(PROTOCOL_SCHEME, process.execPath, [path.resolve(process.argv[1])]);
     }
 } else {
-    app.setAsDefaultProtocolClient('deltamod');
-}
-
-// --- Setup Language ---
-const langFile = System.getSystemFile('language', true);
-if (fs.existsSync(langFile)) {
-    Language.loadLanguage(fs.readFileSync(langFile, 'utf8'));
-} else {
-    Language.loadLanguage('en');
-    fs.writeFileSync(langFile, 'en', 'utf8');
+    app.setAsDefaultProtocolClient(PROTOCOL_SCHEME);
 }
 
 // --- Utilities ---
@@ -104,46 +110,10 @@ function asyncTimeout(amount) {
  * Clears the standard console and prints the ASCII logo and current version.
  */
 function writeTopPart() {
-    process.stdout.write('\x1b]0;Deltamod\x07');
+    process.stdout.write(`\x1b]0;${PRODUCT_NAME}\x07`);
     console.clear();
     process.stdout.write(`${fs.readFileSync(path.join(__dirname, '..', 'ascii.txt'), 'utf8')}\r\n\r\n`);
     process.stdout.write(`[ version ${app.getVersion()} ]\r\n\r\n`);
-}
-
-/**
- * Detects and kills active patcher processes on Windows to prevent lock conflicts during startup.
- */
-function killConflictProcesses() {
-    if (process.platform !== 'win32') return;
-
-    try {
-        const procs = execSync('tasklist', { encoding: 'utf8' }).toLowerCase();
-        const found = [];
-        if (procs.includes('gm3p.exe')) found.push('GM3P.exe');
-        if (procs.includes('gamemakermodmerger.exe')) found.push('GamemakerModMerger.exe');
-        if (procs.includes('g3mtool.exe')) found.push('G3MTool.exe');
-
-        if (found.length > 0) {
-            const res = dialog.showMessageBoxSync({
-                type: 'warning',
-                title: 'Close running processes',
-                message: `Deltamod detected these running process${found.length > 1 ? 'es' : ''}: ${found.join(', ')}.\n\nPlease close them before opening Deltamod as when the app closes these may terminate.`,
-                buttons: ['Kill them for me', 'Close the app', 'Ignore (may cause issues)'],
-            });
-
-            if (res === 0) {
-                if (found.includes('GM3P.exe')) execSync('taskkill /IM GM3P.exe /F', { stdio: 'ignore' });
-                if (found.includes('GamemakerModMerger.exe')) execSync('taskkill /IM GamemakerModMerger.exe /F', { stdio: 'ignore' });
-                if (found.includes('G3MTool.exe')) execSync('taskkill /IM G3MTool.exe /F', { stdio: 'ignore' });
-                console.log('Conflict processes terminated.');
-            } else if (res === 1) {
-                app.quit();
-                process.exit(0);
-            }
-        }
-    } catch (e) {
-        console.warn('Process-check wrapper failed:', e?.message || e);
-    }
 }
 
 /**
@@ -198,10 +168,9 @@ function flattenInto(dest, wrapper) {
  */
 function createWindow() {
     writeTopPart();
-    killConflictProcesses();
-    
-    KeyValue.upgradeStores();
+
     KeyValue.loadUniqueDefaults();
+    KeyValue.upgradeStores();
     config({ ...getConfig(), binaryPath: path7za });
     try { System.clearTemporary(); } catch (e) { console.error(e); }
 
@@ -209,14 +178,18 @@ function createWindow() {
     if (sysArg) {
         try {
             const val = sysArg.split('=')[1];
-            if (/^-?\d+$/.test(val)) fs.writeFileSync(getSystemFile('_sysindex', true), val, 'utf8');
+            if (/^\d+$/.test(val)) writeFileAtomicSync(getSystemFile('_sysindex', true), val);
         } catch {}
     }
 
     const partOverride = getSystemFile('_sysindex', true);
     if (fs.existsSync(partOverride)) {
-        const overrideData = fs.readFileSync(partOverride, 'utf8');
-        if (parseInt(overrideData, 10) < 0) console.error('The specified installation is invalid.');
+        let overrideData = fs.readFileSync(partOverride, 'utf8');
+        if (!/^\d+$/.test(overrideData) || !fs.existsSync(path.join(app.getPath('userData'), 'deltamod_system-' + overrideData))) {
+            console.error('The specified installation (' + overrideData + ') is invalid.');
+            overrideData = '0';
+            writeFileAtomicSync(partOverride, overrideData);
+        }
         setSystemIndex(overrideData);
     } else {
         setSystemIndex('0');
@@ -224,11 +197,13 @@ function createWindow() {
 
     registerProtocolHandlers(session.fromPartition(PARTITION));
 
-    const unmetConditions = require('./RunConditions.js').checkConditions();
+    const unmetConditions = process.env.DELTAMOD_TEST === '1'
+        ? []
+        : require('./RunConditions.js').checkConditions();
     if (unmetConditions.length > 0) {
         const requiredUnmet = unmetConditions.filter(c => c.required);
         if (requiredUnmet.length > 0) {
-            dialog.showMessageBoxSync({ type: 'error', title: 'PC Requirements Not Met', message: `Missing requirements:\n${requiredUnmet.map(n => n.name).join('\n')}\n\nDeltamod will not run.` });
+            dialog.showMessageBoxSync({ type: 'error', title: 'PC Requirements Not Met', message: `Missing requirements:\n${requiredUnmet.map(n => n.name).join('\n')}\n\nDeltamod Community will not run.` });
             return app.exit(1);
         } else {
             dialog.showMessageBoxSync({ type: 'warning', title: 'PC Requirements Not Met', message: `Missing suggested requirements:\n${unmetConditions.map(n => n.name).join('\n')}\n\nYou might experience issues.` });
@@ -239,15 +214,24 @@ function createWindow() {
     
     KeyValue.retrieve();
     win = new BrowserWindow({
-        width: bounds.width * 0.4,
-        height: bounds.height * 0.7,
+        width: 900,
+        height: 600,
         resizable: true,
         frame: false,
         fullscreen: isControllerMode,
-        webPreferences: { nodeIntegration: true, partition: PARTITION, preload: Paths.file('web', 'preload.js') }
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+            spellcheck: false,
+            safeDialogs: true,
+            partition: PARTITION,
+            preload: Paths.file('web', 'preload.js')
+        }
     });
 
     setWindow(win);
+    registerWindowZoomShortcuts(win);
 
     // --- Inject State and Register IPC Handlers ---
     registerIPCHandlers({
@@ -262,7 +246,7 @@ function createWindow() {
         CMode.start();
         win.setMenu(Menu.buildFromTemplate([
             { label: 'View', submenu: [
-                { label: 'Exit Controller Mode', accelerator: 'F11', click: () => win.webContents.executeJavaScript('promptLeaveCMode()') },
+                { label: 'Exit Controller Mode', accelerator: 'F11', click: () => win.webContents.send('leave-controller-mode') },
                 { label: 'Toggle Developer Tools', accelerator: 'F12', click: () => { if (isDevToolsEnabled) win.webContents.toggleDevTools(); } }
             ]}
         ]));
@@ -281,7 +265,7 @@ function createWindow() {
 
     win.on('resized', () => {
         let [w, h] = win.getSize();
-        if (w < 800) w = 800;
+        if (w < 900) w = 900;
         if (h < 600) h = 600;
         win.setSize(w, h);
         win.webContents.send('winResAlert', []);
@@ -290,7 +274,11 @@ function createWindow() {
     if (!isDevToolsEnabled) win.setMenu(null);
     win.webContents.on('devtools-opened', () => { if (!isDevToolsEnabled) win.webContents.closeDevTools(); });
     win.webContents.on('will-navigate', (event, url) => { if (/^https?:\/\//.test(url)) { event.preventDefault(); shell.openExternal(url); } });
-    win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) { shell.openExternal(url); return { action: 'deny' }; } return { action: 'allow' }; });
+    win.webContents.setWindowOpenHandler(({ url }) => {
+        if (/^https:\/\//.test(url)) shell.openExternal(url);
+        return { action: 'deny' };
+    });
+    win.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 
     win.loadURL('deltapack://web/index.html');
 }
@@ -300,7 +288,7 @@ if (!app.requestSingleInstanceLock()) {
     app.quit();
 } else {
     app.on('second-instance', (e, argv) => {
-        const maybeUrl = argv.find(arg => arg.startsWith('deltamod://'));
+        const maybeUrl = argv.find(arg => arg.startsWith(`${PROTOCOL_SCHEME}://`));
         if (maybeUrl) {
             handleProtocolLaunch(maybeUrl);
             page('goc-dl');
@@ -309,9 +297,9 @@ if (!app.requestSingleInstanceLock()) {
     });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
     if (['win32', 'linux'].includes(process.platform)) {
-        const maybeUrl = process.argv.find(arg => arg.startsWith('deltamod://'));
+        const maybeUrl = process.argv.find(arg => arg.startsWith(`${PROTOCOL_SCHEME}://`));
         if (maybeUrl) handleProtocolLaunch(maybeUrl);
     }
 
@@ -319,19 +307,23 @@ app.whenReady().then(() => {
         const p = KeyValue.readKVS('deltarunePath');
         if (p) GamePatching.restoreOriginalsIfAny(p);
     } catch {}
+    try {
+        await ProfileMigration.recoverInterruptedImports(app.getPath('userData'));
+    } catch (error) {
+        console.error(`Could not recover an interrupted profile import: ${error.message}`);
+    }
 
     createWindow();
 });
 
 app.on('window-all-closed', () => {
-    try {
-        CMode.stop();
-        if (process.platform === 'win32') {
-            execSync('taskkill /IM GM3P.exe /F', { stdio: 'ignore' });
-            execSync('taskkill /IM GamemakerModMerger.exe /F', { stdio: 'ignore' });
-        }
-    } catch {}
+    try { CMode.stop(); } catch {}
+    try { GamePatching.stopOwnedPatchers(); } catch {}
     app.quit();
+});
+
+app.on('before-quit', () => {
+    try { GamePatching.stopOwnedPatchers(); } catch {}
 });
 
 app.on('activate', () => {

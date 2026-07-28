@@ -1,3 +1,10 @@
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
 function purifyDescription(desc) {
     if (desc === null || desc === undefined) return '';
     let text = String(desc);
@@ -19,7 +26,12 @@ function purify(text) {
     return text.replace(/<[^>]*>/g, '');
 }
 
-async function createMod(mod, compatible) {
+function setIconText(element, iconName, text, size = 'small') {
+    element.innerHTML = icon(iconName, size);
+    element.appendChild(document.createTextNode(` ${String(text ?? '')}`));
+}
+
+async function createMod(mod, compatible, loggedIn) {
     const modRow = document.createElement('tr');
 
     let imeta = await window.electronAPI.invoke('getModImage', [mod.uid]);
@@ -30,9 +42,20 @@ async function createMod(mod, compatible) {
     // Column 1 (Mod)
     const modNameContainer = document.createElement('td');
     const titleSpan = document.createElement('div');
-    titleSpan.innerHTML = `
-    <img src="${imeta.path}" width="25" height="25" onerror="this.onerror=null; this.src='deltapack://web/img/mod-placeholder.png'" style="border-radius: 4px; object-fit: cover;"> 
-    <span>${purify(mod.name)}</span>`;
+    const modImage = document.createElement('img');
+    modImage.src = imeta.path;
+    modImage.alt = '';
+    modImage.width = 32;
+    modImage.height = 32;
+    modImage.style.borderRadius = '4px';
+    modImage.style.objectFit = 'cover';
+    modImage.onerror = () => {
+        modImage.onerror = null;
+        modImage.src = 'deltapack://web/img/mod-placeholder.png';
+    };
+    const modTitle = document.createElement('span');
+    modTitle.textContent = String(mod.name || 'Unnamed mod');
+    titleSpan.append(modImage, modTitle);
     titleSpan.style.display = 'flex';
     titleSpan.style.alignItems = 'center';
     titleSpan.style.gap = '8px';
@@ -44,24 +67,17 @@ async function createMod(mod, compatible) {
         modNameContainer.style.backgroundColor = '#b5b5b544';
         setTimeout(() => {
             try {
-                modNameContainer.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                modNameContainer.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
             } catch (e) {
                 modNameContainer.scrollIntoView();
             }
         }, 50);
-        window._pageArguments = null; // Clear it so it doesn't affect other mods
     }
 
     const descSpan = document.createElement('span');
     descSpan.className = 'calibri';
     descSpan.style = 'font-size: 10px; color: #ffffffdd;';
     descSpan.innerText = purifyDescription(mod.description);
-    descSpan.style.cursor = 'pointer';
-    descSpan.onclick = async () => {
-        const fullDesc = purify(mod.description);
-        if (fullDesc.length === 0) return;
-        htmlAlert(mod.name, fullDesc, [{ text: await k('close'), resolveWith: 'Ok' }]);
-    }
     descSpan.id = `moddesc-${mod.uid}`;
     modNameContainer.appendChild(descSpan);
 
@@ -72,7 +88,7 @@ async function createMod(mod, compatible) {
     authorSpan.className = 'calibri';
     authorSpan.style.fontSize = 'smaller';
     authorSpan.style.color = '#888';
-    authorSpan.innerHTML = `${icon('attribution', 'small')} ${purify(mod.author.join(', '))}`;
+    setIconText(authorSpan, 'attribution', Array.isArray(mod.author) ? mod.author.join(', ') : mod.author);
     authorSpan.id = `modauthor-${mod.uid}`;
     modNameContainer.appendChild(document.createElement('br'));
     modNameContainer.appendChild(authorSpan);
@@ -84,7 +100,7 @@ async function createMod(mod, compatible) {
     sizeSpan.className = 'calibri';
     sizeSpan.style.fontSize = 'smaller';
     sizeSpan.style.color = '#888';
-    sizeSpan.innerHTML = `${icon('hard_disk', 'small')} ${mod.size} MB`;
+    setIconText(sizeSpan, 'hard_disk', `${mod.size} MB`);
     sizeSpan.id = `modsize-${mod.uid}`;
     modNameContainer.appendChild(sizeSpan);
 
@@ -95,7 +111,7 @@ async function createMod(mod, compatible) {
     idSpan.className = 'calibri';
     idSpan.style.fontSize = 'smaller';
     idSpan.style.color = '#888';
-    idSpan.innerHTML = `${icon('sell', 'small')} ${mod.packageID == 'und.und.und' ? '<i>' + await k('allmods_noID') + '</i>' : mod.packageID}`;
+    setIconText(idSpan, 'sell', mod.packageID == 'und.und.und' ? "No ID was specified." : mod.packageID);
     idSpan.id = `modid-${mod.uid}`;
     modNameContainer.appendChild(idSpan);
 
@@ -106,7 +122,7 @@ async function createMod(mod, compatible) {
     gameSpan.className = 'calibri';
     gameSpan.style.fontSize = 'smaller';
     gameSpan.style.color = '#888';
-    gameSpan.innerHTML = `${icon('stadia_controller', 'small')} ${await window.electronAPI.invoke('getGameInfo', [mod.game]).then(g => g.name)}`;
+    setIconText(gameSpan, 'stadia_controller', await window.electronAPI.invoke('getGameInfo', [mod.game]).then(g => g.name));
     gameSpan.id = `modgame-${mod.uid}`;
     modNameContainer.appendChild(gameSpan);
 
@@ -117,9 +133,22 @@ async function createMod(mod, compatible) {
     versionSpan.className = 'calibri';
     versionSpan.style.fontSize = 'smaller';
     versionSpan.style.color = '#888';
-    versionSpan.innerHTML = `${icon('change_history', 'small')} ${purify(mod.version)}`;
+    setIconText(versionSpan, 'change_history', mod.version);
     versionSpan.id = `modversion-${mod.uid}`;
     modNameContainer.appendChild(versionSpan);
+
+    if ((mod.variants || []).length > 0) {
+        let variantSpan = document.createElement('p');
+        variantSpan = adaptForIcons(variantSpan);
+        variantSpan.style.margin = '0px';
+        variantSpan.style.marginTop = '4px';
+        variantSpan.className = 'calibri';
+        variantSpan.style.fontSize = 'smaller';
+        variantSpan.style.color = '#888';
+        setIconText(variantSpan, 'stack', `Mod has ${mod.variants.length} variants`);
+        variantSpan.id = `modvariant-${mod.uid}`;
+        modNameContainer.appendChild(variantSpan);
+    }
 
     var comp = !mod.isIncompatible;
     let compatSpan = document.createElement('p');
@@ -129,7 +158,11 @@ async function createMod(mod, compatible) {
     compatSpan.className = 'calibri';
     compatSpan.style.fontSize = 'smaller';
     compatSpan.style.color = comp ? '#4caf50' : '#f44336';
-    compatSpan.innerHTML = comp ? `${icon('check', 'small')} ${await k('allmods_compatible')}` : `${icon('error', 'small')} ${await k('allmods_incompatible', mod.incompatibilityReason)}`;
+    setIconText(
+        compatSpan,
+        comp ? 'check' : 'error',
+        comp ? "Compatible with current version" : `Incompatible: ${mod.incompatibilityReason}`
+    );
     compatSpan.id = `modcompat-${mod.uid}`;
     modNameContainer.appendChild(compatSpan);
     
@@ -141,7 +174,12 @@ async function createMod(mod, compatible) {
         gbSpan.className = 'calibri';
         gbSpan.style.fontSize = 'smaller';
         gbSpan.style.color = '#888';
-        gbSpan.innerHTML = `<img src="./img/banana-outline.png" width="15" height="15"> ${await k('allmods_throughShop')}`;
+        const banana = document.createElement('img');
+        banana.src = './img/banana-outline.png';
+        banana.alt = '';
+        banana.width = 15;
+        banana.height = 15;
+        gbSpan.append(banana, document.createTextNode(' Installed through GameBanana'));
         gbSpan.id = `modgb-${mod.uid}`;
         modNameContainer.appendChild(gbSpan);
     }
@@ -185,24 +223,24 @@ async function createMod(mod, compatible) {
                         likeBtn.disabled = true;
                     }
                     else if (res.data._sErrorCode.toLowerCase() == 'already_liked') {
-                        await htmlAlert(await k('cant_like_mod'),await k('already_liked'),[{text:await k('ok'),resolveWith:'ok'}], 'sentiment_very_satisfied');
+                        await htmlAlert("Can't like mod","You've already liked this mod. Can't get any more likes than that!",[{text:"Ok",resolveWith:'ok'}], 'sentiment_very_satisfied');
                         likeBtn.innerHTML = icon('sentiment_very_satisfied', '20px') + '';
                         likeBtn.disabled = true;
                     } else {
-                        await htmlAlert(await k('cant_like_mod'),res.data._sErrorCode,[{text:await k('ok'),resolveWith:'ok'}], 'error');
+                        await htmlAlert("Can't like mod",res.data._sErrorCode,[{text:"Ok",resolveWith:'ok'}], 'error');
                     }
             };
             likeBtn.innerHTML = icon('mood_heart', '20px');
             bdiv.appendChild(likeBtn);
 
             tippy(likeBtn, {
-                content: await k('like_mod_tooltip'),
+                content: "Like this mod on GameBanana",
             });
             tippy(gbModButton, {
-                content: await k('leave_comment_tooltip'),
+                content: loggedIn ? "Leave a comment on GameBanana" : "View the GameBanana comments for this mod",
             });
 
-            likeBtn.disabled = !mod.gamebanana.supports;
+            likeBtn.disabled = !mod.gamebanana.supports || !loggedIn;
             gbModButton.disabled = !mod.gamebanana.supports;
     }
 
@@ -225,13 +263,13 @@ async function createErroringMods(errors) {
         element.className = "error-holder";
 
         const modId = document.createElement("span");
-        modId.innerHTML = `Mod ID '${err.mod}'`;
+        modId.textContent = `Mod ID '${String(err.mod || '')}'`;
         modId.style.fontSize = '20px';
         modId.style.color = '#888';
 
         const reasoning = document.createElement("span");
         reasoning.className = 'calibri';
-        reasoning.innerHTML = `${icon('warning', '20px')} ${err.reason}`;
+        setIconText(reasoning, 'warning', err.reason, '20px');
         reasoning.style.display = 'flex';
         reasoning.style.alignItems = 'center';
         reasoning.style.gap = '8px';
@@ -241,7 +279,7 @@ async function createErroringMods(errors) {
         selectSpan.className = 'calibri';
         selectSpan.style.marginTop = '18px';
         selectSpan.style.display = 'block';
-        selectSpan.innerText = await k('modFail_howtoproceed');
+        selectSpan.innerText = "How do you want to proceed?";
         
 
         const actionRow = document.createElement("div");
@@ -249,12 +287,12 @@ async function createErroringMods(errors) {
         {
             // Action Row
             const exploreBtn = document.createElement("button");
-            exploreBtn.innerText = await k('open_mod_folder');
+            exploreBtn.innerText = "Open mod folder";
             exploreBtn.onclick = () => window.electronAPI.invoke("openModFolder", [err.mod]);
             actionRow.appendChild(exploreBtn);
 
             const deleteBtn = document.createElement("button");
-            deleteBtn.innerText = await k('delete_mod');
+            deleteBtn.innerText = "Delete mod";
             deleteBtn.onclick = () => window.electronAPI.invoke("removeMod", [err.mod]);
             actionRow.appendChild(deleteBtn);
         }
@@ -271,6 +309,7 @@ async function createErroringMods(errors) {
 }
 
 (async () => {
+    var loggedIn = await window.electronAPI.invoke('validateGamebananaToken', []);
     const errorBanner = document.getElementById("error-banner");
 
     let filterFunc = (x) => true;
@@ -310,7 +349,9 @@ async function createErroringMods(errors) {
     var { modList, errors } = await window.electronAPI.invoke('getModList', []);
 
     var list = modList.filter(filterFunc);
-    list.forEach(x => createMod(x, x.isCompatible));
+    for (const mod of list) {
+        await createMod(mod, mod.isCompatible, loggedIn);
+    }
     window._pageArguments = {}; // Clear it so it doesn't affect other mods
 
     if (errors.length > 0) {
@@ -318,7 +359,7 @@ async function createErroringMods(errors) {
             rew();
             createErroringMods(errors);
         };
-        errorBanner.children[0].innerText = await k('modFail_bannerTitle', errors.length);
+        errorBanner.children[0].innerText = `${errors.length} mod(s) failed to load`;
         errorBanner.style.display = "inherit";
     } else errorBanner.style.display = "none";
 
@@ -326,10 +367,46 @@ async function createErroringMods(errors) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
         td.colSpan = 2;
-        td.innerText = (modList.length === 0) ? await k('allmods_nomods') : await k('allmods_nomodsforfilter');
+        td.className = 'empty-state-cell';
+
+        const state = document.createElement('div');
+        state.className = 'empty-state';
+        const stateIcon = document.createElement('img');
+        stateIcon.className = 'empty-state-icon';
+        stateIcon.setAttribute('aria-hidden', 'true');
+        stateIcon.src = modList.length === 0 ? './sbar/allmods.png' : './sbar/installmanager.png';
+        stateIcon.alt = '';
+
+        const copy = document.createElement('div');
+        copy.className = 'empty-state-copy';
+        const heading = document.createElement('h2');
+        heading.innerText = modList.length === 0 ? 'No installed mods yet' : 'No mods match this installation';
+        const description = document.createElement('p');
+        description.innerText = modList.length === 0
+            ? 'Packages you download or import will stay visible here, even when they are not enabled in the current patch list.'
+            : 'Choose another installation above or return to All installations.';
+        copy.append(heading, description);
+
+        if (modList.length === 0) {
+            const actions = document.createElement('div');
+            actions.className = 'empty-state-actions';
+            const shopButton = document.createElement('button');
+            shopButton.innerText = 'Browse Mod Shop';
+            shopButton.onclick = () => page('gamebanana-browse');
+            const importButton = document.createElement('button');
+            importButton.className = 'secondary-action';
+            importButton.innerText = 'Import mod package';
+            importButton.onclick = () => window.electronAPI.invoke('importMod', []);
+            actions.append(shopButton, importButton);
+            copy.appendChild(actions);
+        }
+
+        state.append(stateIcon, copy);
+        td.appendChild(state);
         tr.appendChild(td);
         document.getElementById('modlist').appendChild(tr);
     }
 
     genbtnstyles();
+})();
 })();

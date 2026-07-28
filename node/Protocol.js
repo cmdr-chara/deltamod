@@ -1,273 +1,190 @@
-const { writeFileSync, mkdirSync, rmSync } = require("original-fs");
-const { log } = require("./Console");
-const { isFeatureEnabled } = require("./FeatureFlags");
-const { join, dirname } = require("path");
-const System = require("./System");
-const _7z = require("7zip-min");
-const { error } = require("console");
-const { importMod } = require("./Modstore");
-const fs = require("fs");
-const path = require("path");
-const { dialog, app } = require("electron");
-const { page, setSharedVar } = require("./Utils");
-const { errorWin } = require("./ErrorWin");
-const mime = require("mime-types");
+const fs = require('fs');
+const path = require('path');
+const mime = require('mime-types');
+const { app, dialog } = require('electron');
+const { log } = require('./Console');
+const { isFeatureEnabled } = require('./FeatureFlags');
+const System = require('./System');
+const { importMod } = require('./Modstore');
+const { page, setSharedVar, getWindow } = require('./Utils');
+const { errorWin } = require('./ErrorWin');
+const { protocolPath, resolveWithin } = require('./security/PathSecurity');
+const { downloadToFile } = require('./security/RemoteSecurity');
+const { APPLICATION_SCHEME, parseLaunch } = require('./protocol/LaunchParser');
+const { writeFileAtomicSync } = require('./storage/AtomicStore');
 
-// https://stackoverflow.com/questions/26156292/trim-specific-character-from-a-string
-function trim(str, ch) {
-    var start = 0, 
-        end = str.length;
+const MAXIMUM_MOD_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024;
+const PACKET_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
+const THEME_EXTENSIONS = new Set(['.json', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.mp3', '.ogg', '.wav']);
 
-    while(start < end && str[start] === ch)
-        ++start;
-
-    while(end > start && str[end - 1] === ch)
-        --end;
-
-    return (start > 0 || end < str.length) ? str.substring(start, end) : str;
+function responseError(status, message) {
+    return new Response(message, {
+        status,
+        headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Cache-Control': 'no-store'
+        }
+    });
 }
 
-/**
- * 
- * @param {Electron.Protocol} protocol 
- */
+async function fileResponse(filePath, allowedExtensions = null) {
+    if (allowedExtensions && !allowedExtensions.has(path.extname(filePath).toLowerCase())) {
+        return responseError(403, 'File type is not allowed by this protocol.');
+    }
+    try {
+        const data = await fs.promises.readFile(filePath);
+        return new Response(data, {
+            headers: {
+                'Content-Type': mime.lookup(filePath) || 'application/octet-stream',
+                'Content-Length': String(data.length),
+                'Cache-Control': 'no-cache',
+                'X-Content-Type-Options': 'nosniff'
+            }
+        });
+    } catch (error) {
+        return responseError(error.code === 'ENOENT' ? 404 : 500, 'Resource could not be loaded.');
+    }
+}
+
 function registerProtocolSchemesAsPrivileged(protocol) {
-    const privileges = {
+    const localPrivileges = {
         standard: true,
         secure: true,
         supportFetchAPI: true
-    }
+    };
+    const crossOriginAssetPrivileges = {
+        ...localPrivileges,
+        corsEnabled: true
+    };
     protocol.registerSchemesAsPrivileged([
-        {
-            scheme: 'deltapack',
-            privileges
-        },
-        {
-            scheme: 'packet',
-            privileges
-        },
-        {
-            scheme: 'themeprot',
-            privileges
-        },
-        {
-            scheme: "deltamod",
-            privileges
-        }
-    ])
+        { scheme: 'deltapack', privileges: localPrivileges },
+        { scheme: 'packet', privileges: crossOriginAssetPrivileges },
+        { scheme: 'themeprot', privileges: crossOriginAssetPrivileges },
+        { scheme: APPLICATION_SCHEME, privileges: { standard: true, secure: true } }
+    ]);
 }
 
-/**
- * 
- * @param {Electron.Session} ses 
- */
-function registerProtocolHandlers(ses) {
-    ses.protocol.handle('deltapack', async (request) => {
-        const url = new URL(request.url);
-        // security
-        var combined = url.hostname+url.pathname;
-        if (combined.includes('..')) {
-            errorWin(new Error('Unsecure request made to deltapack.'));
-            return new Response("bad");
+function registerProtocolHandlers(session) {
+    session.protocol.handle('deltapack', async request => {
+        try {
+            const relative = protocolPath(request.url);
+            const applicationRoot = path.resolve(__dirname, '..');
+            return fileResponse(resolveWithin(applicationRoot, relative, { mustExist: true }));
+        } catch (error) {
+            log('Blocked deltapack request:', error.message);
+            return responseError(403, 'Blocked application resource path.');
         }
-        const filePath = path.resolve(__dirname, '..', url.hostname + url.pathname);
-
-        const data = await fs.promises.readFile(filePath);
-        return new Response(data, {
-            headers: {
-                'Content-Type': mime.lookup(filePath.split('.')[filePath.split('.').length - 1]) || 'application/octet-stream',
-                'Content-Length': String(data.length),
-                'Cache-Control': 'no-cache'
-            }
-        });
     });
 
-    ses.protocol.handle('themeprot', async (request) => {
-        const url = new URL(request.url);
-        // security
-        var combined = url.hostname+url.pathname;
-        if (combined.includes('..')) {
-            errorWin(new Error('Unsecure request made to themes protocol.'));
-            return new Response("bad");
-        }
-        if (!fs.existsSync(path.join(app.getPath('userData'), 'customThemes'))) {
-            fs.mkdirSync(path.join(app.getPath('userData'), 'customThemes'), { recursive: true });
-            fs.mkdirSync(path.join(app.getPath('userData'), 'customThemes', 'data'), { recursive: true });
-            fs.mkdirSync(path.join(app.getPath('userData'), 'customThemes', 'img'), { recursive: true });
-            fs.mkdirSync(path.join(app.getPath('userData'), 'customThemes', 'mus'), { recursive: true });
-        }
-        let pospath1 = path.join(__dirname, '..', 'web/themes', url.hostname + url.pathname);
-        let pospath2 = path.join(app.getPath('userData'), 'customThemes', url.hostname + url.pathname);
-        let finalPath = null;
-        if (fs.existsSync(pospath2)) {
-            finalPath = pospath2;
-        }
-        else {
-            finalPath = pospath1;
-        }
+    session.protocol.handle('themeprot', async request => {
+        try {
+            const relative = protocolPath(request.url);
+            const builtInRoot = path.resolve(__dirname, '..', 'web', 'themes');
+            const customRoot = path.join(app.getPath('userData'), 'customThemes');
+            await fs.promises.mkdir(customRoot, { recursive: true });
 
-        if (fs.existsSync(pospath1) && fs.existsSync(pospath2)) {
-            finalPath = pospath1; // prefer built-in theme files
+            const builtInPath = resolveWithin(builtInRoot, relative);
+            const customPath = resolveWithin(customRoot, relative);
+            const selected = fs.existsSync(builtInPath) ? builtInPath : customPath;
+            return fileResponse(selected, THEME_EXTENSIONS);
+        } catch (error) {
+            log('Blocked theme request:', error.message);
+            return responseError(403, 'Blocked theme resource path.');
         }
-
-        const data = await fs.promises.readFile(finalPath);
-        return new Response(data, {
-            headers: {
-                'Content-Type': mime.lookup(finalPath.split('.')[finalPath.split('.').length - 1]) || 'application/octet-stream',
-                'Content-Length': String(data.length),
-                'Cache-Control': 'no-cache'
-            }
-        });
     });
 
-    /*
-    ses.protocol.handle('https', async (request) => {
-        const url = new URL(request.url);
-
-        if (!Netlayer.approve(request.url)) {
-            setSharedVar('error', 'Unsecure request made to https protocol.');
-            win.loadURL('deltapack://web/views/errorWrt/index.html');
+    session.protocol.handle('packet', async request => {
+        try {
+            const relative = protocolPath(request.url);
+            const filePath = resolveWithin(System.getPacketDatabase(), relative, { mustExist: true });
+            return fileResponse(filePath, PACKET_EXTENSIONS);
+        } catch (error) {
+            log('Blocked packet request:', error.message);
+            return responseError(403, 'Blocked mod resource path.');
         }
-        
-        const data = await (await fetch(request.url)).arrayBuffer();
-
-        return new Response(data, {
-            headers: {
-                'Content-Length': data.length,
-                'Cache-Control': 'no-cache'
-            }
-        });
-    });
-    */
-
-    ses.protocol.handle("http", async (request) => {
-        errorWin(new Error("HTTP protocol is not supported. Please use HTTPS for secure connections."));
-        return new Response("bad");
     });
 
-    ses.protocol.handle('packet', async (request) => {
-        const url = new URL(request.url);
-        // security
-        var combined = url.hostname+url.pathname;
-        if (combined.includes('..') || combined.includes('.js')) {
-            errorWin(new Error('Unsecure request made to packet protocol.'));
-            return new Response("bad");
-        }
-        const filePath = path.resolve(System.getPacketDatabase(), url.hostname + url.pathname);
-
-        const data = await fs.promises.readFile(filePath);
-        return new Response(data, {
-            headers: {
-                'Content-Type': mime.lookup(filePath.split('.')[filePath.split('.').length - 1]) || 'application/octet-stream',
-                'Content-Length': String(data.length),
-                'Cache-Control': 'no-cache'
-            }
-        });
-    });
+    session.protocol.handle('http', async () => responseError(403, 'HTTP is not supported. Use HTTPS.'));
 }
 
-async function handleProtocolLaunch(url) {
-    if (!url || !url.startsWith("deltamod://")) return;
-    
-    log("Protocol launch detected using", url);
+async function installGameBananaMod(argumentsList) {
+    if (!isFeatureEnabled('GB-OneClick') || argumentsList.length < 3) return;
 
-    url = trim(url.substring("deltamod://".length), '/');
-    
-    var args = url.split("/");
-    var command = args.shift().toLowerCase();
+    const modType = String(argumentsList.shift());
+    const modId = String(argumentsList.shift());
+    const archiveUrl = argumentsList.join('/');
+    if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(modType) || !/^\d+$/.test(modId)) {
+        throw new Error('The GameBanana mod type or submission ID is invalid.');
+    }
 
-    switch (command) {
-        case "gb": {
-            if (!isFeatureEnabled("GB-OneClick")) break;
-            if (args.length < 3) break;
+    setSharedVar('gb1click', true);
+    const itemId = System.generateUniqueId();
+    const filePath = path.join(System.getTemporary(), `${itemId}.modarchive`);
+    const window = getWindow();
 
-            setSharedVar('gb1click', true);
+    try {
+        await downloadToFile(archiveUrl, filePath, {
+            maximumBytes: MAXIMUM_MOD_DOWNLOAD_BYTES,
+            onProgress: progress => {
+                const percentage = progress.total > 0
+                    ? Math.floor((progress.completed / progress.total) * 100)
+                    : null;
+                window?.webContents.send('protocol-download-progress', {
+                    operationId: itemId,
+                    phase: 'download',
+                    completed: progress.completed,
+                    total: progress.total,
+                    currentItem: archiveUrl,
+                    percentage
+                });
+            }
+        });
 
-            var modType = args.shift();
-            var modId = args.shift();
-            var modArchive = args.join("/");
+        await importMod(filePath, 'main', modId, modType);
+    } finally {
+        setSharedVar('gb1click', false);
+        await fs.promises.rm(filePath, { force: true });
+    }
+}
 
-            log("Installing mod via GameBanana:", modType, modId, modArchive);
-            var itemid = System.generateUniqueId();
-            var filepath = join(System.getTemporary(), `${itemid}.modarchive`);
-            log("Downloading to", filepath);
+async function handleProtocolLaunch(value) {
+    const launch = parseLaunch(value);
+    if (!launch) return;
+    log('Community protocol launch detected:', launch.command);
 
-            mkdirSync(dirname(filepath), { recursive: true });
-
-            try {
-                const response = await fetch(modArchive);
-                if (!response.ok || !response.body) throw new Error(`Download failed: ${response.status}`);
-
-                const total = Number(response.headers.get("content-length")) || 0;
-                const reader = response.body.getReader();
-                const chunks = [];
-                let received = 0;
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    chunks.push(value);
-                    received += value.length;
-
-                    if (total > 0) {
-                        const percentage = Math.floor((received / total) * 100);
-                        require('./Utils').getWindow().webContents.executeJavaScript(`window.currentPageStack.onDLP(${percentage})`);
-                    }
+    try {
+        switch (launch.command) {
+            case 'gb':
+                await installGameBananaMod(launch.arguments);
+                break;
+            case 'launch': {
+                const installationIndex = launch.arguments[0];
+                if (!/^\d+$/.test(String(installationIndex || ''))) {
+                    throw new Error('The installation index is invalid.');
                 }
-
-                var archiveData = Buffer.concat(chunks);
-            }
-            catch (e) {
-                page("main");
-                dialog.showErrorBox('Download failed', 'The mod you\'re attempting to download from GameBanana could not be reached. Please check your internet connection and try again.');
-                return;
-            }
-            writeFileSync(filepath, archiveData);
-
-            log("Download successful -- extracting using 7zip");
-            const items = await _7z.list(filepath);
-            var cantFindMeta = false;
-            if (!items.find(x => x.name === "meta.json") && !items.find(x => x.name === "_deltamodInfo.json")) {
-                cantFindMeta = true;
-            }
-            if (cantFindMeta || !items.find(x => x.name === "modding.xml")) {
-                error("Invalid archive -- couldn't find meta.json/deltamodInfo.json or modding.xml");
-                rmSync(filepath);
-
-                dialog.showErrorBox('Import failed', 'The mod you\'re attempting to download from GameBanana does not support the Deltamod format.');
-                page("main");
+                const installationPath = path.join(app.getPath('userData'), `deltamod_system-${installationIndex}`);
+                if (!fs.existsSync(installationPath)) {
+                    throw new Error('The requested installation does not exist.');
+                }
+                writeFileAtomicSync(System.getSystemFile('_sysindex', true), String(installationIndex));
+                app.relaunch();
+                app.exit();
                 break;
             }
-
-            log("Archive valid -- found meta.json and modding.xml");
-            //await _7z.unpack(filepath, join(dirname(filepath), itemid));
-            await importMod(filepath, "main", modId, modType);
-
-            setSharedVar('gb1click', false);
-
-            // cleanup
-            rmSync(filepath);
-            break;
+            default:
+                throw new Error('Unknown Deltamod Community protocol command.');
         }
-
-        case "launch": {
-            if (args.length < 1) break;
-
-            var installationIdx = args.shift();
-            const { getSystemFile } = require('./System');
-            const { app } = require('electron');
-
-            fs.writeFileSync(getSystemFile('_sysindex', true), installationIdx.toString());
-            log("Launching installation", installationIdx);
-            app.relaunch();
-            app.exit();
-            break;
-        }
+    } catch (error) {
+        page('main');
+        errorWin(error);
+        dialog.showErrorBox('Request failed', error.message);
     }
 }
 
 module.exports = {
+    APPLICATION_SCHEME,
     handleProtocolLaunch,
+    parseLaunch,
     registerProtocolHandlers,
     registerProtocolSchemesAsPrivileged
 };

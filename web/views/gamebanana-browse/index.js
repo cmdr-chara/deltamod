@@ -1,14 +1,23 @@
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
 let PAGE = (window._pageArguments && window._pageArguments.lp) ? parseInt(window._pageArguments.lp) : 1;
-
-const BLACKLIST_MODS = [
-    493817 // Gendered Kris mod
-];
+let pageActive = true;
 
 window.PAGE = PAGE;
 
 window._onClosePage.push(() => {
+    pageActive = false;
     delete window.PAGE;
 });
+
+function isCurrentShopPage() {
+    return pageActive && window.pageN === 'gamebanana-browse';
+}
 
 function timeoutPromise(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -30,7 +39,7 @@ const element = document.querySelector('.scrollBottomDetector');
 
 const observer = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
-    if (entry.isIntersecting) {
+    if (entry.isIntersecting && isCurrentShopPage()) {
         plusPage(1);
     }
   });
@@ -45,13 +54,194 @@ window._onClosePage.push(() => {
 });
 
 function getAllThumbs(mod) {
-    let ar = mod._aPreviewMedia._aImages.map(x => {
+    const images = Array.isArray(mod?._aPreviewMedia?._aImages) ? mod._aPreviewMedia._aImages : [];
+    let ar = images.map(x => {
+        const baseUrl = x._sBaseUrl + "/";
+        const file220 = x._sFile220 || x._sFile530 || x._sFile;
+        const file530 = x._sFile530 || x._sFile220 || x._sFile;
         return {
-            urlA: x._sBaseUrl + "/" + x._sFile,
-            urlB: x._sBaseUrl + "/" + x._sFile100
+            urlA: baseUrl + x._sFile,
+            urlB: baseUrl + (x._sFile100 || file220),
+            urlCard220: baseUrl + file220,
+            urlCard530: baseUrl + file530
         }
     });
+    if (ar.length === 0) {
+        ar.push({
+            urlA: './img/mod-placeholder.png',
+            urlB: './img/mod-placeholder.png',
+            urlCard220: './img/mod-placeholder.png',
+            urlCard530: './img/mod-placeholder.png'
+        });
+    }
     return ar;
+}
+
+function setCardImageSource(image, thumb) {
+    const source220 = thumb.urlCard220 || thumb.urlCard530 || thumb.urlA;
+    const source530 = thumb.urlCard530 || source220;
+    const sourceSet = source220 === source530
+        ? source220
+        : `${source220} 220w, ${source530} 530w`;
+    image.sizes = '130px';
+    image.srcset = sourceSet;
+    image.src = source530;
+}
+
+function openImageLightbox(modName, imageList, initialIndex = 0) {
+    const dialog = document.getElementById('modImageLightbox');
+    const image = document.getElementById('modImageLightboxImage');
+    const viewport = document.getElementById('modImageViewport');
+    const title = document.getElementById('modImageLightboxTitle');
+    const counter = document.getElementById('modImageLightboxCounter');
+    const thumbnails = document.getElementById('modImageLightboxThumbnails');
+    const zoomLevel = document.getElementById('modImageZoomLevel');
+    const previous = document.getElementById('modImagePrevious');
+    const next = document.getElementById('modImageNext');
+    const zoomOut = document.getElementById('modImageZoomOut');
+    const zoomIn = document.getElementById('modImageZoomIn');
+    const zoomReset = document.getElementById('modImageZoomReset');
+    const close = document.getElementById('modImageLightboxClose');
+
+    const images = Array.isArray(imageList)
+        ? imageList.filter(item => typeof item?.urlA === 'string' && item.urlA.length > 0)
+        : [];
+    if (!dialog || !image || images.length === 0) return;
+
+    let currentIndex = Math.min(Math.max(Number(initialIndex) || 0, 0), images.length - 1);
+    let zoom = 1;
+
+    const applyZoom = () => {
+        const percent = Math.round(zoom * 100);
+        zoomLevel.value = `${percent}%`;
+        zoomLevel.textContent = `${percent}%`;
+        zoomOut.disabled = zoom <= 1;
+        zoomIn.disabled = zoom >= 3;
+        image.style.width = zoom === 1 ? 'auto' : `${percent}%`;
+        image.style.maxWidth = zoom === 1 ? '100%' : 'none';
+        image.style.maxHeight = zoom === 1 ? '100%' : 'none';
+        image.style.cursor = zoom >= 3 ? 'zoom-out' : 'zoom-in';
+        viewport.scrollTo({ top: 0, left: 0 });
+    };
+
+    const setZoom = value => {
+        zoom = Math.min(3, Math.max(1, value));
+        applyZoom();
+    };
+
+    const renderImage = () => {
+        const selected = images[currentIndex];
+        zoom = 1;
+        image.src = selected.urlA;
+        image.alt = `${modName || 'Mod'} preview ${currentIndex + 1}`;
+        title.textContent = modName || 'Image preview';
+        counter.textContent = `${currentIndex + 1} of ${images.length}`;
+        previous.disabled = images.length < 2;
+        next.disabled = images.length < 2;
+
+        thumbnails.replaceChildren();
+        images.forEach((item, index) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'mod-image-lightbox-thumbnail';
+            button.setAttribute('aria-label', `Show image ${index + 1}`);
+            button.setAttribute('aria-current', index === currentIndex ? 'true' : 'false');
+            const thumbnail = document.createElement('img');
+            thumbnail.src = item.urlB || item.urlA;
+            thumbnail.alt = '';
+            thumbnail.onerror = () => {
+                thumbnail.onerror = null;
+                thumbnail.src = './img/mod-placeholder.png';
+            };
+            button.appendChild(thumbnail);
+            button.onclick = () => {
+                currentIndex = index;
+                renderImage();
+            };
+            thumbnails.appendChild(button);
+        });
+        applyZoom();
+    };
+
+    const move = amount => {
+        if (images.length < 2) return;
+        currentIndex = (currentIndex + amount + images.length) % images.length;
+        renderImage();
+    };
+
+    previous.onclick = () => move(-1);
+    next.onclick = () => move(1);
+    zoomOut.onclick = () => setZoom(zoom - 0.25);
+    zoomIn.onclick = () => setZoom(zoom + 0.25);
+    zoomReset.onclick = () => setZoom(1);
+    close.onclick = () => dialog.close();
+    image.onclick = () => setZoom(zoom >= 3 ? 1 : zoom + 0.25);
+    image.onerror = () => {
+        image.onerror = null;
+        image.src = './img/mod-placeholder.png';
+    };
+    dialog.onclick = event => {
+        if (event.target === dialog) dialog.close();
+    };
+    dialog.onkeydown = event => {
+        if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            move(-1);
+        } else if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            move(1);
+        } else if (event.key === '+' || event.key === '=') {
+            event.preventDefault();
+            setZoom(zoom + 0.25);
+        } else if (event.key === '-') {
+            event.preventDefault();
+            setZoom(zoom - 0.25);
+        } else if (event.key === '0') {
+            event.preventDefault();
+            setZoom(1);
+        }
+    };
+
+    renderImage();
+    if (!dialog.open) dialog.showModal();
+    close.focus();
+}
+
+function currentContentFilter() {
+    return localStorage.getItem('gamebananaContentFilter') || 'all';
+}
+
+function applyContentFilter(records) {
+    const filter = currentContentFilter();
+    const compatibleRecords = records.filter(mod => {
+        if (mod._sModelName == 'Wip' && !mod._bHasFiles) return false;
+        return mod._sModelName === 'Wip' || mod._sModelName === 'Mod';
+    });
+    const visibleRecords = compatibleRecords.filter(mod => {
+        if (filter === 'unrated') return !mod._bHasContentRatings;
+        if (filter === 'rated') return Boolean(mod._bHasContentRatings);
+        return true;
+    });
+    const excluded = compatibleRecords.length - visibleRecords.length;
+    const status = document.getElementById('contentFilterStatus');
+    if (status) {
+        status.innerText = filter === 'all'
+            ? `Showing all ${visibleRecords.length} compatible submission(s) on this page.`
+            : `Showing ${visibleRecords.length}; ${excluded} excluded by the visible Content filter.`;
+    }
+    return visibleRecords;
+}
+
+async function describeContentRatings(mod, chip) {
+    if (!mod._bHasContentRatings) return;
+    chip.innerText = 'Content-rated submission';
+    try {
+        const response = await fetch(`https://gamebanana.com/apiv11/${mod._sModelName}/${mod._idRow}/ProfilePage`);
+        if (!response.ok) return;
+        const profile = await response.json();
+        const ratings = Object.values(profile._aContentRatings || {});
+        if (ratings.length) chip.innerText = `Content: ${ratings.join(', ')}`;
+    } catch {}
 }
     
 var isGBLoggedIn = false;
@@ -89,17 +279,25 @@ function roundViews(views) {
 let capi = '';
 let csearch = '';
 
-async function search() {
+async function search(searchQuery = null) {
     let gameID = (await window.electronAPI.invoke('getCurrentGameInfo',[])).gamebanana.id;
-    let query = document.getElementById('searchInput').value;
+    let query = searchQuery || document.getElementById('searchInput').value;
+    if (searchQuery) {
+        document.getElementById('searchInput').value = searchQuery;
+    }
     if (query.length < 3) {
-        await htmlAlert(await k('shop_tooshortquery'),await k('shop_tooshortquery_desc'),[{text:await k('ok'),resolveWith:'ok'}], 'error');
+        await htmlAlert("Search query too short","Please enter at least 3 characters to search.",[{text:"Ok",resolveWith:'ok'}], 'error');
         return;
     }
-    window._pageArguments.gbAPI = 'https://gamebanana.com/apiv11/Util/Search/Results?_sModelName=Mod&_sOrder=best_match&_sSearchString=' + encodeURIComponent(query) + '&_csvFields=name%2Cdescription%2Carticle%2Cattribs%2Cstudio%2Cowner%2Ccredits&_idGameRow=' + gameID + '&_nPage=$PAGE';
-    window._pageArguments.gbAPIFilter = async function(data) {
-        return data;
-    };
+
+    // TODO: Implement author lookup and other search features if needed
+    {
+        // general lookup
+        window._pageArguments.gbAPI = 'https://gamebanana.com/apiv11/Util/Search/Results?_sModelName=Mod&_sOrder=best_match&_sSearchString=' + encodeURIComponent(query) + '&_csvFields=name%2Cdescription%2Carticle%2Cattribs%2Cstudio%2Cowner%2Ccredits&_idGameRow=' + gameID + '&_nPage=$PAGE';
+        window._pageArguments.gbAPIFilter = async function(data) {
+            return data;
+        };
+    }
     window._pageArguments.leSearchQuery = query;
     page('gamebanana-browse');
 }
@@ -137,21 +335,26 @@ async function dlmod(dlurl, buttonElem=null, modid, modmodel) {
 
         const p = Math.max(0, Math.min(100, Number(info.progress) || 0));
         buttonElem.style.transition = 'none';
-        buttonElem.style.background = `linear-gradient(
-            90deg,
-            var(--theme-color) 0%,
-            var(--theme-color) ${p}%,
-            rgba(255,255,255,0.14) ${p}%,
-            rgba(255,255,255,0.14) 100%
-        )`;
+        buttonElem.classList.add('download-progress');
+        buttonElem.style.setProperty('--download-progress', `${p}%`);
 
     };
 
-    var res = await window.electronAPI.invoke('dlmodURL',[dlurl, queryme, modid, modmodel]);
-
-    lockUs = false;
-    Array.from(document.querySelectorAll('.sidebar-button')).forEach(e => e.disabled = false);
-    buttonElem.innerHTML = icon('done_outline', '0.9em');
+    try {
+        await window.electronAPI.invoke('dlmodURL',[dlurl, queryme, modid, modmodel]);
+        buttonElem.innerHTML = icon('done_outline', '0.9em');
+    } catch (error) {
+        buttonElem.innerHTML = icon('cancel', '0.9em');
+        await htmlAlert(
+            'Download failed',
+            error?.message || 'The mod could not be downloaded or imported.',
+            [{ text: 'OK', resolveWith: 'ok' }]
+        );
+    } finally {
+        delete window.currentPageStack.qms[queryme];
+        lockUs = false;
+        Array.from(document.querySelectorAll('.sidebar-button')).forEach(e => e.disabled = false);
+    }
 }
 
 window.currentPageStack.dlmod = async function(info) {
@@ -169,39 +372,54 @@ window.currentPageStack.search = search;
 
 window.currentPageStack.plusPage = plusPage;
 
+window.currentPageStack.openImageLightbox = openImageLightbox;
+
 var firstgeneration = true;
 
 async function renderMods(table, GB_API, filter, gameID) {
+    if (!isCurrentShopPage() || typeof GB_API !== 'string' || !table?.isConnected) {
+        return;
+    }
     if (window.PAGE == null) {
         window.PAGE = 1;
     }
     var furl = GB_API.replace('$PAGE', window.PAGE);
     console.log('Fetching from URL: ' + furl);
     var response = await fetch(furl);
+    if (!isCurrentShopPage()) return;
     var data = await filter(await response.json());
+    if (!isCurrentShopPage()) return;
 
     var featured = await fetch("https://gamebanana.com/apiv11/Game/" + gameID + "/TopSubs");
+    if (!isCurrentShopPage()) return;
     var featuredData = await featured.json();
+    if (!isCurrentShopPage()) return;
     var featuredIDs = featuredData.map(x => {return {id: x._idRow, period: x._sPeriod};});
 
     try {
-        if (data._aRecords.length === 0) {
+        if (data._aMetadata._bIsComplete) {
+            observer.disconnect(); // stop observing since there's no more content to load
+            document.querySelector('.scrollBottomDetector').style.display = 'none'; // hide the loading indicator
+        }
+
+        const records = applyContentFilter(Array.isArray(data._aRecords) ? data._aRecords : []);
+
+        if (records.length == 0 && firstgeneration) {
             var tr = document.createElement('tr');
             var td = document.createElement('td');
             td.colSpan = 2;
-            td.innerText = (firstgeneration ? await k('shop_noresults') : await k('shop_endlist'));
+            td.innerText = currentContentFilter() === 'all'
+                ? "No mods were found matching your query."
+                : "No submissions on this page match the active Content filter.";
             tr.appendChild(td);
             table.appendChild(tr);
             observer.disconnect(); // stop observing since there's no more content to load
             document.querySelector('.scrollBottomDetector').style.display = 'none'; // hide the loading indicator
             return;
         }
-        for (const mod of data._aRecords) {
-            if (mod._sModelName == 'Wip' && !mod._bHasFiles) continue;
-            if (mod._sModelName != 'Wip' && mod._sModelName != 'Mod') continue;
-            if (BLACKLIST_MODS.includes(mod._idRow)) continue;
-            
+        for (const mod of records) {
             await (async () => {
+                var tr = document.createElement('tr');
 
                 var td0 = document.createElement('td');
                 td0.style.display = 'flex';
@@ -219,7 +437,14 @@ async function renderMods(table, GB_API, filter, gameID) {
                 let thumbs = getAllThumbs(mod);
                 var img = document.createElement('img');
                 img.className = 'modThumbImg';
-                img.src = (thumbs[0].urlA);
+                setCardImageSource(img, thumbs[0]);
+                img.loading = 'lazy';
+                img.decoding = 'async';
+                img.alt = `${mod._sName || 'Mod'} preview`;
+                img.onerror = () => {
+                    img.onerror = null;
+                    img.src = './img/mod-placeholder.png';
+                };
                 let i = 0;
                 img.style.width = '130px';
                 img.style.margin = '4px';
@@ -228,16 +453,13 @@ async function renderMods(table, GB_API, filter, gameID) {
                 img.style.border = '2px solid var(--theme-color)';
                 img.style.height = 'auto';
                 img.style.cursor = 'zoom-in';
-                img.onclick = async () => {
-                    img.style.cursor = 'wait';
-                    await invoke('openImageViewer', [img.src]);
-                    img.style.cursor = 'zoom-in';
-                };
+                img.onclick = () => openImageLightbox(mod._sName, thumbs, i);
                 img.style.objectFit = 'cover';
                 img.style.transition = 'opacity 0.3s ease-in-out';
                 img.style.objectPosition = 'center';
 
                 var gridSmallImages = document.createElement('div');
+                gridSmallImages.className = 'modThumbGrid';
                 gridSmallImages.style.display = 'grid';
                 gridSmallImages.style.gridTemplateColumns = 'repeat(3, 1fr)';
                 gridSmallImages.style.gridTemplateRows = 'repeat(3, auto)';
@@ -248,6 +470,13 @@ async function renderMods(table, GB_API, filter, gameID) {
                 thumbs.slice(0, 9).forEach((thumb, index) => {
                     var smallImg = document.createElement('img');
                     smallImg.src = thumb.urlB;
+                    smallImg.loading = 'lazy';
+                    smallImg.decoding = 'async';
+                    smallImg.alt = `${mod._sName || 'Mod'} thumbnail ${index + 1}`;
+                    smallImg.onerror = () => {
+                        smallImg.onerror = null;
+                        smallImg.src = './img/mod-placeholder.png';
+                    };
                     smallImg.style.width = '30px';
                     smallImg.style.aspectRatio = '16 / 9';
                     smallImg.style.objectFit = 'cover';
@@ -255,9 +484,10 @@ async function renderMods(table, GB_API, filter, gameID) {
                     smallImg.style.borderRadius = '4px';
                     smallImg.style.border = '1px solid var(--theme-color)';
                     smallImg.onclick = async () => {
+                        i = index;
                         img.style.opacity = '0';
                         await timeoutPromise(300);
-                        img.src = thumb.urlA;
+                        setCardImageSource(img, thumb);
                         img.onload = () => {
                             img.style.opacity = '1';
                             img.onload = null; // Remove the onload handler after it has been called
@@ -281,6 +511,7 @@ async function renderMods(table, GB_API, filter, gameID) {
                 div0.appendChild(img);
 
                 var div1 = document.createElement('div');
+                div1.className = 'modCopy';
                 div1.style.marginLeft = '8px';
                 div1.style.display = 'flex';
                 div1.style.flexDirection = 'column';
@@ -316,7 +547,17 @@ async function renderMods(table, GB_API, filter, gameID) {
                 var authorSpan = document.createElement('span');
                 authorSpan.className = 'modAuthorSpan iptspan';
                 authorSpan.style.marginRight = '12px';
-                authorSpan.innerHTML = `<img src="${mod._aSubmitter._sAvatarUrl}" alt="${nameauthor}" class="modAvatarImg"> ${nameauthor}`;
+                var authorImage = document.createElement('img');
+                authorImage.src = mod._aSubmitter._sAvatarUrl || './img/mod-placeholder.png';
+                authorImage.alt = '';
+                authorImage.loading = 'lazy';
+                authorImage.decoding = 'async';
+                authorImage.className = 'modAvatarImg';
+                authorImage.onerror = () => {
+                    authorImage.onerror = null;
+                    authorImage.src = './img/mod-placeholder.png';
+                };
+                authorSpan.append(authorImage, document.createTextNode(nameauthor));
                 authorSpan.onclick = () => {
                     window.open(mod._aSubmitter._sProfileUrl, '_blank');
                 };
@@ -328,13 +569,13 @@ async function renderMods(table, GB_API, filter, gameID) {
                     img.style.borderColor = 'gold';
 
                     var periodsDesc = [
-                        ["today",await k('shop_featuredtoday')],
-                        ["week",await k('shop_featuredweek')],
-                        ["month",await k('shop_featuredmonth')],
-                        ["3month",await k('shop_featured3month')],
-                        ["6month",await k('shop_featured6month')],
-                        ["year",await k('shop_featuredyear')],
-                        ["alltime",await k('shop_featuredalltime')]
+                        ["today","Best of today"],
+                        ["week","Best of this week"],
+                        ["month","Best of this month"],
+                        ["3month","Best of last 3 months"],
+                        ["6month","Best of last 6 months"],
+                        ["year","Best of this year"],
+                        ["alltime","All-time featured"]
                     ]
                     var featSpan = document.createElement('span');
                     featSpan.className = 'modFeaturedSpan iptspan';
@@ -351,6 +592,13 @@ async function renderMods(table, GB_API, filter, gameID) {
                 }
                 otherInfoSpan.appendChild(authorSpan);
                 if (e) otherInfoSpan.appendChild(e);
+                if (mod._bHasContentRatings) {
+                    const ratingChip = document.createElement('span');
+                    ratingChip.className = 'content-rating-chip';
+                    ratingChip.setAttribute('role', 'note');
+                    otherInfoSpan.appendChild(ratingChip);
+                    describeContentRatings(mod, ratingChip);
+                }
                 div1.appendChild(otherInfoSpan);
 
                 var addDate = mod._tsDateAdded || 0;
@@ -362,7 +610,8 @@ async function renderMods(table, GB_API, filter, gameID) {
                 desc.className = 'modDescSpan iptspan';
                 const relativeDate = (() => {
                     const diffSeconds = Math.round((date.getTime() - Date.now()) / 1000);
-                    const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+                    const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+                    /** @type {Array<{limit:number,value:number,unit:Intl.RelativeTimeFormatUnit}>} */
                     const units = [
                         { limit: 60, value: 1, unit: 'second' },
                         { limit: 3600, value: 60, unit: 'minute' },
@@ -374,7 +623,7 @@ async function renderMods(table, GB_API, filter, gameID) {
 
                     for (const { limit, value, unit } of units) {
                         if (Math.abs(diffSeconds) < limit) {
-                            return rtf.format(Math.round(diffSeconds / value), unit);
+                            return rtf.format(Math.round(diffSeconds / value), /** @type {Intl.RelativeTimeFormatUnit} */ (unit));
                         }
                     }
                 })();
@@ -390,6 +639,8 @@ async function renderMods(table, GB_API, filter, gameID) {
                     var dlBtn = document.createElement('button');
                     dlBtn.innerHTML = icon('download', '0.9em') + '';
                     dlBtn.className = 'serietast';
+                    dlBtn.title = 'Download and import mod';
+                    dlBtn.setAttribute('aria-label', `Download ${mod._sName}`);
                     dlBtn.onclick = async () => {
                         dlBtn.disabled = true;
                         dlBtn.innerHTML = icon('downloading', '0.9em');
@@ -414,7 +665,7 @@ async function renderMods(table, GB_API, filter, gameID) {
 
                         if (eligibleDownloads.length === 0) {
                             dlBtn.innerHTML = icon('cancel', '0.9em');
-                            var open = await htmlAlert(await k('shop_nooneclick'), await k('shop_nooneclick_desc'),[{text:await k('ok'),resolveWith:'no',},{text:await k('shop_open_mod_page'),resolveWith:'yes'}], 'web_traffic');
+                            var open = await htmlAlert("One-click download not available", "This mod cannot be downloaded via Deltamod because the owner did not package it for usage with the tool.",[{text:"Ok",resolveWith:'no',},{text:"Open mod page on GameBanana",resolveWith:'yes'}], 'web_traffic');
                             if (open === 'yes') {
                                 window.open(mod._sProfileUrl, '_blank');
                             }
@@ -423,13 +674,81 @@ async function renderMods(table, GB_API, filter, gameID) {
 
                         if (eligibleDownloads.length > 1) {
                             dlBtn.innerHTML = icon('indeterminate_question_box', '0.9em');
-                            var res = await htmlAlert(await k('shop_multiple_files'), await k('shop_multiple_files_desc'),eligibleDownloads.map(x => {return {text:x._sFile,resolveWith:x._sDownloadUrl.replace('dl','mmdl')}}), 'deployed_code_update');
-                            if (!res) {
-                                return;
-                            }
-                            else {
-                                dlmod(res, dlBtn);
-                            }
+                            var dtr = document.createElement('tr');
+                            var td = document.createElement('td');
+                            td.colSpan = 2;
+                            dtr.appendChild(td);
+                            
+                            var btnsDiv = document.createElement('div');
+                            td.appendChild(btnsDiv);
+
+                            eligibleDownloads.forEach((file) => {
+                                console.log(JSON.stringify(file));
+                                var thisBtn = document.createElement('button');
+                                thisBtn.style.display = 'inline-flex';
+                                thisBtn.style.alignItems = 'center';
+                                thisBtn.style.gap = '4px';
+                                thisBtn.style.margin = '4px';
+                                thisBtn.style.width = '100%';
+                                thisBtn.onclick = async () => {
+                                    dlmod(file._sDownloadUrl.replace('dl','mmdl'), dlBtn, mod._idRow, mod._sModelName);
+                                    dtr.remove();
+                                };
+                                btnsDiv.appendChild(thisBtn);
+
+                                var dlIcon = document.createElement('span');
+                                dlIcon.innerHTML = icon('download', '1.1em');
+                                thisBtn.appendChild(dlIcon);
+
+                                var details = document.createElement('div');
+                                details.style.textAlign = 'left';
+                                thisBtn.appendChild(details);
+
+                                var filename = document.createElement('span');
+                                filename.innerText = file._sFile;
+                                filename.style.display = 'block';
+                                filename.style.fontWeight = 'bold';
+                                filename.style.fontSize = '1.1em';
+                                details.appendChild(filename);
+
+                                var filesize = document.createElement('span');
+                                filesize.style.display = 'block';
+                                filesize.innerText = ` (${(file._nFilesize / 1024 / 1024).toFixed(2)} MB)`;
+                                filesize.style.fontSize = '0.9em';
+                                details.appendChild(filesize);
+
+                                var filedesc = document.createElement('span');
+                                filedesc.style.display = 'block';
+                                filedesc.innerText = file._sDescription || "No description provided.";
+                                filedesc.style.fontSize = '0.9em';
+                                filedesc.style.color = '#ffffff60';
+                                details.appendChild(filedesc);
+
+                                var filedate = document.createElement('span');
+                                var fdate = new Date(file._tsDateAdded * 1000);
+                                filedate.style.display = 'block';
+                                filedate.innerText = `Added on ${fdate.toLocaleDateString()} at ${fdate.toLocaleTimeString()}`;
+                                filedate.style.fontSize = '0.9em';
+                                filedate.style.color = '#ffffff60';
+                                details.appendChild(filedate);
+
+                                if (file._sAvState == 'done' && file._sAvResult != 'clean') {
+                                    var avspan = document.createElement('span');
+                                    avspan.style.display = 'block';
+                                    avspan.style.fontSize = '0.9em';
+                                    avspan.style.color = '#ffffff';
+                                    avspan.style.backgroundColor = '#980000';
+                                    avspan.style.padding = '2px 4px';
+                                    avspan.innerText = `File flagged: ${file._sAnalysisResultVerbose}`;
+                                    details.appendChild(avspan);
+                                }
+                            });
+
+                            tr.insertAdjacentElement("afterend", dtr);
+
+                            await timeoutPromise(100);
+                            rew();
+
                             return;
                         }
 
@@ -442,6 +761,8 @@ async function renderMods(table, GB_API, filter, gameID) {
                     commentBtn.innerHTML = icon('comment', '0.9em') + '';
                     commentBtn.style.marginLeft = '8px';
                     commentBtn.className = 'serietast';
+                    commentBtn.title = 'View comments';
+                    commentBtn.setAttribute('aria-label', `View comments for ${mod._sName}`);
                     commentBtn.onclick = async () => {
                         window._pageArguments = {
                             id: mod._idRow,
@@ -449,13 +770,14 @@ async function renderMods(table, GB_API, filter, gameID) {
                         };
                         page('gamebanana-leave-comment');
                     };
-                    commentBtn.disabled = !isGBLoggedIn;
                     td1.appendChild(commentBtn);
 
                     var likeBtn = document.createElement('button');
                     likeBtn.innerHTML = icon('mood_heart', '0.9em') + '';
                     likeBtn.style.marginLeft = '8px';
                     likeBtn.className = 'serietast';
+                    likeBtn.title = isGBLoggedIn ? 'Like mod' : 'Log in to GameBanana to like mods';
+                    likeBtn.setAttribute('aria-label', `Like ${mod._sName}`);
                     likeBtn.disabled = !isGBLoggedIn;
                     likeBtn.onclick = async () => {
                         let res = await window.electronAPI.invoke('gbLikeMod',[mod._sModelName, mod._idRow]);
@@ -464,18 +786,17 @@ async function renderMods(table, GB_API, filter, gameID) {
                             likeBtn.disabled = true;
                         }
                         else if (res.data._sErrorCode.toLowerCase() == 'already_liked') {
-                            await htmlAlert(await k('shop_cant_like'),await k('shop_already_liked'),[{text:'Ok',resolveWith:'ok'}], 'sentiment_very_satisfied');
+                            await htmlAlert("Can't like the mod","You've already liked this mod. Can't get any more likes than that!",[{text:'Ok',resolveWith:'ok'}], 'sentiment_very_satisfied');
                             likeBtn.innerHTML = icon('sentiment_very_satisfied', '0.9em') + '';
                             likeBtn.disabled = true;
                         } else {
-                            await htmlAlert(await k('shop_cant_like'),res.data._sErrorCode,[{text:'Ok',resolveWith:'ok'}], 'error');
+                            await htmlAlert("Can't like the mod",res.data._sErrorCode,[{text:'Ok',resolveWith:'ok'}], 'error');
                         }
                     };
                     td1.appendChild(likeBtn);
                 }
 
                 // tr-ify and add
-                var tr = document.createElement('tr');
                 tr.appendChild(td0);
                 tr.appendChild(td1);
 
@@ -486,7 +807,7 @@ async function renderMods(table, GB_API, filter, gameID) {
     catch (e) {
         console.error(e);
         
-        await htmlAlert(await k('shop_error'),await k('shop_error_desc'),[{text:'Ok',resolveWith:'ok'}], 'error');
+        await htmlAlert("Error","An error occurred while loading mods from GameBanana. Please try again later.",[{text:'Ok',resolveWith:'ok'}], 'error');
 
         page('main');
         firstgeneration = true;
@@ -497,19 +818,39 @@ async function renderMods(table, GB_API, filter, gameID) {
 }
 
 async function plusPage(amt) {
+    if (
+        !isCurrentShopPage() ||
+        typeof window.currentPageStack?.GB_API !== 'string' ||
+        !window.currentPageStack?.table?.isConnected
+    ) {
+        return;
+    }
+    if (!Number.isFinite(window.PAGE)) window.PAGE = 1;
     window.PAGE += amt;
     await renderMods(window.currentPageStack.table, window.currentPageStack.GB_API, window.currentPageStack.filter, window.currentPageStack.gameID);
 }
 
 (async () => {
     if (navigator.onLine === false) {
-        await htmlAlert(await k('shop_offline'),await k('shop_offline_desc'),[{text:await k('ok'),resolveWith:'ok'}], 'cloud_alert');
+        await htmlAlert("You're offline","To access this page, you must have an active Internet connection.",[{text:"Ok",resolveWith:'ok'}], 'cloud_alert');
         page('main');
         return;
     }
     let gameID = (await window.electronAPI.invoke('getCurrentGameInfo',[])).gamebanana.id;
     let GB_API = 'https://gamebanana.com/apiv11/Game/' + gameID + '/Subfeed?_sSort=default&_nPage=$PAGE';
     let table = document.getElementById('modsBody');
+    const contentRatingFilter = document.getElementById('contentRatingFilter');
+    contentRatingFilter.value = currentContentFilter();
+    contentRatingFilter.addEventListener('change', () => {
+        localStorage.setItem('gamebananaContentFilter', contentRatingFilter.value);
+        window._pageArguments = {
+            lp: '1',
+            gbAPI: capi || undefined,
+            gbAPIFilter: window.currentPageStack.filter,
+            leSearchQuery: csearch || undefined
+        };
+        page('gamebanana-browse');
+    });
     let filter = async function(a) {
         return a;
     };
@@ -525,7 +866,7 @@ async function plusPage(amt) {
 
         let searchInd = document.getElementById('searchInd');
         searchInd.style.display = 'block';
-        searchInd.innerText = await k('shop_showingresults', csearch);
+        searchInd.innerText = `Currently showing results for "${csearch}"`;
     }
 
     capi = GB_API;
@@ -548,8 +889,70 @@ async function plusPage(amt) {
     genbtnstyles();
 })();
 
-document.getElementById('searchInput').addEventListener('keypress', function (e) {
+var searchel = document.getElementById('searchInput');
+var autocomplete = document.querySelector('.autocomplete .results');
+searchel.addEventListener('keypress', function (e) {
     if (e.key === 'Enter') {
         search();
     }
 });
+
+searchel.addEventListener('focus', function (e) {
+    autocomplete.style.opacity = '1';
+    autocomplete.style.pointerEvents = 'auto';
+});
+
+searchel.addEventListener('blur', function (e) {
+    setTimeout(() => {
+        autocomplete.style.opacity = '0';
+        autocomplete.style.pointerEvents = 'none';
+    }, 300);
+});
+
+let sval = 0;
+
+window._intervals = window._intervals || [];
+window._intervals.push(setInterval(async () => {
+    var isFocused = document.activeElement === searchel;
+    if (!isFocused) {
+        autocomplete.style.opacity = '0';
+        autocomplete.style.pointerEvents = 'none';
+        return;
+    }
+    if (sval != searchel.value) {
+        sval = searchel.value;
+    } else return;
+
+    if (searchel.value.length < 3) {
+        autocomplete.innerHTML = '';
+        autocomplete.style.opacity = '0';
+        autocomplete.style.pointerEvents = 'none';
+        return;
+    }
+
+    var res = await fetch('https://gamebanana.com/apiv12/Util/Search/Suggestions?_idGameRow=6755&_sSearchString=' + (searchel.value));
+    var elems = JSON.parse(await res.text());
+
+    autocomplete.style.opacity = '1';
+    autocomplete.style.pointerEvents = 'auto';
+    autocomplete.innerHTML = '';
+    elems.forEach((item) => {
+        var resultDiv = document.createElement('div');
+        resultDiv.className = 'result';
+        resultDiv.innerText = item;
+        resultDiv.addEventListener('click', function () {
+            searchel.value = item;
+            search(searchel.value);
+        });
+        autocomplete.appendChild(resultDiv);
+    });
+    if (elems.length === 0) {
+        var noResultDiv = document.createElement('div');
+        noResultDiv.className = 'result';
+        noResultDiv.innerText = 'No results found';
+        noResultDiv.style.color = '#888';
+        autocomplete.appendChild(noResultDiv);
+        noResultDiv.style.pointerEvents = 'none';
+    }
+}, 1000));
+})();

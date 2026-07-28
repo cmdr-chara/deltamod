@@ -1,183 +1,363 @@
-(async() => {
-    var installs = await window.electronAPI.invoke('getInstallations', []);
-    var index = await window.electronAPI.invoke('getSystemIndex', []);
-    const tbody = document.querySelector('#installations-list');
-    for (i in installs) {
-        var install = installs[i];
-        
-        await (async(install, i) => {
-            const row = document.createElement('tr');
-            const nameCell = document.createElement('td');
-            const goCell = document.createElement('td');
-            const buttonsDiv = document.createElement('div');
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
+(async () => {
+    try {
+        const installs = await window.electronAPI.invoke('getInstallations', []).catch(e => {
+            throw new Error(`Error fetching installations: ${e.message}`);
+        });
+        const index = await window.electronAPI.invoke('getSystemIndex', []).catch(e => {
+            throw new Error(`Error fetching current installation index: ${e.message}`);
+        });
+        const tbody = document.querySelector('#installations-list');
 
-            buttonsDiv.style.display = 'flex';
-            buttonsDiv.style.gap = '10px';
-            buttonsDiv.style.alignItems = 'center';
-            buttonsDiv.style.justifyContent = 'center';
+        for (const i in installs) {
+            const install = installs[i];
 
-            goCell.style.textAlign = 'center';
+            await (async (install, i) => {
+                const row = document.createElement('tr');
+                row.className = 'installation-row';
+                const nameCell = document.createElement('td');
+                const goCell = document.createElement('td');
+                const buttonsDiv = document.createElement('div');
+                buttonsDiv.className = 'installation-actions';
 
-            console.log(JSON.stringify(install));
+                buttonsDiv.style.display = 'flex';
+                buttonsDiv.style.gap = '10px';
+                buttonsDiv.style.alignItems = 'center';
+                buttonsDiv.style.justifyContent = 'center';
 
-            const nameContainer = document.createElement('div');
-            nameContainer.style.display = 'flex';
-            nameContainer.style.justifyContent = 'left';
-            nameContainer.style.alignItems = 'center';
-            nameContainer.style.gap = '8px';
+                goCell.style.textAlign = 'center';
 
-            let editablespan = document.createElement('input');
-            editablespan.type = 'text';
-            editablespan.style.display = 'block';
-            editablespan.style.margin = '0';
-            editablespan.style.height = '22px';
-            editablespan.style.fontSize = '16px';
-            editablespan.value = sanitizeHTML(install.name || await k('install_default', install.index + 1));
-            editablespan.style.cursor = 'text';
-            editablespan.onblur = async () => {
-                if (editablespan.value.trim() === "") {
-                    htmlAlert(await k('installmanager_invalidname_title'), await k('installmanager_invalidname_desc'), [{text: await k('ok'), resolveWith: 'ok'}]);
-                    editablespan.value = await k('install_default', install.index + 1);
+                console.log(JSON.stringify(install));
+
+                const nameContainer = document.createElement('div');
+                nameContainer.className = 'installation-summary';
+                nameContainer.style.display = 'flex';
+                nameContainer.style.justifyContent = 'left';
+                nameContainer.style.alignItems = 'center';
+                nameContainer.style.gap = '8px';
+
+                const editablespan = document.createElement('input');
+                editablespan.type = 'text';
+                editablespan.style.display = 'block';
+                editablespan.style.margin = '0';
+                editablespan.style.height = '22px';
+                editablespan.style.fontSize = '16px';
+                editablespan.value = sanitizeHTML(
+                    install.name || `Install #${install.index + 1}`
+                );
+                editablespan.style.cursor = 'text';
+
+                editablespan.onblur = async () => {
+                    if (editablespan.value.trim() === '') {
+                        htmlAlert(
+                            'Invalid installation name',
+                            'This installation name is invalid. Please choose another one.',
+                            [{ text: 'Ok', resolveWith: 'ok' }]
+                        );
+
+                        editablespan.value = `Install #${install.index + 1}`;
+                    }
+
+                    install.name = editablespan.value.trim();
+
+                    window.electronAPI.invoke('setInstallationCName', [
+                        install.index.toString(),
+                        install.name,
+                    ]);
+                };
+
+                const boldName = document.createElement('img');
+                boldName.style.width = '43px';
+                boldName.src = './gamesIco/' + install.pid + '.png';
+
+                const nameText = document.createElement('div');
+                nameText.className = 'installation-copy';
+                nameText.appendChild(editablespan);
+                nameContainer.appendChild(boldName);
+                nameContainer.appendChild(nameText);
+
+                const details = document.createElement('small');
+                {
+                    const gname = await window.electronAPI
+                        .invoke('getGameInfo', [install.pid])
+                        .then(g => g?.name || 'Unknown game');
+
+                    details.textContent = `${gname} · ${install.steam ? 'Steam' : 'Manual'}`;
+                    if (!install.valid) {
+                        const invalid = document.createElement('span');
+                        invalid.className = 'installation-invalid';
+                        invalid.textContent = `Needs attention: ${install.issues.join('; ')}`;
+                        invalid.style.display = 'block';
+                        invalid.style.color = '#ffb3a3';
+                        invalid.style.marginTop = '4px';
+                        details.appendChild(invalid);
+                    }
                 }
-                install.name = editablespan.value.trim();
-                window.electronAPI.invoke('setInstallationCName', [install.index.toString(), install.name]);
-            };
 
-            let boldName = document.createElement('img');
-            boldName.style.width = '43px';
-            boldName.src = './gamesIco/' + install.pid + '.png';
+                details.classList.add('calibri');
+                details.style.color = '#888';
+                details.style.display = 'block';
 
-            nameContainer.appendChild(boldName);
-            nameContainer.appendChild(editablespan);
+                nameText.appendChild(details);
 
-            const details = document.createElement('small');
-            {
-                var gname = await (window.electronAPI.invoke('getGameInfo', [install.pid])).then(g => g.name);
-                details.innerHTML = `${icon('stadia_controller', '14px')} ${gname} <br> ${icon('gite', '14px')} ${(install.steam ? await k('steam') : await k('manual'))}`;
-            }
-            details.classList.add('calibri');
-            details.style.color = '#888';
-            details.style.display = 'block';
-            nameContainer.appendChild(details);
+                console.log('created index row for install:', install.index);
 
-            console.log('created index row for install: ', install.index );
+                let goBtn = document.createElement('button');
+                goBtn.style.padding = '4px';
+                goBtn.style.textAlign = 'center';
+                goBtn = adaptForIcons(goBtn);
+                goBtn.innerHTML = icon('sync_arrow_up', '18px');
 
-            let goBtn = document.createElement('button');
-            goBtn.style.padding = '4px';
-            goBtn.style.textAlign = 'center';
-            goBtn = adaptForIcons(goBtn);
-            goBtn.innerHTML = icon('sync_arrow_up', '18px');
-            goBtn.onclick = () => {
-                console.log('Switching to installation index: ', install.index );
-                window.electronAPI.invoke('changeSystemIndex', [install.index.toString()]);
-            };
-            if (index == install.index) {
-                goBtn.disabled = true;
-                goBtn.style.cursor = 'not-allowed';
-                goBtn.style.opacity = '0.3';
-                goBtn.innerHTML = icon('check_circle', '18px');
-            }
-            buttonsDiv.appendChild(goBtn);
+                goBtn.onclick = () => {
+                    console.log('Switching to installation index:', install.index);
 
-            tippy(goBtn, {
-                content: index == install.index ? await k('installmanager_current_installation') : await k('installmanager_switch_to_installation'),
-                placement: 'top',
-                delay: [500, 0],
-            });
+                    window.electronAPI.invoke('changeSystemIndex', [
+                        install.index.toString(),
+                    ]);
+                };
 
-            let deleteBtn = document.createElement('button');
-            deleteBtn.style.padding = '4px';
-            deleteBtn.style.textAlign = 'center';
-            deleteBtn = adaptForIcons(deleteBtn);
-            deleteBtn.innerHTML = icon('delete', '18px');
-            deleteBtn.onclick = async () => {
-                var resp = await htmlAlert(await k('warning'), `Are you sure you want to delete the installation "${install.name || await k('install_default', install.index + 1)}"? This action cannot be undone.`, [
-                    {text: await k('yes'), resolveWith: 'Y'},
-                    {text: await k('no'), resolveWith: 'N'}
-                ]);
-
-                if (resp === 'Y') {
-                    window.electronAPI.invoke('deleteSystemIndex', [install.index.toString()]);
+                if (index == install.index || !install.valid) {
+                    goBtn.disabled = true;
+                    goBtn.style.cursor = 'not-allowed';
+                    goBtn.style.opacity = '0.3';
+                    goBtn.innerHTML = icon(index == install.index ? 'check_circle' : 'warning', '18px');
                 }
-            };
-            buttonsDiv.appendChild(deleteBtn);
+                goBtn.setAttribute(
+                    'aria-label',
+                    !install.valid
+                        ? 'Installation needs repair'
+                        : index == install.index
+                        ? 'Current installation'
+                        : 'Switch to this installation'
+                );
 
-            tippy(deleteBtn, {
-                content: await k('installmanager_delete_installation'),
-                placement: 'top',
-                delay: [500, 0],
-            });
+                buttonsDiv.appendChild(goBtn);
 
-            let openBtn = document.createElement('button');
-            openBtn.style.padding = '4px';
-            openBtn.style.textAlign = 'center';
-            openBtn = adaptForIcons(openBtn);
-            openBtn.innerHTML = icon('folder_open', '18px');
-            openBtn.onclick = () => {
-                window.electronAPI.invoke('openInstallationFolder', [install.index.toString()]);
-            }
-            tippy(openBtn, {
-                content: await k('installmanager_open_installation_folder'),
-                placement: 'top',
-                delay: [500, 0],
-            });
+                tippy(goBtn, {
+                    content:
+                        !install.valid
+                            ? 'Repair or re-import this installation before switching to it'
+                            : index == install.index
+                            ? 'Current installation'
+                            : 'Switch to this installation',
+                    placement: 'top',
+                    delay: [500, 0],
+                });
 
-            let shortcutBtn = document.createElement('button');
-            shortcutBtn.style.padding = '4px';
-            shortcutBtn.style.textAlign = 'center';
-            shortcutBtn = adaptForIcons(shortcutBtn);
-            shortcutBtn.innerHTML = icon('forward', '18px');
-            shortcutBtn.title = await k('installmanager_create_shortcut');
-            shortcutBtn.onclick = async () => {
-                if (!await window.electronAPI.invoke('isPackaged', [])) {
-                    await htmlAlert(await k('error'), await k('installmanager_shortcut_notpackaged'),[{text:await k('ok'),resolveWith:'ok'}]);
-                    return;
+                let deleteBtn = document.createElement('button');
+                deleteBtn.style.padding = '4px';
+                deleteBtn.style.textAlign = 'center';
+                deleteBtn = adaptForIcons(deleteBtn);
+                deleteBtn.innerHTML = icon('delete', '18px');
+                deleteBtn.setAttribute('aria-label', 'Delete installation');
+
+                deleteBtn.onclick = async () => {
+                    let resp = 'N';
+                    if (!window.ctrlDown) {
+                        resp = await htmlAlert(
+                            'Warning',
+                            `Are you sure you want to delete the installation "${
+                                install.name || `Install #${install.index + 1}`
+                            }"? This action cannot be undone.`,
+                            [
+                                { text: 'Yes', resolveWith: 'Y' },
+                                { text: 'No', resolveWith: 'N' },
+                            ]
+                        );
+                    }
+                    else {
+                        resp = 'Y';
+                    }
+
+                    if (resp === 'Y') {
+                        window.electronAPI.invoke('deleteSystemIndex', [
+                            install.index.toString(),
+                        ]);
+                    }
+                };
+
+                buttonsDiv.appendChild(deleteBtn);
+
+                tippy(deleteBtn, {
+                    content: 'Delete installation',
+                    placement: 'top',
+                    delay: [500, 0],
+                });
+
+                if (!install.valid) {
+                    let repairBtn = document.createElement('button');
+                    repairBtn.style.padding = '4px';
+                    repairBtn = adaptForIcons(repairBtn);
+                    repairBtn.innerHTML = icon('build', '18px');
+                    repairBtn.setAttribute('aria-label', 'Attempt safe repair');
+                    repairBtn.onclick = async () => {
+                        const result = await window.electronAPI.invoke('repairInstallation', [
+                            install.index.toString()
+                        ]);
+                        if (result.repaired) {
+                            await htmlAlert('Repair complete', 'The installation is valid again.', [
+                                { text: 'OK', resolveWith: 'ok' }
+                            ]);
+                            page('installmanager');
+                        } else {
+                            await htmlAlert(
+                                'Repair could not finish',
+                                `${result.issues.join('\n')}\n\nUse Re-import to select a clean game folder. Existing data was not deleted.`,
+                                [{ text: 'OK', resolveWith: 'ok' }]
+                            );
+                        }
+                    };
+                    buttonsDiv.appendChild(repairBtn);
+                    tippy(repairBtn, { content: 'Attempt safe repair', placement: 'top', delay: [500, 0] });
+
+                    let reimportBtn = document.createElement('button');
+                    reimportBtn.style.padding = '4px';
+                    reimportBtn = adaptForIcons(reimportBtn);
+                    reimportBtn.innerHTML = icon('drive_folder_upload', '18px');
+                    reimportBtn.setAttribute('aria-label', 'Re-import game files');
+                    reimportBtn.onclick = async () => {
+                        const result = await window.electronAPI.invoke('reimportInstallation', [
+                            install.index.toString()
+                        ]);
+                        if (result?.repaired) page('installmanager');
+                    };
+                    buttonsDiv.appendChild(reimportBtn);
+                    tippy(reimportBtn, { content: 'Re-import from a clean game folder', placement: 'top', delay: [500, 0] });
                 }
-                window.electronAPI.invoke('createInstallLink', [install.index.toString(), install.name || `Install #${install.index + 1}`]);
-            };
-            tippy(shortcutBtn, {
-                content: await k('installmanager_create_shortcut'),
-                placement: 'top',
-                delay: [500, 0],
+
+                let openBtn = document.createElement('button');
+                openBtn.style.padding = '4px';
+                openBtn.style.textAlign = 'center';
+                openBtn = adaptForIcons(openBtn);
+                openBtn.innerHTML = icon('folder_open', '18px');
+                openBtn.setAttribute('aria-label', 'Open installation folder');
+
+                openBtn.onclick = () => {
+                    window.electronAPI.invoke('openInstallationFolder', [
+                        install.index.toString(),
+                    ]);
+                };
+
+                tippy(openBtn, {
+                    content: 'Open installation folder',
+                    placement: 'top',
+                    delay: [500, 0],
+                });
+
+                let shortcutBtn = document.createElement('button');
+                shortcutBtn.style.padding = '4px';
+                shortcutBtn.style.textAlign = 'center';
+                shortcutBtn = adaptForIcons(shortcutBtn);
+                shortcutBtn.innerHTML = icon('forward', '18px');
+                shortcutBtn.title = 'Create shortcut on desktop';
+                shortcutBtn.setAttribute('aria-label', 'Create shortcut on desktop');
+
+                shortcutBtn.onclick = async () => {
+                    if (!(await window.electronAPI.invoke('isPackaged', []))) {
+                        await htmlAlert(
+                            'Error',
+                            'This feature is only available when Deltamod is packaged.',
+                            [{ text: 'Ok', resolveWith: 'ok' }]
+                        );
+                        return;
+                    }
+
+                    window.electronAPI.invoke('createInstallLink', [
+                        install.index.toString(),
+                        install.name || `Install #${install.index + 1}`,
+                    ]);
+                };
+
+                tippy(shortcutBtn, {
+                    content: 'Create shortcut on desktop',
+                    placement: 'top',
+                    delay: [500, 0],
+                });
+
+                buttonsDiv.appendChild(shortcutBtn);
+                buttonsDiv.appendChild(openBtn);
+
+                goCell.appendChild(buttonsDiv);
+
+                nameCell.appendChild(nameContainer);
+
+                row.appendChild(nameCell);
+                row.appendChild(goCell);
+
+                tbody.appendChild(row);
+            })(install, i).catch(e => {
+                throw new Error(`Error creating row for installation ${install.index}: ${e.message}`);
             });
-            buttonsDiv.appendChild(shortcutBtn);
-            buttonsDiv.appendChild(openBtn);
+        }
 
-            goCell.appendChild(buttonsDiv);
+        const newRow = document.createElement('tr');
+        newRow.className = 'installation-create-row';
+        const newCell = document.createElement('td');
 
-            nameCell.appendChild(nameContainer);
+        newCell.colSpan = 2;
+        newCell.style.textAlign = 'center';
 
-            row.appendChild(nameCell);
-            row.appendChild(goCell);
-            tbody.appendChild(row);
-        })(install, i);
+        const newButton = document.createElement('button');
+        newButton.style.width = '100%';
+        newButton.style.cursor = 'pointer';
+        newButton.style.display = 'inline-flex';
+        newButton.style.alignItems = 'center';
+        newButton.style.gap = '10px';
+        newButton.style.justifyContent = 'center';
+        newButton.style.textAlign = 'center';
+
+        newButton.innerHTML =
+            icon('create_new_folder', '18px') + ' Create new installation';
+
+        newButton.onclick = () => {
+            window.fromIM = true;
+            page('locate');
+        };
+
+        newCell.appendChild(newButton);
+        newRow.appendChild(newCell);
+
+        tbody.appendChild(newRow);
+
+        genbtnstyles();
+    } catch (e) {
+        var errorTR = document.createElement('tr');
+        var errorTD = document.createElement('td');
+        errorTD.colSpan = 2;
+        errorTD.style.fontWeight = 'bold';
+
+        var errortitle = document.createElement('div');
+        errortitle.innerText = 'Error loading installations';
+        errortitle.style.fontSize = '18px';
+        errortitle.style.marginBottom = '10px';
+        errorTD.appendChild(errortitle);
+
+        var errorMsg = document.createElement('div');
+        errorMsg.textContent = [e?.message, e?.stack].filter(Boolean).join('\n') || String(e);
+        errorMsg.style.whiteSpace = 'pre-wrap';
+        errorMsg.style.fontSize = '14px';
+        errorTD.appendChild(errorMsg);
+
+        errorTR.appendChild(errorTD);
+        document.querySelector('#installations-list').appendChild(errorTR);
     }
+})().catch(e => {
+    window.alert('Unexpected error: ' + e.message + '\n' + e.stack);
+});
 
-    const newRow = document.createElement('tr');
-    const newCell = document.createElement('td');
-    newCell.colSpan = 2;
-    newCell.style.textAlign = 'center';
+elisten(document, 'keydown', e => {
+    var ctrlDown = e.ctrlKey || e.metaKey;
+    window.ctrlDown = ctrlDown;
+});
 
-    let newButton = document.createElement('button');
-    newButton.style.width = '100%';
-    newButton.style.cursor = 'pointer';
-    newButton.style.display = 'inline-flex';
-    newButton.style.alignItems = 'center';
-    newButton.style.gap = '10px';
-    newButton.style.justifyContent = 'center';
-    newButton.innerHTML = icon("create_new_folder") + ' ' + await k('installmanager_create_new_installation');
-    newButton.style.textAlign = 'center';
-    newButton.onclick = () => {
-        window.fromIM = true;
-        page('locate');
-    };
-
-    newCell.appendChild(newButton);
-    newRow.appendChild(newCell);
-
-
-    tbody.appendChild(newRow);
-
-    genbtnstyles();
-    
+elisten(document, 'keyup', e => {
+    var ctrlDown = e.ctrlKey || e.metaKey;
+    window.ctrlDown = ctrlDown;
+});
 })();

@@ -16,7 +16,7 @@ const conditions = [
         required: true,
         checker: () => {
             const totalMemory = require('os').totalmem();
-            return totalMemory >= 1 * 1024 * 1024 * 1024;
+            return totalMemory >= 2 * 1024 * 1024 * 1024;
         }
     },
     {
@@ -24,9 +24,29 @@ const conditions = [
         required: true,
         checker: () => {
             const fsp = require("fs");
-            const { bfree, bsize } = fsp.statfsSync(__dirname);
-            free = bfree * bsize;
-            return free >= 2 * 1024 * 1024 * 1024;
+            const os = require("os");
+            const { bfree, bsize } = fsp.statfsSync(os.homedir());
+            const free = bfree * bsize;
+            return free >= 384 * 1024 * 1024;
+        }
+    },
+    {
+        name: 'Wine (if running on Linux)',
+        required: true,
+        checker: () => {
+            if (process.platform === 'linux') {
+                const { spawnSync } = require('child_process');
+                try {
+                    return spawnSync('wine', ['--version'], {
+                        stdio: 'ignore',
+                        shell: false
+                    }).status === 0;
+                }
+                catch (error) {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 ];

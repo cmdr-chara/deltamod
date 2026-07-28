@@ -1,35 +1,32 @@
 <div>
-    <h1>$$locate_title$$</h1>
-    <p class="calibri">$$locate_desc$$</p>
-    <p class="noticebox">
-        $$import_notice$$
-    </p>
+    <h1>Locate your game</h1>
+    <p class="calibri">To use Deltamod Community, locate a supported game installation.</p>
     <hr>
     <div>
         <p style="display: flex; justify-content: left; align-items: center; gap: 10px;">
         <span class="material-symbols-outlined">gamepad_up</span>
-        $$locate_selectgame$$
+        Select the game you are trying to add.
         </p>
         <div class="gOptions">
 
         </div>
         <p style="display: flex; justify-content: left; align-items: center; gap: 10px;">
         <span class="material-symbols-outlined">folder</span>
-        $$locate_selectfolder$$
+        Select the folder where your game is installed.
         </p>
         <div class="fileInput" style="display: flex; justify-content: left; align-items: center; gap: 5px;">
-            <input type="text" name="" id="dpath" placeholder="$$locate_path_placeholder$$" style="width: 100%;">
+            <input type="text" name="" id="dpath" placeholder="Path to your game installation" style="width: 100%;">
             <button onclick="window.currentPageStack.locateDelta()">
                 <span class="material-symbols-outlined" style="font-size: 17px;">folder_open</span>
             </button>
         </div>
-        <p class="smaller">$$locate_other_methods$$</p>
+        <p class="smaller">These other methods are also available for importing the game:</p>
         <div class="otherImports">
             <button onclick="window.currentPageStack.steam()" id="feat_steam">
-                <brand-icon style="font-size: 14px;">S</brand-icon> $$locate_steam_import$$
+                <brand-icon style="font-size: 14px;">S</brand-icon> Import from Steam
             </button>
             <button onclick="window.currentPageStack.downloadDelta()" id="feat_autodownload">
-                <span class="material-symbols-outlined" style="font-size: 14px;">cloud_download</span> $$locate_autodownload$$
+                <span class="material-symbols-outlined" style="font-size: 14px;">cloud_download</span> Automatic download
             </button>
         </div>
     </div>
@@ -37,16 +34,33 @@
     <hr>
     <div class="copyAnyways">
         <input type="checkbox" name="" id="copyAnyways">
-        <label for="copyAnyways">$$locate_copyanyways$$</label>
+        <label for="copyAnyways">Save a copy of this game on your main drive</label>
     </div>
+    <section id="gameImportProgress" class="importProgress" hidden aria-live="polite">
+        <div><strong id="gameImportPhase">Preparing import…</strong> <span id="gameImportAmount"></span></div>
+        <progress id="gameImportBar" value="0" max="1"></progress>
+        <small id="gameImportFile" class="calibri"></small>
+        <button id="cancelGameImport" type="button">Cancel import</button>
+    </section>
     <br>
-    <button onclick="window.currentPageStack.id()">$$save_and_close$$</button>
+    <button onclick="window.currentPageStack.id()">Save and close</button>
     <br><br>
 </div>
 <style>
-    .selectedGameIco {
-        scale: 1.19;
-        opacity: 1 !important;
+    .gameIco {
+        width: 30px;
+        opacity: 0.4;
+        padding: 10px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    .gameIco:hover {
+        scale: 1.1;
+        opacity: 0.8;
+    }
+    .gameIco.selectedGameIco {
+        scale: 1.3;
+        opacity: 1;
     }
     .copyAnyways {
         display: flex;
@@ -72,38 +86,38 @@
         align-items: center;
         gap: 5px;
     }
-    .noticebox {
-        width: 100%;
-        padding: 10px;
-        border-radius: 10px;
-        background-color: rgba(255, 0, 0, 0.318);
-        backdrop-filter: blur(5px);
-        border: 1px solid red;
-    }
     .smaller {
         font-size: 14px;
-        color: #888;
     }
     .gOptions {
-        width: 100%;
+        width: auto;
         height: 50px;
         padding: 10px;
+        background: rgba(0,0,0,0.5);
         border-radius: 10px;
-        background-color: rgb(0,0,0,0.5);
-        backdrop-filter: blur(5px);
         display: flex;
         justify-content: left;
         align-items: center;
         gap: 20px;
         border: 1px solid var(--theme-color);
     }
-    .gameIco {
-        width: 30px;
-        opacity: 0.4;
-        padding: 10px;
-        transition: all 0.3s ease;
+    .importProgress {
+        margin-top: 14px;
+        padding: 12px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.72);
+    }
+    .importProgress progress {
+        display: block;
+        width: 100%;
+        margin: 8px 0;
+    }
+    .importProgress small {
+        display: block;
+        overflow-wrap: anywhere;
+        margin-bottom: 8px;
     }
 </style>
 JSL
 AUDIO[mainTheme.mp3]
-TITLEKEY[locate_title]
+TITLE[Locate your game]

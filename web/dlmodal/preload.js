@@ -1,5 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('api', {
-    onProgress: (callback) => ipcRenderer.on('progress', (event, data) => callback(data))
+contextBridge.exposeInMainWorld('progressAPI', {
+    onProgress(callback) {
+        const listener = (_event, value) => callback(Number(value) || 0);
+        ipcRenderer.on('progress', listener);
+        return () => ipcRenderer.removeListener('progress', listener);
+    }
 });

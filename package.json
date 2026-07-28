@@ -1,24 +1,39 @@
 {
-  "name": "deltamod",
-  "version": "1.9.3",
-  "description": "Deltarune mod manager",
+  "name": "deltamod-community",
+  "productName": "Deltamod Community",
+  "version": "2.0.3-beta.1",
+  "description": "Community-maintained Deltarune mod manager",
   "main": "node/Runner.js",
   "discordAPI": "https://discord.com/api/guilds/1390331292993982484/widget.json",
   "featureFlags": [
     "GB-OneClick"
   ],
   "scripts": {
-    "test": "electron . --developer",
-    "build-windows": "electron-builder --win",
-    "build-linux": "electron-builder --linux",
-    "erase-data": "Erase.bat",
-    "build-g3mtool-win": "dotnet publish G3MToolCLI/G3MToolCLI.csproj -c Release -r win-x64 --self-contained true -o tools",
-    "build-g3mtool-linux": "dotnet publish G3MToolCLI/G3MToolCLI.csproj -c Release -r linux-x64 --self-contained true -o tools"
+    "dev": "electron . --developer",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "security:audit": "npm audit --audit-level=high",
+    "acquire:g3mtool": "node scripts/acquire-g3mtool.js",
+    "verify:g3mtool": "node scripts/verify-g3mtool.js",
+    "verify:g3mtool-manifest": "node scripts/verify-g3mtool.js --manifest-only",
+    "archive:g3mtool-source": "node scripts/archive-g3mtool-source.js",
+    "build-windows": "electron-builder --win --publish never",
+    "build-linux": "electron-builder --linux --publish never",
+    "erase-data": "Erase.bat"
   },
   "build": {
+    "appId": "io.github.cmdr-chara.deltamod-community",
+    "productName": "Deltamod Community",
     "icon": "build/icon-big.png",
-    "asar": false,
+    "asar": true,
+    "artifactName": "deltamod-community-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
     "asarUnpack": [
+      "tools/**/*",
       "node_modules/7zip-bin/win",
       "node_modules/7zip-bin/linux",
       "node_modules/7zip-bin/mac",
@@ -27,13 +42,38 @@
     ],
     "win": {
       "target": [
-        "portable"
-      ]
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Deltamod Community",
+      "installerHeader": "build/installer/installerHeader.bmp",
+      "installerSidebar": "build/installer/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installer/installerSidebar.bmp",
+      "uninstallDisplayName": "Deltamod Community ${version}"
     },
     "files": [
-      "!**/output",
-      "!**/installbuilder",
-      "!G3MToolCLI/**"
+      "!output{,/**/*}",
+      "!dist{,/**/*}",
+      "!coverage{,/**/*}",
+      "!tests{,/**/*}",
+      "!installbuilder{,/**/*}",
+      "!.codex-run{,/**/*}",
+      "!.github{,/**/*}",
+      "!scripts{,/**/*}",
+      "!playwright.config.js",
+      "!vitest.config.js",
+      "!tsconfig.json"
     ],
     "linux": {
       "target": "AppImage",
@@ -42,37 +82,53 @@
     },
     "protocols": [
       {
-        "name": "Deltamod",
+        "name": "Deltamod Community",
         "schemes": [
-          "deltamod"
+          "deltamod-community"
         ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "cmdr-chara",
+        "repo": "deltamod",
+        "releaseType": "release"
       }
     ]
   },
-  "author": "Deltamodders",
+  "author": "Deltamod contributors",
   "license": "EUPL-1.2",
   "devDependencies": {
-    "electron": "^40.6.0",
-    "electron-builder": "^26.7.0"
+    "@playwright/test": "^1.62.0",
+    "@types/node": "^26.1.2",
+    "electron": "^40.10.6",
+    "electron-builder": "^26.15.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "@chainsafe/xdelta3-node": "^1.0.2",
-    "@sentry/node": "^10.43.0",
+    "@sentry/node": "^10.68.0",
     "7zip-bin": "5.1.1",
     "7zip-min": "^2.1.0",
-    "axios": "^1.12.0",
-    "canvas": "^3.2.3",
+    "axios": "^1.18.1",
     "cheerio": "^1.1.2",
     "create-desktop-shortcuts": "^1.11.1",
-    "emit-keypress": "^1.0.1",
+    "electron-updater": "^6.8.9",
+    "js-toml": "^1.2.1",
     "mime-types": "^3.0.1",
-    "node-gamepad": "^0.1.15",
-    "node-html-parser": "^7.0.1",
-    "nodejs": "^0.0.0",
-    "nodejs-file-downloader": "^4.13.0",
-    "robotjs": "^0.7.0",
+    "semver": "^7.8.5",
     "windows-elevate": "^1.0.1",
     "xml-js": "^1.6.11",
-    "yoctocolors-cjs": "^2.1.3"
+    "yoctocolors-cjs": "^2.1.3",
+    "zod": "^4.4.3"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.8",
+    "form-data": "^4.0.6",
+    "js-yaml": "^4.2.1",
+    "undici": "^7.27.3"
   }
 }

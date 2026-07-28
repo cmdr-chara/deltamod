@@ -1,41 +1,169 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('electronAPI', {
-    invoke: (channel, data) => {
-        var leResponse = ipcRenderer.invoke(channel, data);
-        if (channel != 'log') {
-          leResponse.then((response) => {
-            ipcRenderer.invoke('logElectronAPI', [{ channel, args: data, leResponse: (response) }]);
-          });
-        }
-        return leResponse;
+const ALLOWED_INVOKE_CHANNELS = new Set([
+    'htmlAlert_outwin',
+    'isCMode',
+    'shouldGoIM',
+    'diagnosticInfo',
+    'isPackaged',
+    'version',
+    'openCommunityMaintainerProfile',
+    'getOS',
+    'isDevMode',
+    'getOfficialProfileSummary',
+    'importOfficialProfile',
+    'cancelOfficialProfileImport',
+    'restartCommunity',
+    'sampleError',
+    'log',
+    'showWindow',
+    'minimizeMe',
+    'toggleFullscreen',
+    'cmode-on',
+    'cmode-off',
+    'rebootDev',
+    'chooseTheme',
+    'setTheme',
+    'getThemes',
+    'getTheme',
+    'importTheme',
+    'renameCustomTheme',
+    'deleteCustomTheme',
+    'setSponsor',
+    'getSponsor',
+    'loginGamebanana',
+    'logoutGamebanana',
+    'eraseGamebananaCache',
+    'leaveCommentGamebanana',
+    'gbLikeMod',
+    'validateGamebananaToken',
+    'getGamebananaPic',
+    'getGamebananaID',
+    'getGamebananaUserinfo',
+    'importMod',
+    'removeMod',
+    'toggleModState',
+    'getModState',
+    'getModList',
+    'getModListFull',
+    'howManyMods',
+    'dlmodURL',
+    'setModVariant',
+    'getModImage',
+    'precalcGameHashes',
+    'getCurrentGameInfo',
+    'getGameInfo',
+    'getAvailableGames',
+    'loadedDeltarune',
+    'startGame',
+    'gamebanana_getCollections',
+    'gamebanana_createCollection',
+    'gamebanana_deleteCollection',
+    'gamebanana_importToCollection',
+    'gamebanana_downloadAllInCollection',
+    'patchAndRun',
+    'downloadGame',
+    'getSystemIndex',
+    'getMaxExistingIndex',
+    'getInstallations',
+    'setInstallationCName',
+    'changeSystemIndex',
+    'getEditionByIndex',
+    'createNewInstallation',
+    'cancelGameImport',
+    'repairInstallation',
+    'reimportInstallation',
+    'isCurrentIndexSteam',
+    'removeSteamIntegration',
+    'deleteSystemIndex',
+    'createInstallLink',
+    'openInstallationFolder',
+    'openSysFolder',
+    'openModFolder',
+    'getUniqueFlag',
+    'setUniqueFlag',
+    'fetchSharedVariable',
+    'isBaked',
+    'npsCallback',
+    'executeArgumentCmd',
+    'openFlagDatabase',
+    'deltamoddersDiscord',
+    'browseFile',
+    'locateDelta',
+    'canReportError',
+    'fireUpdate',
+    'start-update',
+    'ignore-update',
+    'initialize',
+    'modalTest',
+    'openElectronTracer',
+    'installDeltamodCLI'
+]);
+
+function invoke(channel, data = []) {
+    if (!ALLOWED_INVOKE_CHANNELS.has(channel)) {
+        return Promise.reject(new Error(`Blocked unknown IPC channel: ${channel}`));
+    }
+    return ipcRenderer.invoke(channel, data);
+}
+
+function on(channel, callback) {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+}
+
+contextBridge.exposeInMainWorld('communityAPI', {
+    app: {
+        version: () => invoke('version'),
+        platform: () => invoke('getOS'),
+        minimize: () => invoke('minimizeMe'),
+        toggleFullscreen: () => invoke('toggleFullscreen'),
+        openMaintainerProfile: () => invoke('openCommunityMaintainerProfile')
+    },
+    profile: {
+        summary: () => invoke('getOfficialProfileSummary'),
+        import: operationId => invoke('importOfficialProfile', [operationId]),
+        cancel: operationId => invoke('cancelOfficialProfileImport', [operationId]),
+        onProgress: callback => on('profile-import-progress', callback)
+    },
+    updates: {
+        check: () => invoke('fireUpdate'),
+        install: () => invoke('start-update'),
+        ignore: () => invoke('ignore-update')
     }
 });
 
+// Compatibility bridge for existing pages. Unlike the previous bridge, this
+// cannot invoke arbitrary main-process channels.
+contextBridge.exposeInMainWorld('electronAPI', { invoke });
+
 contextBridge.exposeInMainWorld('preloadAPI', {
-  onPage: (callback) => ipcRenderer.on('page', (_, title) => callback(title)),
-  onAudio: (callback) => ipcRenderer.on('audio', (_, stat) => callback(stat)),
-  onGPL: (callback) => ipcRenderer.on('gplog', (_, message) => callback(message)),
-  onUpdateAvailable: (callback) => ipcRenderer.on('updateAvailable', (_, info) => callback(info)),
-  onDDS: (callback) => ipcRenderer.on('du-progress', (_, info) => callback(info)),
-  onThemeChange: (callback) => ipcRenderer.on('themeChange', () => callback()),
-  onUpdateProgress: (callback) => ipcRenderer.on('updateProgress', (_, info) => callback(info)),
-  onRefresh: (callback) => ipcRenderer.on('refresh', () => callback()),
-  onFinishedPatch: (callback) => ipcRenderer.on('finishedPatch', () => callback()),
-  onDLMODProgress: (callback) => ipcRenderer.on('dlmodURL-progress', (_, info) => callback(info)),
-  onWRA: (callback) => ipcRenderer.on('winResAlert', (_, info) => callback(info)),
+    onPage: callback => on('page', callback),
+    onAudio: callback => on('audio', callback),
+    onGPL: callback => on('gplog', callback),
+    onUpdateAvailable: callback => on('updateAvailable', callback),
+    onDDS: callback => on('du-progress', callback),
+    onThemeChange: callback => on('themeChange', callback),
+    onUpdateProgress: callback => on('updateProgress', callback),
+    onRefresh: callback => on('refresh', callback),
+    onFinishedPatch: callback => on('finishedPatch', callback),
+    onDLMODProgress: callback => on('dlmodURL-progress', callback),
+    onProtocolDownloadProgress: callback => on('protocol-download-progress', callback),
+    onProfileImportProgress: callback => on('profile-import-progress', callback),
+    onGameImportProgress: callback => on('game-import-progress', callback),
+    onHashProgress: callback => on('hash-progress', callback),
+    onWRA: callback => on('winResAlert', callback),
+    onLeaveControllerMode: callback => on('leave-controller-mode', callback)
 });
 
-ipcRenderer.on('warn', (_, message) => {
-    console.warn(message);
-});
+ipcRenderer.on('warn', (_event, message) => console.warn(message));
 
-// Remove Windows SMTC handlers to stop Windows interfering with background music
-Object.defineProperty(navigator, "mediaSession", {
-  value: {
-    metadata: null,
-    playbackState: "none",
-    setActionHandler: () => {},
-  },
-  writable: false,
+Object.defineProperty(navigator, 'mediaSession', {
+    value: {
+        metadata: null,
+        playbackState: 'none',
+        setActionHandler: () => {}
+    },
+    writable: false
 });

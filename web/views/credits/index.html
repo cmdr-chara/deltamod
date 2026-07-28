@@ -1,17 +1,88 @@
-<div style="margin-bottom: 15px;">
-    <h1>$$credits_proginfo$$</h1>
-    <p class="calibri" id="version">$$loading$$</p>
-    <div class="calibri">
-        $$credits_licenseinfo$$
+<main class="credits-page">
+    <header class="credits-intro">
+        <div>
+            <span class="credits-kicker">Deltamod Community</span>
+            <h1>About this build</h1>
+            <p class="calibri credits-summary">
+                An independently maintained fork focused on stability, compatibility, and a more transparent modding experience.
+            </p>
+        </div>
+        <span class="credits-version calibri" id="version">Loading version...</span>
+    </header>
+
+    <div class="credits-lead-grid">
+        <section class="maintainer-feature" aria-labelledby="maintainer-title">
+            <img
+                class="maintainer-avatar"
+                id="maintainerAvatar"
+                src="https://avatars.githubusercontent.com/u/249489759?s=192&amp;v=4"
+                alt="Chara's GitHub avatar"
+                width="112"
+                height="112"
+            >
+            <div class="maintainer-copy">
+                <span class="credits-kicker">Community maintainer</span>
+                <h2 id="maintainer-title">Chara <span class="maintainer-handle calibri">@cmdr-chara</span></h2>
+                <p class="calibri">
+                    Maintainer of Deltamod Community, responsible for the fork's direction, stabilization, compatibility work, and releases.
+                </p>
+                <button id="maintainerProfileButton" type="button">View GitHub profile</button>
+            </div>
+            <span class="material-symbols-outlined maintainer-mark" aria-hidden="true">terminal</span>
+        </section>
+
+        <aside class="build-facts" aria-label="Build information">
+            <div class="build-fact">
+                <span class="material-symbols-outlined build-fact-icon" aria-hidden="true">deployed_code</span>
+                <div>
+                    <span class="calibri">Project</span>
+                    <strong>Deltamod Community</strong>
+                </div>
+            </div>
+            <div class="build-fact">
+                <span class="material-symbols-outlined build-fact-icon" aria-hidden="true">balance</span>
+                <div>
+                    <span class="calibri">License</span>
+                    <strong>EUPL 1.2</strong>
+                </div>
+            </div>
+            <div class="build-fact">
+                <span class="material-symbols-outlined build-fact-icon" aria-hidden="true">account_tree</span>
+                <div>
+                    <span class="calibri">Based on</span>
+                    <strong>Original Deltamod</strong>
+                </div>
+            </div>
+            <div class="build-fact">
+                <span class="material-symbols-outlined build-fact-icon" aria-hidden="true">code</span>
+                <div>
+                    <span class="calibri">Repository</span>
+                    <strong>cmdr-chara/deltamod</strong>
+                </div>
+            </div>
+            <p class="calibri build-note">
+                Community and official Deltamod are separate applications with separate writable data.
+            </p>
+        </aside>
     </div>
-</div>
-<div>
-    <h1>$$credits_thxdevs$$</h1>
-    <br>
-    <marquee behavior="scroll" direction="left" id="credits"></marquee>
-</div>
+
+    <section class="upstream-credits" aria-labelledby="upstream-title">
+        <div class="credits-section-heading">
+            <div>
+                <span class="credits-kicker">Project lineage</span>
+                <h2 id="upstream-title">Original Deltamod contributors</h2>
+            </div>
+            <p class="calibri">
+                Deltamod Community builds on their work. Roles are loaded from the original project's GameBanana credits and remain visible offline.
+            </p>
+        </div>
+        <div id="credits" aria-live="polite">
+            <p class="calibri credits-state">Loading contributor credits...</p>
+        </div>
+    </section>
+</main>
 
 AUDIO[views/credits/credits.mp3]
 STYLESHEET[credits]
-TITLEKEY[creditsTitle]
+TITLE[Credits]
 JSL

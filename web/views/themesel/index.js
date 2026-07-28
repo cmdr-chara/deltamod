@@ -1,3 +1,10 @@
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
 (async() => {
     var themes = (await window.electronAPI.invoke('getThemes', [])).sort((a, b) => {
         if (a.builtIn && !b.builtIn) return -1;
@@ -54,7 +61,7 @@
         var ogTag = document.createElement('span');
         ogTag.style.display = 'block';
         ogTag.style.marginTop = '0.5em';
-        ogTag.innerHTML = icon('where_to_vote', '0.8em') + ` ${theme.builtIn ? await k('themesel_builtin') : await k('themesel_custom')}`;
+        ogTag.innerHTML = icon('where_to_vote', '0.8em') + ` ${theme.builtIn ? "Built-in theme" : "Custom theme"}`;
         ogTag.classList.add('calibri');
         ogTag.style.fontSize = '0.8em';
         td1.appendChild(ogTag);
@@ -91,6 +98,8 @@
                     themeRefresh(true);
                 }
                 await window.electronAPI.invoke('deleteCustomTheme', [theme.id]);
+
+                page('themesel');
             });
             td2.appendChild(deletebtn);
 
@@ -135,3 +144,4 @@ let spamtennaBuffer = '';
     };
 
 elisten(document, 'keydown', handleSpamtennaKeydown);
+})();
