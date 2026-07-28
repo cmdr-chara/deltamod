@@ -121,12 +121,14 @@ test('launches securely and keeps Options categories inside their column', async
                 return {
                     insideCell: path.left >= cell.left && path.right <= cell.right + 1,
                     overflowsHorizontally: element.scrollWidth > element.clientWidth + 1,
-                    hasBreakOpportunities: element.querySelectorAll('wbr').length
+                    hasBreakOpportunities: element.querySelectorAll('wbr').length,
+                    separatorCount: (element.textContent.match(/[\\/]/g) || []).length
                 };
             });
             expect(destinationLayout.insideCell).toBe(true);
             expect(destinationLayout.overflowsHorizontally).toBe(false);
-            expect(destinationLayout.hasBreakOpportunities).toBeGreaterThan(2);
+            expect(destinationLayout.separatorCount).toBeGreaterThan(0);
+            expect(destinationLayout.hasBreakOpportunities).toBe(destinationLayout.separatorCount);
 
             await window.evaluate(() => page('credits'));
             await expect(window.locator('#maintainer-title')).toContainText('Chara');
