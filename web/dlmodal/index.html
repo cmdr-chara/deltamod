@@ -124,6 +124,7 @@
 
     document.addEventListener("DOMContentLoaded", () => {
         updateProgress(0);
+        window.progressAPI.onProgress(updateProgress);
     });
 </script>
 <style>

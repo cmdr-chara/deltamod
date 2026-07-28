@@ -2,10 +2,6 @@
     user-select: none;
 }
 
-@view-transition {
-  navigation: auto;
-}
-
 :root {
     --topbar-height: 40px;
     --sidebar-size: 150px;
@@ -15,17 +11,6 @@
     height: 70px;
     background: url("./img/load.svg") no-repeat center;
     background-size: contain;
-}
-
-@keyframes elFadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(-20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0px);
-    }
 }
 
 #top-options > button {
@@ -83,14 +68,8 @@ button:disabled {
 }
 
 @keyframes stuffFadeIn {
-    0% {
-        opacity: 0;
-        transform: translateX(-50px) rotateY(-30deg) translateY(-20px);
-    }
-    100% {
-        opacity: 1;
-        transform: translateX(0px) rotateY(0deg) translateY(0px);
-    }
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 .bar-button {
@@ -179,49 +158,9 @@ button:disabled {
     padding-left: 0;
 }
 
-.sidebar-ribbon[data-disabled="true"] {
-    opacity: 0.5;
-    pointer-events: none;
-}
 .gamebanana-account[data-disabled="true"] {
     opacity: 0.5 !important;
     pointer-events: none;
-}
-.sidebar-ribbon {
-    display: inline-flex;
-    justify-content: left;
-    align-items: center;
-    gap: 7px;
-    width: 100%;
-    padding-left: 20px;
-    transition: 0.3s all cubic-bezier(0.16, 1, 0.3, 1);
-}
-.gamebanana-account {
-    position: fixed;
-    bottom: 20px;
-    transition: 0.3s all cubic-bezier(0.16, 1, 0.3, 1);
-    left: 0;
-    z-index: 99;
-    -webkit-app-region: no-drag;
-
-    display: inline-flex;
-    justify-content: left;
-    align-items: center;
-    gap: 7px;
-    width: calc(var(--sidebar-size) * 1 - 20px);
-    padding: 20px;
-    transition: 0.3s all cubic-bezier(0.16, 1, 0.3, 1);
-}
-.sidebar-ribbon:hover {
-    cursor: pointer;
-    background-color: rgba(255, 255, 255, 0.05);
-}
-.gamebanana-account:hover {
-    cursor: pointer;
-    background-color: rgba(255, 255, 255, 0.05);
-}
-.sidebar-ribbon.active {
-    background-color: var(--theme-color-point2);
 }
 * {
     -webkit-user-drag: none;
@@ -286,7 +225,7 @@ body {
     backdrop-filter: brightness(0.8);
     background-color: rgba(40, 40, 40, 0.05);
     overflow-x: hidden;
-    transition: 0.9s all cubic-bezier(0.16, 1, 0.3, 1);
+    transition: none;
     z-index: 2;
     -webkit-app-region: drag;
     user-select: none;
@@ -299,19 +238,6 @@ body {
     align-items: baseline;
     flex-direction: column;
     gap: 10px
-}
-
-@keyframes sidebarBtnFadeIn {
-    from {
-        opacity: 0.4;
-        filter: blur(2px);
-        scale: 0.8;
-    }
-    to {
-        opacity: 1;
-        filter: blur(0px);
-        scale: 1;
-    }
 }
 
 h1 {
@@ -333,7 +259,7 @@ h1 {
     padding-right: 80px;
     z-index: 3;
     box-sizing: border-box;
-    animation: 0.4s fadeIn cubic-bezier(0, 0.55, 0.45, 1);
+    animation: 0.14s pageFadeIn ease-out;
 }
 
 .bg {
@@ -352,14 +278,12 @@ h1 {
     image-rendering: pixelated;
 }
 
-@keyframes fadeIn {
+@keyframes pageFadeIn {
     from {
-        scale: 1.1;
-        transform: scaleX(0.9);
+        opacity: 0;
     }
     to {
-        scale: 1;
-        transform: scaleX(1);
+        opacity: 1;
     }
 }
 
@@ -382,6 +306,17 @@ h1 {
     -webkit-app-region: drag;
     z-index: 99;
     user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+    }
 }
 
 .topbar > .title {
@@ -431,15 +366,6 @@ h1 {
     margin-right: 5px;
 }
 
-@keyframes spinY {
-    from { transform: rotateY(0deg); }
-    to { transform: rotateY(360deg); }
-}
-@keyframes spinScale {
-    from { scale: 1; transform: rotateY(0deg); }
-    to { scale: 1.2; transform: rotateY(360deg); }
-}
-
 .level4 {
     background-color: purple;
     color: rgb(255, 255, 255);
@@ -461,23 +387,235 @@ h1 {
     color: white;
     border: 1px solid rgba(255, 255, 255, 0.23);
 }
-.coin {
-    position: fixed;
-    bottom: 45px;
-    left: calc(var(--sidebar-size) + 45px);
-    transform: translate(-50%, -50%);
-    width: 100px;
-    height: 100px;
-    font-size: 50px;
-    font-family: "Calibri", sans-serif;
-    border-radius: 50%;
-    transition: 1.2s all;
+/* Restored compact shell: original artwork and proportions, calmer behavior. */
+:root {
+    --topbar-height: 40px;
+    --sidebar-size: 50px;
+    --rail-width: 70px;
+}
 
+body {
+    box-sizing: border-box;
+    padding: 0;
+    overflow: hidden;
+}
+
+.dmodicon {
+    position: fixed;
+    top: -22px;
+    left: -20px;
+    z-index: 6;
+    width: 95px;
+    height: auto;
+    opacity: 0.42;
+    pointer-events: none;
+}
+
+.topbar {
+    left: var(--rail-width);
+    width: calc(100% - var(--rail-width));
+    box-sizing: border-box;
+    padding-left: 20px;
+    background-color: rgba(20, 18, 18, 0.3);
+    backdrop-filter: blur(12px) brightness(0.78);
+    z-index: 5;
+}
+
+.topbar > .title {
+    min-width: 0;
+    pointer-events: none;
+}
+
+#pageTitle {
+    overflow: hidden;
+    margin: 0;
+    color: rgba(255, 255, 255, 0.64);
+    font-family: "Pixel", sans-serif;
+    font-size: 19px;
+    line-height: 1;
+    text-overflow: ellipsis;
+    text-shadow: 2px 2px 0 var(--theme-color-point3);
+    white-space: nowrap;
+}
+
+.barbtns {
     display: flex;
+    height: 40px;
+    box-sizing: border-box;
+    align-items: center;
+    gap: 5px;
+    margin-right: 12px;
+    padding: 4px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.32);
+    -webkit-app-region: no-drag;
+}
+
+.bar-button,
+.bar-button:hover {
+    transform: none;
+    transition: background-color 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+    box-shadow: none;
+}
+
+.bar-button {
+    display: grid;
+    width: 36px;
+    height: 32px;
+    margin: 0;
+    padding: 0;
+    place-items: center;
+    border: 0;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.07) !important;
+}
+
+.bar-button > span {
+    display: block;
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    font-size: 18px !important;
+    line-height: 18px;
+    text-align: center;
+}
+
+.minimize-button > span {
+    /* The Material Symbols "minimize" stroke sits 6px below its em-box centre. */
+    transform: translateY(-6px);
+}
+
+.bar-button:hover {
+    background: var(--theme-color) !important;
+    color: white;
+}
+
+.close-button:hover {
+    background: rgba(190, 35, 35, 0.92) !important;
+}
+
+.bar-button:active {
+    opacity: 0.72;
+}
+
+.sidebar {
+    top: 0;
+    width: var(--rail-width);
+    height: 100%;
+    box-sizing: border-box;
+    padding: 82px 10px 72px;
+    overflow: hidden;
+    background-color: rgba(20, 18, 18, 0.3);
+    backdrop-filter: blur(12px) brightness(0.78);
+    transition: none;
+    z-index: 4;
+}
+
+.sidebar > div,
+.sidebar-buttons {
+    display: flex;
+    width: 50px;
+    margin: 0;
+    padding: 0;
+    align-items: center;
+    gap: 8px;
+}
+
+.sidebar-button {
+    display: flex;
+    flex: 0 0 auto;
+    width: 46px;
+    height: 46px;
     align-items: center;
     justify-content: center;
+    padding: 8px;
+    border: 0;
+    border-radius: 14px;
+    background: transparent !important;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.12s ease, opacity 0.12s ease;
+    -webkit-app-region: no-drag;
+}
 
-    z-index: 999;
+.sidebar-button:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: white;
+}
 
+.sidebar-button.active {
+    background: var(--theme-color-point2) !important;
+    box-shadow: inset 3px 0 0 var(--theme-color);
+}
+
+.sidebar-button[data-disabled="true"] {
+    opacity: 0.42;
     pointer-events: none;
+}
+
+.sidebar-button img {
+    width: 26px;
+    height: 26px;
+    object-fit: contain;
+    image-rendering: pixelated;
+}
+
+.gamebanana-account {
+    position: fixed;
+    left: 11px;
+    bottom: 14px;
+    z-index: 99;
+    display: inline-flex;
+    width: 48px;
+    height: 48px;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 9px;
+    border-radius: 14px;
+    background: transparent;
+    transition: background-color 0.12s ease, opacity 0.12s ease;
+    -webkit-app-region: no-drag;
+}
+
+.gamebanana-account:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.gamebanana-account img {
+    width: 28px !important;
+    height: 28px !important;
+    object-fit: cover;
+}
+
+.gamebanana-account-name {
+    display: none;
+}
+
+.viewport {
+    top: var(--topbar-height);
+    left: var(--rail-width);
+    width: calc(100% - var(--rail-width));
+    height: calc(100% - var(--topbar-height));
+    padding: 22px 36px 34px;
+    border: 0;
+    border-radius: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    animation: 0.14s pageFadeIn ease-out;
+}
+
+.bg {
+    opacity: 0.34;
+}
+
+@media (max-width: 900px) {
+    .viewport {
+        padding: 18px 20px 28px;
+    }
+
+    #pageTitle {
+        font-size: 17px;
+    }
 }

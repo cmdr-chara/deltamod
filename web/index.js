@@ -7,15 +7,84 @@
 
 // Global Variables & State
 var audio = new Audio();
+audio.preload = "none";
 var currentAudio = "";
 var theme = null;
 var pageN = null;
 var addedStyle = null;
+var currentPageScript = null;
 var update = false;
 var TARGET_MUSIC_VOLUME = 0.5;
 var cmode = false; // Controller Mode
 
+function releaseAudioBuffer() {
+    audio.pause();
+    audio.currentTime = 0;
+    audio.removeAttribute('src');
+    audio.load();
+    currentAudio = "";
+}
+
+function loopMenuAudio() {
+    const loopBuffer = 0.44;
+    if (Number.isFinite(audio.duration) && audio.currentTime > audio.duration - loopBuffer) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+    }
+}
+
+audio.addEventListener('timeupdate', loopMenuAudio);
+
 window._onClosePage = window._onClosePage || [];
+
+const PAGE_STYLESHEET_OVERRIDES = Object.freeze({
+    allmods: './views/main/main.css'
+});
+
+const PAGE_REGISTRY = Object.freeze(Object.fromEntries([
+    'allmods',
+    'collection-exportchoose',
+    'collections',
+    'credits',
+    'deleteall',
+    'gamebanana-browse',
+    'gamebanana-leave-comment',
+    'goc-dl',
+    'installmanager',
+    'locate',
+    'main',
+    'options',
+    'patching',
+    'themesel'
+].map(name => [name, Object.freeze({
+    name,
+    html: `./views/${name}/index.html`,
+    script: `./views/${name}/index.js`,
+    base: `./views/${name}/`,
+    stylesheet: PAGE_STYLESHEET_OVERRIDES[name] || null
+})])));
+
+function loadPageScript(pageDefinition) {
+    if (currentPageScript) {
+        currentPageScript.remove();
+        currentPageScript = null;
+    }
+
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = pageDefinition.script;
+        script.async = false;
+        script.dataset.pageScript = pageDefinition.name;
+        script.addEventListener('load', () => resolve(), { once: true });
+        script.addEventListener(
+            'error',
+            () => reject(new Error(`Failed to load script for page: ${pageDefinition.name}`)),
+            { once: true }
+        );
+        currentPageScript = script;
+        document.body.appendChild(script);
+    });
+}
 
 /**
  * Wrapper for invoking Electron IPC calls.
@@ -188,7 +257,8 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
         
         // Message
         var messageElement = document.createElement('p');
-        messageElement.innerHTML = message.replace(/\n/g, '<br>');
+        messageElement.textContent = String(message);
+        messageElement.style.whiteSpace = 'pre-line';
         messageElement.style.opacity = '0';
         
         alertMsg.appendChild(titleElement);
@@ -299,7 +369,7 @@ window.preloadAPI.onUpdateAvailable((info) => {
 
     htmlAlert(
         'Update available', 
-        `A new version of Deltamod (${info.version}) is available for download. Do you wish to update?`, 
+        `A new version of Deltamod Community (${info.version}) is available for download. Do you wish to update?`,
         [
             { text: 'Yes', resolveWith: "a" },
             { text: 'No', rejectWith: "a" }
@@ -314,17 +384,63 @@ window.preloadAPI.onUpdateAvailable((info) => {
 
 window.preloadAPI.onDLMODProgress((info) => window.currentPageStack.dlmod && window.currentPageStack.dlmod(info));
 window.preloadAPI.onDDS((info) => window.currentPageStack.du && window.currentPageStack.du(info.percentage));
+window.preloadAPI.onProtocolDownloadProgress((info) => window.currentPageStack.onDLP && window.currentPageStack.onDLP(info.percentage));
+window.preloadAPI.onProfileImportProgress((info) => window.currentPageStack.profileImportProgress && window.currentPageStack.profileImportProgress(info));
+window.preloadAPI.onHashProgress((info) => window.currentPageStack.hashProgress && window.currentPageStack.hashProgress(info));
 window.preloadAPI.onRefresh(() => page(pageN));
 window.preloadAPI.onUpdateProgress((info) => window.currentPageStack.u && window.currentPageStack.u(info.perc));
 window.preloadAPI.onFinishedPatch(() => window.currentPageStack.fp && window.currentPageStack.fp());
 window.preloadAPI.onGPL((message) => window.currentPageStack.gpl && window.currentPageStack.gpl(message));
 window.preloadAPI.onPage((title) => page(title));
 window.preloadAPI.onAudio((stat) => stat ? openAudio() : closeAudio());
+window.preloadAPI.onLeaveControllerMode(() => promptLeaveCMode());
 
 function sanitizeHTML(str) {
     var temp = document.createElement('div');
     temp.textContent = str;
     return temp.innerHTML;
+}
+
+function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return 'an unknown amount of space';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+    }
+    return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+async function offerOfficialProfileImport() {
+    try {
+        const summary = await window.communityAPI.profile.summary();
+        if (!summary.exists || summary.previousImport || localStorage.getItem('communityMigrationPromptDismissed') === 'true') {
+            return false;
+        }
+
+        const choice = await htmlAlert(
+            'Import your Deltamod data',
+            `Deltamod ${summary.version || ''} was found with ${summary.installations} installation(s), ${summary.mods} mod(s), and ${summary.themes} custom theme(s). A safe Community copy needs ${formatBytes(summary.totalBytes)}. Official Deltamod will not be changed.`,
+            [
+                { text: 'Review and import', resolveWith: 'import' },
+                { text: 'Later', resolveWith: 'later' }
+            ],
+            'database'
+        );
+
+        if (choice === 'import') {
+            window._pageArguments = { cat: 'data' };
+            await page('options');
+            return true;
+        }
+
+        localStorage.setItem('communityMigrationPromptDismissed', 'true');
+    } catch (error) {
+        console.warn('Could not inspect the official Deltamod profile:', error.message || error);
+    }
+    return false;
 }
 
 // Override console methods to tunnel logs through Electron IPC
@@ -364,13 +480,19 @@ async function themeRefresh(refreshAudio = true) {
     document.getElementsByClassName('bg')[0].style.backgroundImage = 'url(themeprot://img/' + theme.background + ')';
     
     if (refreshAudio) {
-        audio.pause();
-        audio.currentTime = 0;
-        audio.loop = true;
-        audio.volume = TARGET_MUSIC_VOLUME;
-        audio.src = 'themeprot://mus/' + theme.mainSong;
-        audio.play();
-        page(pageN);
+        const shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
+        if (shouldPlayAudio) {
+            audio.pause();
+            audio.currentTime = 0;
+            audio.loop = true;
+            audio.volume = TARGET_MUSIC_VOLUME;
+            audio.src = 'themeprot://mus/' + theme.mainSong;
+            currentAudio = 'mainTheme.mp3';
+            await audio.play().catch(() => {});
+        } else {
+            releaseAudioBuffer();
+        }
+        await page(pageN);
     }
 }
 
@@ -389,7 +511,6 @@ function elisten(element, event, handler) {
  * @param {string} name - The identifier of the page to load.
  */
 async function page(name) {
-    var refreshing = (pageN == name || name == "");
     rew();
 
     // Clear existing intervals/listeners to prevent memory leaks
@@ -404,22 +525,40 @@ async function page(name) {
     window._eventListeners.forEach(({ element, event, handler }) => {
         element.removeEventListener(event, handler);
     });
+    window._eventListeners = [];
+
+    window._onClosePage = window._onClosePage || [];
+    window._onClosePage.forEach(func => func());
+    window._onClosePage = [];
+
+    if (currentPageScript) {
+        currentPageScript.remove();
+        currentPageScript = null;
+    }
+
+    if (addedStyle) {
+        addedStyle.remove();
+        addedStyle = null;
+    }
     
     if (name == "") {
         name = pageN;
     }
 
     // Prevents escaping to home if game is baked
-    if (await window.electronAPI.invoke('isBaked', []) && name == 'main') {
+    if (await window.electronAPI.invoke('isBaked', []) && name == 'main' && PAGE_REGISTRY.bakedhome) {
         name = 'bakedhome';
     }
+    const pageDefinition = PAGE_REGISTRY[name];
+    if (!pageDefinition) {
+        throw new Error(`Blocked unknown page: ${String(name)}`);
+    }
 
-    // Viewport animation reset
-    document.querySelector('.viewport').style.animation = 'none';
-    document.querySelector('.viewport').style.pointerEvents = 'none';
-    await new Promise(resolve => setTimeout(resolve, 50));
-    document.querySelector('.viewport').style.animation = '0.34s fadeIn cubic-bezier(0, 0.55, 0.45, 1)';
-    document.querySelector('.viewport').style.pointerEvents = 'auto';
+    // Keep navigation immediate. Animating the full viewport promotes every
+    // blurred panel to a large compositor surface and retains substantial GPU
+    // memory after each page change.
+    const viewport = document.querySelector('.viewport');
+    viewport.style.animation = 'none';
     window.electronAPI.invoke('showWindow', []);
 
     // Load theme if not yet initialized
@@ -430,7 +569,10 @@ async function page(name) {
     window.currentPageStack = {};
 
     // Process Page HTML
-    var purifiedHTML = await fetch(`./views/${name}/index.html`).then(response => response.text());
+    var purifiedHTML = await fetch(pageDefinition.html).then(response => {
+        if (!response.ok) throw new Error(`Failed to load page ${name}: HTTP ${response.status}`);
+        return response.text();
+    });
     
     var runScripts = false;
     var changeAudio = false;
@@ -445,31 +587,42 @@ async function page(name) {
     if (purifiedHTML.includes('STYLESHEET[')) {
         var stylesheetSrc = purifiedHTML.match(/STYLESHEET\[(.*?)\]/);
         if (stylesheetSrc && stylesheetSrc[1]) {
-            var stylesheetContent = await fetch(`./views/${name}/${stylesheetSrc[1]}.css`).then(res => res.text());
-            var s = addedStyle ?? document.createElement("style");
-            s.innerHTML = stylesheetContent;
-
-            if (!addedStyle) {
-                var h = document.getElementById("head");
-                addedStyle = h.appendChild(s);
+            if (addedStyle) addedStyle.remove();
+            addedStyle = document.createElement('link');
+            addedStyle.rel = 'stylesheet';
+            addedStyle.dataset.pageStylesheet = name;
+            if (pageDefinition.stylesheet) {
+                addedStyle.href = pageDefinition.stylesheet;
+            } else {
+                if (!/^[a-z0-9_-]+$/i.test(stylesheetSrc[1])) {
+                    throw new Error(`Blocked unsafe stylesheet name on page ${name}.`);
+                }
+                addedStyle.href = `${pageDefinition.base}${stylesheetSrc[1]}.css`;
             }
+            document.getElementById('head').appendChild(addedStyle);
         }
         purifiedHTML = purifiedHTML.replace(/STYLESHEET\[(.*?)\]/g, '');
     } else if (addedStyle) {
-        addedStyle.innerHTML = ""; // Remove styles to not interfere with other pages
+        addedStyle.remove();
+        addedStyle = null;
     }
 
     // Handle NO-SIDEBAR tag
     if (purifiedHTML.includes('NO-SIDEBAR')) {
         purifiedHTML = purifiedHTML.replace('NO-SIDEBAR', '');
-        ([...Array.from(document.getElementsByClassName('sidebar-ribbon')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => button.setAttribute('data-disabled', 'true'));
+        ([...Array.from(document.getElementsByClassName('sidebar-button')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => button.setAttribute('data-disabled', 'true'));
     } else {
-        ([...Array.from(document.getElementsByClassName('sidebar-ribbon')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => button.setAttribute('data-disabled', 'false'));
+        ([...Array.from(document.getElementsByClassName('sidebar-button')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => button.setAttribute('data-disabled', 'false'));
     }
 
     // Extract Title Tag
     var title = purifiedHTML.match(/TITLE\[(.*?)\]/);
     purifiedHTML = purifiedHTML.replace(/TITLE\[(.*?)\]/g, '');
+    const pageTitle = title?.[1] || 'Deltamod Community';
+    const pageTitleElement = document.getElementById('pageTitle');
+    if (pageTitleElement) {
+        pageTitleElement.textContent = pageTitle;
+    }
 
     // Extract Exclude Audio Tag
     var themeAudioExclude = purifiedHTML.match(/THEME-AUDIO-EXCLUDE\[(.*?)\]/);
@@ -490,7 +643,11 @@ async function page(name) {
             audioSrc = ['AUDIO[mainTheme.mp3]', 'mainTheme.mp3'];
         }
 
-        if (audioSrc && audioSrc[1] && audioSrc[1] !== currentAudio) {
+        const shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
+
+        if (!shouldPlayAudio) {
+            releaseAudioBuffer();
+        } else if (audioSrc && audioSrc[1] && (audioSrc[1] !== currentAudio || !audio.src)) {
             currentAudio = audioSrc[1];
             audio.pause();
             audio.currentTime = 0;
@@ -501,37 +658,32 @@ async function page(name) {
                 audio.src = './' + audioSrc[1];
             }
 
-            // Custom loop behavior
-            audio.addEventListener('timeupdate', function(){
-                var buffer = .44;
-                if(this.currentTime > this.duration - buffer) {
-                    this.currentTime = 0;
-                    this.play();
-                }
-            });
-
             audio.volume = TARGET_MUSIC_VOLUME;
             changeAudio = true;
         }
 
-        let shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
         if (shouldPlayAudio) {
-            audio.play();
-        } else {
-            audio.pause();
+            await audio.play().catch(() => {});
         }
         purifiedHTML = purifiedHTML.replace(/AUDIO\[(.*?)\]/g, '');
     }
 
     // Inject Viewport HTML
-    document.getElementsByClassName('viewport')[0].innerHTML = purifiedHTML;
+    const pageViewport = document.getElementsByClassName('viewport')[0];
+    pageViewport.querySelectorAll('img, video, source').forEach(media => {
+        media.removeAttribute('src');
+        media.removeAttribute('srcset');
+    });
+    pageViewport.innerHTML = purifiedHTML;
 
     // Set Active Sidebar Button
-    ([...Array.from(document.getElementsByClassName('sidebar-ribbon')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => {
+    ([...Array.from(document.getElementsByClassName('sidebar-button')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => {
         if (button.getAttribute('data-page') === name) {
             button.classList.add('active');
+            button.setAttribute('aria-current', 'page');
         } else {
             button.classList.remove('active');
+            button.removeAttribute('aria-current');
         }
     });
 
@@ -539,9 +691,9 @@ async function page(name) {
     try {
         const vp = document.getElementsByClassName('viewport')[0];
         if (vp && typeof vp.scrollTo === 'function') {
-            vp.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+            vp.scrollTo({ top: 0, left: 0, behavior: 'auto' });
         } else {
-            window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+            window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
         }
     } catch (e) {
         window.scrollTo(0, 0);
@@ -564,8 +716,8 @@ async function page(name) {
         --theme-color-point2: rgba(${rgbNumbers.r}, ${rgbNumbers.g}, ${rgbNumbers.b}, 0.2);
         --theme-color-point3: rgba(${rgbNumbers.r}, ${rgbNumbers.g}, ${rgbNumbers.b}, 0.3);
     }
-    button:not(.sidebar-button), input, select {
-        border: 1px solid rgba(${rgbNumbers.r}, ${rgbNumbers.g}, ${rgbNumbers.b}, 0.5);
+    input, select {
+        box-shadow: inset 0 0 0 1px rgba(${rgbNumbers.r}, ${rgbNumbers.g}, ${rgbNumbers.b}, 0.42);
     }
     input, progress {
         accent-color: ${theme.color};
@@ -577,43 +729,19 @@ async function page(name) {
     ${theme.specialCSS || ''}
     `;
 
-    // Execute Cleanup Functions
-    window._onClosePage = window._onClosePage || [];
-    window._onClosePage.forEach(func => func());
-    window._onClosePage = [];
-    
     // Inject Dynamic Style
     var styleTag = document.getElementById('dynamic-theme-styles');
-    styleTag.innerHTML = generatedCSS;
+    styleTag.textContent = generatedCSS;
 
     // Execute Page JS
     if (runScripts) {
         try {
-            eval(await fetch(`./views/${name}/index.js`).then(response => response.text()));
+            await loadPageScript(pageDefinition);
         } catch (error) {
-            console.error('Error occurred while evaluating script for page:', name, error);
+            console.error('Error occurred while loading script for page:', name, error);
         }
     }
 
-    // Trigger Initial Render Animations
-    if (!refreshing) {
-        var i = -1;
-        document.querySelectorAll('.viewport > *').forEach(el => {
-            i++;
-            const recursiveApply = (element) => {
-                if (element.classList.contains('noanim')) return;
-                
-                element.style.opacity = '0';
-                setTimeout(() => {
-                    element.style.animation = '0.5s elFadeIn cubic-bezier(0, 0.55, 0.45, 1)';
-                    element.style.opacity = '1';
-                }, 100 + (i * 50));
-                
-                element.children && Array.from(element.children).forEach(child => recursiveApply(child));
-            };
-            recursiveApply(el);
-        });
-    }
 }
 
 /**
@@ -622,12 +750,14 @@ async function page(name) {
  * ==========================================
  */
 window.addEventListener('blur', () => {
+    document.documentElement.classList.add('window-inactive');
     if (audio) {
         audio.volume = 0;
     }
 });
 
 window.addEventListener('focus', async () => {
+    document.documentElement.classList.remove('window-inactive');
     let shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
     if (audio && shouldPlayAudio) {
         audio.volume = TARGET_MUSIC_VOLUME;
@@ -640,10 +770,6 @@ if (!window.electronAPI) {
     window.location.href = 'about:blank';
 }
 
-(async() => {
-    document.getElementById('versionTitle').innerText = '(v.' + await invoke('version',[]) + ')';
-})();
-
 var renderedUser = false;
 async function renderuser() {
     if (!(await window.electronAPI.invoke('validateGamebananaToken')) || !navigator.onLine) {
@@ -653,12 +779,25 @@ async function renderuser() {
     var gbuser = await window.electronAPI.invoke('getGamebananaUserinfo', []);
 
     var gbaccount = document.querySelector('.gamebanana-account');
-    gbaccount.innerHTML = `
-        <img src="${gbuser._sAvatarUrl}" alt="Avatar" width="25" height="25" style="border-radius: 15px;">
-        <span>${gbuser._sName}</span>
-    `;
+    gbaccount.replaceChildren();
+    const avatar = document.createElement('img');
+    avatar.src = typeof gbuser?._sAvatarUrl === 'string'
+        ? gbuser._sAvatarUrl
+        : './img/mod-placeholder.png';
+    avatar.alt = '';
+    avatar.width = 25;
+    avatar.height = 25;
+    avatar.style.borderRadius = '15px';
+    avatar.onerror = () => {
+        avatar.onerror = null;
+        avatar.src = './img/mod-placeholder.png';
+    };
+    const username = document.createElement('span');
+    username.textContent = String(gbuser?._sName || 'GameBanana user');
+    username.className = 'gamebanana-account-name';
+    gbaccount.append(avatar, username);
     gbaccount.style.opacity = '1';
-    gbaccount.addEventListener('click', async () => {
+    const openGameBananaSettings = async () => {
         if (gbaccount.getAttribute('data-disabled') === 'true') {
             return;
         }
@@ -666,6 +805,13 @@ async function renderuser() {
             cat: 'gb'
         };
         page('options');
+    };
+    gbaccount.addEventListener('click', openGameBananaSettings);
+    gbaccount.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openGameBananaSettings();
+        }
     });
 
     renderedUser = true;
@@ -681,7 +827,7 @@ async function renderuser() {
 
     cmode = await window.electronAPI.invoke('isCMode', []);
 
-    var ribbon = document.querySelectorAll('.sidebar-ribbon');
+    var ribbon = document.querySelectorAll('.sidebar-button');
     ribbon.forEach(r => {
         r.addEventListener('click', async () => {
             if (r.getAttribute('data-disabled') === 'true') {
@@ -743,6 +889,8 @@ async function renderuser() {
         }
     }
 
+    if (await offerOfficialProfileImport()) return;
+
     var loaded = await window.electronAPI.invoke('loadedDeltarune',[]);
 
     if (await window.electronAPI.invoke('fetchSharedVariable',["gb1click"]) === true) {
@@ -772,22 +920,9 @@ async function renderuser() {
         }
 
         window.electronAPI.invoke('executeArgumentCmd',[]);
-        
-        // Fetch Developer Messages
-        try {
-            var anyMSG = await fetch('https://deltamodders.github.io/deltamod-msgrepo/msg.json?' + Date.now()).then(res => res.json());
-            anyMSG.availableMsg.forEach(async (msg) => {
-                if (localStorage.getItem('seenMSG_' + msg.id) != 'true' || msg.showEveryBoot) {
-                    localStorage.setItem('seenMSG_' + msg.id, 'true');
-                    await htmlAlert(msg.title, msg.message + "\n" + msg.sender, [{ text: "Ok" }]);
-                }
-            });
-        } catch (e) {
-            console.log('No MSGs found or error fetching them.');
-        }
     } else {
         await page('locate');
-        document.querySelectorAll('.sidebar-ribbon').forEach(button => button.setAttribute('data-disabled', 'true'));
+        document.querySelectorAll('.sidebar-button').forEach(button => button.setAttribute('data-disabled', 'true'));
         window.electronAPI.invoke('executeArgumentCmd',[]);
     }
 })();

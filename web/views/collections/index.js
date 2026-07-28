@@ -1,3 +1,10 @@
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
 (async() => {
     var table = document.getElementById("collections");
     var collections = await invoke('gamebanana_getCollections');
@@ -112,4 +119,5 @@
     addTr.appendChild(addActionTd);
 
     table.appendChild(addTr);
+})();
 })();

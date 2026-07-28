@@ -1,17 +1,83 @@
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
 var gbModID = window._pageArguments.id;
 var gbModel = window._pageArguments.model;
 var commentPage = window._pageArguments.commentPage || 1;
 window._pageArguments = {};
+var isSendingComment = false;
+
+function commentErrorMessage(error) {
+    return String(error?.message || 'GameBanana could not post the comment. Please retry.')
+        .replace(/^Error invoking remote method '[^']+': Error:\s*/i, '');
+}
 
 async function send() {
-    var comment = document.getElementById('comment').value;
-    await window.electronAPI.invoke('leaveCommentGamebanana',[gbModID, comment, gbModel]);
-    window._pageArguments = {
-        'id': gbModID,
-        'model': gbModel,
-        'commentPage': commentPage
-    };
-    page('gamebanana-leave-comment');
+    if (isSendingComment) return;
+
+    const textarea = document.getElementById('comment');
+    const sendButton = document.getElementById('sendBtn');
+    const comment = textarea.value.trim();
+
+    if (!comment) {
+        await htmlAlert(
+            'Comment not sent',
+            'Enter a comment before sending.',
+            [{ text: 'OK', resolveWith: 'ok' }],
+            'error'
+        );
+        textarea.focus();
+        return;
+    }
+
+    isSendingComment = true;
+    sendButton.disabled = true;
+    sendButton.setAttribute('aria-busy', 'true');
+    sendButton.textContent = 'Sending...';
+
+    try {
+        const posted = await window.electronAPI.invoke(
+            'leaveCommentGamebanana',
+            [gbModID, comment, gbModel]
+        );
+        if (posted !== true) {
+            throw new Error('GameBanana did not confirm that the comment was posted.');
+        }
+
+        textarea.value = '';
+        await htmlAlert(
+            'Comment posted',
+            'Your comment was posted successfully.',
+            [{ text: 'View comments', resolveWith: 'ok' }],
+            'check_circle'
+        );
+        window._pageArguments = {
+            'id': gbModID,
+            'model': gbModel,
+            'commentPage': commentPage
+        };
+        page('gamebanana-leave-comment');
+    } catch (error) {
+        console.error('Failed to post GameBanana comment:', error);
+        await htmlAlert(
+            'Comment not sent',
+            commentErrorMessage(error),
+            [{ text: 'Try again', resolveWith: 'retry' }],
+            'error'
+        );
+        textarea.focus();
+    } finally {
+        isSendingComment = false;
+        if (sendButton.isConnected) {
+            sendButton.disabled = false;
+            sendButton.removeAttribute('aria-busy');
+            sendButton.textContent = 'Send comment';
+        }
+    }
 }
 
 window.currentPageStack.send = send;
@@ -116,4 +182,5 @@ async function crawlComment(comment, div, depth = 0) {
         document.getElementById('nextPageButton').style.display = 'none';
         document.querySelector('.comments').innerHTML += '<p style="text-align: center;">No more comments to load.</p>';
     }
+})();
 })();

@@ -80,9 +80,21 @@ async function downloadFile(url, dest, onProgress) {
 }
 
 function getFileVersion(filePath) {
-    var basecmd = `powershell -command "(Get-Item '${filePath}').VersionInfo.FileVersion"`;
-    var execSync = require('child_process').execSync;
-    var c = execSync(basecmd).toString().trim();
+    const { spawnSync } = require('child_process');
+    const result = spawnSync(
+        'powershell.exe',
+        [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            '(Get-Item -LiteralPath $args[0]).VersionInfo.FileVersion',
+            filePath
+        ],
+        { encoding: 'utf8', windowsHide: true }
+    );
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(result.stderr || `PowerShell exited with ${result.status}.`);
+    const c = result.stdout.trim();
     console.log(`File version of ${filePath} is ${c}`);
     return c;
 }
@@ -141,7 +153,7 @@ function getSharedVar(name) {
 
 function properRelaunch(otherArgs = []) {
     const a = process.argv.slice(1);
-    return { args: [...a.filter(x => !x.toLowerCase().startsWith("deltamod://")), ...otherArgs] }
+    return { args: [...a.filter(x => !/^deltamod(?:-community)?:\/\//i.test(x)), ...otherArgs] }
 }
 
 function logOnAccess(obj, logMsg) {

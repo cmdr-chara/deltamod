@@ -22,8 +22,10 @@ function createProgressModal() {
         parent: getWindow(),
         webPreferences: {
             devTools: process.env.DELTAMOD_ENV === 'dev',
-            nodeIntegration: true,
-            preload: Paths.file('web', 'views', 'dlmodal', 'preload.js'),
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+            preload: Paths.file('web', 'dlmodal', 'preload.js'),
             partition: PARTITION
         }
     });
@@ -63,11 +65,7 @@ function updateProgressModal(modal, mainWindow, frac, logPrefix) {
         getWindow().setProgressBar(Math.round(percent)/100);
     }
 
-    // Disclaimer: In a few lines, you will see a TERRIBLE workaround. I *hate* this workaround.
-
-    // I HATE THIS WORKAROUND!!! >:( THIS WORKAROUND SUCKS
-    modal.webContents.executeJavaScript(`updateProgress(${percent});`); // i hate this workaround
-    // The workaround above is TERRIBLE.
+    if (!modal.isDestroyed()) modal.webContents.send('progress', percent);
 }
 
 function closeAllProgressModals() {

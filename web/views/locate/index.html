@@ -1,6 +1,6 @@
 <div>
     <h1>Locate your game</h1>
-    <p class="calibri">To use Deltamod, you need to locate your game installation. But don't worry! It's very easy.</p>
+    <p class="calibri">To use Deltamod Community, locate a supported game installation.</p>
     <hr>
     <div>
         <p style="display: flex; justify-content: left; align-items: center; gap: 10px;">
@@ -36,6 +36,12 @@
         <input type="checkbox" name="" id="copyAnyways">
         <label for="copyAnyways">Save a copy of this game on your main drive</label>
     </div>
+    <section id="gameImportProgress" class="importProgress" hidden aria-live="polite">
+        <div><strong id="gameImportPhase">Preparing import…</strong> <span id="gameImportAmount"></span></div>
+        <progress id="gameImportBar" value="0" max="1"></progress>
+        <small id="gameImportFile" class="calibri"></small>
+        <button id="cancelGameImport" type="button">Cancel import</button>
+    </section>
     <br>
     <button onclick="window.currentPageStack.id()">Save and close</button>
     <br><br>
@@ -94,6 +100,22 @@
         align-items: center;
         gap: 20px;
         border: 1px solid var(--theme-color);
+    }
+    .importProgress {
+        margin-top: 14px;
+        padding: 12px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.72);
+    }
+    .importProgress progress {
+        display: block;
+        width: 100%;
+        margin: 8px 0;
+    }
+    .importProgress small {
+        display: block;
+        overflow-wrap: anywhere;
+        margin-bottom: 8px;
     }
 </style>
 JSL

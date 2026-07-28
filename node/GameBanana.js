@@ -1,12 +1,22 @@
-const { BrowserWindow, safeStorage } = require('electron');
+const { BrowserWindow, safeStorage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 const { getSystemFile } = require('./System');
 const console = require('./Console');
+const { createCommentRequest } = require('./gamebanana/CommentRequest');
 
 function obtainLogin() {
     return new Promise(async (resolve, reject) => {
+        const isApprovedGameBananaUrl = candidate => {
+            try {
+                const parsed = new URL(candidate);
+                return parsed.protocol === 'https:'
+                    && (parsed.hostname === 'gamebanana.com' || parsed.hostname.endsWith('.gamebanana.com'));
+            } catch {
+                return false;
+            }
+        };
         let loginWindow = new BrowserWindow({
             width: 800,
             height: 600,
@@ -15,6 +25,19 @@ function obtainLogin() {
                 nodeIntegration: false,
                 partition: 'persist:gamebananaLogin',
                 contextIsolation: true,
+                sandbox: true,
+            }
+        });
+        loginWindow.webContents.setWindowOpenHandler(({ url }) => {
+            if (isApprovedGameBananaUrl(url)) shell.openExternal(url);
+            return { action: 'deny' };
+        });
+        loginWindow.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+        loginWindow.webContents.on('will-navigate', (event, url) => {
+            if (!isApprovedGameBananaUrl(url)) {
+                event.preventDefault();
+                reject(new Error('GameBanana login attempted to navigate to an unapproved host.'));
+                loginWindow.close();
             }
         });
 
@@ -33,42 +56,21 @@ function obtainLogin() {
         const cookies = loginWindow.webContents.session.cookies;
         const allCookies = await cookies.get({});
         for (const cookie of allCookies) {
-            if (cookie.domain?.includes('gamebanana.com')) {
+            const cookieDomain = cookie.domain?.replace(/^\./, '');
+            if (cookieDomain === 'gamebanana.com' || cookieDomain?.endsWith('.gamebanana.com')) {
                 await cookies.remove(`http${cookie.secure ? 's' : ''}://${cookie.domain.replace(/^\./, '')}${cookie.path}`, cookie.name);
             }
         }
 
         loginWindow.loadURL('https://gamebanana.com/members/account/login');
 
-        loginWindow.webContents.on('did-navigate', async (event, url) => {
-            var allowedURLS = [
-                "https://gamebanana.com/members/account/login",
-                "https://gamebanana.com/"
-            ];
-            var text = "Please log in to your GameBanana account to continue in Deltamod. Your account access token will be stored securely. No passwords are stored.";
-
-            loginWindow.webContents.executeJavaScript(`
-                document.title = "Login to GameBanana to continue in Deltamod."; 
-                document.querySelectorAll(\'.Description\')[0].innerHTML = "${text}";
-                document.querySelector('#PrimaryNav').style.opacity = '0.5';
-                document.querySelector('#PrimaryNav').style.pointerEvents = 'none';
-                document.querySelector('#PageFooter').style.display = 'none';
-                (() => {
-                    const onFullyLoaded = () => {
-                        document.querySelector('.fc-cta-do-not-consent').click();
-                    };
-
-                    if (document.readyState === 'complete') {
-                        onFullyLoaded();
-                    } else {
-                        window.addEventListener('load', onFullyLoaded, { once: true });
-                    }
-                })();
-            `);
-
-            if (!url.includes('gamebanana.com/members/account')) {
+        loginWindow.webContents.on('did-navigate', async (_event, url) => {
+            if (!isApprovedGameBananaUrl(url)) return;
+            const parsed = new URL(url);
+            if (!parsed.pathname.startsWith('/members/account')) {
                 const allCookies = (await loginWindow.webContents.session.cookies.get({})).filter(c => {
-                    return c.domain?.includes('gamebanana.com')
+                    const cookieDomain = c.domain?.replace(/^\./, '');
+                    return cookieDomain === 'gamebanana.com' || cookieDomain?.endsWith('.gamebanana.com');
                 });
                 console.log('Found ' + allCookies.length + ' GameBanana account cookies after login: ' + allCookies.map(c => c.name).join(', '));
                 const cookieHeader = allCookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
@@ -76,7 +78,15 @@ function obtainLogin() {
                 loginWindow.close();
             }
         });
+        loginWindow.once('closed', () => reject(new Error('GameBanana login was cancelled.')));
     });
+}
+
+function readLoginToken() {
+    if (!safeStorage.isEncryptionAvailable()) return '';
+    const file = getSystemFile('bananapwd', true);
+    if (!fs.existsSync(file)) return '';
+    return safeStorage.decryptString(fs.readFileSync(file));
 }
 
 let uiConfCache = null;
@@ -88,8 +98,7 @@ async function getGBUIConf() {
     }
 
     try {
-        var file = getSystemFile('bananapwd', true);
-        var token = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(fs.readFileSync(file)) : fs.readFileSync(file, 'utf8');
+        var token = readLoginToken();
     }
     catch {
         var file = "";
@@ -116,35 +125,46 @@ function clearCache() {
 }
 
 async function leaveComment(id, comment, model) {
+    const request = createCommentRequest(id, comment, model);
+    const token = readLoginToken();
+    if (!token) {
+        const error = new Error('Log in to GameBanana before posting a comment.');
+        error.code = 'GAMEBANANA_LOGIN_REQUIRED';
+        throw error;
+    }
+
     try {
-        var file = getSystemFile('bananapwd', true);
-        var token = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(fs.readFileSync(file)) : fs.readFileSync(file, 'utf8');
-    }
-    catch {
-        return false;
+        const response = await axios.post(request.url, request.payload, {
+            headers: {
+                'Cookie': token,
+                'User-Agent': require('electron').app.userAgentFallback,
+                'TE': 'Trailers',
+                'Content-Type': 'application/json'
+            },
+        });
+
+        if (response.status >= 200 && response.status < 300) return true;
+    } catch (cause) {
+        const status = cause?.response?.status;
+        const error = new Error(
+            status === 401 || status === 403
+                ? 'GameBanana rejected the session. Log in again and retry.'
+                : 'GameBanana could not post the comment. Please retry.'
+        );
+        error.code = 'GAMEBANANA_COMMENT_FAILED';
+        error.status = status;
+        error.cause = cause;
+        throw error;
     }
 
-    var response = await axios.post(`https://gamebanana.com/apiv12/${model}/${id}/Post/Add`, {
-        _aImageFiles: [],
-        _aImages: [],
-        _aMentionedMemberRowIds: [],
-        _sText: "<p>" + comment + "</p>",
-    }, {
-        headers: {
-            'Cookie': token,
-            'User-Agent': require('electron').app.userAgentFallback,
-            'TE': 'Trailers',
-            'Content-Type': 'application/json'
-        },
-    });
-
-    return response.status === 200;
+    const error = new Error('GameBanana did not confirm that the comment was posted.');
+    error.code = 'GAMEBANANA_COMMENT_FAILED';
+    throw error;
 }
 
 async function likeMod(model, id) {
     try {
-        var file = getSystemFile('bananapwd', true);
-        var token = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(fs.readFileSync(file)) : fs.readFileSync(file, 'utf8');
+        var token = readLoginToken();
     }
     catch {
         return false;
@@ -166,8 +186,7 @@ async function likeMod(model, id) {
 
 async function createDeltamodBackup(name) {
     try {
-        var file = getSystemFile('bananapwd', true);
-        var token = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(fs.readFileSync(file)) : fs.readFileSync(file, 'utf8');
+        var token = readLoginToken();
     }
     catch {
         return { success: false, message: "User not logged in" };
@@ -193,8 +212,7 @@ async function createDeltamodBackup(name) {
 
 async function addModToBackup(collectionId, itemId, itemType) {
     try {
-        var file = getSystemFile('bananapwd', true);
-        var token = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(fs.readFileSync(file)) : fs.readFileSync(file, 'utf8');
+        var token = readLoginToken();
     }
     catch {
         return { success: false, message: "User not logged in" };
@@ -218,8 +236,7 @@ async function addModToBackup(collectionId, itemId, itemType) {
 
 async function getCollections() {
     try {
-        var file = getSystemFile('bananapwd', true);
-        var token = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(fs.readFileSync(file)) : fs.readFileSync(file, 'utf8');
+        var token = readLoginToken();
     }
     catch {
         return { success: false, message: "You must be logged in to perform this action" };
@@ -241,8 +258,7 @@ async function getCollections() {
 
 async function getCollectionMods(collectionId) {
     try {
-        var file = getSystemFile('bananapwd', true);
-        var token = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(fs.readFileSync(file)) : fs.readFileSync(file, 'utf8');
+        var token = readLoginToken();
     }
     catch {
         return { success: false, message: "User not logged in" };
@@ -294,8 +310,7 @@ async function getCollectionMods(collectionId) {
 
 async function deleteCollection(collectionId) {
     try {
-        var file = getSystemFile('bananapwd', true);
-        var token = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(fs.readFileSync(file)) : fs.readFileSync(file, 'utf8');
+        var token = readLoginToken();
     }
     catch {
         return { success: false, message: "User not logged in" };

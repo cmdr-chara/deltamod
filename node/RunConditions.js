@@ -26,7 +26,7 @@ const conditions = [
             const fsp = require("fs");
             const os = require("os");
             const { bfree, bsize } = fsp.statfsSync(os.homedir());
-            free = bfree * bsize;
+            const free = bfree * bsize;
             return free >= 384 * 1024 * 1024;
         }
     },
@@ -35,15 +35,18 @@ const conditions = [
         required: true,
         checker: () => {
             if (process.platform === 'linux') {
-                const { execSync } = require('child_process');
+                const { spawnSync } = require('child_process');
                 try {
-                    execSync('wine --version', { stdio: 'ignore' });
-                    return true;
+                    return spawnSync('wine', ['--version'], {
+                        stdio: 'ignore',
+                        shell: false
+                    }).status === 0;
                 }
                 catch (error) {
                     return false;
                 }
             }
+            return true;
         }
     }
 ];

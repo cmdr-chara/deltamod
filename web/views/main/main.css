@@ -1,10 +1,42 @@
-@keyframes open {
-  0% { opacity: 0.5; width: 0px; }
-  100% { opacity: 1; width: 100px; }
+.mods-page .mods-scroll {
+  min-height: 530px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 20px;
 }
 
-tr {
-  height: 100%;
+.mods-page #modtable {
+  overflow: hidden;
+}
+
+.library-page .library-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.library-page .page-heading {
+  margin-bottom: 0;
+}
+
+.library-page .library-filter {
+  display: grid;
+  grid-template-columns: auto 300px;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.library-page .library-filter label {
+  color: var(--muted-text);
+  font-family: "Calibri", sans-serif;
+}
+
+.library-page .library-filter select {
+  width: 300px;
+  margin: 0;
 }
 
 .variant-select {
@@ -29,37 +61,41 @@ a {
 }
 .p2 {
   padding: 7px;
-  padding-top: 10px;
-  padding-bottom: 10px;
-  border: 1px solid var(--theme-color);
-  border-radius: 10px;
+  border: 0;
+  border-radius: 999px;
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
+  background: var(--panel-bg-strong);
+  backdrop-filter: blur(var(--panel-blur)) brightness(0.76);
 }
 .p2 > button {
-  margin: 5px;
-  margin-top: 0;
-  margin-bottom: 0;
-  border-radius: 10px;
+  display: grid;
+  flex: 0 0 50px;
   width: 50px;
   height: 50px;
-  border: 2px solid var(--theme-color) !important;
-  padding: 10px;
-  box-shadow: 0px 4px 6px var(--theme-color);
-  filter: brightness(110%);
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  border-radius: 50%;
+  border: 0 !important;
+  line-height: 1;
+}
+.p2 > button > .material-symbols-outlined {
+  display: block;
+  width: 26px;
+  height: 26px;
+  font-size: 26px;
+  line-height: 26px;
+  text-align: center;
 }
 .p2 > button:hover {
-  background-color: var(--theme-color);
-  scale: 1.1;
-  color: white;
   cursor: pointer;
-  transition: 0.1s all;
 }
 select {
   font-family: "Pixel", sans-serif;
-  font-size: 10px;
+  font-size: var(--font-size-control);
   color: white;
   background-color: rgb(15, 15, 15);
   border: 1px solid rgb(66, 66, 66);
@@ -74,17 +110,16 @@ th {
 
 .mod-image {
   border-radius: 10px;
-  border: 2px solid #ffffff3c;
-  box-shadow: 0px 4px 6px rgba(105, 105, 105, 0.44);
+  border: 0;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.22);
   object-fit: contain;
   display: block;
-  transition: 0.8s all cubic-bezier(0.22, 1, 0.36, 1);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .mod-image:hover {
-  border: 2px solid var(--theme-color);
-  box-shadow: 0px 6px 8px rgba(255, 255, 255, 0.4);
-  scale: 1.17;
+  border: 0;
+  box-shadow: 0 0 0 2px var(--theme-color-point3);
 }
 
 .modlist-actions-column-bdiv {
@@ -95,6 +130,18 @@ th {
   flex-wrap: nowrap;
   height: 100%;
 }
+
+.modlist-actions-column-bdiv > button {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  border-radius: 50%;
+  line-height: 0;
+}
+
 .modlist-enabled-column {
   input[type=checkbox] {
       margin: 0;
@@ -103,7 +150,6 @@ th {
       cursor: pointer;
       accent-color: rgba(57, 57, 57, 0.455);
       border: 6px solid white;
-      scale: 1.1;
     }
 }
 
@@ -115,15 +161,13 @@ th {
   border-radius: 6px;
   margin-bottom: 16px;
   cursor: pointer;
-  transition: 0.3s all;
-  animation: 0.7s ease forwards openError;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  animation: 0.2s ease forwards openError;
 }
 
 .modlist-error:hover {
   background-color: #ff1111ee;
   border: 1px solid #ff0000ee;
-  scale: 1.02;
-  
 }
 
 .modlist-error > h2 {
@@ -135,13 +179,13 @@ th {
 }
 
 @keyframes openError {
-  0% { opacity: 0; transform: scale(0.8); }
-  100% { opacity: 1; transform: scale(1); }
+  0% { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 @keyframes closeError {
-  0% { opacity: 1; transform: scale(1); }
-  100% { opacity: 0; transform: scale(0.8); }
+  0% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .error-list-dialog, .error-list-dialog:focus {
@@ -167,10 +211,11 @@ th {
 }
 
 .error-holder {
-  border: 2px solid var(--theme-color);
+  border: 0;
   padding: 12px;
   border-radius: 8px;
   margin: 4px;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .error-buttons {
@@ -180,4 +225,22 @@ th {
   justify-content: left;
   align-items: center;
   gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .library-page .library-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .library-page .library-filter {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .library-page .library-filter select {
+    width: 100%;
+    max-width: 320px;
+    justify-self: end;
+  }
 }

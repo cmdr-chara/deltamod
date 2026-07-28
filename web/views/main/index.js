@@ -1,3 +1,10 @@
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
 function purifyDescription(desc) {
     if (desc === null || desc === undefined) return '';
     let text = String(desc);
@@ -28,9 +35,10 @@ function purify(text) {
     return text.replace(/<[^>]*>/g, '');
 }
 
-setTimeout(() => {
-    document.getElementsByClassName('buttons')[0].style.display = 'flex';
-}, 500);
+function setIconText(element, iconName, text, size = 'small') {
+    element.innerHTML = icon(iconName, size);
+    element.appendChild(document.createTextNode(` ${String(text ?? '')}`));
+}
 
 function getPredominantColor(img) {
     const canvas = document.createElement('canvas');
@@ -134,6 +142,11 @@ async function createMod(mod) {
     img.style.width = IMAGE_DIMENSION + 'px';
     img.style.height = IMAGE_DIMENSION + 'px';
     img.style.objectFit = 'cover';
+    img.alt = '';
+    img.onerror = () => {
+        img.onerror = null;
+        img.src = 'deltapack://web/img/mod-placeholder.png';
+    };
     imageContainer.appendChild(img);
 
     imageContainer.oncontextmenu = async e => {
@@ -155,7 +168,7 @@ async function createMod(mod) {
     if (mod.new) {
         titleSpan = adaptForIconsA(titleSpan);
         titleSpan.style.marginBottom = '0px';
-        titleSpan.innerHTML = `${icon('fiber_new', '30px')} ${titleSpan.innerHTML}`;
+        setIconText(titleSpan, 'fiber_new', mod.name, '30px');
     }
     titleSpan.id = `modtitle-${mod.uid}`;
     infoContainer.appendChild(titleSpan);
@@ -184,8 +197,9 @@ async function createMod(mod) {
     flexContnainer.style.paddingRight = '10px';
     infoContainer.appendChild(flexContnainer);
 
-    var reducedAuthorStr = mod.author.slice(0,2).join(', ');
-    if (mod.author.length > 2) reducedAuthorStr += ` and ${mod.author.length - 2} more`;
+    const authors = Array.isArray(mod.author) ? mod.author : [mod.author || 'Unknown'];
+    var reducedAuthorStr = authors.slice(0,2).join(', ');
+    if (authors.length > 2) reducedAuthorStr += ` and ${authors.length - 2} more`;
     var fontSize = 13;
     let authorSpan = document.createElement('p');
     authorSpan = adaptForIconsA(authorSpan);
@@ -193,7 +207,7 @@ async function createMod(mod) {
     authorSpan.className = 'calibri';
     authorSpan.style.fontSize = fontSize + 'px';
     authorSpan.style.color = '#ffffff';
-    authorSpan.innerHTML = `${icon('attribution', fontSize + 'px')} ${purify(reducedAuthorStr)}`;
+    setIconText(authorSpan, 'attribution', reducedAuthorStr, fontSize + 'px');
     authorSpan.id = `modauthor-${mod.uid}`;
     flexContnainer.appendChild(authorSpan);
 
@@ -203,7 +217,7 @@ async function createMod(mod) {
     versionSpan.className = 'calibri';
     versionSpan.style.fontSize = fontSize + 'px';
     versionSpan.style.color = '#ffffff';
-    versionSpan.innerHTML = `${icon('change_history', fontSize + 'px')} ${(mod.version ? mod.version : "Unknown")}`;
+    setIconText(versionSpan, 'change_history', mod.version || "Unknown", fontSize + 'px');
     versionSpan.id = `modsize-${mod.uid}`;
     flexContnainer.appendChild(versionSpan);
 
@@ -217,7 +231,7 @@ async function createMod(mod) {
         mergeSpan.className = 'calibri';
         mergeSpan.style.fontSize = fontSize + 'px';
         mergeSpan.style.color = '#ffffff';
-        mergeSpan.innerHTML = `${icon('warning', fontSize + 'px')} ${"This mod is incompatible with multiple mod support"}`;
+        setIconText(mergeSpan, 'warning', "This mod is incompatible with multiple mod support", fontSize + 'px');
         mergeSpan.id = `modmerge-${mod.uid}`;
         infoContainer.appendChild(mergeSpan);
     }
@@ -297,13 +311,13 @@ async function createErroringMods(errors) {
         element.className = "error-holder";
 
         const modId = document.createElement("span");
-        modId.innerHTML = `Mod ID '${err.mod}'`;
+        modId.textContent = `Mod ID '${String(err.mod || '')}'`;
         modId.style.fontSize = '20px';
         modId.style.color = '#888';
 
         const reasoning = document.createElement("span");
         reasoning.className = 'calibri';
-        reasoning.innerHTML = `${icon('warning', '20px')} ${err.reason}`;
+        setIconText(reasoning, 'warning', err.reason, '20px');
         reasoning.style.display = 'flex';
         reasoning.style.alignItems = 'center';
         reasoning.style.gap = '8px';
@@ -360,7 +374,8 @@ function loadInst(index) {
     }
     let addedAuthors = [];
     for (const x of modList.filter(x => !x.isIncompatible)) {
-        if (window._pageArguments && window._pageArguments.sortid === "author" && !addedAuthors.includes(x.author[0] || 'Unknown Author')) {
+        const primaryAuthor = (Array.isArray(x.author) ? x.author[0] : x.author) || 'Unknown Author';
+        if (window._pageArguments && window._pageArguments.sortid === "author" && !addedAuthors.includes(primaryAuthor)) {
             // also create author tr
             var tr = document.createElement('tr');
             var td = document.createElement('td');
@@ -370,9 +385,9 @@ function loadInst(index) {
             td.style.fontWeight = 'bold';
             td.style.backgroundColor = 'rgba(40, 40, 40, 0.05)';
             td.style.color = '#fff';
-            td.innerHTML = `<span>Mods by ${x.author[0] || "Unknown"}</span>`;
+            td.textContent = `Mods by ${primaryAuthor}`;
             tr.appendChild(td);
-            addedAuthors.push(x.author[0] || "Unknown");
+            addedAuthors.push(primaryAuthor);
             document.getElementById('modlist').appendChild(tr);
         }
         await createMod(x);
@@ -421,17 +436,50 @@ function loadInst(index) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
         td.colSpan = 3;
-        td.innerHTML = "No compatible mods were found." + (modList.filter(x => x.isIncompatible).length != 0 ? `<br><small class="calibri" style="color: #888;">${modList.filter(x => x.isIncompatible).length} incompatible mod(s) were found.</small>` : '');
-        td.style.paddingLeft = '10px';
-        tr.appendChild(td);
-        if ((await window.electronAPI.invoke('howManyMods', [])) == 0) {
-            let small = document.createElement('small');
-            var hasShop = await window.electronAPI.invoke('getUniqueFlag', ['SHOP']);
-            small.innerHTML = "Mods can be downloaded from the GameBanana website, the <a href=\"javascript:page('gamebanana-browse')\">Mod Shop</a>, or manually via the Import button.";
-            small.style.color = '#888';
-            td.appendChild(document.createElement('br'));
-            td.appendChild(small);
+        td.className = 'empty-state-cell';
+
+        const state = document.createElement('div');
+        state.className = 'empty-state';
+        const stateIcon = document.createElement('img');
+        stateIcon.className = 'empty-state-icon';
+        stateIcon.setAttribute('aria-hidden', 'true');
+        stateIcon.src = './sbar/main.png';
+        stateIcon.alt = '';
+
+        const copy = document.createElement('div');
+        copy.className = 'empty-state-copy';
+        const heading = document.createElement('h2');
+        heading.innerText = 'Your patch list is ready';
+        const description = document.createElement('p');
+        description.innerText = 'Import a compatible mod package or browse the Mod Shop. Installed mods will appear here before anything touches the game files.';
+        copy.append(heading, description);
+
+        const incompatibleCount = modList.filter(x => x.isIncompatible).length;
+        if (incompatibleCount > 0) {
+            const detail = document.createElement('small');
+            detail.className = 'empty-state-detail';
+            detail.innerText = `${incompatibleCount} incompatible mod(s) are hidden for this installation.`;
+            copy.appendChild(detail);
         }
+
+        if ((await window.electronAPI.invoke('howManyMods', [])) == 0) {
+            const actions = document.createElement('div');
+            actions.className = 'empty-state-actions';
+            const shopButton = document.createElement('button');
+            shopButton.innerText = 'Browse Mod Shop';
+            shopButton.onclick = () => page('gamebanana-browse');
+            actions.appendChild(shopButton);
+            const importButton = document.createElement('button');
+            importButton.className = 'secondary-action';
+            importButton.innerText = 'Import mod package';
+            importButton.onclick = () => window.electronAPI.invoke('importMod', []);
+            actions.appendChild(importButton);
+            copy.appendChild(actions);
+        }
+
+        state.append(stateIcon, copy);
+        td.appendChild(state);
+        tr.appendChild(td);
         document.getElementById('modlist').appendChild(tr);
 
         //document.getElementById('par').innerText = 'Run without patches';
@@ -475,3 +523,4 @@ async function patchAndRun() {
 }
 
 window.currentPageStack.patchAndRun = patchAndRun;
+})();

@@ -1,3 +1,10 @@
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
 (async() => {
     var themes = (await window.electronAPI.invoke('getThemes', [])).sort((a, b) => {
         if (a.builtIn && !b.builtIn) return -1;
@@ -137,3 +144,4 @@ let spamtennaBuffer = '';
     };
 
 elisten(document, 'keydown', handleSpamtennaKeydown);
+})();

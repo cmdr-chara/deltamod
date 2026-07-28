@@ -3,34 +3,34 @@ const system = require('./System');
 const fs = require('fs');
 const os = require('os');
 const console = require('./Console');
-const _7z = require('7zip-min');
+const { extractArchiveAtomic } = require('./security/ArchiveSecurity');
 const { randomString, page, shopClang } = require('./Utils');
 const crypto = require('crypto');
 const { dialog } = require('electron');
-const {Downloader} = require("nodejs-file-downloader");
-const { url } = require('inspector');
 const TOML = require('js-toml');
+const { resolveWithin } = require('./security/PathSecurity');
+const { downloadToFile } = require('./security/RemoteSecurity');
+const { loadHashCache, hashGameFile, saveHashCache } = require('./storage/GameHashCache');
 
 const computerName = os.hostname();
 
-function downloadModFromURL(url, onProgress, mID, mModel) {
-    return new Promise(async (resolve, reject) => {
-        try {
-            const downloader = new Downloader({
-                url: url,
-                directory: require('os').tmpdir(),
-                onProgress: (percentage) => {
-                    console.log(`Download progress: ${percentage}%`);
-                    if (onProgress) onProgress(percentage, 200);
-                }
-            });
-            const { filePath } = await downloader.download();
-            await importMod(filePath, "donothing", mID, mModel);
-            resolve(true);
-        } catch (err) {
-            reject(err);
-        }
-    });
+async function downloadModFromURL(url, onProgress, mID, mModel) {
+    const filePath = path.join(system.getTemporary(), `${crypto.randomUUID()}.modarchive`);
+    try {
+        await downloadToFile(url, filePath, {
+            maximumBytes: 2 * 1024 * 1024 * 1024,
+            onProgress: ({ completed, total }) => {
+                const percentage = total > 0 ? (completed / total) * 100 : 0;
+                console.log(`Download progress: ${percentage.toFixed(1)}%`);
+                onProgress?.(percentage, completed);
+            }
+        });
+        const imported = await importMod(filePath, "donothing", mID, mModel);
+        if (imported !== true) throw new Error('The downloaded mod was not imported.');
+        return true;
+    } finally {
+        try { await fs.promises.rm(filePath, { force: true }); } catch {}
+    }
 }
 
 async function importMod(filePath, nextPage = "main", mID = null, mModel = null) {
@@ -39,10 +39,8 @@ async function importMod(filePath, nextPage = "main", mID = null, mModel = null)
     console.log("Importing mod (gb info)", mID, mModel, "from file:", filePath);
     // create unique mod folder
     const modPath = path.join(system.getPacketDatabase(), "Mod_" + randomString(32));
-    fs.mkdirSync(modPath, { recursive: true });
-
     try {
-        await _7z.unpack(filePath, modPath);
+        await extractArchiveAtomic(filePath, modPath);
         // I (mc) believe that we shouldn't delete a user's files if we did not create/download them ourselves
         // I (techy) agree with mc
         // fs.unlinkSync (filePath); // delete the zip file after extraction, I (Zork) commented this out temporarily to keep the zip file for debugging.
@@ -105,10 +103,8 @@ async function importMod(filePath, nextPage = "main", mID = null, mModel = null)
             throw new Error('Modding XML file not found. Please ensure modding.xml is included in the mod package.');
         }
 
-        if (modInfo.metadata.packageID && modInfo.metadata.packageID.toString().trim().toLowerCase() === "..") {
-            modInfo.metadata.packageID = "und.und.und"; // prevent directory traversal
-            fs.writeFileSync(path.join(modPath, 'meta.toml'), TOML.dump(modInfo), 'utf8');
-        }
+        modInfo.metadata.packageID = validatePID(modInfo.metadata.packageID);
+        fs.writeFileSync(path.join(modPath, 'meta.toml'), TOML.dump(modInfo), 'utf8');
 
         if (mID && mModel) {
             modInfo.metadata.gamebanana_id = mID;
@@ -148,11 +144,11 @@ async function importMod(filePath, nextPage = "main", mID = null, mModel = null)
                 } else if (response == 1) {
                     fs.rmSync(modPath, { recursive: true, force: true });
                      if (nextPage && nextPage !== "donothing") page(nextPage);
-                    return;
+                    return false;
                 } else {
                     fs.rmSync(modPath, { recursive: true, force: true });
                     if (nextPage && nextPage !== "donothing") page(nextPage);
-                    return;
+                    return false;
                 }
             }
             fs.renameSync(modPath, path.join(system.getPacketDatabase(), modInfo.metadata.packageID));
@@ -171,6 +167,7 @@ async function importMod(filePath, nextPage = "main", mID = null, mModel = null)
         if (clangit) {
             shopClang();
         }
+        return true;
 
         // Simple way to refresh the list
         // app.relaunch(properRelaunch());
@@ -186,19 +183,30 @@ async function importMod(filePath, nextPage = "main", mID = null, mModel = null)
         catch (_) {
             console.warn('Failed to clean up mod folder after failed import:', modPath);
         }
+        return false;
     }
 }
 
 function removeModSafe(modid) {
-    var modPath = path.join(system.getPacketDatabase(), modid);
+    let modPath;
+    try {
+        modPath = resolveModFolder(modid, true);
+    } catch (error) {
+        console.warn(`Refusing unsafe mod removal request: ${error.message}`);
+        return false;
+    }
 
     // make sure that what we're deleting is actually a mod and not a random folder
     if (fs.existsSync(path.join(modPath, "__deltaID.json")) && fs.existsSync(modPath)) {
         console.log("Deleting mod", modPath);
         fs.rmSync(modPath, { recursive: true });
-    } else console.warn("Error: Mod", modPath, "doesn't seem to be a valid mod with a __deltaID.json.");
+    } else {
+        console.warn("Error: Mod", modPath, "doesn't seem to be a valid mod with a __deltaID.json.");
+        return false;
+    }
 
     page("");
+    return true;
 }
 
 // [ADDED] depth-first search for a file by name anywhere under root
@@ -230,20 +238,30 @@ function safeReadTOML(p) {
 
 function validatePID(pid) {
     console.log("Validating packageID:", pid);
-
-    if (pid.includes('..') || pid.includes('/') || pid.includes('\\')) {
-        return "und.und.und"; // prevent directory traversal
-    }
-
-    if (!pid) return "und.und.und"; // default if not specified
-
     if (typeof pid !== 'string') return "und.und.und";
-    
-    pid = pid.trim();
+    const normalized = pid.trim().toLowerCase();
+    if (
+        normalized.length > 191
+        || !/^[a-z0-9][a-z0-9_-]{0,62}(?:\.[a-z0-9][a-z0-9_-]{0,62}){2}$/.test(normalized)
+    ) {
+        return "und.und.und";
+    }
+    return normalized;
+}
 
-    if (pid.split('.').length !== 3) return "und.und.und"; // must be three parts
-
-    return pid.toLowerCase();
+function resolveModFolder(modid, mustExist = false) {
+    if (typeof modid !== 'string' || path.basename(modid) !== modid || !modid.trim()) {
+        const error = new Error('Invalid mod folder identifier.');
+        error.code = 'INVALID_MOD_ID';
+        throw error;
+    }
+    const resolved = resolveWithin(system.getPacketDatabase(), modid, { mustExist });
+    if (mustExist && fs.lstatSync(resolved).isSymbolicLink()) {
+        const error = new Error('Linked mod folders are not allowed.');
+        error.code = 'MOD_LINK_BLOCKED';
+        throw error;
+    }
+    return resolved;
 }
 
 function howmany() {
@@ -255,13 +273,17 @@ function modList() {
     var modList = [];
     var errors = [];
     var uniqueIdSet = new Set(); // actually use it
+    const gameRoot = system.getSystemFolder('deltaruneInstall');
+    const hashCachePath = system.getSystemFile('_game-hashes.json', false);
+    const hashCache = loadHashCache(hashCachePath);
+    let hashCacheDirty = false;
 
     var failureReason = "";
 
     for (var mod of mods) {
         try {
             failureReason = "Unknown. Contact a developer!";
-            var modPath = path.join(system.getPacketDatabase(), mod);
+            var modPath = resolveModFolder(mod, true);
             
             if (fs.existsSync(path.join(modPath, '_deltamodInfo.json'))) {
                 fs.copyFileSync(path.join(modPath, '_deltamodInfo.json'), path.join(modPath, 'meta.json'));
@@ -354,23 +376,15 @@ function modList() {
             if (require('./KeyValue').readUniqueFlag('HASHCHECKS')) {
                 modInfo.neededFiles?.forEach(file => {
                     try {
-                        var fileContents = (path.join(system.getSystemFolder('deltaruneInstall'), file.file));
-                        var fileContentsHashCPATH = (path.join(system.getSystemFolder('deltaruneInstall'), file.file + '.hash'));
-
-                        if (!fs.existsSync(fileContents)) {
-                            meta._incompatibleHASH = true;
-                            return; // skip to next file
+                        if (!file || typeof file.file !== 'string' || !/^[a-f0-9]{64}$/i.test(String(file.checksum || ''))) {
+                            throw new Error('Invalid neededFiles entry.');
                         }
-
-                        if (!fs.existsSync(fileContentsHashCPATH)) {
-                            var fileContentsHashCalc = crypto.createHash('sha256').update(fs.readFileSync(fileContents)).digest('hex');
-                            fs.writeFileSync(fileContentsHashCPATH, fileContentsHashCalc, 'utf8');
-                        }
-
-                        var fileContentsHash = fs.readFileSync(fileContentsHashCPATH, 'utf8').trim();
+                        const result = hashGameFile(gameRoot, file.file, hashCache);
+                        hashCacheDirty ||= result.updated;
+                        const fileContentsHash = result.sha256;
 
                         console.log('CHECK FILES! ' + file.checksum + ' VS ' + fileContentsHash);
-                        if (file.checksum !== fileContentsHash) {
+                        if (file.checksum.toLowerCase() !== fileContentsHash.toLowerCase()) {
                             meta._incompatibleHASH = true;
                             meta._hashDifferentFiles = meta._hashDifferentFiles || [];
                             meta._hashDifferentFiles.push(file.file);
@@ -567,8 +581,9 @@ function modList() {
         m.no       = n;
     });
     */
-   // CURRENTLY DEPRECATED: priority function was planned but removed to favor GM3P integration
+    // CURRENTLY DEPRECATED: priority function was planned but removed to favor GM3P integration
 
+    if (hashCacheDirty) saveHashCache(hashCachePath, hashCache);
     return { modList, errors };
 }
 
@@ -601,5 +616,7 @@ module.exports = {
     howmany,
     downloadModFromURL,
     removeModSafe,
-    getModImage
+    getModImage,
+    resolveModFolder,
+    validatePID
 };

@@ -1,232 +1,359 @@
-const console = require('./Console');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { dialog } = require('electron');
 const TOML = require('js-toml');
+const XML = require('xml-js');
+const console = require('./Console');
+const { resolveWithin } = require('./security/PathSecurity');
+const { writeJsonAtomicSync, readJsonSync } = require('./storage/AtomicStore');
 
-const PATCHER_PATH = process.platform == 'win32' ? path.join(__dirname, '../', 'tools', 'G3MTool-win32.exe') : path.join(__dirname, '../', 'tools', 'G3MTool-linux');
+const PATCHER_PATH = process.platform === 'win32'
+    ? path.join(__dirname, '..', 'tools', 'g3mtool', 'win-x64', 'G3MTool.exe')
+    : path.join(__dirname, '..', 'tools', 'g3mtool', 'linux-x64', 'G3MTool');
+const JOURNAL_NAME = '.deltamod-community-patch-journal.json';
+const BACKUP_DIRECTORY_NAME = '.deltamod-community-patch-backups';
+const SUPPORTED_PATCH_TYPES = new Set(['override', 'copy', 'xdelta', 'g3mpatch']);
+const activePatchers = new Set();
 
-async function g3mtool(callback, args, gamePath) {
-    console.log('Running G3MTool with args: G3MTool', args.join(' '));
-    return new Promise((resolve, reject) => {
-        const g3mtoolProcess = spawn(PATCHER_PATH, args, { stdio: 'pipe', cwd: gamePath });
-        var output = '';
-        g3mtoolProcess.stdout.on('data', (data) => {
-            output += data.toString();
-            process.stdout.write(data.toString());
-            callback("[G3MTOOL] " + data.toString());
-        });
-        g3mtoolProcess.stderr.on('data', (data) => {
-            output += data.toString();
-            process.stderr.write(data.toString());
-            callback("[G3MTOOL/STDERR] " + data.toString());
-        });
-        g3mtoolProcess.on('close', (code) => {
-            if (code === 0) {
-                resolve();
-            } else {
-                if (output.includes('normally this indicates that the source file is incorrect')) {
-                    reject(new Error('This mod can\'t be merged due to an xdelta being applied to the wrong source file. Please make sure your mods are compatible with your install.'));
-                    return;
-                }
-                reject(new Error(`G3MTool exited with code ${code}\n\nCOMMAND: ${PATCHER_PATH} ${args.join(' ')}\nOUTPUT:\n${output}`));
-            }
-        });
+function assertPatchFile(filePath, description) {
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+        throw new Error(`${description} is not a regular file.`);
+    }
+    if (stat.nlink > 1) {
+        throw new Error(`${description} is a hardlink and cannot be patched safely.`);
+    }
+}
+
+function patchElements(node, output = []) {
+    if (!node || typeof node !== 'object') return output;
+    if (node.type === 'element' && node.name === 'patch') output.push(node);
+    for (const child of node.elements || []) patchElements(child, output);
+    return output;
+}
+
+function parsePatches(xml, modName) {
+    let document;
+    try {
+        document = XML.xml2js(xml, { compact: false, trim: true });
+    } catch (error) {
+        throw new Error(`Mod "${modName}" has invalid modding.xml: ${error.message}`);
+    }
+
+    return patchElements(document).map(element => {
+        const attributes = element.attributes || {};
+        const patch = {
+            type: String(attributes.type || '').toLowerCase(),
+            patch: String(attributes.patch || ''),
+            to: String(attributes.to || ''),
+            modName
+        };
+        if (!SUPPORTED_PATCH_TYPES.has(patch.type)) {
+            throw new Error(`Mod "${modName}" uses unsupported patch type "${patch.type}".`);
+        }
+        if (!patch.patch || !patch.to) {
+            throw new Error(`Mod "${modName}" has a patch without both "patch" and "to" paths.`);
+        }
+        return patch;
     });
 }
 
-function safeReadFileSync(filePath, encoding) {
-    try {
-        return fs.readFileSync(filePath, encoding);
-    } catch (err) {
-        return null;
+function loadSelectedMods(modFolder, selectedIds) {
+    if (!Array.isArray(selectedIds)) throw new Error('Selected mod IDs must be an array.');
+    const selected = new Set(selectedIds.map(String));
+    const mods = [];
+
+    for (const folder of fs.readdirSync(modFolder)) {
+        const root = resolveWithin(modFolder, folder, { mustExist: true });
+        if (!fs.lstatSync(root).isDirectory()) continue;
+
+        const identity = readJsonSync(path.join(root, '__deltaID.json'), null);
+        if (!identity?.uniqueId || !selected.has(String(identity.uniqueId))) continue;
+
+        const metadata = TOML.load(fs.readFileSync(path.join(root, 'meta.toml'), 'utf8'));
+        const modName = metadata?.metadata?.name || folder;
+        let manifestPath = path.join(root, 'modding.xml');
+        const variantMarker = path.join(root, '__variant');
+        if (fs.existsSync(variantMarker)) {
+            const variant = fs.readFileSync(variantMarker, 'utf8').trim();
+            manifestPath = resolveWithin(root, variant, { mustExist: true });
+        }
+        if (!fs.existsSync(manifestPath)) throw new Error(`Mod "${modName}" is missing its patch manifest.`);
+
+        mods.push({
+            root,
+            folder,
+            name: modName,
+            uuid: String(identity.uniqueId),
+            patches: parsePatches(fs.readFileSync(manifestPath, 'utf8'), modName)
+        });
     }
+    return mods;
+}
+
+function buildPatchPlan(gamePath, modFolder, selectedIds) {
+    const gameRoot = path.resolve(gamePath);
+    const modRoot = path.resolve(modFolder);
+    const mods = loadSelectedMods(modRoot, selectedIds);
+    const direct = [];
+    const merged = new Map();
+    const targetOwners = new Map();
+
+    for (const mod of mods) {
+        for (const patch of mod.patches) {
+            const source = resolveWithin(mod.root, patch.patch, { mustExist: true });
+            const target = resolveWithin(gameRoot, patch.to);
+            const targetKey = process.platform === 'win32' ? target.toLowerCase() : target;
+            assertPatchFile(source, `Patch source "${patch.patch}"`);
+            if (fs.existsSync(target)) assertPatchFile(target, `Patch target "${patch.to}"`);
+
+            if (patch.type === 'override' || patch.type === 'copy') {
+                if (targetOwners.has(targetKey)) {
+                    throw new Error(`Patch conflict: "${patch.to}" is modified by both "${targetOwners.get(targetKey)}" and "${mod.name}".`);
+                }
+                targetOwners.set(targetKey, mod.name);
+                direct.push({ ...patch, source, target, modId: mod.uuid });
+                continue;
+            }
+
+            if (targetOwners.has(targetKey)) {
+                throw new Error(`Patch conflict: "${patch.to}" has both direct and merge patches.`);
+            }
+            if (!fs.existsSync(target)) {
+                throw new Error(`Merge target "${patch.to}" required by "${mod.name}" does not exist.`);
+            }
+            if (!merged.has(targetKey)) {
+                merged.set(targetKey, { target, relativeTarget: patch.to, patches: [] });
+            }
+            merged.get(targetKey).patches.push({ ...patch, source, modId: mod.uuid });
+        }
+    }
+
+    return {
+        mods,
+        direct,
+        merged: [...merged.values()],
+        operationCount: direct.length + merged.size
+    };
+}
+
+function writeJournal(gamePath, journal) {
+    writeJsonAtomicSync(path.join(gamePath, JOURNAL_NAME), journal, { backup: false });
+}
+
+function backupTarget(target, journal, gamePath) {
+    const gameRoot = path.resolve(gamePath);
+    const targetRelative = path.relative(gameRoot, target);
+    const backupRoot = resolveWithin(gameRoot, path.join(BACKUP_DIRECTORY_NAME, journal.transactionId));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    if (fs.existsSync(target)) {
+        const backup = resolveWithin(backupRoot, targetRelative);
+        fs.mkdirSync(path.dirname(backup), { recursive: true });
+        if (fs.existsSync(backup)) throw new Error(`A transaction backup already exists for ${targetRelative}.`);
+        const operation = { type: 'restore', target: targetRelative, backup: targetRelative, state: 'pending' };
+        journal.operations.push(operation);
+        writeJournal(gamePath, journal);
+        fs.renameSync(target, backup);
+        operation.state = 'applied';
+    } else {
+        journal.operations.push({ type: 'remove', target: targetRelative, state: 'applied' });
+    }
+    writeJournal(gamePath, journal);
+}
+
+async function g3mtool(callback, args, gamePath, options = {}) {
+    console.log('Running G3MTool with args:', args.join(' '));
+    return new Promise((resolve, reject) => {
+        const child = spawn(PATCHER_PATH, args, {
+            stdio: 'pipe',
+            cwd: gamePath,
+            windowsHide: true
+        });
+        activePatchers.add(child);
+        let output = '';
+        let settled = false;
+        const timeout = setTimeout(() => {
+            if (!settled) {
+                child.kill();
+                const error = new Error('G3MTool timed out.');
+                error.code = 'PATCHER_TIMEOUT';
+                reject(error);
+            }
+        }, options.timeoutMs || 10 * 60 * 1000);
+
+        const finish = action => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            activePatchers.delete(child);
+            action();
+        };
+
+        child.stdout.on('data', data => {
+            output += data.toString();
+            callback(`[G3MTOOL] ${data}`);
+        });
+        child.stderr.on('data', data => {
+            output += data.toString();
+            callback(`[G3MTOOL/STDERR] ${data}`);
+        });
+        child.on('error', error => finish(() => reject(new Error(`Could not start G3MTool: ${error.message}`))));
+        child.on('close', code => finish(() => {
+            if (code === 0) {
+                resolve();
+            } else if (output.includes('normally this indicates that the source file is incorrect')) {
+                reject(new Error('An xdelta patch was applied to an incompatible source file.'));
+            } else {
+                reject(new Error(`G3MTool exited with code ${code}.\n${output}`));
+            }
+        }));
+    });
 }
 
 async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCallback) {
     let fullLog = '';
-    function log(...args) {
-        console.log(...args);
-        fullLog += args.join(' ') + '\n';
-        if (logCallback) logCallback(args.join(' '));
+    const log = (...args) => {
+        const message = args.join(' ');
+        console.log(message);
+        fullLog += `${message}\n`;
+        logCallback?.(message);
+    };
+
+    if (!fs.existsSync(PATCHER_PATH)) throw new Error('G3MTool is missing from the tools directory.');
+    if (process.platform === 'linux') fs.chmodSync(PATCHER_PATH, 0o755);
+
+    restore(gamePath);
+    let plan;
+    try {
+        plan = buildPatchPlan(gamePath, modFolder, mods);
+    } catch (error) {
+        return { patched: false, log: error.message, fullLog };
     }
 
-    if (!fs.existsSync(PATCHER_PATH)) {
-        throw new Error('G3MTool not found in tools folder.');
+    if (plan.operationCount === 0) {
+        progressCallback?.(100);
+        return { patched: true, log: '', fullLog };
     }
 
-    if (process.platform === 'linux') {
-        // ensure the G3MTool-linux file is executable
-        fs.chmodSync(PATCHER_PATH, 0o755);
+    const journal = {
+        schemaVersion: 1,
+        transactionId: `${Date.now()}-${process.pid}`,
+        state: 'patching',
+        startedAt: new Date().toISOString(),
+        operations: []
+    };
+    writeJournal(gamePath, journal);
+    let completed = 0;
+    const progress = () => progressCallback?.((completed / plan.operationCount) * 100);
+
+    try {
+        for (const patch of plan.direct) {
+            log(`Applying ${patch.type} patch from "${patch.modName}" to ${patch.to}.`);
+            backupTarget(patch.target, journal, gamePath);
+            fs.copyFileSync(patch.source, patch.target);
+            completed += 1;
+            progress();
+        }
+
+        for (const group of plan.merged) {
+            log(`Applying ${group.patches.length} merge patch(es) to ${group.relativeTarget}.`);
+            backupTarget(group.target, journal, gamePath);
+            const backup = resolveWithin(
+                gamePath,
+                path.join(BACKUP_DIRECTORY_NAME, journal.transactionId, group.relativeTarget),
+                { mustExist: true }
+            );
+            if (group.patches.length > 1) {
+                await g3mtool(log, [
+                    'patch',
+                    'merge',
+                    backup,
+                    ...group.patches.map(patch => patch.source),
+                    '-a',
+                    group.target
+                ], gamePath);
+            } else {
+                await g3mtool(log, [
+                    'patch',
+                    'apply',
+                    path.relative(gamePath, backup),
+                    group.patches[0].source,
+                    path.relative(gamePath, group.target)
+                ], gamePath);
+            }
+            completed += 1;
+            progress();
+        }
+
+        journal.state = 'patched';
+        journal.completedAt = new Date().toISOString();
+        writeJournal(gamePath, journal);
+        return { patched: true, log: '', fullLog };
+    } catch (error) {
+        log(`Patching failed: ${error.message}`);
+        restore(gamePath);
+        return { patched: false, log: error.message, fullLog };
     }
-    
-    var moddingInfo = fs.readdirSync(modFolder).map(folder => {
-        var moddingXML = path.join(modFolder, folder, 'modding.xml');
-        if (fs.existsSync(path.join(modFolder, folder, '__variant'))) {
-            var filename = fs.readFileSync(path.join(modFolder, folder, '__variant'), 'utf-8').trim();
-            log(`Mod "${folder}" has a variant specified: ${filename}. Using that variant for modding.xml.`);
-            moddingXML = path.join(modFolder, folder, filename);
-        }
-
-        if (!fs.existsSync(moddingXML)) {
-            log(`Modding XML file not found for mod "${folder}". Skipping this mod.`);
-            return null;
-        }
-
-        const xml = safeReadFileSync(moddingXML, 'utf-8');
-        const meta = TOML.load(safeReadFileSync(path.join(modFolder, folder, 'meta.toml'), 'utf-8'));
-
-        return {
-            meta,
-            xml,
-            folder: folder,
-            patches: [...xml.matchAll(/<patch\s+type="([^"]+)"\s+patch="([^"]+)"\s+to="([^"]+)"\s*\/>/g)].map(match => ({
-                type: match[1],
-                patch: match[2],
-                to: match[3],
-                modName: meta.metadata.name
-            })),
-            uuid: JSON.parse(safeReadFileSync(path.join(modFolder, folder, '__deltaID.json'), 'utf-8')).uniqueId
-        }
-    }).filter(mod => mod != null && mods.includes(mod.uuid));
-
-    var totalPatches = moddingInfo.length;
-    var performedPatches = 0;
-
-    var overridePatches = [];
-
-    // Step 1: override patches
-    log('Step 1: Applying override patches...');
-
-    let patchedFiles = [];
-    var performedOverridePatches = 0;
-
-    for (const mod of moddingInfo) {
-        for (const patch of mod.patches.filter(p => p.type === 'override' || p.type === 'copy')) {
-            const patchPath = path.join(modFolder, mod.folder, patch.patch);
-            const targetPath = path.join(gamePath, patch.to);
-
-            if (patchedFiles.includes(targetPath)) {
-                return { 
-                    patched: false, 
-                    log: `The file ${patch.to} has already been patched by another mod. Conflicting mods can\'t be merged. Please remove one of the conflicting mods.`,
-                    fullLog: fullLog
-                };
-            }
-
-            if (!fs.existsSync(patchPath)) {
-                return { patched: false, log: `An override patch file "${patch.patch}", indicated by mod "${patch.modName}", wasn't found. Please check the mod files.`, fullLog: fullLog };
-            }
-
-            patchedFiles.push(targetPath);
-
-            if (fs.existsSync(targetPath)) {
-                fs.renameSync(targetPath, targetPath + '.bak');
-            }
-            else {
-                fs.writeFileSync(targetPath + '.rem', "");
-            }
-            
-            fs.copyFileSync(patchPath, targetPath);
-
-            performedOverridePatches++;
-            performedPatches++;
-            log(performedOverridePatches + '/' + mod.patches.filter(p => p.type === 'override' || p.type === 'copy').length + ' override patches applied.');
-
-            progressCallback(performedPatches / totalPatches * 100);
-        }
-    }
-
-    log('Step 1 completed.');
-
-    let xdeltaMap = {};
-
-    for (const mod of moddingInfo) {
-        for (const patch of mod.patches.filter(p => p.type === 'xdelta' || p.type === 'g3mpatch')) {
-            console.log(JSON.stringify(patch));
-            if (!xdeltaMap[patch.to]) {
-                xdeltaMap[patch.to] = [];
-            }
-            xdeltaMap[patch.to].push({
-                patch: path.join(modFolder, mod.folder, patch.patch)
-            });
-            if (!fs.existsSync(path.join(modFolder, mod.folder, patch.patch))) {
-                return { patched: false, log: `A merge patch file "${patch.patch}", indicated by mod "${patch.modName}", wasn't found. Please check the mod files.`, fullLog: fullLog };
-            }
-        }
-    }
-
-    log('Step 2: Applying merging (xdelta + g3mpatch) patches...');
-
-    var hasFailed = false;
-    var hasFailedReason = '';
-
-    var xdeltasMapArr = Object.entries(xdeltaMap);
-    var i = -1;
-    await Promise.all(xdeltasMapArr.map(async ([targetFile, patches]) => {
-        var newp = path.join(gamePath, targetFile + '.bak');
-        fs.renameSync(path.join(gamePath, targetFile), newp);
-
-        var relativeTargetFile = path.relative(gamePath, path.join(gamePath, targetFile));
-        var relativeBackupFile = path.relative(gamePath, newp);
-
-        try {
-            if (patches.length > 1) {
-                var output = await g3mtool(log, ['patch', 'merge', newp, ...patches.map(p => p.patch), '-a', path.join(gamePath, targetFile)], gamePath).catch(e =>  {
-                    throw new Error(`Error merging patches for ${targetFile}: ${e.message}`);
-                });
-            }
-            else {
-                var output = await g3mtool(log, ['patch', 'apply', relativeBackupFile, patches[0].patch, relativeTargetFile], gamePath).catch(e =>  {
-                    throw new Error(`Error applying patch for ${targetFile}: ${e.message}`);
-                });
-            }
-        }
-        catch (err) {
-            console.error(err);
-            hasFailed = true;
-            hasFailedReason = err.message;
-        }
-
-        i++;
-        performedPatches++;
-        log((i + 1) + '/' + xdeltasMapArr.length + ' merging patches applied.');
-
-        progressCallback(performedPatches / totalPatches * 100);
-    }));
-
-    if (hasFailed) {
-        log('Patching failed due to errors.');
-        return { patched: false, log: 'Patching failed: ' + hasFailedReason, fullLog: fullLog };
-    }
-
-    log('Step 2 completed.');
-    return { patched: true, log: '', fullLog: fullLog };
 }
 
-async function restore(gamePath) {
-    const files = fs.readdirSync(gamePath);
-    console.log('Restoring original game files...');
-    for (const file of files) {
-        if (fs.statSync(path.join(gamePath, file)).isDirectory()) {
-            restore(path.join(gamePath, file));
-        }
-        if (file.endsWith('.bak')) {
-            console.log('Restoring file: ' + file);
-            const originalFile = file.slice(0, -4);
-            fs.rmSync(path.join(gamePath, originalFile), { force: true });
-            fs.renameSync(path.join(gamePath, file), path.join(gamePath, originalFile));
-        }
-        if (file.endsWith('.rem')) {
-            fs.rmSync(path.join(gamePath, file), { force: true });
-            fs.rmSync(path.join(gamePath, file.slice(0, -4)), { force: true });
-        }
+function restore(gamePath) {
+    if (!gamePath || !fs.existsSync(gamePath)) return;
+    const gameRoot = path.resolve(gamePath);
+    const journalPath = path.join(gameRoot, JOURNAL_NAME);
+    if (!fs.existsSync(journalPath)) return;
+
+    const journal = readJsonSync(journalPath, null);
+    if (
+        !journal
+        || journal.schemaVersion !== 1
+        || !/^\d+-\d+$/.test(String(journal.transactionId || ''))
+        || !Array.isArray(journal.operations)
+    ) {
+        throw new Error('The patch recovery journal is invalid; no game files were changed.');
     }
 
+    const backupRoot = resolveWithin(gameRoot, path.join(BACKUP_DIRECTORY_NAME, journal.transactionId));
+    for (const operation of [...journal.operations].reverse()) {
+        if (!operation || !['restore', 'remove'].includes(operation.type)) {
+            throw new Error('The patch recovery journal contains an unknown operation.');
+        }
+        const target = resolveWithin(gameRoot, operation.target);
+        if (operation.type === 'restore') {
+            const backup = resolveWithin(backupRoot, operation.backup);
+            if (fs.existsSync(backup)) {
+                assertPatchFile(backup, `Transaction backup "${operation.backup}"`);
+                fs.mkdirSync(path.dirname(target), { recursive: true });
+                fs.rmSync(target, { force: true });
+                fs.renameSync(backup, target);
+            } else if (operation.state !== 'pending') {
+                throw new Error(`Transaction backup is missing: ${operation.backup}`);
+            }
+        } else {
+            fs.rmSync(target, { force: true });
+        }
+        journal.operations.pop();
+        writeJournal(gameRoot, journal);
+    }
+
+    fs.rmSync(backupRoot, { recursive: true, force: true });
+    const backupsParent = path.join(gameRoot, BACKUP_DIRECTORY_NAME);
+    try {
+        if (fs.readdirSync(backupsParent).length === 0) fs.rmdirSync(backupsParent);
+    } catch {}
+    fs.rmSync(journalPath, { force: true });
+}
+
+function stopOwnedPatchers() {
+    for (const child of activePatchers) {
+        try { child.kill(); } catch {}
+    }
+    activePatchers.clear();
 }
 
 module.exports = {
+    buildPatchPlan,
     startGamePatch,
-    restore
+    restore,
+    restoreOriginalsIfAny: restore,
+    stopOwnedPatchers
 };

@@ -3,6 +3,7 @@ const app = require('electron').app;
 const path = require('path');
 const { randomString } = require('./Utils');
 const console = require('./Console.js');
+const { readJsonSync } = require('./storage/AtomicStore');
 
 let systemIndex = "0";
 
@@ -47,7 +48,7 @@ function getSystemFileOfIndex(fileid, index) {
 
 function getSystemFolder(folderid, unique) {
     if (folderid === "deltaruneInstall") {
-        var store = JSON.parse(fs.existsSync(getSystemFile('store.json', unique)) ? fs.readFileSync(getSystemFile('store.json', unique), 'utf8') : '{}');
+        const store = readJsonSync(getSystemFile('store.json', unique), {});
         return store.gamePath || path.join(app.getPath('userData'), 'deltamod_system-' + (unique ? "unique" : systemIndex), 'deltaruneInstall');
     }
     return path.join(app.getPath('userData'), 'deltamod_system-' + (unique ? "unique" : systemIndex), folderid);
@@ -55,8 +56,8 @@ function getSystemFolder(folderid, unique) {
 
 function getSystemFolderOfIndex(folderid, si) {
     if (folderid === "deltaruneInstall") {
-        var store = JSON.parse(fs.existsSync(getSystemFile('store.json')) ? fs.readFileSync(getSystemFile('store.json'), 'utf8') : '{}');
-        return store.gamePath || path.join(app.getPath('userData'), 'deltamod_system-' + systemIndex, 'deltaruneInstall');
+        const store = readJsonSync(getSystemFileOfIndex('store.json', si), {});
+        return store.gamePath || path.join(app.getPath('userData'), 'deltamod_system-' + si, 'deltaruneInstall');
     }
     return path.join(app.getPath('userData'), 'deltamod_system-' + si, folderid);
 }
@@ -66,7 +67,7 @@ function getPacketDatabase() {
 }
 
 function getTemporary() {
-    return path.join(app.getPath('temp'), "Deltamod");
+    return path.join(app.getPath('temp'), "Deltamod Community");
 }
 
 function clearTemporary() {

@@ -1,46 +1,81 @@
-const https = require('https');
+const { app } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const console = require('./Console.js');
-const { version } = require('os');
+const { isNewerVersion } = require('./updates/Versioning');
 
-function httpsPromisify(params) {
-    return new Promise((resolve, reject) => {
-        https.get(params, (res) => {
-            let data = '';
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            res.on('end', () => {
-                resolve(data);
-            });
-        }).on('error', (err) => {
-            reject(err);
-        });
-    });
-}
+let configured = false;
 
-async function checkUpdates() {
-    try {
-        var VERSION = require('../package.json').version;
-        var URL = "https://deltamodders.com/apiv1/deltamod/latest?v=" + encodeURIComponent(VERSION);
-        var DATA = await JSON.parse(await httpsPromisify(URL));
-    }
-    catch (e) {
-        console.warn("Failed to check for updates");
-        return {update: false, newVersionLink: null, version: null};
-    }
-
-    if (process.platform == 'linux') {
-        console.warn("Auto-updates are not supported on Linux. Please check https://github.com/deltamodders/deltamod for updates.");
-        return {update: false, newVersionLink: null, version: null};
-    }
-
-    return {
-        update: DATA.update,
-        newVersionLink: DATA.newVersionLink,
-        version: DATA.version
+function configureUpdater() {
+    if (configured) return;
+    configured = true;
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.allowPrerelease = app.getVersion().includes('-');
+    autoUpdater.logger = {
+        info: (...args) => console.log('[UPDATER]', ...args),
+        warn: (...args) => console.warn('[UPDATER]', ...args),
+        error: (...args) => console.error('[UPDATER]', ...args),
+        debug: (...args) => console.log('[UPDATER/DEBUG]', ...args)
     };
 }
 
+async function checkUpdates() {
+    configureUpdater();
+    if (!app.isPackaged) {
+        return {
+            update: false,
+            version: app.getVersion(),
+            releaseName: null,
+            reason: 'development-build'
+        };
+    }
+
+    try {
+        const result = await autoUpdater.checkForUpdates();
+        const version = result?.updateInfo?.version || app.getVersion();
+        return {
+            update: isNewerVersion(version, app.getVersion(), {
+                allowPrerelease: autoUpdater.allowPrerelease
+            }),
+            version,
+            releaseName: result?.updateInfo?.releaseName || null
+        };
+    } catch (error) {
+        console.warn('Failed to check Community GitHub releases:', error.message);
+        return {
+            update: false,
+            version: app.getVersion(),
+            releaseName: null,
+            reason: 'check-failed'
+        };
+    }
+}
+
+async function downloadUpdate(onProgress) {
+    configureUpdater();
+    const progressListener = progress => onProgress?.({
+        operationId: 'community-update',
+        phase: 'download',
+        completed: progress.transferred,
+        total: progress.total,
+        currentItem: progress.bytesPerSecond,
+        percentage: progress.percent
+    });
+    autoUpdater.on('download-progress', progressListener);
+    try {
+        return await autoUpdater.downloadUpdate();
+    } finally {
+        autoUpdater.removeListener('download-progress', progressListener);
+    }
+}
+
+function installUpdate() {
+    configureUpdater();
+    autoUpdater.quitAndInstall(false, true);
+}
+
 module.exports = {
-    checkUpdates
+    checkUpdates,
+    downloadUpdate,
+    installUpdate
 };

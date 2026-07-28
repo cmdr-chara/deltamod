@@ -1,3 +1,10 @@
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
 window.currentPageStack = {};
 window.currentPageStack.gpl = function (obj) {
     var message = obj.log;
@@ -23,3 +30,4 @@ window.currentPageStack.fp = async function () {
     document.getElementById("patchingTXT").classList.add("success");
     document.getElementById("next").style.display = "block";
 }
+})();

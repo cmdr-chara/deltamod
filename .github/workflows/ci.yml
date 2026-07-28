@@ -1,0 +1,46 @@
+name: Community CI
+
+on:
+  push:
+    branches: [develop, community-stabilization]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run security:audit
+      - run: npm run verify:g3mtool-manifest
+      - name: Electron workflow smoke test
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            xvfb-run --auto-servernum npm run test:e2e
+          else
+            npm run test:e2e
+          fi
+      - name: Package smoke build
+        shell: bash
+        run: |
+          npm run acquire:g3mtool
+          npm run verify:g3mtool
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            npx electron-builder --win --dir --publish never
+          else
+            npx electron-builder --linux --dir --publish never
+          fi

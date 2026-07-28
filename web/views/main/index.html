@@ -1,11 +1,11 @@
-<div style="overflow: hidden;">
+<div class="content-page mods-page">
     <div class="spacebet">
         <div class="p1">
             <h1 id="ptitle" style="margin-bottom: 5px;">Patch menu</h1>
             <span style="display: flex; justify-content: left; align-items: center; gap: 10px; margin-bottom: 10px;">
-                <span>
+                <label for="sortWay">
                     Sort by
-                </span> <select name="sortWay" id="sortWay" style="width: 100px !important; margin: 0;">
+                </label> <select name="sortWay" id="sortWay" style="width: 130px !important; margin: 0;">
                     <option value="asc">Name (A-Z)</option>
                     <option value="desc">Name (Z-A)</option>
                     <option value="size-asc">Size (Smallest)</option>
@@ -15,20 +15,24 @@
             </span>
         </div>
         <div class="p2">
-            <button onclick="window.electronAPI.invoke('importMod',[])" id="importModBtn">
+            <button onclick="window.electronAPI.invoke('importMod',[])" id="importModBtn" title="Import a mod package" aria-label="Import a mod package">
                 <span class="material-symbols-outlined">
                     add_box
                 </span>
             </button>
-            <button onclick="window.currentPageStack.patchAndRun()" id="par">
-                <span class="material-symbols-outlined" style="scale: 1.2;">
+            <button onclick="window.currentPageStack.patchAndRun()" id="par" title="Apply selected mods and launch" aria-label="Apply selected mods and launch">
+                <span class="material-symbols-outlined">
                     arrow_circle_right
                 </span>
             </button>
         </div>
     </div>
-    <div style="overflow-y: scroll; min-height: 530px; overflow-x: hidden; mask-image: linear-gradient(180deg, black 90%, transparent 100%); padding: 0 0 20px 0;">
-        <table style="width: 100%; max-height: 200px; overflow-y: scroll;" id="modtable">
+    <div class="mods-scroll">
+        <div style="display: none;" class="modlist-error" id="error-banner">
+            <h2>{0} mod(s) failed to load</h2>
+            <span class="calibri">Click on this banner to view more details.</span>
+        </div>
+        <table id="modtable">
             <colgroup>
                 <col style="width: 85%;">
                 <col style="width: 15%;">
@@ -39,10 +43,6 @@
                     <th>Enabled</th>
                 </tr>
             </thead>
-            <div style="display: none;" class="modlist-error" id="error-banner">
-                <h2>{0} mod(s) failed to load</h2>
-                <span class="calibri">Click on this banner to view more details.</span>
-            </div>
             <tbody id="modlist">
             </tbody>
         </table>

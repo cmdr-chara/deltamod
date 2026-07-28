@@ -1,10 +1,22 @@
-<div style="overflow: hidden;">
-    <h1 style="margin-bottom: 0;">All installed mods</h1>
-    <select name="gamesShow" id="gamesShow" style="margin-top: 5px; margin-bottom: 10px;">
-        <option value="all">All</option>
-    </select>
-    <div style="overflow-y: scroll; overflow-x: hidden;">
-        <table style="width: 100%; max-height: 200px; overflow-y: scroll;" id="modtable">
+<div class="content-page mods-page library-page">
+    <div class="library-toolbar">
+        <div class="page-heading">
+            <h1>All installed mods</h1>
+            <p>Browse and manage installed packages.</p>
+        </div>
+        <div class="library-filter">
+            <label for="gamesShow">Installation</label>
+            <select name="gamesShow" id="gamesShow">
+                <option value="all">All installations</option>
+            </select>
+        </div>
+    </div>
+    <div class="mods-scroll">
+        <div style="display: none;" class="modlist-error" id="error-banner">
+            <h2>{0} mod(s) failed to load</h2>
+            <span class="calibri">Click on this banner to view more details.</span>
+        </div>
+        <table id="modtable">
             <colgroup>
                 <col style="width: 85%;">
                 <col style="width: 15%;">
@@ -15,10 +27,6 @@
                     <th>Actions</th>
                 </tr>
             </thead>
-            <div style="display: none;" class="modlist-error" id="error-banner">
-                <h2>{0} mod(s) failed to load</h2>
-                <span class="calibri">Click on this banner to view more details.</span>
-            </div>
             <tbody id="modlist">
             </tbody>
         </table>

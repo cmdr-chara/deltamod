@@ -1,9 +1,27 @@
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
+
+function createSettingControlCell() {
+    const td = document.createElement('td');
+    td.className = 'setting-control-cell center';
+    const control = document.createElement('div');
+    control.className = 'setting-control';
+    td.appendChild(control);
+    return { td, control };
+}
+
 async function addCheckboxOption(name, description, flagid, requiresRestart = false, changeHandler = (e) => {}) {
     const table = document.querySelector('tbody');
     const tr = document.createElement('tr');
 
     const tdLabel = document.createElement('td');
     const span = document.createElement('span');
+    span.className = 'setting-title';
     span.innerText = name;
     tdLabel.appendChild(span);
 
@@ -21,23 +39,21 @@ async function addCheckboxOption(name, description, flagid, requiresRestart = fa
         restartNote.style.display = 'block';
         restartNote.style.color = '#888';
         restartNote.style.fontSize = 'x-small';
-        restartNote.innerText = "Requires a Deltamod restart to take effect.";
+        restartNote.innerText = "Requires a Deltamod Community restart to take effect.";
         tdLabel.appendChild(restartNote);
     }
 
-    const tdInput = document.createElement('td');
-    tdInput.className = 'input';
-    tdInput.classList.add('center');
+    const { td: tdInput, control } = createSettingControlCell();
 
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.id = 'FLAG-' + flagid.toUpperCase();
     input.checked = await window.electronAPI.invoke('getUniqueFlag', [flagid]);
     input.addEventListener('change', async (e) => {
-        changeHandler(e.target.checked);
         await window.electronAPI.invoke('setUniqueFlag', [flagid, e.target.checked]);
+        await changeHandler(e.target.checked);
     });
-    tdInput.appendChild(input);
+    control.appendChild(input);
 
     tr.appendChild(tdLabel);
     tr.appendChild(tdInput);
@@ -61,6 +77,7 @@ async function addSelectOption(name, description, options, requiresRestart = fal
 
     const tdLabel = document.createElement('td');
     const span = document.createElement('span');
+    span.className = 'setting-title';
     span.innerText = name;
     tdLabel.appendChild(span);
 
@@ -78,13 +95,11 @@ async function addSelectOption(name, description, options, requiresRestart = fal
         restartNote.style.display = 'block';
         restartNote.style.color = '#888';
         restartNote.style.fontSize = 'x-small';
-        restartNote.innerText = 'Requires a Deltamod restart to take effect.';
+        restartNote.innerText = 'Requires a Deltamod Community restart to take effect.';
         tdLabel.appendChild(restartNote);
     }
 
-    const tdInput = document.createElement('td');
-    tdInput.className = 'input';
-    tdInput.classList.add('center');
+    const { td: tdInput, control } = createSettingControlCell();
 
     const select = document.createElement('select');
     select.id = 'SELECT-' + name.toUpperCase().replace(/[^A-Z0-9]+/g, '-');
@@ -110,7 +125,7 @@ async function addSelectOption(name, description, options, requiresRestart = fal
         changeHandler(e.target.value);
     });
 
-    tdInput.appendChild(select);
+    control.appendChild(select);
     tr.appendChild(tdLabel);
     tr.appendChild(tdInput);
     table.appendChild(tr);
@@ -122,6 +137,7 @@ async function addButton(name, description, click, buttonText, enabled = true, d
 
     const tdLabel = document.createElement('td');
     const span = document.createElement('span');
+    span.className = 'setting-title';
     span.innerText = name;
     if (colour != '') {
         span.style.color = colour;
@@ -135,13 +151,12 @@ async function addButton(name, description, click, buttonText, enabled = true, d
     small.innerText = description;
     tdLabel.appendChild(small);
 
-    const tdInput = document.createElement('td');
-    tdInput.classList.add('center');
+    const { td: tdInput, control } = createSettingControlCell();
 
     const button = document.createElement('button');
     button.innerText = buttonText;
     button.addEventListener('click', click);
-    tdInput.appendChild(button);
+    control.appendChild(button);
     if (!enabled) {
         button.disabled = true;
         button.style.opacity = 0.5;
@@ -159,6 +174,7 @@ async function addButton(name, description, click, buttonText, enabled = true, d
     tr.appendChild(tdInput);
 
     table.appendChild(tr);
+    return button;
 }
 
 async function addRowHeader(name) {
@@ -172,6 +188,119 @@ async function addRowHeader(name) {
     table.appendChild(tr);
 }
 
+function appendPathValue(element, value) {
+    const pathValue = String(value);
+    const path = document.createElement('span');
+    path.className = 'profile-destination-path';
+    path.title = pathValue;
+
+    for (const part of pathValue.split(/([\\/])/)) {
+        if (!part) continue;
+        path.appendChild(document.createTextNode(part));
+        if (part === '\\' || part === '/') {
+            path.appendChild(document.createElement('wbr'));
+        }
+    }
+
+    element.appendChild(path);
+}
+
+async function addInfoRow(name, value, description = '', valueKind = 'text') {
+    const table = document.querySelector('tbody');
+    const tr = document.createElement('tr');
+    const label = document.createElement('td');
+    const status = document.createElement('td');
+    label.innerText = name;
+    if (description) {
+        label.appendChild(document.createElement('br'));
+        const small = document.createElement('small');
+        small.className = 'calibri';
+        small.innerText = description;
+        label.appendChild(small);
+    }
+    status.className = 'calibri';
+    if (valueKind === 'path') {
+        tr.className = 'profile-destination-row';
+        appendPathValue(status, value);
+    } else {
+        status.innerText = value;
+    }
+    tr.append(label, status);
+    table.appendChild(tr);
+}
+
+function formatProfileBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return 'Unknown';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+    }
+    return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+async function runOfficialProfileImport(summary) {
+    const operationId = crypto.randomUUID();
+    const table = document.querySelector('tbody');
+    const tr = document.createElement('tr');
+    const label = document.createElement('td');
+    const status = document.createElement('td');
+    const progress = document.createElement('progress');
+    const current = document.createElement('small');
+    const cancel = document.createElement('button');
+
+    label.innerText = summary.previousImport ? 'Importing Deltamod changes' : 'Importing Deltamod data';
+    status.className = 'profile-import-progress';
+    progress.max = Math.max(summary.totalBytes || 1, 1);
+    progress.value = 0;
+    current.className = 'calibri';
+    current.innerText = 'Preparing a safe copy...';
+    cancel.innerText = 'Cancel import';
+    cancel.addEventListener('click', async () => {
+        cancel.disabled = true;
+        current.innerText = 'Cancelling safely...';
+        await window.communityAPI.profile.cancel(operationId);
+    });
+    status.append(progress, current, cancel);
+    tr.append(label, status);
+    table.appendChild(tr);
+
+    window.currentPageStack.profileImportProgress = info => {
+        if (info.operationId !== operationId) return;
+        progress.max = Math.max(info.total || summary.totalBytes || 1, 1);
+        progress.value = Math.min(info.completed || 0, progress.max);
+        const phaseLabel = {
+            hash: 'Verifying',
+            copy: 'Copying',
+            commit: 'Saving'
+        }[info.phase] || 'Working';
+        current.innerText = `${phaseLabel}: ${info.currentItem || ''}`;
+    };
+
+    try {
+        const result = await window.communityAPI.profile.import(operationId);
+        progress.value = progress.max;
+        current.innerText = 'Import complete. The official profile was not changed.';
+        cancel.remove();
+        const choice = await htmlAlert(
+            'Deltamod data imported',
+            `Imported ${result.manifest.installations} installation(s), ${result.manifest.mods} mod(s), and ${result.manifest.themes} custom theme(s). Restart Deltamod Community to load them.`,
+            [
+                { text: 'Restart now', resolveWith: 'restart' },
+                { text: 'Restart later', resolveWith: 'later' }
+            ]
+        );
+        if (choice === 'restart') await window.electronAPI.invoke('restartCommunity', []);
+    } catch (error) {
+        current.innerText = error.code === 'IMPORT_CANCELLED'
+            ? 'Import cancelled. Community staging data was removed.'
+            : `Import failed: ${error.message || error}`;
+        cancel.remove();
+    }
+}
+
 var tempLock = false;
 
 window.currentPageStack.cat = async function(cat) {
@@ -183,6 +312,7 @@ window.currentPageStack.cat = async function(cat) {
     document.getElementById('b_gen').classList.remove('selected');
     document.getElementById('b_ui').classList.remove('selected');
     document.getElementById('b_inst').classList.remove('selected');
+    document.getElementById('b_data').classList.remove('selected');
     document.getElementById('b_adv').classList.remove('selected');
     document.getElementById('b_gb').classList.remove('selected');
     
@@ -210,23 +340,24 @@ window.currentPageStack.cat = async function(cat) {
             await addButton("Open mod folder", "Open the folder where your mods are stored.", async () => {
                 await window.electronAPI.invoke('openSysFolder', ['mods']);
             }, "Open");
-            await addButton("Delete all data", "Deletes all Deltamod data, including installations, mods, and options.", async () => {
+            await addButton("Delete all Community data", "Deletes Community installations, mods, and options. Official Deltamod data is not changed.", async () => {
                 page('deleteall');
             }, "Delete", true, '', 'red');
             await addCheckboxOption("Prompt controller mode when available", "When enabled, you will be asked to activate Controller Mode when a compatible controller is attached. Currently only compatible with DualSense.", 'CONTROLLER');
-            await addCheckboxOption("Enable hash checks", "If enabled, Deltamod will check the hashes of mods to ensure compatibility. This may slow down Deltamod and render some mods incompatible.", 'hashchecks', true);
+            await addCheckboxOption("Enable hash checks", "Checks mod hashes for compatibility. This may make scans slower.", 'hashchecks', true);
             break;
         case 'ui':
-            await addCheckboxOption("Enable music in menus", "Plays background music in the main menus.", 'audio', false, (enabled) => {
+            await addCheckboxOption("Enable music in menus", "Plays background music in the main menus.", 'audio', false, async (enabled) => {
                 if (enabled) {
                     var a = new Audio();
                     a.src = 'audio/orch1.mp3';
                     a.playbackRate = 1.3;
                     a.play();
-                    audio.play();
+                    currentAudio = "";
+                    await page(pageN);
                 }
                 else {
-                    audio.pause();
+                    releaseAudioBuffer();
                 }
             });
             await addCheckboxOption("Enable SFX in menus", "Plays sound effects in the main menus.", 'sfx', false, (enabled) => {
@@ -272,7 +403,7 @@ window.currentPageStack.cat = async function(cat) {
         case 'inst':
             var isSteam = await window.electronAPI.invoke('isCurrentIndexSteam', []);
 
-            await addButton("Disconnect Steam from Deltamod", "Disconnects Steam from the current install. This install will no longer be launched via Steam. In some cases, this may require deleting and reinstalling the game from Steam.", async () => {
+            await addButton("Disconnect Steam", "Stops launching the current Community installation through Steam.", async () => {
                 await window.electronAPI.invoke('removeSteamIntegration', []);
             }, "Disconnect", isSteam, "Only available for games imported from Steam.");
 
@@ -281,6 +412,40 @@ window.currentPageStack.cat = async function(cat) {
             }, "Open");
 
             break;
+        case 'data': {
+            await addRowHeader(`${icon('database', '20px')} Deltamod compatibility`);
+            const summary = await window.communityAPI.profile.summary();
+            if (!summary.exists) {
+                await addInfoRow(
+                    'Official Deltamod profile',
+                    'Not found',
+                    'Deltamod Community uses separate storage and will not alter official Deltamod data.'
+                );
+                break;
+            }
+
+            await addInfoRow('Detected Deltamod version', summary.version || 'Unknown');
+            await addInfoRow('Installations', String(summary.installations || 0));
+            await addInfoRow('Installed mods', String(summary.mods || 0));
+            await addInfoRow('Custom themes', String(summary.themes || 0));
+            await addInfoRow('Required copy space', formatProfileBytes(summary.totalBytes));
+            await addInfoRow('Available destination space', formatProfileBytes(summary.availableBytes));
+            await addInfoRow('Community destination', summary.destinationRoot, '', 'path');
+
+            if (summary.previousImport) {
+                await addInfoRow('Last import', new Date(summary.previousImport.importedAt).toLocaleString());
+            }
+
+            await addButton(
+                summary.previousImport ? 'Import changes from Deltamod' : 'Import from Deltamod',
+                'Creates a validated copy in Community storage. Official Deltamod remains unchanged and usable.',
+                () => runOfficialProfileImport(summary),
+                summary.previousImport ? 'Import changes' : 'Import data',
+                summary.canImport,
+                'Not enough free space for a safe copy.'
+            );
+            break;
+        }
         case 'adv':
             await addRowHeader(icon('warning', '20px') + ' ' + "Please only change these settings if you know what they do.");
 
@@ -293,17 +458,35 @@ window.currentPageStack.cat = async function(cat) {
                 await window.electronAPI.invoke('rebootDev', [])
             }, "Open", !await window.electronAPI.invoke('isDevMode', []), "You are already in developer mode.");
 
-            await addButton("Precalculate game hashes", "If you are using advanced mod checks, doing this operation may save you time when opening Deltamod, but it can be pretty lengthy.", async () => {
-                await window.electronAPI.invoke('precalcGameHashes', []);
-                await htmlAlert("Done","Operation successful!",[{text: "Ok", resolveWith:''}]);
-            }, "Open");
-
-            await addButton("Install DeltamodCLI", "Installs the 'deltamod' command in your system. Requires administrator privileges.", async () => {
-                var res = await window.electronAPI.invoke('installDeltamodCLI', []);
-                if (res) {
-                    await htmlAlert("Done","Operation successful!",[{text: "Ok", resolveWith:''}]);
+            let hashButton;
+            hashButton = await addButton("Precalculate game hashes", "Builds the Community-owned cache used by advanced mod checks. Game files are not modified.", async () => {
+                hashButton.disabled = true;
+                hashButton.innerText = 'Scanning…';
+                window.currentPageStack.hashProgress = progress => {
+                    const completed = Number(progress.completed) || 0;
+                    const total = Number(progress.total) || 0;
+                    hashButton.innerText = total > 0
+                        ? `Hashing ${completed}/${total}`
+                        : 'Hashing…';
+                };
+                try {
+                    const result = await window.electronAPI.invoke('precalcGameHashes', []);
+                    await htmlAlert("Hash cache ready", `Cached ${result.fileCount} game file(s).`, [{text: "OK", resolveWith:''}]);
+                } catch (error) {
+                    await htmlAlert("Hashing failed", error?.message || 'The game hash cache could not be built.', [{text: "OK", resolveWith:''}]);
+                } finally {
+                    delete window.currentPageStack.hashProgress;
+                    hashButton.disabled = false;
+                    hashButton.innerText = 'Build cache';
                 }
-            }, "Open");
+            }, "Build cache");
+
+            await addButton(
+                "DeltamodCLI releases",
+                "Opens the separate DeltamodCLI project. Community does not automatically execute downloaded installer scripts.",
+                async () => window.electronAPI.invoke('installDeltamodCLI', []),
+                "View releases"
+            );
 
             break;
         // dev isnt keyed and is always in english
@@ -311,10 +494,6 @@ window.currentPageStack.cat = async function(cat) {
             await addRowHeader(icon('warning', '20px') + ' ' + "These options are for developers only.");
             await addButton('Open flag database (DEV-ONLY)', 'Opens the database holding flags.', async () => {
                 await window.electronAPI.invoke('openFlagDatabase', []);
-            }, "Open");
-            await addButton('Decrypt GameBanana account token (DEV-ONLY)', 'Decrypts your GameBanana account token from the default encryption and saves it to your desktop.', async () => {
-                await window.electronAPI.invoke('dev_getGBToken', []);
-                await htmlAlert("Done","Operation successful!",[{text: "Ok", resolveWith:''}]);
             }, "Open");
             await addButton('Force controller mode (DEV-ONLY)', 'Forces Controller Mode on, regardless of controller detection status', async () => {
                 await window.electronAPI.invoke('cmode-on', []);
@@ -394,7 +573,9 @@ window.currentPageStack.cat = async function(cat) {
     tempLock = false;
 }
 
-if (window._pageArguments.cat != undefined) {
-    window.currentPageStack.cat(window._pageArguments.cat);
+if (window._pageArguments?.cat != undefined && typeof window.currentPageStack?.cat === 'function') {
+    const selectedCategory = window._pageArguments.cat;
     window._pageArguments = {};
+    window.currentPageStack.cat(selectedCategory);
 }
+})();

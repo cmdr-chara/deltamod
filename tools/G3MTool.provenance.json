@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "verified": true,
+  "sourceUrl": "https://github.com/y114git/G3MTool",
+  "sourceRevision": "4a7549d46f56f8de086112ad2b26cb1f53042521",
+  "releaseTag": "1.2.5",
+  "releaseUrl": "https://github.com/y114git/G3MTool/releases/tag/1.2.5",
+  "license": "GPL-3.0-only",
+  "redistributionAllowed": true,
+  "artifacts": {
+    "win32-x64": {
+      "archiveUrl": "https://github.com/y114git/G3MTool/releases/download/1.2.5/G3MTool-Windows-x64-1.2.5.zip",
+      "archiveSize": 50890247,
+      "archiveSha256": "408b09b8d43416c4c05779329887d3a2d53c7c6c2fe8c240cd3bc2b1e41c5ab6",
+      "installDirectory": "win-x64",
+      "executable": "G3MTool.exe",
+      "executableSha256": "3d313fabbf0454db9837196f2a7039deffe7013e02aa0ed3aac1c546eaa242e6"
+    },
+    "linux-x64": {
+      "archiveUrl": "https://github.com/y114git/G3MTool/releases/download/1.2.5/G3MTool-Linux-x64-1.2.5.zip",
+      "archiveSize": 56407328,
+      "archiveSha256": "7eb258a935c24c2e65e71de4c11b59d95130fa0a0d103b3c08da96b512a4d126",
+      "installDirectory": "linux-x64",
+      "executable": "G3MTool",
+      "executableSha256": "17feda6649ff1e6a447fd38311c04e94bbe978a9ad3d3ad4876b0e578b0d1d99"
+    }
+  }
+}

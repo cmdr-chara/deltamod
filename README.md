@@ -2,22 +2,22 @@
   <img width="180" alt="Deltamod logo" src="./web/img/gblogo-outline.png">
 </p>
 
-<h1 align="center">Deltamod</h1>
+<h1 align="center">Deltamod Community</h1>
 
-<p align="center">A desktop mod manager for DELTARUNE and other supported GameMaker games.</p>
+<p align="center">A community-maintained desktop mod manager for DELTARUNE and other supported GameMaker games.</p>
 
 <p align="center">
-  <a href="https://github.com/deltamodders/deltamod/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/deltamodders/deltamod?style=flat-square"></a>
+  <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?style=flat-square"></a>
   <a href="./LICENSE.txt"><img alt="License: EUPL 1.2" src="https://img.shields.io/badge/license-EUPL--1.2-4c8bf5?style=flat-square"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/deltamodders/deltamod/releases">Download</a> ·
+  <a href="https://github.com/cmdr-chara/deltamod/releases">Download</a> ·
   <a href="https://gamebanana.com/tools/20575">GameBanana</a> ·
-  <a href="https://github.com/deltamodders/deltamod/issues">Issues</a>
+  <a href="https://github.com/cmdr-chara/deltamod/issues">Issues</a>
 </p>
 
-Deltamod manages multiple game installations, imports local mods, browses compatible GameBanana releases, and lets you enable mods or select variants before launching.
+Deltamod Community manages multiple game installations, imports local mods, browses compatible GameBanana releases, and applies selected patches transactionally before launch. It installs beside official Deltamod and uses a separate profile.
 
 Supported games: **DELTARUNE**, **DELTARUNE Demo**, **DELTARUNE Demo (LTS)**, **UNDERTALE**, **Undertale Yellow**, and **Pizza Tower**. Compatibility still depends on the game version and how each mod is packaged.
 
@@ -25,8 +25,8 @@ Supported games: **DELTARUNE**, **DELTARUNE Demo**, **DELTARUNE Demo (LTS)**, **
 
 | Setup | Stability | Notes |
 | --- | --- | --- |
-| Windows | Stable | Official builds, developer-tested, supported, and auto-updating |
-| Native Linux | Experimental | AppImage available; limited developer testing; DELTARUNE requires Proton; no auto-updates |
+| Windows | In stabilization | NSIS beta builds are intentionally unsigned; Windows may show an unknown-publisher warning |
+| Native Linux | Experimental | AppImage build; configurable Wine-compatible launcher |
 | Native macOS | Unsupported | No maintained native build |
 | Windows build through Wine/CrossOver | Unofficial | Generally usable; mention emulation when reporting issues |
 
@@ -35,29 +35,35 @@ Supported games: **DELTARUNE**, **DELTARUNE Demo**, **DELTARUNE Demo (LTS)**, **
 Install [Node.js](https://nodejs.org/), clone the repository, and install its dependencies:
 
 ```console
-git clone https://github.com/deltamodders/deltamod.git
+git clone https://github.com/cmdr-chara/deltamod.git
 cd deltamod
-npm install
+npm ci
 ```
 
-Add a compatible G3MTool executable as `tools/G3MTool-win32.exe` on Windows or `tools/G3MTool-linux` on Linux, then run:
+Run the app and automated checks:
 
 ```console
+npm run dev
 npm test
+npm run typecheck
+npm run security:audit
 ```
 
-`npm test` launches Electron in developer mode; it is not an automated test suite.
+Patching uses the GPL-3.0-only [G3MTool](https://github.com/y114git/G3MTool) executable. `npm run acquire:g3mtool` downloads the pinned Windows or Linux archive, enforces its size and SHA-256 checksums, validates its contents, and installs it under the ignored `tools/g3mtool/` directory. Release builds also publish the exact corresponding G3MTool source archive. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+
+## Import from official Deltamod
+
+On first launch, Community detects the standard official profile and offers **Import from Deltamod**. It stages and validates the copy before committing it; the official profile is never modified. Settings provides the same action later for importing changes. Conflicting installations are copied separately, conflicting themes are renamed, and conflicting mod package IDs are quarantined for review. GameBanana may request a new login when credentials cannot be migrated securely.
 
 ## Build
 
 | Target | Command | Output |
 | --- | --- | --- |
-| Windows x64 | `npm run build-windows` | Portable executable |
-| Windows x86 | `npm run build-win32` | Portable executable |
+| Windows x64 | `npm run build-windows` | NSIS installer |
 | Linux x64 | `npm run build-linux` | AppImage |
 
-Artifacts are written to `dist/`. The optional Windows installer uses `installbuilder/project.xml` and requires InstallBuilder Enterprise; it is not required for source development or portable builds.
+Artifacts are written to `dist/` by Electron Builder. Tags named `community-v<package version>` run the unsigned beta release workflow and create a GitHub prerelease. It refuses to publish when tests, the production dependency audit, G3MTool provenance, or version matching fail. Authenticode signing can be enabled later for stable releases without changing the application data format.
 
 ## License
 
-Deltamod is licensed under the [European Union Public Licence 1.2](./LICENSE.txt). Third-party components retain their respective licenses.
+Deltamod Community is licensed under the [European Union Public Licence 1.2](./LICENSE.txt). Third-party components retain their respective licenses.

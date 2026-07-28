@@ -15,6 +15,24 @@
     /* bold fucks shit up the entire font */
 }
 
+:root {
+    --content-max-width: none;
+    --content-gap: 18px;
+    --font-size-body: 18px;
+    --font-size-control: 17px;
+    --font-size-meta: 15px;
+    --font-size-heading: 22px;
+    --font-size-title: 36px;
+    --panel-bg: rgba(8, 8, 8, 0.52);
+    --panel-bg-strong: rgba(8, 8, 8, 0.7);
+    --panel-border: rgba(255, 255, 255, 0.12);
+    --panel-divider: rgba(255, 255, 255, 0.075);
+    --muted-text: rgba(255, 255, 255, 0.72);
+    --panel-radius: 18px;
+    --control-radius: 9px;
+    --panel-blur: 11px;
+}
+
 /* I did everything to use Calibri but I realized I actually want a font from my library.... */
 @font-face {
     font-family: "Calibri";
@@ -33,9 +51,7 @@ brand-icon {
 /* Hide scrollbar for all browsers */
 * {
     scrollbar-width: none;
-    /* Firefox */
     -ms-overflow-style: none;
-    /* IE and Edge */
 }
 
 * {
@@ -45,7 +61,6 @@ brand-icon {
 
 *::-webkit-scrollbar {
     display: none;
-    /* Chrome, Safari, Opera */
 }
 
 .btnarray>button {
@@ -57,15 +72,18 @@ brand-icon {
 }
 
 h1 {
-    font-size: 32px;
+    font-size: var(--font-size-title);
+    line-height: 1.12;
 }
 
 h2 {
-    font-size: 18px;
+    font-size: var(--font-size-heading);
+    line-height: 1.2;
 }
 
 p {
-    font-size: 16px;
+    font-size: var(--font-size-body);
+    line-height: 1.5;
 }
 
 button:not(.sidebar-button):not(:hover) {
@@ -73,33 +91,41 @@ button:not(.sidebar-button):not(:hover) {
 }
 button, input, select {
     font-family: "Pixel", sans-serif;
-    font-size: 16px;
+    font-size: var(--font-size-control);
+    line-height: 1.2;
     color: white;
     background-color: rgb(15,15,15);
     padding: 8px 11px;
-    border-radius: 5px;
+    border: 0;
+    border-radius: var(--control-radius);
     cursor: pointer;
-    transition: 0.2s all;
+    transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 input:focus {
     outline: none;
-    scale: 1.12;
-    box-shadow: 0 0 10px var(--theme-color-point2);
+    box-shadow: inset 0 0 0 1px var(--theme-color), 0 0 0 3px var(--theme-color-point2);
 }
 
 button:hover {
-    background-color: rgb(240, 240, 240);
-    color: rgb(15,15,15);
+    background-color: rgb(235, 235, 235);
+    color: rgb(15, 15, 15);
 }
 
 button:hover:not(.noScaleBTN) {
-    scale: 1.1;
-    box-shadow: 0 0 10px rgba(255, 255, 255, 0.38);
+    box-shadow: none;
 }
 
 button:active:not(.noScaleBTN) {
-    scale: 1.2;
+    box-shadow: 0 0 4px rgba(255, 255, 255, 0.28);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+    outline: 3px solid white;
+    outline-offset: 2px;
 }
 
 input {
@@ -116,9 +142,11 @@ input::placeholder {
 }
 
 body {
-    background-color: black;
+    background-color: rgb(8, 8, 8);
     color: white;
     font-family: "Pixel", sans-serif;
+    font-size: var(--font-size-body);
+    line-height: 1.4;
 }
 
 .imagetextbundle {
@@ -139,45 +167,201 @@ h1 {
 }
 
 table {
+    box-sizing: border-box;
     width: 100%;
-    border: 1px solid var(--theme-color);
-    border-radius: 10px;
-    padding: 10px;
-    background: rgba(40, 40, 40, 0.05);
-    backdrop-filter: brightness(0.8);
+    border: 0;
+    border-radius: var(--panel-radius);
+    padding: 12px;
+    background: var(--panel-bg);
+    backdrop-filter: blur(var(--panel-blur)) brightness(0.72);
     color: white;
-    font-family: "Pixel", sans-serif;
-    font-size: 16px;
-    transition: 0.2s all;
-}
-
-table:hover {
-    box-shadow: 0 0 40px var(--theme-color);
+    font-family: "Calibri", sans-serif;
+    font-size: var(--font-size-body);
+    line-height: 1.4;
 }
 
 th,
 td {
-    border: 1px solid var(--theme-color-rgbaless);
-    border-radius: 10px;
-    padding: 10px 18px;
+    border: 0;
+    border-bottom: 1px solid var(--panel-divider);
+    border-radius: 0;
+    padding: 12px 16px;
+    vertical-align: middle;
     text-align: left;
-    animation: 0.2s spawn ease-in-out;
-    transition: 0.3s all;
+    transition: background-color 0.12s ease;
 }
 
-
-@keyframes spawn {
-    0% {
-        opacity: 0.3;
-    }
-    100% {
-        opacity: 1;
-    }
+tbody tr:last-child > td {
+    border-bottom: 0;
 }
+
 th {
+    font-family: "Pixel", sans-serif;
     color: rgba(255, 255, 255, 1);
-    border-radius: 10px;
     background-color: var(--theme-color-rgbaless);
-    border: 2px solid var(--theme-color);
-    animation: 0.5s spawn ease-in-out;
+    border-bottom: 0;
+}
+
+.content-page {
+    width: 100%;
+    margin: 0;
+    padding-bottom: 40px;
+}
+
+.page-heading {
+    margin-bottom: var(--content-gap);
+}
+
+.page-heading h1 {
+    margin-bottom: 6px;
+}
+
+.page-heading p {
+    max-width: 760px;
+    margin: 0;
+    color: var(--muted-text);
+    font-family: "Calibri", sans-serif;
+    line-height: 1.4;
+}
+
+.empty-state-cell {
+    padding: 0;
+}
+
+.empty-state {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    align-items: center;
+    min-height: 142px;
+    gap: 18px;
+    padding: 24px 30px;
+    background: var(--panel-bg-strong);
+}
+
+.empty-state-icon {
+    width: 52px;
+    height: 52px;
+    color: var(--theme-color);
+    font-size: 50px;
+    object-fit: contain;
+    image-rendering: pixelated;
+}
+
+.empty-state-copy h2 {
+    margin: 0 0 8px;
+    font-size: 25px;
+}
+
+.empty-state-copy p {
+    max-width: 680px;
+    margin: 0;
+    color: var(--muted-text);
+    font-family: "Calibri", sans-serif;
+    line-height: 1.45;
+}
+
+.empty-state-detail {
+    display: block;
+    margin-top: 7px;
+    color: rgba(255, 255, 255, 0.52);
+    font-family: "Calibri", sans-serif;
+}
+
+.empty-state-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.empty-state-actions .secondary-action {
+    background: rgba(0, 0, 0, 0.5) !important;
+    box-shadow: inset 0 0 0 1px var(--panel-border);
+}
+
+@media (max-width: 700px) {
+    .empty-state {
+        grid-template-columns: 1fr;
+        min-height: 220px;
+        padding: 28px;
+    }
+}
+
+@media (max-width: 900px) {
+    :root {
+        --font-size-body: 17px;
+        --font-size-control: 16px;
+        --font-size-meta: 15px;
+        --font-size-heading: 21px;
+        --font-size-title: 32px;
+    }
+}
+
+.installations-page table {
+    overflow: hidden;
+}
+
+.installation-summary {
+    min-height: 54px;
+}
+
+.installation-copy {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.installation-copy input {
+    width: min(320px, 100%);
+}
+
+.installation-actions {
+    min-width: max-content;
+}
+
+.installation-actions button {
+    display: inline-grid !important;
+    width: 36px;
+    height: 36px;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    border-radius: 50%;
+    line-height: 0;
+}
+
+.installation-actions button > .material-symbols-outlined,
+.modlist-actions-column-bdiv button > .material-symbols-outlined,
+.shop-page .serietast > .material-symbols-outlined {
+    display: block;
+    width: 1em;
+    height: 1em;
+    margin: 0;
+    line-height: 1;
+    text-align: center;
+}
+
+.installation-summary > img {
+    object-fit: contain;
+    image-rendering: pixelated;
+}
+
+.installation-create-row td {
+    padding: 14px 16px;
+    background: transparent;
+}
+
+.installation-create-row button {
+    min-height: 44px;
+    border-radius: 14px;
+}
+
+@media (max-width: 900px) {
+    .installation-row > td {
+        padding: 10px;
+    }
+
+    .installation-actions {
+        flex-wrap: wrap;
+    }
 }

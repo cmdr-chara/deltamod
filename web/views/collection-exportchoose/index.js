@@ -1,3 +1,10 @@
+(() => {
+const setInterval = (handler, delay, ...args) => {
+    const interval = window.setInterval(handler, delay, ...args);
+    window._intervals = window._intervals || [];
+    window._intervals.push(interval);
+    return interval;
+};
 (async () => {
     var modlist = (await invoke('getModList', [])).modList;
     var tbody = document.getElementById('mod-list');
@@ -101,3 +108,4 @@ window.currentPageStack.exportMods = async function() {
 
     page('collections');
 };
+})();
