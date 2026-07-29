@@ -290,18 +290,17 @@ if (!app.requestSingleInstanceLock()) {
     app.on('second-instance', (e, argv) => {
         const maybeUrl = argv.find(arg => arg.startsWith(`${PROTOCOL_SCHEME}://`));
         if (maybeUrl) {
-            handleProtocolLaunch(maybeUrl);
-            page('goc-dl');
+            if (maybeUrl.startsWith(`${PROTOCOL_SCHEME}://gb/`)) page('goc-dl');
+            void handleProtocolLaunch(maybeUrl);
             if (win) win.focus();
         }
     });
 }
 
 app.whenReady().then(async () => {
-    if (['win32', 'linux'].includes(process.platform)) {
-        const maybeUrl = process.argv.find(arg => arg.startsWith(`${PROTOCOL_SCHEME}://`));
-        if (maybeUrl) handleProtocolLaunch(maybeUrl);
-    }
+    const startupProtocolUrl = ['win32', 'linux'].includes(process.platform)
+        ? process.argv.find(arg => arg.startsWith(`${PROTOCOL_SCHEME}://`))
+        : null;
 
     try {
         const p = KeyValue.readKVS('deltarunePath');
@@ -314,6 +313,10 @@ app.whenReady().then(async () => {
     }
 
     createWindow();
+    if (startupProtocolUrl) {
+        if (startupProtocolUrl.startsWith(`${PROTOCOL_SCHEME}://gb/`)) page('goc-dl');
+        await handleProtocolLaunch(startupProtocolUrl);
+    }
 });
 
 app.on('window-all-closed', () => {

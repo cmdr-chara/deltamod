@@ -11,6 +11,7 @@ const { errorWin } = require('./ErrorWin');
 const { protocolPath, resolveWithin } = require('./security/PathSecurity');
 const { downloadToFile } = require('./security/RemoteSecurity');
 const { APPLICATION_SCHEME, parseLaunch } = require('./protocol/LaunchParser');
+const { stageLocalArchive } = require('./protocol/LocalModImport');
 const { writeFileAtomicSync } = require('./storage/AtomicStore');
 
 const MAXIMUM_MOD_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024;
@@ -147,15 +148,53 @@ async function installGameBananaMod(argumentsList) {
     }
 }
 
-async function handleProtocolLaunch(value) {
-    const launch = parseLaunch(value);
-    if (!launch) return;
-    log('Community protocol launch detected:', launch.command);
+async function installLocalModArchive(sourcePath) {
+    if (typeof sourcePath !== 'string' || !sourcePath.trim()) {
+        throw new Error('The local mod archive path is missing.');
+    }
+    const dialogOptions = {
+        type: 'question',
+        title: 'Import local mod',
+        message: 'Import this mod package into Deltamod Community?',
+        detail: sourcePath,
+        buttons: ['Import', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true
+    };
+    const owner = getWindow();
+    const confirmation = owner
+        ? await dialog.showMessageBox(owner, dialogOptions)
+        : await dialog.showMessageBox(dialogOptions);
+    if (confirmation.response !== 0) return false;
 
+    const stagedPath = await stageLocalArchive(sourcePath, System.getTemporary());
     try {
+        const imported = await importMod(stagedPath, 'main');
+        if (imported !== true) throw new Error('The local mod package was not imported.');
+        return true;
+    } finally {
+        await fs.promises.rm(stagedPath, { force: true });
+    }
+}
+
+async function handleProtocolLaunch(value) {
+    try {
+        const launch = parseLaunch(value);
+        if (!launch) return;
+        log('Community protocol launch detected:', launch.command);
         switch (launch.command) {
             case 'gb':
                 await installGameBananaMod(launch.arguments);
+                break;
+            case 'import':
+                if (
+                    launch.arguments.length !== 0
+                    || Object.keys(launch.parameters || {}).some(name => name !== 'path')
+                ) {
+                    throw new Error('The local import request contains unexpected parameters.');
+                }
+                await installLocalModArchive(launch.parameters?.path);
                 break;
             case 'launch': {
                 const installationIndex = launch.arguments[0];
@@ -184,6 +223,7 @@ async function handleProtocolLaunch(value) {
 module.exports = {
     APPLICATION_SCHEME,
     handleProtocolLaunch,
+    installLocalModArchive,
     parseLaunch,
     registerProtocolHandlers,
     registerProtocolSchemesAsPrivileged

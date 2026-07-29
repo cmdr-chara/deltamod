@@ -11,4 +11,20 @@ describe('Community protocol parsing', () => {
     it('does not claim the official Deltamod protocol', () => {
         expect(parseLaunch('deltamod://launch/0')).toBe(null);
     });
+
+    it('parses a percent-encoded local archive path', () => {
+        expect(parseLaunch('deltamod-community://import?path=C%3A%5CUsers%5CChara%5CMy%20Mod.modarchive')).toEqual({
+            command: 'import',
+            arguments: [],
+            parameters: {
+                path: 'C:\\Users\\Chara\\My Mod.modarchive'
+            }
+        });
+    });
+
+    it('rejects duplicate protocol parameters', () => {
+        expect(() => parseLaunch('deltamod-community://import?path=one.zip&path=two.zip')).toThrow(
+            'provided more than once'
+        );
+    });
 });
