@@ -2,7 +2,7 @@ name: Community CI
 
 on:
   push:
-    branches: [develop, community-stabilization]
+    branches: [DeltaMaster]
   pull_request:
 
 permissions:
