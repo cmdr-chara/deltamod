@@ -5,6 +5,14 @@
     "gamebanana": {
         "id": 6755
     },
+    "sources": {
+        "nexus": {
+            "domain": "deltarune"
+        },
+        "moddb": {
+            "slug": "deltarune"
+        }
+    },
     "exeName": "DELTARUNE.exe",
     "availableFeatures": [{
         "feat": "steam",

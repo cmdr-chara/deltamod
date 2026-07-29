@@ -1,3 +1,7 @@
+// Copyright © 2026 cmdr-chara
+// Modified for Deltamod Community on 2026-07-29.
+// Licensed under the EUPL 1.2.
+
 const { test, expect, _electron: electron } = require('@playwright/test');
 const fs = require('fs');
 const os = require('os');
@@ -41,7 +45,8 @@ test('launches securely and keeps Options categories inside their column', async
             env: {
                 ...process.env,
                 DELTAMOD_TEST: '1',
-                DELTAMOD_TEST_USER_DATA: userData
+                DELTAMOD_TEST_USER_DATA: userData,
+                DELTAMOD_NEXUS_SSO_APP_ID: 'deltamod-community-test'
             }
         });
         const window = await application.firstWindow();
@@ -58,12 +63,20 @@ test('launches securely and keeps Options categories inside their column', async
         await window.waitForLoadState('domcontentloaded');
         await expect(window).toHaveTitle('Deltamod Community');
         const migrationLaterButton = window.getByRole('button', { name: 'Later' });
+        await window.waitForFunction(() =>
+            window.pageN === 'main' ||
+            [...document.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Later')
+        );
         if (await migrationLaterButton.isVisible()) {
             await migrationLaterButton.click();
             await window.waitForTimeout(400);
         }
         await window.waitForFunction(() => window.pageN === 'main');
         await expect.poll(() => window.evaluate(() => window.electronAPI.invoke('getTheme', []))).toBe('home');
+        await expect.poll(() => window.evaluate(async () => ({
+            music: await window.electronAPI.invoke('getUniqueFlag', ['AUDIO']),
+            sfx: await window.electronAPI.invoke('getUniqueFlag', ['SFX'])
+        }))).toEqual({ music: false, sfx: false });
 
         for (const viewport of [
             { width: 900, height: 600 },
@@ -271,6 +284,75 @@ test('launches securely and keeps Options categories inside their column', async
         await window.evaluate(() => window.electronAPI.invoke('setTheme', ['base']));
         await expect.poll(() => window.evaluate(() => window.electronAPI.invoke('getTheme', []))).toBe('base');
         await window.evaluate(() => window.electronAPI.invoke('setTheme', ['home']));
+
+        const modDbFixture = `<?xml version="1.0"?>
+            <rss version="2.0">
+              <channel>
+                <item>
+                  <title>Gendered Kris</title>
+                  <link>https://www.moddb.com/games/deltarune/downloads/gendered-kris</link>
+                  <pubDate>Fri, 06 Jun 2025 06:26:11 +0000</pubDate>
+                  <guid isPermaLink="false">downloads291264</guid>
+                  <description><![CDATA[Test ModDB catalogue result.]]></description>
+                </item>
+              </channel>
+            </rss>`;
+        await application.evaluate(({ app }, fixture) => {
+            globalThis.__deltamodOriginalFetch = globalThis.fetch;
+            globalThis.fetch = async (input, options) => {
+                if (String(input).includes('rss.moddb.com')) {
+                    return new Response(fixture, {
+                        status: 200,
+                        headers: { 'content-type': 'application/rss+xml' }
+                    });
+                }
+                return globalThis.__deltamodOriginalFetch(input, options);
+            };
+        }, modDbFixture);
+        await window.setViewportSize({ width: 900, height: 600 });
+        await window.evaluate(() => {
+            localStorage.setItem('modShopProvider', 'moddb');
+            window._pageArguments = { provider: 'moddb' };
+            page('gamebanana-browse');
+        });
+        await expect(window.locator('#modSourceSelect')).toHaveValue('moddb');
+        await expect(window.locator('#modSourceSelect option:checked')).toHaveText('ModDB (recent)');
+        await expect(window.locator('#modsBody')).toContainText('Gendered Kris');
+        await expect(window.locator('#contentFilterStatus')).toContainText('recent ModDB');
+        await expect(window.locator('#sourceAttribution')).toContainText('not the complete ModDB catalogue');
+        await expect(window.getByRole('link', { name: 'Browse the full ModDB catalogue' })).toBeVisible();
+        const modDbOverflow = await window.evaluate(() => ({
+            width: document.documentElement.scrollWidth,
+            viewport: document.documentElement.clientWidth
+        }));
+        expect(modDbOverflow.width).toBeLessThanOrEqual(modDbOverflow.viewport + 1);
+        if (process.env.DELTAMOD_SCREENSHOT_DIR) {
+            fs.mkdirSync(process.env.DELTAMOD_SCREENSHOT_DIR, { recursive: true });
+            await window.screenshot({
+                path: path.join(process.env.DELTAMOD_SCREENSHOT_DIR, '07-moddb.png')
+            });
+        }
+        await application.evaluate(() => {
+            globalThis.fetch = globalThis.__deltamodOriginalFetch;
+            delete globalThis.__deltamodOriginalFetch;
+        });
+
+        await window.evaluate(() => {
+            page('options');
+            window._pageArguments = { cat: 'nexus' };
+        });
+        await window.locator('#b_nexus').waitFor({ state: 'visible' });
+        await window.evaluate(() => window.currentPageStack.cat('nexus'));
+        await expect(window.locator('.nexus-key-row input')).toBeVisible();
+        await expect(window.locator('#options')).toContainText('Not connected');
+        await expect(window.getByRole('button', { name: 'Sign in' })).toBeVisible();
+        await expect(window.locator('#options')).toContainText('no API key needs to be copied');
+        if (process.env.DELTAMOD_SCREENSHOT_DIR) {
+            await window.screenshot({
+                path: path.join(process.env.DELTAMOD_SCREENSHOT_DIR, '08-nexus-settings.png')
+            });
+        }
+        await window.evaluate(() => localStorage.setItem('modShopProvider', 'gamebanana'));
 
         await window.evaluate(() => page('deleteall'));
         await expect(window.locator('#initbtn')).toBeVisible();

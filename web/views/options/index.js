@@ -229,6 +229,58 @@ async function addInfoRow(name, value, description = '', valueKind = 'text') {
     table.appendChild(tr);
 }
 
+async function addNexusKeyRow() {
+    const table = document.querySelector('tbody');
+    const tr = document.createElement('tr');
+    tr.className = 'nexus-key-row';
+
+    const label = document.createElement('td');
+    const title = document.createElement('span');
+    title.className = 'setting-title';
+    title.innerText = 'Personal API key';
+    const description = document.createElement('small');
+    description.className = 'calibri';
+    description.innerText = 'Validated by Nexus Mods, then encrypted with the operating system before it is stored.';
+    label.append(title, document.createElement('br'), description);
+
+    const { td, control } = createSettingControlCell();
+    control.classList.add('nexus-key-control');
+    const input = document.createElement('input');
+    input.type = 'password';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.maxLength = 200;
+    input.placeholder = 'Paste API key';
+    input.setAttribute('aria-label', 'Nexus Mods personal API key');
+    const save = document.createElement('button');
+    save.innerText = 'Connect';
+    save.onclick = async () => {
+        const key = input.value.trim();
+        if (!key) return;
+        save.disabled = true;
+        save.innerText = 'Checking…';
+        try {
+            await window.communityAPI.modSources.setNexusKey(key);
+            input.value = '';
+            window._pageArguments = { cat: 'nexus' };
+            page('options');
+        } catch (error) {
+            await htmlAlert(
+                'Nexus Mods connection failed',
+                error?.message || 'The API key could not be validated.',
+                [{ text: 'OK', resolveWith: 'ok' }],
+                'error'
+            );
+        } finally {
+            save.disabled = false;
+            save.innerText = 'Connect';
+        }
+    };
+    control.append(input, save);
+    tr.append(label, td);
+    table.appendChild(tr);
+}
+
 function formatProfileBytes(bytes) {
     if (!Number.isFinite(bytes) || bytes < 0) return 'Unknown';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -315,6 +367,7 @@ window.currentPageStack.cat = async function(cat) {
     document.getElementById('b_data').classList.remove('selected');
     document.getElementById('b_adv').classList.remove('selected');
     document.getElementById('b_gb').classList.remove('selected');
+    document.getElementById('b_nexus').classList.remove('selected');
     
     try {
         document.getElementById('b_dev').classList.remove('selected');
@@ -558,12 +611,117 @@ window.currentPageStack.cat = async function(cat) {
             }
             else {
                 await addButton("Login", "Adds a GameBanana account to Deltamod.", async () => {
-                    await window.electronAPI.invoke('loginGamebanana', []);
-                    window._pageArguments = {cat: 'gb'};
-                    page('options');
+                    try {
+                        const loggedIn = await window.electronAPI.invoke('loginGamebanana', []);
+                        if (loggedIn) {
+                            window._pageArguments = {cat: 'gb'};
+                            page('options');
+                        }
+                    } catch (error) {
+                        await htmlAlert(
+                            'GameBanana login failed',
+                            error?.message || 'GameBanana could not verify the signed-in account.',
+                            [{ text: 'OK', resolveWith: 'ok' }],
+                            'error'
+                        );
+                    }
                 }, "Login", !gamebananaUserinfo.loggedIn, "You are already logged in to GameBanana.", '');
             }
             break;
+        case 'nexus': {
+            await addRowHeader(`${icon('key', '20px')} Nexus Mods`);
+            const status = await window.communityAPI.modSources.nexusStatus();
+            if (status.connected) {
+                await addInfoRow('Connection', `Connected as ${status.name}`);
+                await addInfoRow(
+                    'Authentication',
+                    status.authMethod === 'sso' ? 'Nexus Mods single sign-on' : 'Personal API key (beta fallback)'
+                );
+                await addInfoRow(
+                    'Download access',
+                    status.premium ? 'Premium API downloads available' : 'Website confirmation may be required',
+                    status.premium
+                        ? 'Compatible archives can be downloaded and imported directly.'
+                        : 'Nexus Mods restricts direct API downloads for non-premium accounts.'
+                );
+                await addButton(
+                    'Disconnect Nexus Mods',
+                    'Removes the encrypted Nexus Mods credential from this device.',
+                    async () => {
+                        await window.communityAPI.modSources.clearNexusKey();
+                        window._pageArguments = { cat: 'nexus' };
+                        page('options');
+                    },
+                    'Disconnect'
+                );
+            } else {
+                await addInfoRow(
+                    'Connection',
+                    status.configured ? 'Saved key needs attention' : 'Not connected',
+                    status.error || 'Connect a Nexus Mods account to browse its catalogue.'
+                );
+                if (status.ssoAvailable) {
+                    let signingIn = false;
+                    let ssoButton;
+                    const toggleSso = async () => {
+                        if (signingIn) {
+                            await window.communityAPI.modSources.cancelNexusSso();
+                            return;
+                        }
+                        signingIn = true;
+                        ssoButton.innerText = 'Cancel sign-in';
+                        try {
+                            await window.communityAPI.modSources.startNexusSso();
+                            window._pageArguments = { cat: 'nexus' };
+                            page('options');
+                        } catch (error) {
+                            if (error?.code !== 'NEXUS_SSO_CANCELLED') {
+                                await htmlAlert(
+                                    'Nexus Mods sign-in failed',
+                                    error?.message || 'The Nexus Mods account could not be connected.',
+                                    [{ text: 'OK', resolveWith: 'ok' }],
+                                    'error'
+                                );
+                            }
+                        } finally {
+                            signingIn = false;
+                            ssoButton.innerText = 'Sign in';
+                        }
+                    };
+                    ssoButton = await addButton(
+                        'Sign in with Nexus Mods',
+                        'Opens Nexus Mods in your browser. Authorization returns directly to Community; no API key needs to be copied.',
+                        toggleSso,
+                        status.ssoPending ? 'Cancel sign-in' : 'Sign in'
+                    );
+                    signingIn = Boolean(status.ssoPending);
+                } else {
+                    await addInfoRow(
+                        'Single sign-on',
+                        'Awaiting Nexus registration',
+                        'The integration is implemented, but Nexus Mods must issue the application slug before this button can be enabled.'
+                    );
+                }
+                if (status.personalKeyFallbackAllowed) {
+                    await addInfoRow(
+                        'Beta fallback',
+                        'Personal API key',
+                        'Available only in testing builds or while public SSO registration is pending.'
+                    );
+                    await addNexusKeyRow();
+                }
+            }
+            await addButton(
+                'Nexus Mods API access',
+                'Opens the official Nexus Mods page where personal API keys are managed.',
+                () => window.communityAPI.modSources.open({
+                    provider: 'nexus',
+                    url: 'https://www.nexusmods.com/users/myaccount?tab=api%20access'
+                }),
+                'Open key page'
+            );
+            break;
+        }
     }
     // theme adjustments
     // as far as i know this page is the only page that needs ts

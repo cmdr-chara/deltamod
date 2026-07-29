@@ -1,0 +1,71 @@
+# Copyright © 2026 cmdr-chara
+# Modified for Deltamod Community on 2026-07-29.
+# Licensed under the EUPL 1.2.
+
+name: Bug report
+description: Report a reproducible Deltamod Community problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach copyrighted game data, account cookies, API keys, or other credentials.
+        Security vulnerabilities should follow SECURITY.md instead of being filed publicly.
+  - type: input
+    id: version
+    attributes:
+      label: Deltamod Community version
+      placeholder: 2.0.3-beta.1
+    validations:
+      required: true
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - Windows 10
+        - Windows 11
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: linux-distribution
+    attributes:
+      label: Linux distribution and desktop
+      description: Complete this when using Linux.
+      placeholder: Fedora 42, KDE Plasma 6
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Explain the observed and expected result.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open...
+        2. Select...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Remove usernames, paths you consider private, tokens, cookies, and game data.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmation
+      options:
+        - label: I reproduced this with the latest Community beta.
+          required: true
+        - label: I removed credentials and copyrighted game files from this report.
+          required: true

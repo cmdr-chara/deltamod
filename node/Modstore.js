@@ -14,11 +14,13 @@ const { loadHashCache, hashGameFile, saveHashCache } = require('./storage/GameHa
 
 const computerName = os.hostname();
 
-async function downloadModFromURL(url, onProgress, mID, mModel) {
+async function downloadModFromURL(url, onProgress, mID, mModel, downloadOptions = {}) {
     const filePath = path.join(system.getTemporary(), `${crypto.randomUUID()}.modarchive`);
     try {
         await downloadToFile(url, filePath, {
-            maximumBytes: 2 * 1024 * 1024 * 1024,
+            maximumBytes: downloadOptions.maximumBytes || 2 * 1024 * 1024 * 1024,
+            allowedHosts: downloadOptions.allowedHosts,
+            headers: downloadOptions.headers,
             onProgress: ({ completed, total }) => {
                 const percentage = total > 0 ? (completed / total) * 100 : 0;
                 console.log(`Download progress: ${percentage.toFixed(1)}%`);
@@ -106,7 +108,20 @@ async function importMod(filePath, nextPage = "main", mID = null, mModel = null)
         modInfo.metadata.packageID = validatePID(modInfo.metadata.packageID);
         fs.writeFileSync(path.join(modPath, 'meta.toml'), TOML.dump(modInfo), 'utf8');
 
-        if (mID && mModel) {
+        if (mID && typeof mID === 'object') {
+            const source = mID;
+            if (!/^(gamebanana|nexus|moddb)$/.test(String(source.provider || ''))) {
+                throw new Error('Invalid mod source metadata.');
+            }
+            modInfo.metadata.source_provider = String(source.provider);
+            modInfo.metadata.source_id = String(source.id || '').slice(0, 100);
+            if (source.fileId != null) modInfo.metadata.source_file_id = String(source.fileId).slice(0, 100);
+            if (typeof source.url === 'string' && source.url.startsWith('https://')) {
+                modInfo.metadata.source_url = source.url.slice(0, 1000);
+            }
+            fs.writeFileSync(path.join(modPath, 'meta.toml'), TOML.dump(modInfo), 'utf8');
+        }
+        else if (mID && mModel) {
             modInfo.metadata.gamebanana_id = mID;
             modInfo.metadata.gamebanana_model = mModel;
             fs.writeFileSync(path.join(modPath, 'meta.toml'), TOML.dump(modInfo), 'utf8');
@@ -544,6 +559,12 @@ function modList() {
                     id:       meta.gamebanana_id || null,
                     model:    meta.gamebanana_model || null,
                 },
+                source: meta.source_provider ? {
+                    provider: meta.source_provider,
+                    id: meta.source_id || null,
+                    fileId: meta.source_file_id || null,
+                    url: meta.source_url || null
+                } : null,
                 _incompatibleHASH: meta._incompatibleHASH || false,
                 _hashDifferentFiles: meta._hashDifferentFiles || [],
                 _selectedVariant: variant || null,

@@ -58,7 +58,8 @@
 }
 
 .content-filter-label,
-.content-filter-status {
+.content-filter-status,
+.shop-source-label {
     font-family: "Pixel", sans-serif;
 }
 
@@ -71,10 +72,114 @@
     min-width: 150px;
 }
 
+#modSourceSelect {
+    min-width: 126px;
+}
+
+.shop-source-label {
+    color: #ddd;
+    font-size: var(--font-size-meta);
+}
+
+.shop-filter-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.shop-filter-controls[hidden] {
+    display: none;
+}
+
 .content-filter-status {
     min-height: 1.25rem;
     margin: 0 0 12px;
     color: #ddd;
+}
+
+.source-attribution {
+    margin: -8px 0 12px;
+    color: var(--muted-text);
+    font-size: var(--font-size-meta);
+}
+
+.source-catalog-link {
+    display: inline-block;
+    margin-left: 4px;
+    color: var(--theme-color);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.source-catalog-link:hover,
+.source-catalog-link:focus-visible {
+    color: #fff;
+}
+
+.external-source-card {
+    min-width: 0;
+    padding: 4px 0;
+}
+
+.external-source-summary {
+    display: -webkit-box;
+    overflow: hidden;
+    max-width: 80ch;
+    margin-top: 6px;
+    color: var(--muted-text);
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.external-source-badge {
+    display: inline-flex;
+    width: fit-content;
+    margin-left: 8px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--muted-text);
+    font-family: "Pixel", sans-serif;
+    font-size: var(--font-size-meta);
+}
+
+.external-source-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 86px;
+}
+
+.external-source-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 38px;
+    min-height: 38px;
+}
+
+.shop-state {
+    padding: 34px 24px;
+    text-align: center;
+}
+
+.shop-state p {
+    margin: 8px auto 16px;
+    max-width: 64ch;
+    color: var(--muted-text);
+}
+
+@media (max-width: 1100px) {
+    .tspandiv {
+        flex-wrap: wrap;
+    }
+
+    .autocomplete {
+        order: 5;
+        flex-basis: calc(100% - 50px);
+    }
 }
 
 .content-rating-chip {

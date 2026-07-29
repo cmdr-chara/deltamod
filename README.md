@@ -17,7 +17,7 @@
   <a href="https://github.com/cmdr-chara/deltamod/issues">Issues</a>
 </p>
 
-Deltamod Community manages multiple game installations, imports local mods, browses compatible GameBanana releases, and applies selected patches transactionally before launch. It installs beside official Deltamod and uses a separate profile.
+Deltamod Community manages multiple game installations, imports local mods, browses GameBanana, Nexus Mods, and ModDB catalogues, and applies selected patches transactionally before launch. It installs beside official Deltamod and uses a separate profile.
 
 Supported games: **DELTARUNE**, **DELTARUNE Demo**, **DELTARUNE Demo (LTS)**, **UNDERTALE**, **Undertale Yellow**, and **Pizza Tower**. Compatibility still depends on the game version and how each mod is packaged.
 
@@ -55,6 +55,12 @@ Patching uses the GPL-3.0-only [G3MTool](https://github.com/y114git/G3MTool) exe
 
 On first launch, Community detects the standard official profile and offers **Import from Deltamod**. It stages and validates the copy before committing it; the official profile is never modified. Settings provides the same action later for importing changes. Conflicting installations are copied separately, conflicting themes are renamed, and conflicting mod package IDs are quarantined for review. GameBanana may request a new login when credentials cannot be migrated securely.
 
+## Mod catalogues
+
+The Mod Shop keeps GameBanana as the default source and adds Nexus Mods and ModDB for DELTARUNE and UNDERTALE. Nexus single sign-on is implemented and becomes active after Nexus Mods issues the application slug. Until registration is complete, beta testers can use their own personal API key under **Options → Nexus Mods**. Credentials are validated and encrypted with the operating system’s credential protection; they are never bundled with the application. Premium API downloads are imported when the archive is Deltamod-compatible, while restricted downloads open the Nexus website for confirmation.
+
+ModDB shows the recent downloads exposed by its official RSS feeds, clearly labels that list as incomplete, and links to the full game catalogue. Because ModDB archives are not necessarily Deltamod packages, Community opens their download page and leaves installation manual instead of claiming compatibility it cannot verify.
+
 ## Build
 
 | Target | Command | Output |
@@ -62,8 +68,8 @@ On first launch, Community detects the standard official profile and offers **Im
 | Windows x64 | `npm run build-windows` | NSIS installer |
 | Linux x64 | `npm run build-linux` | AppImage |
 
-Artifacts are written to `dist/` by Electron Builder. Tags named `community-v<package version>` run the unsigned beta release workflow and create a GitHub prerelease. It refuses to publish when tests, the production dependency audit, G3MTool provenance, or version matching fail. Authenticode signing can be enabled later for stable releases without changing the application data format.
+Artifacts are written to `dist/` by Electron Builder. Tags named `community-v<package version>` run the unsigned beta release workflow and create a GitHub prerelease. It refuses to publish when unit tests, the Electron workflow test, the production dependency audit, G3MTool provenance, or version matching fail. Authenticode signing can be enabled later for stable releases without changing the application data format.
 
 ## License
 
-Deltamod Community is licensed under the [European Union Public Licence 1.2](./LICENSE.txt). Third-party components retain their respective licenses.
+Deltamod Community is licensed under the [European Union Public Licence 1.2](./LICENSE.txt). Community contributions and modifications are identified in the [copyright notice](./NOTICE.md). Third-party components retain their respective licenses.

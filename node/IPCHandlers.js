@@ -8,6 +8,8 @@ const { Worker } = require('worker_threads');
 const https = require('https');
 const createDesktopShortcut = require('create-desktop-shortcuts');
 const axios = require('axios');
+const { z } = require('zod');
+const semver = require('semver');
 var elevate = require('windows-elevate');
 // Local modules
 const KeyValue = require('./KeyValue');
@@ -20,11 +22,14 @@ const GameDB = require('./GameDB');
 const { createProgressModal, updateProgressModal } = require('./ProgressModal');
 const GamePatching = require('./GamePatching');
 const ProfileMigration = require('./ProfileMigration');
+const ModSources = require('./ModSources');
 const UndertaleModTool = require('./UndertaleModTool');
+const { NexusSsoClient, parseNexusSsoAppId } = require('./NexusSso');
 const { downloadToFile } = require('./security/RemoteSecurity');
 const { detectImageType } = require('./security/ImageSecurity');
 const { resolveWithin } = require('./security/PathSecurity');
 const { extractArchiveAtomic } = require('./security/ArchiveSecurity');
+const { getCredentialStorageStatus } = require('./security/CredentialStorage');
 const { copyDirectoryAtomic } = require('./storage/StagedCopy');
 const { readJsonSync, writeJsonAtomicSync, writeFileAtomicSync } = require('./storage/AtomicStore');
 const Junction = require('./Junction');
@@ -76,6 +81,49 @@ function parseExternalHttpsUrl(value, allowedHosts) {
         throw new Error(`External host is not approved: ${hostname}`);
     }
     return parsed.toString();
+}
+
+function getNexusCredentialPath() {
+    return getSystemFile('nexus-api-key', true);
+}
+
+function getNexusAuthMetadataPath() {
+    return getSystemFile('nexus-auth.json', true);
+}
+
+function getNexusAuthMethod() {
+    const metadata = readJsonSync(getNexusAuthMetadataPath(), {});
+    return metadata?.method === 'sso' ? 'sso' : 'personal';
+}
+
+function readNexusApiKey() {
+    const credentialPath = getNexusCredentialPath();
+    if (!fs.existsSync(credentialPath)) return null;
+    if (!safeStorage.isEncryptionAvailable()) {
+        const error = new Error('Secure credential storage is unavailable on this system.');
+        error.code = 'SECURE_STORAGE_UNAVAILABLE';
+        throw error;
+    }
+    try {
+        return safeStorage.decryptString(fs.readFileSync(credentialPath));
+    } catch {
+        const error = new Error('The saved Nexus Mods API key could not be decrypted. Remove it and connect again.');
+        error.code = 'NEXUS_CREDENTIAL_INVALID';
+        throw error;
+    }
+}
+
+function storeNexusApiKey(apiKey, method) {
+    writeFileAtomicSync(
+        getNexusCredentialPath(),
+        safeStorage.encryptString(apiKey),
+        { backup: false }
+    );
+    writeJsonAtomicSync(getNexusAuthMetadataPath(), {
+        schemaVersion: 1,
+        method: method === 'sso' ? 'sso' : 'personal',
+        updatedAt: new Date().toISOString()
+    }, { backup: false });
 }
 
 async function reorderInstalls() {
@@ -296,6 +344,15 @@ module.exports = function registerIPCHandlers(context) {
     const GameBanana = require('./GameBanana');
     const profileImports = new Map();
     const gameImports = new Map();
+    const configuredNexusSsoAppId = parseNexusSsoAppId(
+        process.env.DELTAMOD_NEXUS_SSO_APP_ID || require('../package.json').nexusSsoAppId
+    );
+    const nexusSso = new NexusSsoClient({
+        appId: configuredNexusSsoAppId,
+        openExternal: url => shell.openExternal(parseExternalHttpsUrl(url, ['nexusmods.com']))
+    });
+    const nexusPersonalKeyFallbackAllowed =
+        !nexusSso.available || semver.prerelease(app.getVersion()) !== null;
     // { getGBUIConf, collections }
 
     const undertaleModToolConfigPath = getSystemFile('undertale-mod-tool.json', true);
@@ -493,7 +550,7 @@ module.exports = function registerIPCHandlers(context) {
                 sourceVersion: detected.version,
                 signal: controller.signal,
                 migrateCredential: async encryptedCredential => {
-                    if (!safeStorage.isEncryptionAvailable()) return null;
+                    if (!getCredentialStorageStatus(safeStorage).available) return null;
                     try {
                         return safeStorage.encryptString(safeStorage.decryptString(encryptedCredential));
                     } catch {
@@ -690,11 +747,12 @@ module.exports = function registerIPCHandlers(context) {
 
     // GameBanana Auth & API
     handle('loginGamebanana', async () => {
-        if (!safeStorage.isEncryptionAvailable()) {
+        const credentialStorage = getCredentialStorageStatus(safeStorage);
+        if (!credentialStorage.available) {
             dialog.showMessageBoxSync({
                 type: 'error',
                 title: 'Secure storage unavailable',
-                message: 'GameBanana login cannot be saved because encrypted credential storage is unavailable on this system.',
+                message: `GameBanana login cannot be saved. ${credentialStorage.reason}`,
             });
             return false;
         }
@@ -732,6 +790,210 @@ module.exports = function registerIPCHandlers(context) {
         } catch (error) {
             console.error('Error fetching GameBanana user info:', error);
             return { loggedIn: false };
+        }
+    });
+
+    // Mod source catalogue and credentials
+    handle('modSources:getProviders', () => {
+        const game = GameDB.getGameById(KeyValue.readKVS('gamePid'));
+        return ModSources.getAvailableProviders(game);
+    });
+    handle('modSources:browse', async (event, args) => {
+        const request = ModSources.BrowseRequest.parse(args?.[0] || {});
+        const game = GameDB.getGameById(KeyValue.readKVS('gamePid'));
+        if (!game) {
+            const error = new Error('No current game installation is selected.');
+            error.code = 'GAME_NOT_SELECTED';
+            throw error;
+        }
+        if (request.provider === 'moddb') {
+            return ModSources.browseModDb({
+                slug: game.sources?.moddb?.slug,
+                query: request.query
+            });
+        }
+        if (request.provider === 'nexus') {
+            return ModSources.browseNexus({
+                domain: game.sources?.nexus?.domain,
+                query: request.query,
+                sort: request.sort,
+                apiKey: readNexusApiKey()
+            });
+        }
+        const error = new Error('GameBanana continues to use its compatibility catalogue.');
+        error.code = 'MOD_SOURCE_LEGACY_PROVIDER';
+        throw error;
+    });
+    handle('modSources:nexusStatus', async () => {
+        const baseStatus = {
+            ssoAvailable: nexusSso.available,
+            ssoPending: nexusSso.pending,
+            personalKeyFallbackAllowed: nexusPersonalKeyFallbackAllowed,
+            authMethod: fs.existsSync(getNexusCredentialPath()) ? getNexusAuthMethod() : null
+        };
+        let key;
+        try {
+            key = readNexusApiKey();
+        } catch (error) {
+            return {
+                ...baseStatus,
+                configured: fs.existsSync(getNexusCredentialPath()),
+                connected: false,
+                error: error.message,
+                code: error.code || 'NEXUS_CREDENTIAL_INVALID'
+            };
+        }
+        if (!key) return { ...baseStatus, configured: false, connected: false };
+        try {
+            return {
+                ...baseStatus,
+                configured: true,
+                connected: true,
+                ...(await ModSources.validateNexusApiKey(key))
+            };
+        } catch (error) {
+            return {
+                ...baseStatus,
+                configured: true,
+                connected: false,
+                error: error.message,
+                code: error.code || 'NEXUS_STATUS_FAILED'
+            };
+        }
+    });
+    handle('modSources:setNexusKey', async (event, args) => {
+        if (!nexusPersonalKeyFallbackAllowed) {
+            const error = new Error('Personal Nexus Mods API keys are disabled in registered stable builds. Use Nexus Mods sign-in.');
+            error.code = 'NEXUS_PERSONAL_KEY_DISABLED';
+            throw error;
+        }
+        if (!safeStorage.isEncryptionAvailable()) {
+            const error = new Error('Secure credential storage is unavailable. The Nexus Mods key was not saved.');
+            error.code = 'SECURE_STORAGE_UNAVAILABLE';
+            throw error;
+        }
+        const key = String(args?.[0] || '').trim();
+        const status = await ModSources.validateNexusApiKey(key);
+        storeNexusApiKey(key, 'personal');
+        return {
+            configured: true,
+            connected: true,
+            authMethod: 'personal',
+            ssoAvailable: nexusSso.available,
+            ssoPending: false,
+            personalKeyFallbackAllowed: nexusPersonalKeyFallbackAllowed,
+            ...status
+        };
+    });
+    handle('modSources:startNexusSso', async event => {
+        const cancelOnRendererClose = () => nexusSso.cancel();
+        event.sender.once('destroyed', cancelOnRendererClose);
+        try {
+            if (!safeStorage.isEncryptionAvailable()) {
+                const error = new Error('Secure credential storage is unavailable. Nexus Mods sign-in cannot be saved.');
+                error.code = 'SECURE_STORAGE_UNAVAILABLE';
+                throw error;
+            }
+            const key = await nexusSso.start();
+            const status = await ModSources.validateNexusApiKey(key);
+            storeNexusApiKey(key, 'sso');
+            return {
+                ok: true,
+                status: {
+                    configured: true,
+                    connected: true,
+                    authMethod: 'sso',
+                    ssoAvailable: true,
+                    ssoPending: false,
+                    personalKeyFallbackAllowed: nexusPersonalKeyFallbackAllowed,
+                    ...status
+                }
+            };
+        } catch (error) {
+            return {
+                ok: false,
+                error: {
+                    code: error.code || 'NEXUS_SSO_FAILED',
+                    message: error.message || 'Nexus Mods sign-in failed.'
+                }
+            };
+        } finally {
+            event.sender.removeListener('destroyed', cancelOnRendererClose);
+        }
+    });
+    handle('modSources:cancelNexusSso', () => {
+        return nexusSso.cancel();
+    });
+    handle('modSources:clearNexusKey', () => {
+        nexusSso.cancel();
+        try { fs.rmSync(getNexusCredentialPath(), { force: true }); } catch {}
+        try { fs.rmSync(getNexusAuthMetadataPath(), { force: true }); } catch {}
+        return true;
+    });
+    handle('modSources:open', async (event, args) => {
+        const provider = ModSources.ProviderId.parse(args?.[0]?.provider);
+        const url = String(args?.[0]?.url || '');
+        const allowedHosts = provider === 'nexus'
+            ? ['nexusmods.com']
+            : provider === 'moddb'
+                ? ['moddb.com']
+                : ['gamebanana.com'];
+        await shell.openExternal(parseExternalHttpsUrl(url, allowedHosts));
+        return true;
+    });
+    handle('modSources:downloadNexus', async (event, args) => {
+        const request = z.object({
+            modId: z.union([z.string(), z.number()]),
+            operationId: z.string().regex(/^[a-z0-9-]{1,64}$/i),
+            sourceUrl: z.string().url().max(1000)
+        }).parse(args?.[0] || {});
+        const game = GameDB.getGameById(KeyValue.readKVS('gamePid'));
+        const domain = game?.sources?.nexus?.domain;
+        if (!domain) {
+            const error = new Error('Nexus Mods is not mapped for the selected game.');
+            error.code = 'MOD_SOURCE_UNAVAILABLE';
+            throw error;
+        }
+        const resolved = await ModSources.getNexusPrimaryDownload({
+            domain,
+            modId: request.modId,
+            apiKey: readNexusApiKey()
+        });
+        const sourceUrl = parseExternalHttpsUrl(request.sourceUrl, ['nexusmods.com']);
+        try {
+            return await Modstore.downloadModFromURL(
+                resolved.downloadUrl,
+                (progress, downloaded) => {
+                    event.sender.send('mod-source-progress', {
+                        operationId: request.operationId,
+                        phase: 'download',
+                        completed: downloaded,
+                        total: progress > 0 ? Math.round(downloaded / (progress / 100)) : 0,
+                        currentItem: resolved.fileName
+                    });
+                },
+                {
+                    provider: 'nexus',
+                    id: String(request.modId),
+                    fileId: String(resolved.fileId),
+                    url: sourceUrl
+                },
+                null,
+                {
+                    maximumBytes: resolved.maximumBytes,
+                    allowedHosts: ModSources.isNexusDownloadHost
+                }
+            );
+        } catch (error) {
+            event.sender.send('mod-source-progress', {
+                operationId: request.operationId,
+                phase: 'failed',
+                completed: 0,
+                total: 0,
+                currentItem: resolved.fileName,
+                error: error.message
+            });
+            throw error;
         }
     });
     
@@ -1435,7 +1697,6 @@ module.exports = function registerIPCHandlers(context) {
         const index = parseInstallationIndex(args?.[0]);
         return shell.openPath(getSystemFolderOfIndex('deltaruneInstall', index));
     });
-
     handle('undertaleModTool:status', () => {
         const executable = configuredUndertaleModToolExecutable();
         const cliExecutable = configuredCommunityCliExecutable();

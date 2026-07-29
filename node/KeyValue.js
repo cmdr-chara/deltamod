@@ -76,6 +76,12 @@ function existsUniqueFlag(name) {
 }
 function readUniqueFlag(name) {
     try {
+        if (
+            process.env.DELTAMOD_TEST === '1' &&
+            ['AUDIO', 'SFX'].includes(name.toUpperCase())
+        ) {
+            return false;
+        }
         var database = getSystemFile('flagDB.config', true);
         if (!fs.existsSync(database)) {
             writeFileAtomicSync(database, '');

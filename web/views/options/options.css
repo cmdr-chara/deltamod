@@ -180,6 +180,26 @@
     white-space: normal;
 }
 
+.nexus-key-control {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.nexus-key-control input {
+    width: min(260px, 100%);
+    min-width: 120px;
+    margin: 0;
+}
+
+@media (max-width: 980px) {
+    .nexus-key-control {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}
+
 @media (max-width: 900px) {
     .options-layout {
         grid-template-columns: 1fr;

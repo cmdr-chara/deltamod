@@ -5,6 +5,14 @@
     "gamebanana": {
         "id": 5506
     },
+    "sources": {
+        "nexus": {
+            "domain": "undertale"
+        },
+        "moddb": {
+            "slug": "undertale"
+        }
+    },
     "exeName": "UNDERTALE.exe",
     "availableFeatures": []
 }
