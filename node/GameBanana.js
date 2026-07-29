@@ -1,10 +1,14 @@
-const { BrowserWindow, safeStorage, shell } = require('electron');
+const { BrowserWindow, safeStorage, session, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 const { getSystemFile } = require('./System');
 const console = require('./Console');
 const { createCommentRequest } = require('./gamebanana/CommentRequest');
+const {
+    GAMEBANANA_LOGIN_PARTITION,
+    clearGameBananaAuthentication
+} = require('./gamebanana/LoginSession');
 
 function obtainLogin() {
     return new Promise(async (resolve, reject) => {
@@ -23,7 +27,7 @@ function obtainLogin() {
             minimizable: false,
             webPreferences: {
                 nodeIntegration: false,
-                partition: 'persist:gamebananaLogin',
+                partition: GAMEBANANA_LOGIN_PARTITION,
                 contextIsolation: true,
                 sandbox: true,
             }
@@ -122,6 +126,14 @@ async function getGBUIConf() {
 
 function clearCache() {
     uiConfCache = null;
+}
+
+async function clearLoginSession() {
+    return clearGameBananaAuthentication({
+        electronSession: session,
+        removeCredential: () => fs.rmSync(getSystemFile('bananapwd', true), { force: true }),
+        clearInMemoryCache: clearCache
+    });
 }
 
 async function leaveComment(id, comment, model) {
@@ -346,5 +358,6 @@ module.exports = {
         list: getCollections,
         inspect: getCollectionMods
     },
-    clearCache
+    clearCache,
+    clearLoginSession
 };

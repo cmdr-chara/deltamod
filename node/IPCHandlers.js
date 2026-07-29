@@ -704,9 +704,7 @@ module.exports = function registerIPCHandlers(context) {
         return true;
     });
     handle('logoutGamebanana', async () => {
-        try { fs.unlinkSync(getSystemFile('bananapwd', true)); } catch {}
-        GameBanana.clearCache();
-        return true;
+        return GameBanana.clearLoginSession();
     });
     handle('eraseGamebananaCache', () => GameBanana.clearCache());
     handle('leaveCommentGamebanana', async (event, args) => {
