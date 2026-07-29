@@ -78,6 +78,9 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'deleteSystemIndex',
     'createInstallLink',
     'openInstallationFolder',
+    'undertaleModTool:status',
+    'undertaleModTool:choose',
+    'undertaleModTool:openInstallation',
     'openSysFolder',
     'openModFolder',
     'getUniqueFlag',
@@ -131,6 +134,12 @@ contextBridge.exposeInMainWorld('communityAPI', {
         check: () => invoke('fireUpdate'),
         install: () => invoke('start-update'),
         ignore: () => invoke('ignore-update')
+    },
+    tools: {
+        undertaleModToolStatus: () => invoke('undertaleModTool:status'),
+        chooseUndertaleModTool: () => invoke('undertaleModTool:choose'),
+        openInstallationInUndertaleModTool: installationIndex =>
+            invoke('undertaleModTool:openInstallation', [installationIndex])
     }
 });
 

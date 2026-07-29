@@ -50,6 +50,29 @@ declare global {
                 install(): Promise<void>;
                 ignore(): Promise<void>;
             };
+            tools: {
+                undertaleModToolStatus(): Promise<{
+                    supported: boolean;
+                    configured: boolean;
+                    executableName: string | null;
+                    cliConfigured: boolean;
+                    cliExecutableName: string | null;
+                }>;
+                chooseUndertaleModTool(): Promise<{
+                    configured: boolean;
+                    executableName: string | null;
+                    canceled: boolean;
+                }>;
+                openInstallationInUndertaleModTool(installationIndex: string): Promise<{
+                    launched: boolean;
+                    canceled?: boolean;
+                    executableName?: string;
+                    dataFileName?: string;
+                    workspacePath?: string;
+                    sourceSha256?: string;
+                    workCopy?: boolean;
+                }>;
+            };
         };
         electronAPI: {
             invoke<T = unknown>(channel: string, data?: unknown[]): Promise<T>;

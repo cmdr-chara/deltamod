@@ -20,6 +20,7 @@ const GameDB = require('./GameDB');
 const { createProgressModal, updateProgressModal } = require('./ProgressModal');
 const GamePatching = require('./GamePatching');
 const ProfileMigration = require('./ProfileMigration');
+const UndertaleModTool = require('./UndertaleModTool');
 const { downloadToFile } = require('./security/RemoteSecurity');
 const { detectImageType } = require('./security/ImageSecurity');
 const { resolveWithin } = require('./security/PathSecurity');
@@ -219,6 +220,7 @@ async function getInstallations(suppressWarnings = false) {
             pid: KeyValue.readKVSOfIndex('gamePid', index),
             appid: KeyValue.readKVSOfIndex('steamAppId', index),
             valid: issues.length === 0,
+            canOpenInUndertaleModTool: process.platform === 'win32' && Boolean(deltaruneInstall),
             issues,
             repairActions: issues.length ? ['repair', 're-import', 'remove'] : []
         });
@@ -295,6 +297,98 @@ module.exports = function registerIPCHandlers(context) {
     const profileImports = new Map();
     const gameImports = new Map();
     // { getGBUIConf, collections }
+
+    const undertaleModToolConfigPath = getSystemFile('undertale-mod-tool.json', true);
+    const communityCliConfigPath = getSystemFile('deltamod-community-cli.json', true);
+
+    function configuredUndertaleModToolExecutable() {
+        const config = readJsonSync(undertaleModToolConfigPath, {});
+        const candidates = [
+            config?.executable,
+            process.env.DELTAMOD_UMT_PATH
+        ].filter(Boolean);
+
+        for (const candidate of candidates) {
+            try {
+                return UndertaleModTool.validateExecutablePath(candidate);
+            } catch {}
+        }
+        return null;
+    }
+
+    async function chooseUndertaleModToolExecutable() {
+        if (process.platform !== 'win32') {
+            const error = new Error('The WinUI UndertaleModTool integration is available only on Windows.');
+            error.code = 'UMT_PLATFORM_UNSUPPORTED';
+            throw error;
+        }
+
+        const options = {
+            title: 'Choose UndertaleModTool',
+            properties: ['openFile'],
+            filters: [
+                { name: 'UndertaleModTool executable', extensions: ['exe'] }
+            ]
+        };
+        const owner = getWindow();
+        const result = owner
+            ? await dialog.showOpenDialog(owner, options)
+            : await dialog.showOpenDialog(options);
+        if (result.canceled || result.filePaths.length !== 1) return null;
+
+        const executable = UndertaleModTool.validateExecutablePath(result.filePaths[0]);
+        writeJsonAtomicSync(undertaleModToolConfigPath, {
+            schemaVersion: 1,
+            executable,
+            updatedAt: new Date().toISOString()
+        });
+        return executable;
+    }
+
+    function configuredCommunityCliExecutable() {
+        const config = readJsonSync(communityCliConfigPath, {});
+        const candidates = [
+            config?.executable,
+            process.env.DELTAMOD_CLI_PATH,
+            path.join(path.dirname(process.execPath), 'deltamod-community-cli.exe')
+        ].filter(Boolean);
+
+        for (const candidate of candidates) {
+            try {
+                return UndertaleModTool.validateCliExecutablePath(candidate);
+            } catch {}
+        }
+        return null;
+    }
+
+    async function chooseCommunityCliExecutable() {
+        if (process.platform !== 'win32') {
+            const error = new Error('The UndertaleModTool bridge is currently available only on Windows.');
+            error.code = 'UMT_PLATFORM_UNSUPPORTED';
+            throw error;
+        }
+
+        const options = {
+            title: 'Choose Deltamod Community CLI',
+            properties: ['openFile'],
+            filters: [
+                { name: 'Deltamod Community CLI executable', extensions: ['exe'] }
+            ]
+        };
+        const owner = getWindow();
+        const result = owner
+            ? await dialog.showOpenDialog(owner, options)
+            : await dialog.showOpenDialog(options);
+        if (result.canceled || result.filePaths.length !== 1) return null;
+
+        const executable = UndertaleModTool.validateCliExecutablePath(result.filePaths[0]);
+        writeJsonAtomicSync(communityCliConfigPath, {
+            schemaVersion: 1,
+            executable,
+            updatedAt: new Date().toISOString()
+        });
+        return executable;
+    }
 
     function requireTrustedRenderer(event) {
         const senderUrl = event.senderFrame?.url || event.sender?.getURL?.() || '';
@@ -1342,6 +1436,68 @@ module.exports = function registerIPCHandlers(context) {
         requireTrustedRenderer(event);
         const index = parseInstallationIndex(args?.[0]);
         return shell.openPath(getSystemFolderOfIndex('deltaruneInstall', index));
+    });
+
+    handle('undertaleModTool:status', () => {
+        const executable = configuredUndertaleModToolExecutable();
+        const cliExecutable = configuredCommunityCliExecutable();
+        return {
+            supported: process.platform === 'win32',
+            configured: Boolean(executable),
+            executableName: executable ? path.basename(executable) : null,
+            cliConfigured: Boolean(cliExecutable),
+            cliExecutableName: cliExecutable ? path.basename(cliExecutable) : null
+        };
+    });
+    handle('undertaleModTool:choose', async () => {
+        const executable = await chooseUndertaleModToolExecutable();
+        return {
+            configured: Boolean(executable),
+            executableName: executable ? path.basename(executable) : null,
+            canceled: executable === null
+        };
+    });
+    handle('undertaleModTool:openInstallation', async (event, args) => {
+        const index = parseInstallationIndex(args?.[0]);
+        if (!fs.existsSync(getInstallationProfilePath(index))) {
+            const error = new Error('Installation profile does not exist.');
+            error.code = 'INSTALLATION_NOT_FOUND';
+            throw error;
+        }
+
+        let executable = configuredUndertaleModToolExecutable();
+        if (!executable) executable = await chooseUndertaleModToolExecutable();
+        if (!executable) return { launched: false, canceled: true };
+
+        let cliExecutable = configuredCommunityCliExecutable();
+        if (!cliExecutable) cliExecutable = await chooseCommunityCliExecutable();
+        if (!cliExecutable) return { launched: false, canceled: true };
+
+        const gamePath = KeyValue.readKVSOfIndex('gamePath', index);
+        const sourceDataFile = UndertaleModTool.resolveGameDataFile(gamePath);
+        const installationNamePath = System.getSystemFileOfIndex('_cname', index);
+        const installationName = fs.existsSync(installationNamePath)
+            ? fs.readFileSync(installationNamePath, 'utf8').trim()
+            : `Installation ${Number(index) + 1}`;
+        const gameId = KeyValue.readKVSOfIndex('gamePid', index);
+        const workspace = await UndertaleModTool.createWorkspace({
+            workspaceRoot: path.join(app.getPath('userData'), 'tool-workspaces', 'undertale-mod-tool'),
+            sourceDataFile,
+            cliExecutable,
+            installationIndex: index,
+            installationName,
+            gameId,
+            author: os.userInfo().username
+        });
+        const result = await UndertaleModTool.launchEditor(executable, workspace.dataFile);
+        return {
+            launched: result.launched,
+            executableName: path.basename(result.executable),
+            dataFileName: path.basename(result.dataFile),
+            workspacePath: workspace.workspace,
+            sourceSha256: workspace.sourceSha256,
+            workCopy: true
+        };
     });
 
     // Folders & Misc

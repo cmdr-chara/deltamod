@@ -250,6 +250,36 @@ const setInterval = (handler, delay, ...args) => {
                     delay: [500, 0],
                 });
 
+                let editBtn = document.createElement('button');
+                editBtn.style.padding = '4px';
+                editBtn.style.textAlign = 'center';
+                editBtn = adaptForIcons(editBtn);
+                editBtn.innerHTML = icon('terminal', '18px');
+                editBtn.setAttribute('aria-label', 'Edit a safe game-data copy in UndertaleModTool');
+                editBtn.disabled = !install.canOpenInUndertaleModTool;
+                editBtn.onclick = async () => {
+                    try {
+                        const result = await window.communityAPI.tools
+                            .openInstallationInUndertaleModTool(install.index.toString());
+                        if (!result?.launched && !result?.canceled) {
+                            throw new Error('UndertaleModTool did not start.');
+                        }
+                    } catch (error) {
+                        await htmlAlert(
+                            'Could not open UndertaleModTool',
+                            error?.message || String(error),
+                            [{ text: 'OK', resolveWith: 'ok' }]
+                        );
+                    }
+                };
+                tippy(editBtn, {
+                    content: install.canOpenInUndertaleModTool
+                        ? 'Create a safe copy for UndertaleModTool; export changes back as a Community mod'
+                        : 'Repair this installation before creating an UndertaleModTool workspace',
+                    placement: 'top',
+                    delay: [500, 0],
+                });
+
                 let shortcutBtn = document.createElement('button');
                 shortcutBtn.style.padding = '4px';
                 shortcutBtn.style.textAlign = 'center';
@@ -282,6 +312,7 @@ const setInterval = (handler, delay, ...args) => {
 
                 buttonsDiv.appendChild(shortcutBtn);
                 buttonsDiv.appendChild(openBtn);
+                buttonsDiv.appendChild(editBtn);
 
                 goCell.appendChild(buttonsDiv);
 
