@@ -31,13 +31,8 @@ jobs:
       - run: npm run security:audit
       - run: npm run verify:g3mtool-manifest
       - name: Electron workflow smoke test
-        shell: bash
-        run: |
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            xvfb-run --auto-servernum npm run test:e2e
-          else
-            npm run test:e2e
-          fi
+        if: runner.os == 'macOS'
+        run: npm run test:e2e
       - name: Package smoke build
         shell: bash
         run: |

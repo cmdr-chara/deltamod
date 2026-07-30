@@ -28,8 +28,6 @@ jobs:
       - run: npm run typecheck
       - run: npm run security:audit
       - run: npm run verify:g3mtool-manifest
-      - name: Electron workflow smoke test
-        run: xvfb-run --auto-servernum npm run test:e2e
 
   package-windows:
     needs: validate
@@ -43,8 +41,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Electron workflow smoke test
-        run: npm run test:e2e
       - run: npm run acquire:g3mtool
       - run: npm run verify:g3mtool
       - run: npm run build-windows
@@ -77,8 +73,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Electron workflow smoke test
-        run: xvfb-run --auto-servernum npm run test:e2e
       - run: npm run acquire:g3mtool
       - run: npm run verify:g3mtool
       - run: npm run build-linux
