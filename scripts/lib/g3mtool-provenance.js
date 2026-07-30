@@ -18,6 +18,18 @@ const TARGETS = Object.freeze({
         arch: 'x64',
         executable: 'G3MTool',
         installDirectory: 'linux-x64'
+    }),
+    'darwin-x64': Object.freeze({
+        platform: 'darwin',
+        arch: 'x64',
+        executable: 'G3MTool',
+        installDirectory: 'mac-x64'
+    }),
+    'darwin-arm64': Object.freeze({
+        platform: 'darwin',
+        arch: 'arm64',
+        executable: 'G3MTool',
+        installDirectory: 'mac-arm64'
     })
 });
 
@@ -73,7 +85,7 @@ function validateProvenance(provenance) {
         artifactEntries.length !== Object.keys(TARGETS).length
         || artifactEntries.some(([target]) => !Object.hasOwn(TARGETS, target))
     ) {
-        throw new Error('G3MTool provenance must define exactly the Windows x64 and Linux x64 artifacts.');
+        throw new Error('G3MTool provenance must define exactly the supported Windows, Linux, and macOS artifacts.');
     }
 
     for (const [target, artifact] of artifactEntries) {

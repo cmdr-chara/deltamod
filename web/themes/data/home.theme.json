@@ -3,7 +3,8 @@
     "background": "home.png",
     "mainSong": "hometown.mp3",
     "description": "A theme based on Hometown from DELTARUNE.",
-    "musicTrack": "Another day in hometown - Toby Fox",
+    "musicTrack": "A Town Called Hometown - Toby Fox",
     "id": "home",
-    "color": "rgb(197, 72, 40)"
+    "color": "rgb(197, 72, 40)",
+    "soulColor": "#FCA600"
 }

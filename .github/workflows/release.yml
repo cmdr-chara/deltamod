@@ -90,6 +90,35 @@ jobs:
             dist/*.zsync
             dist/latest-linux.yml
 
+  package-macos:
+    needs: validate
+    runs-on: macos-26
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Electron workflow smoke test
+        run: npm run test:e2e
+      - name: Acquire native Apple Silicon patcher
+        run: npm run acquire:g3mtool
+      - run: npm run verify:g3mtool
+      - name: Acquire Intel patcher for the x64 package
+        run: node scripts/acquire-g3mtool.js darwin-x64
+      - run: npm run build-macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.blockmap
+            dist/latest-mac.yml
+
   third-party-source:
     needs: validate
     runs-on: ubuntu-latest
@@ -107,7 +136,7 @@ jobs:
           path: G3MTool-1.2.5-source.zip
 
   publish:
-    needs: [package-windows, package-linux, third-party-source]
+    needs: [package-windows, package-linux, package-macos, third-party-source]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

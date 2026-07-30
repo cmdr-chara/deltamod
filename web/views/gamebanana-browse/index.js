@@ -229,7 +229,7 @@ function applyContentFilter(records) {
     const status = document.getElementById('contentFilterStatus');
     if (status) {
         status.innerText = filter === 'all'
-            ? `Showing all ${visibleRecords.length} compatible submission(s) on this page.`
+            ? `Showing ${visibleRecords.length} compatible mod${visibleRecords.length === 1 ? '' : 's'} on this page.`
             : `Showing ${visibleRecords.length}; ${excluded} excluded by the visible Content filter.`;
     }
     return visibleRecords;
@@ -257,20 +257,28 @@ async function gameBananaLogin() {
 
     isGBLoggedIn = loggedin;
 
-    if (loggedin) {
-        var pic = await window.electronAPI.invoke('getGamebananaPic',[]);
-        document.getElementById('gbPic').src = pic;
-    }
-    else {
-        document.getElementById('gbPic').src = './img/mod-placeholder.png';
-    }
-
-    document.getElementById('gbPic').onclick = async () => {
+    const accountPicture = document.getElementById('gbPic');
+    accountPicture.onclick = async () => {
         window._pageArguments = {
             cat: 'gb'
         };
         page('options');
     };
+
+    if (loggedin) {
+        var pic = await window.electronAPI.invoke('getGamebananaPic',[]);
+        if (typeof pic === 'string' && pic.trim()) {
+            accountPicture.src = pic;
+            accountPicture.hidden = false;
+            accountPicture.onerror = () => {
+                accountPicture.hidden = true;
+                accountPicture.removeAttribute('src');
+            };
+            return;
+        }
+    }
+    accountPicture.hidden = true;
+    accountPicture.removeAttribute('src');
 };
 
 function roundViews(views) {
@@ -436,7 +444,7 @@ async function renderMods(table, GB_API, filter, gameID) {
 
                 var td0 = document.createElement('td');
                 td0.style.display = 'flex';
-                td0.style.alignItems = 'top';
+                td0.style.alignItems = 'flex-start';
                 td0.style.gap = '8px';
                 td0.style.justifyContent = 'left';
                 // Rendering of td0
@@ -509,16 +517,6 @@ async function renderMods(table, GB_API, filter, gameID) {
                     smallImg.style.cursor = 'pointer';
                     gridSmallImages.appendChild(smallImg);
                 });
-
-                var emptySpaces = 9 - thumbs.slice(0, 9).length;
-                for (let j = 0; j < emptySpaces; j++) {
-                    var emptyDiv = document.createElement('div');
-                    emptyDiv.style.width = '30px';
-                    emptyDiv.style.aspectRatio = '16 / 9';
-                    emptyDiv.style.borderRadius = '4px';
-                    emptyDiv.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                    gridSmallImages.appendChild(emptyDiv);
-                }
 
                 div0.appendChild(gridSmallImages);
                 div0.appendChild(img);
@@ -831,6 +829,7 @@ async function renderMods(table, GB_API, filter, gameID) {
 }
 
 function renderSourceState(table, title, message, action = null) {
+    table.closest('table')?.classList.add('is-state');
     table.replaceChildren();
     const tr = document.createElement('tr');
     const td = document.createElement('td');
@@ -856,7 +855,17 @@ function renderSourceState(table, title, message, action = null) {
 function formatSourceDate(value) {
     const date = new Date(value);
     if (Number.isNaN(date.valueOf())) return 'Date unavailable';
-    return date.toLocaleString();
+    return new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+    }).format(date);
+}
+
+function setExternalSourceControlsDisabled(disabled) {
+    document.getElementById('searchInput').disabled = disabled;
+    document.getElementById('modShopSearchButton').disabled = disabled;
+    const sort = document.getElementById('nexusSort');
+    if (sort) sort.disabled = disabled;
 }
 
 async function downloadNexusSource(item, button) {
@@ -909,6 +918,7 @@ async function downloadNexusSource(item, button) {
 }
 
 function renderExternalMods(table, result) {
+    table.closest('table')?.classList.remove('is-state');
     table.replaceChildren();
     const items = Array.isArray(result?.items) ? result.items : [];
     const status = document.getElementById('contentFilterStatus');
@@ -1040,6 +1050,7 @@ function renderExternalMods(table, result) {
 }
 
 async function initializeExternalSource(table) {
+    setExternalSourceControlsDisabled(false);
     const query = String(window._pageArguments?.sourceQuery || '').trim();
     const sort = document.getElementById('nexusSort')?.value || 'latest_added';
     if (query) {
@@ -1050,20 +1061,33 @@ async function initializeExternalSource(table) {
     }
     renderSourceState(table, 'Loading catalogue…', 'Fetching metadata from the selected provider.');
     try {
-        const result = await window.communityAPI.modSources.browse({
+        const response = await window.communityAPI.modSources.browse({
             provider: SHOP_PROVIDER,
             query,
             sort
         });
-        if (isCurrentShopPage()) renderExternalMods(table, result);
+        if (!response?.ok) {
+            const error = new Error(
+                response?.error?.message || 'The selected mod catalogue could not be loaded.'
+            );
+            error.code = response?.error?.code || 'MOD_SOURCE_BROWSE_FAILED';
+            if (Number.isInteger(response?.error?.status)) {
+                error.status = response.error.status;
+            }
+            throw error;
+        }
+        if (isCurrentShopPage()) renderExternalMods(table, response.result);
     } catch (error) {
         if (!isCurrentShopPage()) return;
         const needsNexusKey = error?.code === 'NEXUS_API_KEY_REQUIRED'
             || error?.code === 'NEXUS_AUTH_FAILED';
+        setExternalSourceControlsDisabled(needsNexusKey);
         renderSourceState(
             table,
             needsNexusKey ? 'Connect Nexus Mods' : 'Catalogue unavailable',
-            error?.message || 'The selected mod catalogue could not be loaded.',
+            needsNexusKey
+                ? 'Connect your Nexus Mods account in Settings before browsing this catalogue.'
+                : (error?.message || 'The selected mod catalogue could not be loaded.'),
             needsNexusKey ? {
                 label: 'Open Nexus Mods settings',
                 run: () => {
@@ -1124,7 +1148,7 @@ async function plusPage(amt) {
     }
     document.getElementById('gamebananaFilterControls').hidden = !isGameBanana;
     document.getElementById('nexusSortControls').hidden = SHOP_PROVIDER !== 'nexus';
-    document.getElementById('gbPic').hidden = !isGameBanana;
+    document.getElementById('gbPic').hidden = true;
     document.querySelector('.scrollBottomDetector').style.display = isGameBanana ? '' : 'none';
 
     if (!isGameBanana) {

@@ -14,5 +14,32 @@
         }
     },
     "exeName": "UNDERTALE.exe",
-    "availableFeatures": []
+    "platforms": {
+        "win32": {
+            "executable": "UNDERTALE.exe",
+            "dataFiles": ["data.win"],
+            "patchLayout": "windows-root"
+        },
+        "linux": {
+            "executable": "run.sh",
+            "dataFiles": ["assets/game.unx"],
+            "contentRoot": "assets",
+            "patchLayout": "gamemaker-linux-assets"
+        },
+        "darwin": {
+            "bundle": "UNDERTALE.app",
+            "executable": "UNDERTALE.app/Contents/MacOS/Mac_Runner",
+            "dataFiles": ["UNDERTALE.app/Contents/Resources/game.ios"],
+            "contentRoot": "UNDERTALE.app/Contents/Resources",
+            "patchLayout": "gamemaker-mac-resources"
+        }
+    },
+    "availableFeatures": [{
+        "feat": "steam",
+        "data": {
+            "folder": "Undertale",
+            "appid": "391540",
+            "downloadable": false
+        }
+    }]
 }

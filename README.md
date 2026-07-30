@@ -26,8 +26,8 @@ Supported games: **DELTARUNE**, **DELTARUNE Demo**, **DELTARUNE Demo (LTS)**, **
 | Setup | Stability | Notes |
 | --- | --- | --- |
 | Windows | In stabilization | NSIS beta builds are intentionally unsigned; Windows may show an unknown-publisher warning |
-| Native Linux | Experimental | AppImage build; configurable Wine-compatible launcher |
-| Native macOS | Unsupported | No maintained native build |
+| Native Linux | Experimental | AppImage build; native UNDERTALE import, patching, and launch; Wine/Proton fallback for Windows-only games |
+| Native macOS | Experimental | Unsigned DMG and ZIP builds for Apple Silicon and Intel; native UNDERTALE, DELTARUNE, and DELTARUNE Demo import, patching, and launch |
 | Windows build through Wine/CrossOver | Unofficial | Generally usable; mention emulation when reporting issues |
 
 ## Run from source
@@ -49,7 +49,7 @@ npm run typecheck
 npm run security:audit
 ```
 
-Patching uses the GPL-3.0-only [G3MTool](https://github.com/y114git/G3MTool) executable. `npm run acquire:g3mtool` downloads the pinned Windows or Linux archive, enforces its size and SHA-256 checksums, validates its contents, and installs it under the ignored `tools/g3mtool/` directory. Release builds also publish the exact corresponding G3MTool source archive. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+Patching uses the GPL-3.0-only [G3MTool](https://github.com/y114git/G3MTool) executable. `npm run acquire:g3mtool` downloads the pinned native Windows, Linux, or macOS archive, enforces its size and SHA-256 checksums, validates its contents, and installs it under the ignored `tools/g3mtool/` directory. Release builds also publish the exact corresponding G3MTool source archive. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
 ## Import from official Deltamod
 
@@ -67,6 +67,7 @@ ModDB shows the recent downloads exposed by its official RSS feeds, clearly labe
 | --- | --- | --- |
 | Windows x64 | `npm run build-windows` | NSIS installer |
 | Linux x64 | `npm run build-linux` | AppImage |
+| macOS Intel and Apple Silicon | `npm run build-macos` | DMG and ZIP |
 
 Artifacts are written to `dist/` by Electron Builder. Tags named `community-v<package version>` run the unsigned beta release workflow and create a GitHub prerelease. It refuses to publish when unit tests, the Electron workflow test, the production dependency audit, G3MTool provenance, or version matching fail. Authenticode signing can be enabled later for stable releases without changing the application data format.
 

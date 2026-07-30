@@ -11,7 +11,8 @@ Added
 - GameBanana content-rating filters, resilient images, safer downloads, and
   in-app image viewing.
 - Keyboard zoom controls and additional empty, error, progress, and repair states.
-- Windows NSIS and experimental Linux AppImage packaging through Electron Builder.
+- Windows NSIS, experimental Linux AppImage, and experimental macOS Intel/Apple
+  Silicon packaging through Electron Builder.
 
 Changed
 - Restored the original game-inspired visual structure while improving readability,
@@ -41,5 +42,8 @@ Security
 
 Known limitations
 - Windows builds are intentionally unsigned during the beta period.
-- Native Linux support remains experimental.
+- Native Linux support remains experimental. UNDERTALE uses its native
+  `game.unx` layout; Windows-only games continue to require Wine or Proton.
+- macOS builds are unsigned. UNDERTALE, DELTARUNE, and DELTARUNE Demo now
+  recognize and patch their native `.app` / `game.ios` layouts.
 - GameBanana may require login again after importing an official profile.

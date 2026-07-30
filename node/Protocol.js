@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { Readable } = require('stream');
 const mime = require('mime-types');
 const { app, dialog } = require('electron');
 const { log } = require('./Console');
@@ -16,7 +17,7 @@ const { writeFileAtomicSync } = require('./storage/AtomicStore');
 
 const MAXIMUM_MOD_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 const PACKET_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
-const THEME_EXTENSIONS = new Set(['.json', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.mp3', '.ogg', '.wav']);
+const THEME_EXTENSIONS = new Set(['.json', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.mp3', '.ogg', '.wav', '.mp4']);
 
 function responseError(status, message) {
     return new Response(message, {
@@ -47,6 +48,73 @@ async function fileResponse(filePath, allowedExtensions = null) {
     }
 }
 
+function parseByteRange(value, size) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(value || '');
+    if (!match || (!match[1] && !match[2])) return null;
+
+    let start;
+    let end;
+    if (!match[1]) {
+        const suffixLength = Number(match[2]);
+        if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return null;
+        start = Math.max(0, size - suffixLength);
+        end = size - 1;
+    } else {
+        start = Number(match[1]);
+        end = match[2] ? Number(match[2]) : size - 1;
+    }
+
+    if (
+        !Number.isSafeInteger(start)
+        || !Number.isSafeInteger(end)
+        || start < 0
+        || start >= size
+        || end < start
+    ) {
+        return null;
+    }
+    return { start, end: Math.min(end, size - 1) };
+}
+
+async function mediaFileResponse(filePath, rangeHeader) {
+    try {
+        const stat = await fs.promises.stat(filePath);
+        const headers = {
+            'Accept-Ranges': 'bytes',
+            'Content-Type': mime.lookup(filePath) || 'application/octet-stream',
+            'Cache-Control': 'no-cache',
+            'X-Content-Type-Options': 'nosniff'
+        };
+        const range = rangeHeader ? parseByteRange(rangeHeader, stat.size) : null;
+        if (rangeHeader && !range) {
+            return new Response(null, {
+                status: 416,
+                headers: {
+                    ...headers,
+                    'Content-Range': `bytes */${stat.size}`
+                }
+            });
+        }
+
+        const stream = range
+            ? fs.createReadStream(filePath, range)
+            : fs.createReadStream(filePath);
+        const length = range ? range.end - range.start + 1 : stat.size;
+        return new Response(Readable.toWeb(stream), {
+            status: range ? 206 : 200,
+            headers: {
+                ...headers,
+                'Content-Length': String(length),
+                ...(range ? {
+                    'Content-Range': `bytes ${range.start}-${range.end}/${stat.size}`
+                } : {})
+            }
+        });
+    } catch (error) {
+        return responseError(error.code === 'ENOENT' ? 404 : 500, 'Resource could not be loaded.');
+    }
+}
+
 function registerProtocolSchemesAsPrivileged(protocol) {
     const localPrivileges = {
         standard: true,
@@ -57,10 +125,14 @@ function registerProtocolSchemesAsPrivileged(protocol) {
         ...localPrivileges,
         corsEnabled: true
     };
+    const themeAssetPrivileges = {
+        ...crossOriginAssetPrivileges,
+        stream: true
+    };
     protocol.registerSchemesAsPrivileged([
         { scheme: 'deltapack', privileges: localPrivileges },
         { scheme: 'packet', privileges: crossOriginAssetPrivileges },
-        { scheme: 'themeprot', privileges: crossOriginAssetPrivileges },
+        { scheme: 'themeprot', privileges: themeAssetPrivileges },
         { scheme: APPLICATION_SCHEME, privileges: { standard: true, secure: true } }
     ]);
 }
@@ -87,6 +159,13 @@ function registerProtocolHandlers(session) {
             const builtInPath = resolveWithin(builtInRoot, relative);
             const customPath = resolveWithin(customRoot, relative);
             const selected = fs.existsSync(builtInPath) ? builtInPath : customPath;
+            const extension = path.extname(selected).toLowerCase();
+            if (!THEME_EXTENSIONS.has(extension)) {
+                return responseError(403, 'File type is not allowed by this protocol.');
+            }
+            if (extension === '.mp4') {
+                return mediaFileResponse(selected, request.headers.get('range'));
+            }
             return fileResponse(selected, THEME_EXTENSIONS);
         } catch (error) {
             log('Blocked theme request:', error.message);

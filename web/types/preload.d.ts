@@ -51,6 +51,11 @@ declare global {
                 minimize(): Promise<void>;
                 toggleFullscreen(): Promise<void>;
                 openMaintainerProfile(): Promise<void>;
+                shakeForEasterEgg(phase: 'slash' | 'numbers' | 'stop'): Promise<{
+                    phase: 'slash' | 'numbers' | 'stop';
+                    native: boolean;
+                }>;
+                quitForEasterEgg(): Promise<{ closing: boolean }>;
             };
             profile: {
                 summary(): Promise<OfficialProfileSummary>;

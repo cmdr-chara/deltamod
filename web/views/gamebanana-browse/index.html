@@ -1,18 +1,18 @@
 <div class="content-page shop-page">
     <div class="tspandiv">
-        <img src="" alt="" width="32" height="32" id="gbPic">
+        <img alt="" width="32" height="32" id="gbPic" hidden>
         <label class="shop-source-label" for="modSourceSelect">Source</label>
         <select id="modSourceSelect" title="Choose a mod catalogue" aria-label="Mod catalogue"></select>
         <button onclick="page('')" title="Return to the first Mod Shop page" aria-label="Return to the first Mod Shop page">
             <span class="material-symbols-outlined smicon">home</span>
         </button>
         <div class="autocomplete">
-            <input type="text" id="searchInput" placeholder="Search for mods...">
+        <input type="text" id="searchInput" placeholder="$$shop_search$$">
             <div class="results" style="opacity: 0; pointer-events: none;">
 
             </div>
         </div>
-        <button onclick="window.currentPageStack.search()" title="Search mods" aria-label="Search mods">
+        <button id="modShopSearchButton" onclick="window.currentPageStack.search()" title="Search mods" aria-label="Search mods">
             <span class="material-symbols-outlined smicon">search</span>
         </button>
         <div id="gamebananaFilterControls" class="shop-filter-controls">
@@ -40,17 +40,19 @@
             <col style="width: calc(100% - 200px);">
             <col style="width: 200px;">
         </colgroup>
-        <tr>
-            <th>
-                Mod
-            </th>
-            <th>
-                Actions
-            </th>
-        </tr>
+        <thead>
+            <tr>
+                <th>
+                    $$mod$$
+                </th>
+                <th>
+                    $$actions$$
+                </th>
+            </tr>
+        </thead>
         <tbody id="modsBody">
             <tr>
-                <td colspan="2" style="text-align: center;">Loading...</td>
+                <td colspan="2" style="text-align: center;">$$loading$$</td>
             </tr>
         </tbody>
     </table>

@@ -4,6 +4,7 @@
     "mainSong": "mainTheme1Alt.mp3",
     "id": "fountain",
     "musicTrack": "My Castle Town - Toby Fox",
-    "description": "A theme based on DELTARUNE's fountain.",
-    "color": "rgb(1, 73, 174)"
+    "description": "A theme based on the Dark Fountain from DELTARUNE.",
+    "color": "rgb(1, 73, 174)",
+    "soulColor": "#42FCFF"
 }

@@ -14,6 +14,20 @@
         }
     },
     "exeName": "DELTARUNE.exe",
+    "platforms": {
+        "win32": {
+            "executable": "DELTARUNE.exe",
+            "dataFiles": ["data.win"],
+            "patchLayout": "windows-root"
+        },
+        "darwin": {
+            "bundle": "DELTARUNE.app",
+            "executable": "DELTARUNE.app/Contents/MacOS/Mac_Runner",
+            "dataFiles": ["DELTARUNE.app/Contents/Resources/game.ios"],
+            "contentRoot": "DELTARUNE.app/Contents/Resources",
+            "patchLayout": "deltarune-mac-resources"
+        }
+    },
     "availableFeatures": [{
         "feat": "steam",
         "data": {

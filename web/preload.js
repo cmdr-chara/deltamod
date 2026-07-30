@@ -14,6 +14,8 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'importOfficialProfile',
     'cancelOfficialProfileImport',
     'restartCommunity',
+    'shakeCommunityWindowForEasterEgg',
+    'quitCommunityForEasterEgg',
     'sampleError',
     'log',
     'showWindow',
@@ -131,7 +133,9 @@ contextBridge.exposeInMainWorld('communityAPI', {
         platform: () => invoke('getOS'),
         minimize: () => invoke('minimizeMe'),
         toggleFullscreen: () => invoke('toggleFullscreen'),
-        openMaintainerProfile: () => invoke('openCommunityMaintainerProfile')
+        openMaintainerProfile: () => invoke('openCommunityMaintainerProfile'),
+        shakeForEasterEgg: phase => invoke('shakeCommunityWindowForEasterEgg', [phase]),
+        quitForEasterEgg: () => invoke('quitCommunityForEasterEgg')
     },
     profile: {
         summary: () => invoke('getOfficialProfileSummary'),

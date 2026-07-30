@@ -22,6 +22,7 @@
     "archive:g3mtool-source": "node scripts/archive-g3mtool-source.js",
     "build-windows": "electron-builder --win --publish never",
     "build-linux": "electron-builder --linux --publish never",
+    "build-macos": "electron-builder --mac --publish never",
     "erase-data": "Erase.bat"
   },
   "build": {
@@ -80,6 +81,26 @@
       "target": "AppImage",
       "category": "Utility",
       "icon": "build/icon-big.png"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.utilities",
+      "icon": "build/icon-macos.png"
     },
     "protocols": [
       {

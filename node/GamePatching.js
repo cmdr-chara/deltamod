@@ -7,13 +7,24 @@ const console = require('./Console');
 const { resolveWithin } = require('./security/PathSecurity');
 const { writeJsonAtomicSync, readJsonSync } = require('./storage/AtomicStore');
 
-const PATCHER_PATH = process.platform === 'win32'
-    ? path.join(__dirname, '..', 'tools', 'g3mtool', 'win-x64', 'G3MTool.exe')
-    : path.join(__dirname, '..', 'tools', 'g3mtool', 'linux-x64', 'G3MTool');
+const PATCHER_LAYOUTS = Object.freeze({
+    'win32-x64': ['win-x64', 'G3MTool.exe'],
+    'linux-x64': ['linux-x64', 'G3MTool'],
+    'darwin-x64': ['mac-x64', 'G3MTool'],
+    'darwin-arm64': ['mac-arm64', 'G3MTool']
+});
 const JOURNAL_NAME = '.deltamod-community-patch-journal.json';
 const BACKUP_DIRECTORY_NAME = '.deltamod-community-patch-backups';
 const SUPPORTED_PATCH_TYPES = new Set(['override', 'copy', 'xdelta', 'g3mpatch']);
 const activePatchers = new Set();
+
+function patcherPathFor(platform = process.platform, arch = process.arch) {
+    const layout = PATCHER_LAYOUTS[`${platform}-${arch}`];
+    if (!layout) {
+        throw new Error(`G3MTool is not packaged for ${platform}-${arch}.`);
+    }
+    return path.join(__dirname, '..', 'tools', 'g3mtool', ...layout);
+}
 
 function assertPatchFile(filePath, description) {
     const stat = fs.lstatSync(filePath);
@@ -91,10 +102,13 @@ function loadSelectedMods(modFolder, selectedIds) {
     return mods;
 }
 
-function buildPatchPlan(gamePath, modFolder, selectedIds) {
+function buildPatchPlan(gamePath, modFolder, selectedIds, options = {}) {
     const gameRoot = path.resolve(gamePath);
     const modRoot = path.resolve(modFolder);
     const mods = loadSelectedMods(modRoot, selectedIds);
+    const mapTarget = typeof options.mapPatchTarget === 'function'
+        ? options.mapPatchTarget
+        : value => value;
     const direct = [];
     const merged = new Map();
     const targetOwners = new Map();
@@ -102,7 +116,8 @@ function buildPatchPlan(gamePath, modFolder, selectedIds) {
     for (const mod of mods) {
         for (const patch of mod.patches) {
             const source = resolveWithin(mod.root, patch.patch, { mustExist: true });
-            const target = resolveWithin(gameRoot, patch.to);
+            const mappedTarget = mapTarget(patch.to);
+            const target = resolveWithin(gameRoot, mappedTarget);
             const targetKey = process.platform === 'win32' ? target.toLowerCase() : target;
             assertPatchFile(source, `Patch source "${patch.patch}"`);
             if (fs.existsSync(target)) assertPatchFile(target, `Patch target "${patch.to}"`);
@@ -112,7 +127,7 @@ function buildPatchPlan(gamePath, modFolder, selectedIds) {
                     throw new Error(`Patch conflict: "${patch.to}" is modified by both "${targetOwners.get(targetKey)}" and "${mod.name}".`);
                 }
                 targetOwners.set(targetKey, mod.name);
-                direct.push({ ...patch, source, target, modId: mod.uuid });
+                direct.push({ ...patch, source, target, mappedTarget, modId: mod.uuid });
                 continue;
             }
 
@@ -123,7 +138,7 @@ function buildPatchPlan(gamePath, modFolder, selectedIds) {
                 throw new Error(`Merge target "${patch.to}" required by "${mod.name}" does not exist.`);
             }
             if (!merged.has(targetKey)) {
-                merged.set(targetKey, { target, relativeTarget: patch.to, patches: [] });
+                merged.set(targetKey, { target, relativeTarget: mappedTarget, patches: [] });
             }
             merged.get(targetKey).patches.push({ ...patch, source, modId: mod.uuid });
         }
@@ -162,9 +177,10 @@ function backupTarget(target, journal, gamePath) {
 }
 
 async function g3mtool(callback, args, gamePath, options = {}) {
+    const patcherPath = patcherPathFor();
     console.log('Running G3MTool with args:', args.join(' '));
     return new Promise((resolve, reject) => {
-        const child = spawn(PATCHER_PATH, args, {
+        const child = spawn(patcherPath, args, {
             stdio: 'pipe',
             cwd: gamePath,
             windowsHide: true
@@ -210,7 +226,7 @@ async function g3mtool(callback, args, gamePath, options = {}) {
     });
 }
 
-async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCallback) {
+async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCallback, options = {}) {
     let fullLog = '';
     const log = (...args) => {
         const message = args.join(' ');
@@ -219,13 +235,14 @@ async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCa
         logCallback?.(message);
     };
 
-    if (!fs.existsSync(PATCHER_PATH)) throw new Error('G3MTool is missing from the tools directory.');
-    if (process.platform === 'linux') fs.chmodSync(PATCHER_PATH, 0o755);
+    const patcherPath = patcherPathFor();
+    if (!fs.existsSync(patcherPath)) throw new Error('G3MTool is missing from the tools directory.');
+    if (process.platform !== 'win32') fs.chmodSync(patcherPath, 0o755);
 
     restore(gamePath);
     let plan;
     try {
-        plan = buildPatchPlan(gamePath, modFolder, mods);
+        plan = buildPatchPlan(gamePath, modFolder, mods, options);
     } catch (error) {
         return { patched: false, log: error.message, fullLog };
     }
@@ -352,6 +369,7 @@ function stopOwnedPatchers() {
 
 module.exports = {
     buildPatchPlan,
+    patcherPathFor,
     startGamePatch,
     restore,
     restoreOriginalsIfAny: restore,

@@ -9,6 +9,10 @@
 var audio = new Audio();
 audio.preload = "none";
 var currentAudio = "";
+var currentAudioSource = "";
+const menuAudioPositions = new Map();
+var themeVideoSuspendTimer = null;
+var suspendedThemeVideo = null;
 var theme = null;
 var pageN = null;
 var addedStyle = null;
@@ -16,13 +20,56 @@ var currentPageScript = null;
 var update = false;
 var TARGET_MUSIC_VOLUME = 0.5;
 var cmode = false; // Controller Mode
+const MOTION = Object.freeze({
+    fast: 140,
+    standard: 180,
+    easeOut: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+    easeIn: 'cubic-bezier(0.4, 0, 1, 1)'
+});
+
+function prefersReducedMotion() {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
 
 function releaseAudioBuffer() {
+    rememberMenuAudioPosition();
     audio.pause();
     audio.currentTime = 0;
     audio.removeAttribute('src');
     audio.load();
     currentAudio = "";
+    currentAudioSource = "";
+}
+
+function rememberMenuAudioPosition() {
+    if (currentAudioSource && Number.isFinite(audio.currentTime)) {
+        menuAudioPositions.set(currentAudioSource, audio.currentTime);
+    }
+}
+
+function switchMenuAudioSource(source) {
+    rememberMenuAudioPosition();
+    audio.pause();
+
+    const resumeAt = menuAudioPositions.get(source) || 0;
+    currentAudioSource = source;
+    audio.src = source;
+
+    const restorePosition = () => {
+        if (currentAudioSource !== source) return;
+
+        const latestResumeAt = menuAudioPositions.get(source) || resumeAt;
+        const maximumPosition = Number.isFinite(audio.duration)
+            ? Math.max(0, audio.duration - 0.44)
+            : latestResumeAt;
+        audio.currentTime = Math.min(latestResumeAt, maximumPosition);
+    };
+
+    if (audio.readyState >= 1) {
+        restorePosition();
+    } else {
+        audio.addEventListener('loadedmetadata', restorePosition, { once: true });
+    }
 }
 
 function loopMenuAudio() {
@@ -34,6 +81,137 @@ function loopMenuAudio() {
 }
 
 audio.addEventListener('timeupdate', loopMenuAudio);
+
+function themeUsesIntegratedVideoAudio(themeConfig = theme) {
+    return Boolean(themeConfig?.backgroundVideo && themeConfig?.videoHasAudio);
+}
+
+function getThemeBackgroundVideo() {
+    return document.getElementById('theme-background-video');
+}
+
+function setThemeVideoAudioEnabled(enabled) {
+    const video = getThemeBackgroundVideo();
+    if (!video || !themeUsesIntegratedVideoAudio()) return;
+    video.muted = !enabled;
+    video.volume = enabled ? TARGET_MUSIC_VOLUME : 0;
+    if (video.src && video.paused) {
+        video.play().catch(() => {});
+    }
+}
+
+function suspendThemeBackgroundVideo() {
+    const video = getThemeBackgroundVideo();
+    if (!video?.src || !theme?.backgroundVideo) return;
+
+    suspendedThemeVideo = {
+        source: video.dataset.source,
+        currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0
+    };
+    video.pause();
+    video.hidden = true;
+    video.removeAttribute('src');
+    video.removeAttribute('data-source');
+    video.load();
+
+    const background = document.querySelector('.bg');
+    if (background) {
+        background.style.backgroundImage = `url(themeprot://img/${theme.background})`;
+    }
+}
+
+function resumeThemeBackgroundVideo(audioEnabled) {
+    const video = getThemeBackgroundVideo();
+    const expectedSource = theme?.backgroundVideo
+        ? `themeprot://video/${theme.backgroundVideo}`
+        : '';
+    if (!video || !suspendedThemeVideo || suspendedThemeVideo.source !== expectedSource) {
+        return false;
+    }
+
+    const resumeAt = suspendedThemeVideo.currentTime;
+    suspendedThemeVideo = null;
+    const background = document.querySelector('.bg');
+    video.poster = `themeprot://img/${theme.background}`;
+    video.hidden = true;
+    video.loop = true;
+    video.muted = !audioEnabled;
+    video.volume = audioEnabled ? TARGET_MUSIC_VOLUME : 0;
+    video.dataset.source = expectedSource;
+    video.src = expectedSource;
+    if (background) {
+        background.style.backgroundImage = `url(themeprot://img/${theme.background})`;
+    }
+
+    const revealAndPlay = () => {
+        video.hidden = false;
+        if (background) {
+            background.style.backgroundImage = 'none';
+        }
+        video.play().catch(() => {});
+    };
+
+    const resumePlayback = () => {
+        video.pause();
+        const maximumPosition = Number.isFinite(video.duration)
+            ? Math.max(0, video.duration - 0.44)
+            : resumeAt;
+        const targetTime = Math.min(resumeAt, maximumPosition);
+        if (targetTime <= 0.05) {
+            revealAndPlay();
+            return;
+        }
+
+        video.addEventListener('seeked', revealAndPlay, { once: true });
+        video.currentTime = targetTime;
+    };
+
+    video.addEventListener('canplay', resumePlayback, { once: true });
+    video.load();
+    return true;
+}
+
+function scheduleThemeVideoSuspension() {
+    clearTimeout(themeVideoSuspendTimer);
+    const video = getThemeBackgroundVideo();
+    if (video?.src) {
+        video.pause();
+        themeVideoSuspendTimer = setTimeout(suspendThemeBackgroundVideo, 1200);
+    }
+}
+
+function applyThemeBackground() {
+    const background = document.querySelector('.bg');
+    const video = getThemeBackgroundVideo();
+    if (!background || !video) return;
+
+    background.style.backgroundImage = `url(themeprot://img/${theme.background})`;
+    if (!theme.backgroundVideo) {
+        clearTimeout(themeVideoSuspendTimer);
+        suspendedThemeVideo = null;
+        video.pause();
+        video.hidden = true;
+        video.removeAttribute('src');
+        video.removeAttribute('poster');
+        video.removeAttribute('data-source');
+        video.load();
+        return;
+    }
+
+    const source = `themeprot://video/${theme.backgroundVideo}`;
+    video.poster = `themeprot://img/${theme.background}`;
+    background.style.backgroundImage = 'none';
+    video.hidden = false;
+    video.loop = true;
+    if (video.dataset.source !== source) {
+        suspendedThemeVideo = null;
+        video.muted = true;
+        video.volume = 0;
+        video.dataset.source = source;
+        video.src = source;
+    }
+    video.play().catch(() => {});
+}
 
 window._onClosePage = window._onClosePage || [];
 
@@ -63,6 +241,34 @@ const PAGE_REGISTRY = Object.freeze(Object.fromEntries([
     base: `./views/${name}/`,
     stylesheet: PAGE_STYLESHEET_OVERRIDES[name] || null
 })])));
+
+const pageMarkupCache = new Map();
+
+function loadPageMarkup(pageDefinition) {
+    if (!pageMarkupCache.has(pageDefinition.html)) {
+        const request = fetch(pageDefinition.html)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Failed to load page ${pageDefinition.name}: HTTP ${response.status}`);
+                }
+                return response.text();
+            })
+            .catch(error => {
+                pageMarkupCache.delete(pageDefinition.html);
+                throw error;
+            });
+        pageMarkupCache.set(pageDefinition.html, request);
+    }
+    return pageMarkupCache.get(pageDefinition.html);
+}
+
+function warmPageMarkupCache() {
+    for (const pageDefinition of Object.values(PAGE_REGISTRY)) {
+        loadPageMarkup(pageDefinition).catch(error => {
+            console.warn(`Unable to prepare page ${pageDefinition.name}:`, error);
+        });
+    }
+}
 
 function loadPageScript(pageDefinition) {
     if (currentPageScript) {
@@ -241,8 +447,9 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
         var alertMain = document.getElementsByClassName('alertMain')[0];
         var alertMsgR = alertMain.getElementsByClassName('alertMsg')[0];
 
-        var animOptions = 'cubic-bezier(0.16, 1, 0.3, 1) forwards';
-        var animLength = 0.6;
+        const animationDuration = prefersReducedMotion() ? 0 : MOTION.standard;
+        const animationSeconds = animationDuration / 1000;
+        const animOptions = `${MOTION.easeOut} forwards`;
 
         alertMsgR.innerHTML = '';
 
@@ -253,13 +460,13 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
         // Title
         var titleElement = document.createElement('h1');
         titleElement.innerText = title;
-        titleElement.style.opacity = '0';
+        titleElement.style.opacity = '1';
         
         // Message
         var messageElement = document.createElement('p');
         messageElement.textContent = String(message);
         messageElement.style.whiteSpace = 'pre-line';
-        messageElement.style.opacity = '0';
+        messageElement.style.opacity = '1';
         
         alertMsg.appendChild(titleElement);
         alertMsg.appendChild(messageElement);
@@ -268,7 +475,7 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
         var buttonsHTML = document.createElement('div');
         buttonsHTML.style.textAlign = 'right';
         buttonsHTML.classList.add('alertButtons');
-        buttonsHTML.style.opacity = '0';
+        buttonsHTML.style.opacity = '1';
         buttonsHTML.style.display = 'flex';
         buttonsHTML.style.gap = '8px';
         buttonsHTML.style.justifyContent = 'flex-end';
@@ -279,14 +486,17 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
             btn.textContent = button.text;
             btn.style.flex = '1 1 0';
             btn.onclick = function() {
+                buttonsHTML.style.pointerEvents = 'none';
                 // Outro animation
-                alertMsgR.style.animation = `${animLength}s alertFadeOut ${animOptions}`;
+                alertMsgR.style.animation = animationDuration === 0
+                    ? 'none'
+                    : `${animationSeconds}s alertFadeOut ${MOTION.easeIn} forwards`;
                 setTimeout(() => {
                     alertMain.style.animation = '';
                     alertMain.style.display = 'none';
-                    alertMsgR.style.animation = `${animLength}s alertFadeIn ${animOptions}`;
+                    alertMsgR.style.animation = 'none';
                     alertMsgR.innerHTML = '';
-                }, 300);
+                }, animationDuration);
                 
                 isAlertShowing = false;
                 
@@ -315,7 +525,7 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
                         htmlAlertRaw(nextAlert.title, nextAlert.message, nextAlert.buttons)
                             .then(nextAlert.resolve)
                             .catch(nextAlert.reject);
-                    }, 600);
+                    }, animationDuration);
                 }
             };
             buttonsHTML.appendChild(btn);
@@ -323,6 +533,11 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
 
         alertMain.style.display = 'flex';
         alertMsg.appendChild(buttonsHTML);
+        alertMsgR.style.animation = 'none';
+        void alertMsgR.offsetWidth;
+        alertMsgR.style.animation = animationDuration === 0
+            ? 'none'
+            : `${animationSeconds}s alertFadeIn ${animOptions}`;
 
         // Special Background Icon
         var bigIcon = document.createElement('span');
@@ -336,11 +551,6 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
         bigIcon.style.userSelect = 'none';
         bigIcon.style.pointerEvents = 'none';
         alertMsgR.appendChild(bigIcon);
-
-        // Cascade Intro Animations
-        setTimeout(() => { titleElement.style.animation = `${animLength*1.2}s stuffFadeIn ${animOptions}`; }, 200);
-        setTimeout(() => { messageElement.style.animation = `${animLength*1.2}s stuffFadeIn ${animOptions}`; }, 300);
-        setTimeout(() => { buttonsHTML.style.animation = `${animLength*1.2}s stuffFadeIn ${animOptions}`; }, 400);
 
         // Play alert SFX
         var a = new Audio();
@@ -477,17 +687,21 @@ function icon(name, fontSize) {
  */
 async function themeRefresh(refreshAudio = true) {
     theme = await fetch('themeprot://data/' + (await window.electronAPI.invoke('getTheme', [])) + '.theme.json').then(response => response.json());
-    document.getElementsByClassName('bg')[0].style.backgroundImage = 'url(themeprot://img/' + theme.background + ')';
+    applyThemeBackground();
+    window.ThemeSprites?.apply(theme.soulColor || theme.color, document).catch(error => {
+        console.warn('Unable to recolor theme sprites:', error);
+    });
     
     if (refreshAudio) {
         const shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
-        if (shouldPlayAudio) {
-            audio.pause();
-            audio.currentTime = 0;
+        if (themeUsesIntegratedVideoAudio()) {
+            releaseAudioBuffer();
+            setThemeVideoAudioEnabled(shouldPlayAudio);
+        } else if (shouldPlayAudio) {
             audio.loop = true;
             audio.volume = TARGET_MUSIC_VOLUME;
-            audio.src = 'themeprot://mus/' + theme.mainSong;
             currentAudio = 'mainTheme.mp3';
+            switchMenuAudioSource('themeprot://mus/' + theme.mainSong);
             await audio.play().catch(() => {});
         } else {
             releaseAudioBuffer();
@@ -497,6 +711,7 @@ async function themeRefresh(refreshAudio = true) {
 }
 
 window.preloadAPI.onThemeChange(themeRefresh);
+window.ThemeSprites?.observe(() => theme?.soulColor || theme?.color);
 
 let lockRandoms = false;
 
@@ -546,7 +761,7 @@ async function page(name) {
     }
 
     // Prevents escaping to home if game is baked
-    if (await window.electronAPI.invoke('isBaked', []) && name == 'main' && PAGE_REGISTRY.bakedhome) {
+    if (name === 'main' && PAGE_REGISTRY.bakedhome && await window.electronAPI.invoke('isBaked', [])) {
         name = 'bakedhome';
     }
     const pageDefinition = PAGE_REGISTRY[name];
@@ -569,10 +784,9 @@ async function page(name) {
     window.currentPageStack = {};
 
     // Process Page HTML
-    var purifiedHTML = await fetch(pageDefinition.html).then(response => {
-        if (!response.ok) throw new Error(`Failed to load page ${name}: HTTP ${response.status}`);
-        return response.text();
-    });
+    var purifiedHTML = await loadPageMarkup(pageDefinition);
+    await window.Localization?.ready;
+    purifiedHTML = window.Localization?.replaceTokens(purifiedHTML) || purifiedHTML;
     
     var runScripts = false;
     var changeAudio = false;
@@ -618,7 +832,9 @@ async function page(name) {
     // Extract Title Tag
     var title = purifiedHTML.match(/TITLE\[(.*?)\]/);
     purifiedHTML = purifiedHTML.replace(/TITLE\[(.*?)\]/g, '');
-    const pageTitle = title?.[1] || 'Deltamod Community';
+    const pageTitle = window.Localization?.translateKnownText(
+        title?.[1] || 'Deltamod Community'
+    ) || title?.[1] || 'Deltamod Community';
     const pageTitleElement = document.getElementById('pageTitle');
     if (pageTitleElement) {
         pageTitleElement.textContent = pageTitle;
@@ -639,31 +855,32 @@ async function page(name) {
         if (theme.id == themeAudioExclude?.[1]) {
             audioSrc = ['AUDIO[mainTheme.mp3]', 'mainTheme.mp3'];
         }
-        if (await window.electronAPI.invoke('getUniqueFlag', ["DYNAMUSIC"]) == false) {
+        const [dynamicMusic, shouldPlayAudio] = await Promise.all([
+            window.electronAPI.invoke('getUniqueFlag', ["DYNAMUSIC"]),
+            window.electronAPI.invoke('getUniqueFlag', ["AUDIO"])
+        ]);
+        if (dynamicMusic == false) {
             audioSrc = ['AUDIO[mainTheme.mp3]', 'mainTheme.mp3'];
         }
 
-        const shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
-
-        if (!shouldPlayAudio) {
+        if (themeUsesIntegratedVideoAudio()) {
+            releaseAudioBuffer();
+            setThemeVideoAudioEnabled(shouldPlayAudio);
+        } else if (!shouldPlayAudio) {
             releaseAudioBuffer();
         } else if (audioSrc && audioSrc[1] && (audioSrc[1] !== currentAudio || !audio.src)) {
             currentAudio = audioSrc[1];
-            audio.pause();
-            audio.currentTime = 0;
-            
-            if (audioSrc[1] == 'mainTheme.mp3') {
-                audio.src = 'themeprot://mus/' + theme.mainSong;
-            } else {
-                audio.src = './' + audioSrc[1];
-            }
+            const nextAudioSource = audioSrc[1] == 'mainTheme.mp3'
+                ? 'themeprot://mus/' + theme.mainSong
+                : './' + audioSrc[1];
+            switchMenuAudioSource(nextAudioSource);
 
             audio.volume = TARGET_MUSIC_VOLUME;
             changeAudio = true;
         }
 
-        if (shouldPlayAudio) {
-            await audio.play().catch(() => {});
+        if (shouldPlayAudio && !themeUsesIntegratedVideoAudio()) {
+            audio.play().catch(() => {});
         }
         purifiedHTML = purifiedHTML.replace(/AUDIO\[(.*?)\]/g, '');
     }
@@ -675,6 +892,7 @@ async function page(name) {
         media.removeAttribute('srcset');
     });
     pageViewport.innerHTML = purifiedHTML;
+    window.Localization?.apply(pageViewport);
 
     // Set Active Sidebar Button
     ([...Array.from(document.getElementsByClassName('sidebar-button')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => {
@@ -702,10 +920,12 @@ async function page(name) {
     pageN = name;
 
     // Generate Dynamic CSS Colors based on Theme
+    const parsedThemeColor = window.ThemeSprites?.parseThemeColor(theme.color)
+        || [205, 68, 81];
     var rgbNumbers = {
-        r: theme.color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/)[1],
-        g: theme.color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/)[2],
-        b: theme.color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/)[3],
+        r: parsedThemeColor[0],
+        g: parsedThemeColor[1],
+        b: parsedThemeColor[2],
     };
 
     var generatedCSS = `
@@ -742,6 +962,12 @@ async function page(name) {
         }
     }
 
+    window.Localization?.apply(pageViewport);
+
+    window.ThemeSprites?.apply(theme.soulColor || theme.color, document).catch(error => {
+        console.warn('Unable to recolor page sprites:', error);
+    });
+
 }
 
 /**
@@ -754,13 +980,23 @@ window.addEventListener('blur', () => {
     if (audio) {
         audio.volume = 0;
     }
+    const themeVideo = getThemeBackgroundVideo();
+    if (themeVideo) {
+        themeVideo.volume = 0;
+    }
+    scheduleThemeVideoSuspension();
 });
 
 window.addEventListener('focus', async () => {
+    clearTimeout(themeVideoSuspendTimer);
     document.documentElement.classList.remove('window-inactive');
     let shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
     if (audio && shouldPlayAudio) {
         audio.volume = TARGET_MUSIC_VOLUME;
+    }
+    const resumedThemeVideo = resumeThemeBackgroundVideo(shouldPlayAudio);
+    if (!resumedThemeVideo) {
+        setThemeVideoAudioEnabled(shouldPlayAudio);
     }
 });
 
@@ -781,21 +1017,28 @@ async function renderuser() {
     var gbaccount = document.querySelector('.gamebanana-account');
     gbaccount.replaceChildren();
     const avatar = document.createElement('img');
-    avatar.src = typeof gbuser?._sAvatarUrl === 'string'
-        ? gbuser._sAvatarUrl
-        : './img/mod-placeholder.png';
+    const fallback = document.createElement('span');
+    fallback.className = 'material-symbols-outlined gamebanana-account-fallback';
+    fallback.textContent = 'account_circle';
+    fallback.setAttribute('aria-hidden', 'true');
+    const avatarUrl = typeof gbuser?._sAvatarUrl === 'string' ? gbuser._sAvatarUrl.trim() : '';
+    avatar.src = avatarUrl;
     avatar.alt = '';
     avatar.width = 25;
     avatar.height = 25;
     avatar.style.borderRadius = '15px';
     avatar.onerror = () => {
-        avatar.onerror = null;
-        avatar.src = './img/mod-placeholder.png';
+        avatar.remove();
+        if (!fallback.isConnected) gbaccount.prepend(fallback);
     };
     const username = document.createElement('span');
     username.textContent = String(gbuser?._sName || 'GameBanana user');
     username.className = 'gamebanana-account-name';
-    gbaccount.append(avatar, username);
+    if (avatarUrl) {
+        gbaccount.append(avatar, username);
+    } else {
+        gbaccount.append(fallback, username);
+    }
     gbaccount.style.opacity = '1';
     const openGameBananaSettings = async () => {
         if (gbaccount.getAttribute('data-disabled') === 'true') {
@@ -815,6 +1058,265 @@ async function renderuser() {
     });
 
     renderedUser = true;
+}
+
+async function setupLanguageWheel() {
+    await window.Localization.ready;
+
+    const toggle = document.getElementById('language-wheel-toggle');
+    const toggleFlag = document.getElementById('language-wheel-toggle-flag');
+    const wheel = document.getElementById('language-wheel');
+    const backdrop = document.getElementById('language-wheel-backdrop');
+    const sectors = document.getElementById('language-wheel-sectors');
+    const options = document.getElementById('language-wheel-options');
+    const currentFlag = document.getElementById('language-wheel-current-flag');
+    const languages = await window.Localization.getLanguages();
+    const optionButtons = [];
+    const sectorPaths = [];
+    const wheelFlagCodes = Object.freeze({
+        en: 'en',
+        it: 'it',
+        pl: 'pl',
+        es: 'es',
+        fr: 'fr',
+        de: 'de',
+        'pt-br': 'br',
+        ja: 'jp'
+    });
+    const svgNamespace = 'http://www.w3.org/2000/svg';
+    const sectorDefinitions = document.createElementNS(svgNamespace, 'defs');
+    sectors.appendChild(sectorDefinitions);
+    let closeTimer = null;
+    let isChangingLanguage = false;
+    let previewRotation = null;
+
+    const selectedLanguage = () => (
+        languages.find(language => language.code === window.Localization.getLanguage())
+        || languages[0]
+    );
+
+    const wheelFlag = language => (
+        `assets/language-flags/${wheelFlagCodes[language.code]}.svg`
+    );
+
+    const previewLanguage = language => {
+        const previewIndex = Math.max(0, languages.findIndex(item => item.code === language.code));
+        const targetRotation = previewIndex * (360 / languages.length);
+        if (previewRotation === null) {
+            previewRotation = targetRotation;
+        } else {
+            const currentNormalized = ((previewRotation % 360) + 360) % 360;
+            const shortestDelta = (
+                ((targetRotation - currentNormalized + 540) % 360) - 180
+            );
+            previewRotation += shortestDelta;
+        }
+        currentFlag.src = wheelFlag(language);
+        currentFlag.alt = '';
+        wheel.style.setProperty('--preview-angle', `${previewRotation}deg`);
+        optionButtons.forEach(button => {
+            button.classList.toggle('is-preview', button.dataset.language === language.code);
+        });
+        sectorPaths.forEach(path => {
+            path.classList.toggle('is-preview', path.dataset.language === language.code);
+        });
+    };
+
+    const syncLanguageWheel = () => {
+        const language = selectedLanguage();
+        toggleFlag.src = language.flag;
+        previewLanguage(language);
+
+        const changeLabel = window.Localization.t('language_switcher_label', 'Change language');
+        toggle.title = changeLabel;
+        toggle.setAttribute('aria-label', `${changeLabel}: ${language.name}`);
+        wheel.setAttribute('aria-label', changeLabel);
+        for (const button of optionButtons) {
+            button.setAttribute(
+                'aria-pressed',
+                String(button.dataset.language === language.code)
+            );
+        }
+        sectorPaths.forEach(path => {
+            path.classList.toggle('is-current', path.dataset.language === language.code);
+        });
+    };
+
+    const closeWheel = ({ returnFocus = true, restorePreview = true } = {}) => {
+        if (wheel.hidden) return;
+        clearTimeout(closeTimer);
+        wheel.classList.remove('is-open');
+        backdrop.classList.remove('is-open');
+        wheel.setAttribute('aria-hidden', 'true');
+        toggle.setAttribute('aria-expanded', 'false');
+
+        const finishClose = () => {
+            wheel.hidden = true;
+            backdrop.hidden = true;
+            if (restorePreview) previewLanguage(selectedLanguage());
+            if (returnFocus) toggle.focus();
+        };
+
+        if (prefersReducedMotion()) {
+            finishClose();
+        } else {
+            closeTimer = setTimeout(finishClose, 230);
+        }
+    };
+
+    const openWheel = () => {
+        clearTimeout(closeTimer);
+        wheel.hidden = false;
+        backdrop.hidden = false;
+        wheel.setAttribute('aria-hidden', 'false');
+        toggle.setAttribute('aria-expanded', 'true');
+        syncLanguageWheel();
+
+        requestAnimationFrame(() => {
+            wheel.classList.add('is-open');
+            backdrop.classList.add('is-open');
+            const active = optionButtons.find(button => button.getAttribute('aria-pressed') === 'true');
+            (active || optionButtons[0])?.focus();
+        });
+    };
+
+    const focusRelativeOption = (button, direction) => {
+        const currentIndex = optionButtons.indexOf(button);
+        const nextIndex = (currentIndex + direction + optionButtons.length) % optionButtons.length;
+        optionButtons[nextIndex].focus();
+    };
+
+    const activateLanguage = async language => {
+        if (isChangingLanguage) return;
+        if (language.code === window.Localization.getLanguage()) {
+            closeWheel();
+            return;
+        }
+
+        isChangingLanguage = true;
+        previewLanguage(language);
+        closeWheel({ returnFocus: false, restorePreview: false });
+        try {
+            await window.Localization.setLanguage(language.code);
+            syncLanguageWheel();
+            toggle.focus();
+        } catch (error) {
+            console.error(`Unable to switch language to ${language.code}:`, error);
+            openWheel();
+        } finally {
+            isChangingLanguage = false;
+        }
+    };
+
+    const polarPoint = (radius, angle) => {
+        const radians = angle * (Math.PI / 180);
+        return {
+            x: 165 + (Math.cos(radians) * radius),
+            y: 165 + (Math.sin(radians) * radius)
+        };
+    };
+
+    const sectorPath = (startAngle, endAngle) => {
+        const outerStart = polarPoint(157, startAngle);
+        const outerEnd = polarPoint(157, endAngle);
+        const innerEnd = polarPoint(68, endAngle);
+        const innerStart = polarPoint(68, startAngle);
+        return [
+            `M ${outerStart.x} ${outerStart.y}`,
+            `A 157 157 0 0 1 ${outerEnd.x} ${outerEnd.y}`,
+            `L ${innerEnd.x} ${innerEnd.y}`,
+            `A 68 68 0 0 0 ${innerStart.x} ${innerStart.y}`,
+            'Z'
+        ].join(' ');
+    };
+
+    languages.forEach((language, index) => {
+        const button = document.createElement('button');
+        const angle = index * (360 / languages.length);
+        const buttonRadius = 112;
+        const buttonAngle = (angle - 90) * (Math.PI / 180);
+        const sector = document.createElementNS(svgNamespace, 'path');
+        const pattern = document.createElementNS(svgNamespace, 'pattern');
+        const patternImage = document.createElementNS(svgNamespace, 'image');
+        const patternId = `language-sector-${language.code.replace(/[^a-z0-9]/gi, '-')}`;
+
+        button.type = 'button';
+        button.className = 'language-wheel-option noScaleBTN';
+        button.dataset.language = language.code;
+        button.title = language.name;
+        button.setAttribute('aria-label', language.name);
+        button.style.setProperty('--wheel-index', String(index));
+        button.style.setProperty('--wheel-button-x', `${125 + (Math.cos(buttonAngle) * buttonRadius)}px`);
+        button.style.setProperty('--wheel-button-y', `${123 + (Math.sin(buttonAngle) * buttonRadius)}px`);
+
+        sector.classList.add('language-wheel-sector');
+        sector.dataset.language = language.code;
+        sector.style.fill = `url(#${patternId})`;
+        sector.setAttribute('d', sectorPath(
+            -112.5 + angle + 1.4,
+            -67.5 + angle - 1.4
+        ));
+
+        pattern.id = patternId;
+        pattern.setAttribute('width', '1');
+        pattern.setAttribute('height', '1');
+        pattern.setAttribute('patternUnits', 'objectBoundingBox');
+        pattern.setAttribute('patternContentUnits', 'objectBoundingBox');
+        patternImage.setAttribute('href', wheelFlag(language));
+        patternImage.setAttribute('width', '1');
+        patternImage.setAttribute('height', '1');
+        patternImage.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+        pattern.appendChild(patternImage);
+        sectorDefinitions.appendChild(pattern);
+        sectors.appendChild(sector);
+        sectorPaths.push(sector);
+
+        sector.addEventListener('pointerover', () => {
+            if (!isChangingLanguage) previewLanguage(language);
+        });
+        sector.addEventListener('click', () => activateLanguage(language));
+        button.addEventListener('focus', () => previewLanguage(language));
+        button.addEventListener('click', () => activateLanguage(language));
+        button.addEventListener('keydown', event => {
+            if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+                event.preventDefault();
+                focusRelativeOption(button, 1);
+            } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                focusRelativeOption(button, -1);
+            } else if (event.key === 'Home') {
+                event.preventDefault();
+                optionButtons[0].focus();
+            } else if (event.key === 'End') {
+                event.preventDefault();
+                optionButtons[optionButtons.length - 1].focus();
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                closeWheel();
+            }
+        });
+
+        optionButtons.push(button);
+        options.appendChild(button);
+    });
+
+    toggle.addEventListener('click', () => {
+        if (toggle.getAttribute('aria-expanded') === 'true') closeWheel();
+        else openWheel();
+    });
+    wheel.addEventListener('pointerleave', () => {
+        if (!isChangingLanguage) previewLanguage(selectedLanguage());
+    });
+    backdrop.addEventListener('click', () => closeWheel());
+    window.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !wheel.hidden) {
+            event.preventDefault();
+            closeWheel();
+        }
+    });
+    window.addEventListener('deltamod-language-change', syncLanguageWheel);
+
+    syncLanguageWheel();
 }
 
 /**
@@ -839,6 +1341,7 @@ async function renderuser() {
     
     // Initialize Theme prior to initial page loads
     await themeRefresh(false); 
+    await setupLanguageWheel();
 
     // Setup Controller Mode visual adjustments
     if (cmode) {
@@ -918,10 +1421,12 @@ async function renderuser() {
         } else {
             await page('main');
         }
+        (window.requestIdleCallback || (callback => setTimeout(callback, 0)))(warmPageMarkupCache);
 
         window.electronAPI.invoke('executeArgumentCmd',[]);
     } else {
         await page('locate');
+        (window.requestIdleCallback || (callback => setTimeout(callback, 0)))(warmPageMarkupCache);
         document.querySelectorAll('.sidebar-button').forEach(button => button.setAttribute('data-disabled', 'true'));
         window.electronAPI.invoke('executeArgumentCmd',[]);
     }
@@ -931,6 +1436,10 @@ function closeAudio() {
     if (audio) {
         audio.pause();
     }
+    const themeVideo = getThemeBackgroundVideo();
+    if (themeVideo) {
+        themeVideo.pause();
+    }
 }
 
 function openAudio() {
@@ -938,6 +1447,10 @@ function openAudio() {
         audio.play().catch(error => {
             // Silently fail if audio play is blocked
         });
+    }
+    const themeVideo = getThemeBackgroundVideo();
+    if (themeVideo?.src) {
+        themeVideo.play().catch(() => {});
     }
 }
 

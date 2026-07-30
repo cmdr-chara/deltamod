@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <metadata>Original radial flag artwork for Deltamod Community. Copyright 2026 cmdr-chara. EUPL-1.2.</metadata>
+  <rect width="120" height="120" fill="#009c3b"/>
+  <path d="M60 5 116 60 60 115 4 60z" fill="#ffdf00"/>
+  <circle cx="60" cy="60" r="27" fill="#002776"/>
+  <path d="M34 55c18-9 39-4 53 10" fill="none" stroke="#fff" stroke-width="6"/>
+  <g fill="#fff">
+    <circle cx="49" cy="49" r="1.8"/>
+    <circle cx="67" cy="43" r="1.8"/>
+    <circle cx="75" cy="56" r="1.8"/>
+    <circle cx="55" cy="72" r="1.8"/>
+    <circle cx="72" cy="76" r="1.8"/>
+  </g>
+</svg>

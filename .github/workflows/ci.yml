@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-26]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -45,6 +45,9 @@ jobs:
           npm run verify:g3mtool
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             npx electron-builder --win --dir --publish never
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            node scripts/acquire-g3mtool.js darwin-x64
+            npx electron-builder --mac --dir --publish never
           else
             npx electron-builder --linux --dir --publish never
           fi

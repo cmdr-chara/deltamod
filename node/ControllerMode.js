@@ -5,7 +5,7 @@ var proc;
 var running = false;
 
 function start() {
-    if (running) return;
+    if (running || process.platform !== 'win32') return;
 
     running = true;
     const exepath = path.join(__dirname, '..', 'tools', 'cmodeutil.exe');

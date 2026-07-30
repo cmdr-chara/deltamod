@@ -6,7 +6,11 @@ const setInterval = (handler, delay, ...args) => {
     return interval;
 };
 async function locateDelta() {
-    var path = await window.electronAPI.invoke('locateDelta',[]);
+    if (window.gid == 'noid') {
+        htmlAlert("Warning","Please select a game.",[{text:"Ok",resolveWith:'ok'}]);
+        return;
+    }
+    var path = await window.electronAPI.invoke('locateDelta',[window.gid]);
     if (path != null && path != "Invalid") {
         document.querySelector('input[type="text"]').value = path;
     }

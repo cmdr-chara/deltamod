@@ -1,18 +1,18 @@
 <div>
-    <h1>Delete all installations</h1>
-    <p class="calibri">This deletes only Deltamod Community data. Official Deltamod data is not touched.</p>
+    <h1>$$deleteall_title$$</h1>
+    <p class="calibri">$$deleteall_description$$</p>
     <div style="font-family: 'Calibri';">
-        <p><b>You will lose:</b></p>
+        <p><b>$$deleteall_warning0$$</b></p>
         <ul>
-            <li>All your installations</li>
-            <li>All your mods</li>
-            <li>All your options</li>
+            <li>$$deleteall_warning1$$</li>
+            <li>$$deleteall_warning2$$</li>
+            <li>$$deleteall_warning3$$</li>
         </ul>
-        <p><i>This action is irreversible! Are you sure you want to proceed?</i></p>
+        <p><i>$$deleteall_warning4$$</i></p>
     </div>
-    <p>Are you sure you want to delete all data? This action is irreversible!</p>
+    <p>$$deleteall_sure$$</p>
     <button style="display: flex; align-items: center; gap: 10px;" id="initbtn">
-        <span class="material-symbols-outlined">bomb</span> <b>Delete all data</b>
+        <span class="material-symbols-outlined">bomb</span> <b>$$deleteall_deleteall$$</b>
     </button>
     <br>
     <progress id="progbar" value="0" max="100"></progress>
@@ -25,4 +25,4 @@
 </style>
 JSL
 AUDIO[views/deleteall/minigame.mp3]
-TITLE[Delete all installations]
+TITLE[$$deleteall_title$$]

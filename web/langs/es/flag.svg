@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42 28" role="img" aria-label="España">
+  <rect width="42" height="28" fill="#aa151b"/>
+  <rect y="7" width="42" height="14" fill="#f1bf00"/>
+  <rect x="12" y="11" width="3" height="7" rx=".5" fill="#aa151b"/>
+</svg>
