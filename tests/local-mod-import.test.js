@@ -11,7 +11,8 @@ describe('Local Community mod imports', () => {
     let root;
 
     beforeEach(() => {
-        root = fs.mkdtempSync(path.join(os.tmpdir(), 'deltamod-local-import-'));
+        const temporaryRoot = fs.realpathSync(os.tmpdir());
+        root = fs.mkdtempSync(path.join(temporaryRoot, 'deltamod-local-import-'));
     });
 
     afterEach(() => {
