@@ -14,6 +14,8 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'importOfficialProfile',
     'cancelOfficialProfileImport',
     'restartCommunity',
+    'shakeCommunityWindowForEasterEgg',
+    'quitCommunityForEasterEgg',
     'sampleError',
     'log',
     'showWindow',
@@ -40,6 +42,15 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'getGamebananaPic',
     'getGamebananaID',
     'getGamebananaUserinfo',
+    'modSources:getProviders',
+    'modSources:browse',
+    'modSources:nexusStatus',
+    'modSources:setNexusKey',
+    'modSources:startNexusSso',
+    'modSources:cancelNexusSso',
+    'modSources:clearNexusKey',
+    'modSources:open',
+    'modSources:downloadNexus',
     'importMod',
     'removeMod',
     'toggleModState',
@@ -78,6 +89,9 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'deleteSystemIndex',
     'createInstallLink',
     'openInstallationFolder',
+    'undertaleModTool:status',
+    'undertaleModTool:choose',
+    'undertaleModTool:openInstallation',
     'openSysFolder',
     'openModFolder',
     'getUniqueFlag',
@@ -119,7 +133,9 @@ contextBridge.exposeInMainWorld('communityAPI', {
         platform: () => invoke('getOS'),
         minimize: () => invoke('minimizeMe'),
         toggleFullscreen: () => invoke('toggleFullscreen'),
-        openMaintainerProfile: () => invoke('openCommunityMaintainerProfile')
+        openMaintainerProfile: () => invoke('openCommunityMaintainerProfile'),
+        shakeForEasterEgg: phase => invoke('shakeCommunityWindowForEasterEgg', [phase]),
+        quitForEasterEgg: () => invoke('quitCommunityForEasterEgg')
     },
     profile: {
         summary: () => invoke('getOfficialProfileSummary'),
@@ -131,6 +147,32 @@ contextBridge.exposeInMainWorld('communityAPI', {
         check: () => invoke('fireUpdate'),
         install: () => invoke('start-update'),
         ignore: () => invoke('ignore-update')
+    },
+    tools: {
+        undertaleModToolStatus: () => invoke('undertaleModTool:status'),
+        chooseUndertaleModTool: () => invoke('undertaleModTool:choose'),
+        openInstallationInUndertaleModTool: installationIndex =>
+            invoke('undertaleModTool:openInstallation', [installationIndex])
+    },
+    modSources: {
+        providers: () => invoke('modSources:getProviders'),
+        browse: request => invoke('modSources:browse', [request]),
+        nexusStatus: () => invoke('modSources:nexusStatus'),
+        setNexusKey: key => invoke('modSources:setNexusKey', [key]),
+        startNexusSso: async () => {
+            const response = await invoke('modSources:startNexusSso');
+            if (!response?.ok) {
+                const error = new Error(response?.error?.message || 'Nexus Mods sign-in failed.');
+                error.code = response?.error?.code || 'NEXUS_SSO_FAILED';
+                throw error;
+            }
+            return response.status;
+        },
+        cancelNexusSso: () => invoke('modSources:cancelNexusSso'),
+        clearNexusKey: () => invoke('modSources:clearNexusKey'),
+        open: request => invoke('modSources:open', [request]),
+        downloadNexus: request => invoke('modSources:downloadNexus', [request]),
+        onProgress: callback => on('mod-source-progress', callback)
     }
 });
 

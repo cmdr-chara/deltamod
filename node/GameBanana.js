@@ -1,29 +1,62 @@
-const { BrowserWindow, safeStorage, shell } = require('electron');
+const { BrowserWindow, safeStorage, session, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 const { getSystemFile } = require('./System');
 const console = require('./Console');
 const { createCommentRequest } = require('./gamebanana/CommentRequest');
+const {
+    GAMEBANANA_LOGIN_PARTITION,
+    clearGameBananaAuthentication
+} = require('./gamebanana/LoginSession');
+const {
+    requireSecureCredentialStorage
+} = require('./security/CredentialStorage');
+const {
+    isApprovedGameBananaUrl,
+    isAuthenticatedUiConfig,
+    serializeGameBananaCookies
+} = require('./gamebanana/LoginValidation');
+
+const GAMEBANANA_ORIGIN = 'https://gamebanana.com';
+const GAMEBANANA_LOGIN_URL = `${GAMEBANANA_ORIGIN}/members/account/login`;
+const GAMEBANANA_UI_CONFIG_URL = `${GAMEBANANA_ORIGIN}/apiv12/Member/UiConfig?_sUrl=/`;
+
+async function requestGameBananaUiConfig(token) {
+    const cookieHeader = String(token || '').trim();
+    if (!cookieHeader) {
+        const error = new Error('GameBanana did not provide an authenticated session.');
+        error.code = 'GAMEBANANA_LOGIN_VALIDATION_FAILED';
+        throw error;
+    }
+    const response = await axios.get(GAMEBANANA_UI_CONFIG_URL, {
+        headers: {
+            Cookie: cookieHeader,
+            'User-Agent': require('electron').app.userAgentFallback,
+            TE: 'Trailers'
+        },
+        maxRedirects: 0,
+        timeout: 15000
+    });
+    if (!isAuthenticatedUiConfig(response.data)) {
+        const error = new Error('GameBanana did not confirm the signed-in account.');
+        error.code = 'GAMEBANANA_LOGIN_VALIDATION_FAILED';
+        throw error;
+    }
+    return response.data;
+}
 
 function obtainLogin() {
     return new Promise(async (resolve, reject) => {
-        const isApprovedGameBananaUrl = candidate => {
-            try {
-                const parsed = new URL(candidate);
-                return parsed.protocol === 'https:'
-                    && (parsed.hostname === 'gamebanana.com' || parsed.hostname.endsWith('.gamebanana.com'));
-            } catch {
-                return false;
-            }
-        };
+        let settled = false;
+        let loginCheckPending = false;
         let loginWindow = new BrowserWindow({
             width: 800,
             height: 600,
             minimizable: false,
             webPreferences: {
                 nodeIntegration: false,
-                partition: 'persist:gamebananaLogin',
+                partition: GAMEBANANA_LOGIN_PARTITION,
                 contextIsolation: true,
                 sandbox: true,
             }
@@ -36,6 +69,7 @@ function obtainLogin() {
         loginWindow.webContents.on('will-navigate', (event, url) => {
             if (!isApprovedGameBananaUrl(url)) {
                 event.preventDefault();
+                settled = true;
                 reject(new Error('GameBanana login attempted to navigate to an unapproved host.'));
                 loginWindow.close();
             }
@@ -62,28 +96,50 @@ function obtainLogin() {
             }
         }
 
-        loginWindow.loadURL('https://gamebanana.com/members/account/login');
+        loginWindow.loadURL(GAMEBANANA_LOGIN_URL).catch(error => {
+            if (settled) return;
+            settled = true;
+            reject(error);
+            loginWindow.close();
+        });
 
         loginWindow.webContents.on('did-navigate', async (_event, url) => {
-            if (!isApprovedGameBananaUrl(url)) return;
+            if (settled || loginCheckPending || !isApprovedGameBananaUrl(url)) return;
             const parsed = new URL(url);
             if (!parsed.pathname.startsWith('/members/account')) {
-                const allCookies = (await loginWindow.webContents.session.cookies.get({})).filter(c => {
-                    const cookieDomain = c.domain?.replace(/^\./, '');
-                    return cookieDomain === 'gamebanana.com' || cookieDomain?.endsWith('.gamebanana.com');
-                });
-                console.log('Found ' + allCookies.length + ' GameBanana account cookies after login: ' + allCookies.map(c => c.name).join(', '));
-                const cookieHeader = allCookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
-                resolve(cookieHeader);
-                loginWindow.close();
+                loginCheckPending = true;
+                try {
+                    // Request only cookies applicable to the primary HTTPS origin instead
+                    // of persisting every cookie created by any GameBanana subdomain.
+                    const accountCookies = await loginWindow.webContents.session.cookies.get({
+                        url: `${GAMEBANANA_ORIGIN}/`
+                    });
+                    const cookieHeader = serializeGameBananaCookies(accountCookies);
+                    const account = await requestGameBananaUiConfig(cookieHeader);
+                    console.log(`Validated GameBanana login for user ID ${account._idMemberRow}.`);
+                    settled = true;
+                    resolve(cookieHeader);
+                    loginWindow.close();
+                } catch (error) {
+                    settled = true;
+                    error.code ||= 'GAMEBANANA_LOGIN_VALIDATION_FAILED';
+                    reject(error);
+                    loginWindow.close();
+                } finally {
+                    loginCheckPending = false;
+                }
             }
         });
-        loginWindow.once('closed', () => reject(new Error('GameBanana login was cancelled.')));
+        loginWindow.once('closed', () => {
+            if (settled) return;
+            settled = true;
+            reject(new Error('GameBanana login was cancelled.'));
+        });
     });
 }
 
 function readLoginToken() {
-    if (!safeStorage.isEncryptionAvailable()) return '';
+    requireSecureCredentialStorage(safeStorage);
     const file = getSystemFile('bananapwd', true);
     if (!fs.existsSync(file)) return '';
     return safeStorage.decryptString(fs.readFileSync(file));
@@ -98,30 +154,30 @@ async function getGBUIConf() {
     }
 
     try {
-        var token = readLoginToken();
+        const token = readLoginToken();
+        if (!token) return { _idMemberRow: 0 };
+        var uiconf = await requestGameBananaUiConfig(token);
+
+        console.log('Fetched GameBanana UI Config for user ID ' + uiconf._idMemberRow);
+        uiConfCache = uiconf;
+
+        return uiconf;
+    } catch (error) {
+        console.log(`GameBanana session is unavailable: ${error.code || error.message || 'unknown error'}`);
+        return { _idMemberRow: 0 };
     }
-    catch {
-        var file = "";
-        var token = "";
-    }
-        var uiconf = await axios.get('https://gamebanana.com/apiv12/Member/UiConfig?_sUrl=/', {
-            headers: {
-                'Cookie': token,
-                // get electron user agent
-                'User-Agent': require('electron').app.userAgentFallback,
-                'TE': 'Trailers'
-            }
-        });
-
-        console.log('Fetched GameBanana UI Config for user ID ' + uiconf.data._idMemberRow);
-
-        uiConfCache = uiconf.data;
-
-    return uiconf.data;
 }
 
 function clearCache() {
     uiConfCache = null;
+}
+
+async function clearLoginSession() {
+    return clearGameBananaAuthentication({
+        electronSession: session,
+        removeCredential: () => fs.rmSync(getSystemFile('bananapwd', true), { force: true }),
+        clearInMemoryCache: clearCache
+    });
 }
 
 async function leaveComment(id, comment, model) {
@@ -346,5 +402,9 @@ module.exports = {
         list: getCollections,
         inspect: getCollectionMods
     },
-    clearCache
+    clearCache,
+    clearLoginSession,
+    isApprovedGameBananaUrl,
+    isAuthenticatedUiConfig,
+    serializeGameBananaCookies
 };

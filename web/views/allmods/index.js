@@ -1,4 +1,7 @@
 (() => {
+const t = (key, fallback, ...args) =>
+    window.Localization?.t(key, fallback, ...args) ?? fallback;
+
 const setInterval = (handler, delay, ...args) => {
     const interval = window.setInterval(handler, delay, ...args);
     window._intervals = window._intervals || [];
@@ -31,7 +34,7 @@ function setIconText(element, iconName, text, size = 'small') {
     element.appendChild(document.createTextNode(` ${String(text ?? '')}`));
 }
 
-async function createMod(mod, compatible, loggedIn) {
+async function createMod(mod, compatible, loggedIn, modListElement) {
     const modRow = document.createElement('tr');
 
     let imeta = await window.electronAPI.invoke('getModImage', [mod.uid]);
@@ -247,7 +250,8 @@ async function createMod(mod, compatible, loggedIn) {
     modRow.appendChild(modNameContainer);
     modRow.appendChild(actionContainer);
 
-    document.getElementById('modlist').appendChild(modRow);
+    if (!modListElement.isConnected) return null;
+    modListElement.appendChild(modRow);
     return modRow;
 }
 
@@ -279,7 +283,7 @@ async function createErroringMods(errors) {
         selectSpan.className = 'calibri';
         selectSpan.style.marginTop = '18px';
         selectSpan.style.display = 'block';
-        selectSpan.innerText = "How do you want to proceed?";
+        selectSpan.innerText = t('modFail_howtoproceed', "How do you want to proceed?");
         
 
         const actionRow = document.createElement("div");
@@ -287,12 +291,12 @@ async function createErroringMods(errors) {
         {
             // Action Row
             const exploreBtn = document.createElement("button");
-            exploreBtn.innerText = "Open mod folder";
+            exploreBtn.innerText = t('open_mod_folder', "Open mod folder");
             exploreBtn.onclick = () => window.electronAPI.invoke("openModFolder", [err.mod]);
             actionRow.appendChild(exploreBtn);
 
             const deleteBtn = document.createElement("button");
-            deleteBtn.innerText = "Delete mod";
+            deleteBtn.innerText = t('delete_mod', "Delete mod");
             deleteBtn.onclick = () => window.electronAPI.invoke("removeMod", [err.mod]);
             actionRow.appendChild(deleteBtn);
         }
@@ -309,21 +313,27 @@ async function createErroringMods(errors) {
 }
 
 (async () => {
-    var loggedIn = await window.electronAPI.invoke('validateGamebananaToken', []);
     const errorBanner = document.getElementById("error-banner");
+    const gamesShowSelect = document.getElementById('gamesShow');
+    const modListElement = document.getElementById('modlist');
+    if (!errorBanner || !gamesShowSelect || !modListElement) return;
+    const isPageActive = () =>
+        errorBanner.isConnected &&
+        gamesShowSelect.isConnected &&
+        modListElement.isConnected;
+
+    var loggedIn = await window.electronAPI.invoke('validateGamebananaToken', []);
+    if (!isPageActive()) return;
+    const pageArguments = window._pageArguments || {};
+    const selectedSpecID = pageArguments.specID;
 
     let filterFunc = (x) => true;
-    try {
-        if (window._pageArguments.specID != undefined && window._pageArguments.specID !== 'all') {
-            filterFunc = (mod) => mod.game === window._pageArguments.specID;
-        }
-    }
-    catch (e) {
-        console.error("Failed to apply filter function:", e);
+    if (selectedSpecID != undefined && selectedSpecID !== 'all') {
+        filterFunc = (mod) => mod.game === selectedSpecID;
     }
 
     var enumerateGames = await window.electronAPI.invoke('getAvailableGames', []);
-    const gamesShowSelect = document.getElementById('gamesShow');
+    if (!isPageActive()) return;
     for (const game of enumerateGames) {
         const option = document.createElement('option');
         option.value = game.id;
@@ -337,20 +347,18 @@ async function createErroringMods(errors) {
         page('allmods');
     };
     
-    try {
-        if (window._pageArguments.specID != undefined && window._pageArguments.specID !== 'all') {
-            gamesShowSelect.value = window._pageArguments.specID;
-        }
-    } catch (e) {
-        console.error("Failed to set game select value:", e);
+    if (selectedSpecID != undefined && selectedSpecID !== 'all') {
+        gamesShowSelect.value = selectedSpecID;
     }
     
 
     var { modList, errors } = await window.electronAPI.invoke('getModList', []);
+    if (!isPageActive()) return;
 
     var list = modList.filter(filterFunc);
     for (const mod of list) {
-        await createMod(mod, mod.isCompatible, loggedIn);
+        const modRow = await createMod(mod, mod.isCompatible, loggedIn, modListElement);
+        if (!modRow) return;
     }
     window._pageArguments = {}; // Clear it so it doesn't affect other mods
 
@@ -359,7 +367,11 @@ async function createErroringMods(errors) {
             rew();
             createErroringMods(errors);
         };
-        errorBanner.children[0].innerText = `${errors.length} mod(s) failed to load`;
+        errorBanner.children[0].innerText = t(
+            'modFail_bannerTitle',
+            '{0} mod(s) failed to load',
+            errors.length
+        );
         errorBanner.style.display = "inherit";
     } else errorBanner.style.display = "none";
 
@@ -380,10 +392,15 @@ async function createErroringMods(errors) {
         const copy = document.createElement('div');
         copy.className = 'empty-state-copy';
         const heading = document.createElement('h2');
-        heading.innerText = modList.length === 0 ? 'No installed mods yet' : 'No mods match this installation';
+        heading.innerText = modList.length === 0
+            ? t('allmods_empty_title', 'No installed mods yet')
+            : 'No mods match this installation';
         const description = document.createElement('p');
         description.innerText = modList.length === 0
-            ? 'Packages you download or import will stay visible here, even when they are not enabled in the current patch list.'
+            ? t(
+                'allmods_empty_desc',
+                'Packages you download or import will stay visible here, even when they are not enabled in the current patch list.'
+            )
             : 'Choose another installation above or return to All installations.';
         copy.append(heading, description);
 
@@ -391,11 +408,11 @@ async function createErroringMods(errors) {
             const actions = document.createElement('div');
             actions.className = 'empty-state-actions';
             const shopButton = document.createElement('button');
-            shopButton.innerText = 'Browse Mod Shop';
+            shopButton.innerText = t('browse_mod_shop', 'Browse Mod Shop');
             shopButton.onclick = () => page('gamebanana-browse');
             const importButton = document.createElement('button');
             importButton.className = 'secondary-action';
-            importButton.innerText = 'Import mod package';
+            importButton.innerText = t('import_mod_package', 'Import mod package');
             importButton.onclick = () => window.electronAPI.invoke('importMod', []);
             actions.append(shopButton, importButton);
             copy.appendChild(actions);
@@ -404,7 +421,7 @@ async function createErroringMods(errors) {
         state.append(stateIcon, copy);
         td.appendChild(state);
         tr.appendChild(td);
-        document.getElementById('modlist').appendChild(tr);
+        modListElement.appendChild(tr);
     }
 
     genbtnstyles();

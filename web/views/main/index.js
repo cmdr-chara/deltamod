@@ -1,4 +1,7 @@
 (() => {
+const t = (key, fallback, ...args) =>
+    window.Localization?.t(key, fallback, ...args) ?? fallback;
+
 const setInterval = (handler, delay, ...args) => {
     const interval = window.setInterval(handler, delay, ...args);
     window._intervals = window._intervals || [];
@@ -98,7 +101,7 @@ function noHTML(elem) {
 }
 
 
-async function createMod(mod) {
+async function createMod(mod, modListElement) {
     let modRow = document.createElement('tr');
 
     modRow.className = 'modrow';
@@ -295,7 +298,8 @@ async function createMod(mod) {
     modRow.appendChild(modNameContainer);
     modRow.appendChild(enabledContainer);
 
-    document.getElementById('modlist').appendChild(modRow);
+    if (!modListElement?.isConnected) return null;
+    modListElement.appendChild(modRow);
     return modRow;
 }
 
@@ -327,7 +331,7 @@ async function createErroringMods(errors) {
         selectSpan.className = 'calibri';
         selectSpan.style.marginTop = '18px';
         selectSpan.style.display = 'block';
-        selectSpan.innerText = "How do you want to proceed?";
+        selectSpan.innerText = t('modFail_howtoproceed', "How do you want to proceed?");
         
 
         const actionRow = document.createElement("div");
@@ -335,12 +339,12 @@ async function createErroringMods(errors) {
         {
             // Action Row
             const exploreBtn = document.createElement("button");
-            exploreBtn.innerText = "Open mod folder";
+            exploreBtn.innerText = t('open_mod_folder', "Open mod folder");
             exploreBtn.onclick = () => window.electronAPI.invoke("openModFolder", [err.mod]);
             actionRow.appendChild(exploreBtn);
 
             const deleteBtn = document.createElement("button");
-            deleteBtn.innerText = "Delete mod";
+            deleteBtn.innerText = t('delete_mod', "Delete mod");
             deleteBtn.onclick = () => window.electronAPI.invoke("removeMod", [err.mod]);
             actionRow.appendChild(deleteBtn);
         }
@@ -364,9 +368,18 @@ function loadInst(index) {
     const errorBanner = document.getElementById("error-banner");
 
     var { modList, errors } = (await window.electronAPI.invoke('getModList', []));
+    const modListElement = document.getElementById('modlist');
+    const sortWay = document.getElementById('sortWay');
+    const pageIsActive = () => (
+        window.pageN === 'main'
+        && modListElement?.isConnected
+        && sortWay?.isConnected
+    );
+    if (!pageIsActive()) return;
+
     if (window._pageArguments && window._pageArguments.sortfunc && window._pageArguments.sortid) {
         modList = modList.sort(window._pageArguments.sortfunc);
-        document.getElementById('sortWay').value = window._pageArguments.sortid;
+        sortWay.value = window._pageArguments.sortid;
     }
     else {
         // sort by name ascending by default
@@ -388,12 +401,13 @@ function loadInst(index) {
             td.textContent = `Mods by ${primaryAuthor}`;
             tr.appendChild(td);
             addedAuthors.push(primaryAuthor);
-            document.getElementById('modlist').appendChild(tr);
+            modListElement.appendChild(tr);
         }
-        await createMod(x);
+        await createMod(x, modListElement);
+        if (!pageIsActive()) return;
     }
 
-    document.getElementById('sortWay').onchange = async (e) => {
+    sortWay.onchange = async (e) => {
         switch (e.target.value) {
             case 'asc':
                 window._pageArguments = { sortfunc: (a, b) => a.name.localeCompare(b.name), sortid: 'asc' };
@@ -428,7 +442,11 @@ function loadInst(index) {
             rew();
             createErroringMods(errors);
         };
-        errorBanner.children[0].innerText = `${errors.length} mod(s) failed to load`;
+        errorBanner.children[0].innerText = t(
+            'modFail_bannerTitle',
+            '{0} mod(s) failed to load',
+            errors.length
+        );
         errorBanner.style.display = "inherit";
     } else errorBanner.style.display = "none";
 
@@ -449,9 +467,12 @@ function loadInst(index) {
         const copy = document.createElement('div');
         copy.className = 'empty-state-copy';
         const heading = document.createElement('h2');
-        heading.innerText = 'Your patch list is ready';
+        heading.innerText = t('main_empty_title', 'Your patch list is ready');
         const description = document.createElement('p');
-        description.innerText = 'Import a compatible mod package or browse the Mod Shop. Installed mods will appear here before anything touches the game files.';
+        description.innerText = t(
+            'main_empty_desc',
+            'Import a compatible mod package or browse the Mod Shop. Installed mods will appear here before anything touches the game files.'
+        );
         copy.append(heading, description);
 
         const incompatibleCount = modList.filter(x => x.isIncompatible).length;
@@ -462,16 +483,18 @@ function loadInst(index) {
             copy.appendChild(detail);
         }
 
-        if ((await window.electronAPI.invoke('howManyMods', [])) == 0) {
+        const installedModCount = await window.electronAPI.invoke('howManyMods', []);
+        if (!pageIsActive()) return;
+        if (installedModCount == 0) {
             const actions = document.createElement('div');
             actions.className = 'empty-state-actions';
             const shopButton = document.createElement('button');
-            shopButton.innerText = 'Browse Mod Shop';
+            shopButton.innerText = t('browse_mod_shop', 'Browse Mod Shop');
             shopButton.onclick = () => page('gamebanana-browse');
             actions.appendChild(shopButton);
             const importButton = document.createElement('button');
             importButton.className = 'secondary-action';
-            importButton.innerText = 'Import mod package';
+            importButton.innerText = t('import_mod_package', 'Import mod package');
             importButton.onclick = () => window.electronAPI.invoke('importMod', []);
             actions.appendChild(importButton);
             copy.appendChild(actions);
@@ -480,7 +503,7 @@ function loadInst(index) {
         state.append(stateIcon, copy);
         td.appendChild(state);
         tr.appendChild(td);
-        document.getElementById('modlist').appendChild(tr);
+        modListElement.appendChild(tr);
 
         //document.getElementById('par').innerText = 'Run without patches';
     }

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42 28" role="img" aria-label="Brasil">
+  <rect width="42" height="28" fill="#009b3a"/>
+  <path d="M21 3 38 14 21 25 4 14Z" fill="#ffdf00"/>
+  <circle cx="21" cy="14" r="6.5" fill="#002776"/>
+  <path d="M15.2 12.2c4.2-1.1 8.7-.4 12.1 1.8" fill="none" stroke="#fff" stroke-width="1.2"/>
+</svg>

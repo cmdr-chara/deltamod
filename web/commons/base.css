@@ -23,14 +23,19 @@
     --font-size-meta: 15px;
     --font-size-heading: 22px;
     --font-size-title: 36px;
-    --panel-bg: rgba(8, 8, 8, 0.52);
-    --panel-bg-strong: rgba(8, 8, 8, 0.7);
+    --panel-bg: rgba(8, 8, 8, 0.64);
+    --panel-bg-strong: rgba(8, 8, 8, 0.8);
     --panel-border: rgba(255, 255, 255, 0.12);
     --panel-divider: rgba(255, 255, 255, 0.075);
-    --muted-text: rgba(255, 255, 255, 0.72);
+    --muted-text: rgba(255, 255, 255, 0.84);
     --panel-radius: 18px;
     --control-radius: 9px;
     --panel-blur: 11px;
+    --motion-instant: 90ms;
+    --motion-fast: 140ms;
+    --motion-standard: 180ms;
+    --motion-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
 }
 
 /* I did everything to use Calibri but I realized I actually want a font from my library.... */
@@ -99,7 +104,12 @@ button, input, select {
     border: 0;
     border-radius: var(--control-radius);
     cursor: pointer;
-    transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    transition:
+        background-color var(--motion-fast) var(--motion-ease-out),
+        border-color var(--motion-fast) var(--motion-ease-out),
+        color var(--motion-fast) var(--motion-ease-out),
+        box-shadow var(--motion-fast) var(--motion-ease-out),
+        opacity var(--motion-instant) linear;
 }
 
 input:focus {
@@ -188,7 +198,31 @@ td {
     padding: 12px 16px;
     vertical-align: middle;
     text-align: left;
-    transition: background-color 0.12s ease;
+    transition: background-color var(--motion-fast) var(--motion-ease-out);
+}
+
+@keyframes dialogEnter {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes dialogBackdropEnter {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+dialog[open] {
+    animation: dialogEnter var(--motion-standard) var(--motion-ease-out);
+}
+
+dialog[open]::backdrop {
+    animation: dialogBackdropEnter var(--motion-fast) linear;
 }
 
 tbody tr:last-child > td {
@@ -222,6 +256,7 @@ th {
     color: var(--muted-text);
     font-family: "Calibri", sans-serif;
     line-height: 1.4;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
 }
 
 .empty-state-cell {
@@ -263,7 +298,7 @@ th {
 .empty-state-detail {
     display: block;
     margin-top: 7px;
-    color: rgba(255, 255, 255, 0.52);
+    color: rgba(255, 255, 255, 0.7);
     font-family: "Calibri", sans-serif;
 }
 

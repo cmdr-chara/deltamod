@@ -39,6 +39,7 @@ const { registerWindowZoomShortcuts } = require('./WindowZoom');
 
 // --- Global Setup & State ---
 let win;
+let rendererReady = false;
 
 const isControllerMode = process.argv.includes('-controller');
 const isDevToolsEnabled = process.argv.includes('--developer') || process.env.DELTAMOD_ENV === 'dev';
@@ -232,6 +233,13 @@ function createWindow() {
 
     setWindow(win);
     registerWindowZoomShortcuts(win);
+    rendererReady = false;
+    win.webContents.once('did-finish-load', () => {
+        rendererReady = true;
+        const queuedProtocolUrl = pendingProtocolUrl;
+        pendingProtocolUrl = null;
+        if (queuedProtocolUrl) dispatchProtocolUrl(queuedProtocolUrl);
+    });
 
     // --- Inject State and Register IPC Handlers ---
     registerIPCHandlers({
@@ -284,24 +292,41 @@ function createWindow() {
 }
 
 // --- App Lifecycle ---
+let pendingProtocolUrl = null;
+
+function dispatchProtocolUrl(value) {
+    if (typeof value !== 'string' || !value.startsWith(`${PROTOCOL_SCHEME}://`)) return;
+    if (!win || !rendererReady) {
+        pendingProtocolUrl = value;
+        return;
+    }
+    if (value.startsWith(`${PROTOCOL_SCHEME}://gb/`)) page('goc-dl');
+    void handleProtocolLaunch(value);
+    if (win) win.focus();
+}
+
+app.on('open-url', (event, value) => {
+    event.preventDefault();
+    if (!app.isReady()) {
+        pendingProtocolUrl = value;
+        return;
+    }
+    dispatchProtocolUrl(value);
+});
+
 if (!app.requestSingleInstanceLock()) {
     app.quit();
 } else {
     app.on('second-instance', (e, argv) => {
         const maybeUrl = argv.find(arg => arg.startsWith(`${PROTOCOL_SCHEME}://`));
-        if (maybeUrl) {
-            handleProtocolLaunch(maybeUrl);
-            page('goc-dl');
-            if (win) win.focus();
-        }
+        if (maybeUrl) dispatchProtocolUrl(maybeUrl);
     });
 }
 
 app.whenReady().then(async () => {
-    if (['win32', 'linux'].includes(process.platform)) {
-        const maybeUrl = process.argv.find(arg => arg.startsWith(`${PROTOCOL_SCHEME}://`));
-        if (maybeUrl) handleProtocolLaunch(maybeUrl);
-    }
+    const startupProtocolUrl = ['win32', 'linux', 'darwin'].includes(process.platform)
+        ? process.argv.find(arg => arg.startsWith(`${PROTOCOL_SCHEME}://`))
+        : null;
 
     try {
         const p = KeyValue.readKVS('deltarunePath');
@@ -314,6 +339,9 @@ app.whenReady().then(async () => {
     }
 
     createWindow();
+    const initialProtocolUrl = pendingProtocolUrl || startupProtocolUrl;
+    pendingProtocolUrl = null;
+    if (initialProtocolUrl) dispatchProtocolUrl(initialProtocolUrl);
 });
 
 app.on('window-all-closed', () => {

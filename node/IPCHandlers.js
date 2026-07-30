@@ -8,6 +8,8 @@ const { Worker } = require('worker_threads');
 const https = require('https');
 const createDesktopShortcut = require('create-desktop-shortcuts');
 const axios = require('axios');
+const { z } = require('zod');
+const semver = require('semver');
 var elevate = require('windows-elevate');
 // Local modules
 const KeyValue = require('./KeyValue');
@@ -17,15 +19,21 @@ const Modstore = require('./Modstore');
 const CMode = require('./ControllerMode');
 const Updates = require('./Updates');
 const GameDB = require('./GameDB');
+const GamePlatform = require('./GamePlatform');
 const { createProgressModal, updateProgressModal } = require('./ProgressModal');
 const GamePatching = require('./GamePatching');
 const ProfileMigration = require('./ProfileMigration');
+const ModSources = require('./ModSources');
+const UndertaleModTool = require('./UndertaleModTool');
+const { NexusSsoClient, parseNexusSsoAppId } = require('./NexusSso');
 const { downloadToFile } = require('./security/RemoteSecurity');
 const { detectImageType } = require('./security/ImageSecurity');
 const { resolveWithin } = require('./security/PathSecurity');
 const { extractArchiveAtomic } = require('./security/ArchiveSecurity');
+const { getCredentialStorageStatus } = require('./security/CredentialStorage');
 const { copyDirectoryAtomic } = require('./storage/StagedCopy');
 const { readJsonSync, writeJsonAtomicSync, writeFileAtomicSync } = require('./storage/AtomicStore');
+const { EasterEggWindowShaker } = require('./EasterEggWindow');
 const Junction = require('./Junction');
 const console = require('./Console');
 const { PARTITION } = require('./Config');
@@ -75,6 +83,49 @@ function parseExternalHttpsUrl(value, allowedHosts) {
         throw new Error(`External host is not approved: ${hostname}`);
     }
     return parsed.toString();
+}
+
+function getNexusCredentialPath() {
+    return getSystemFile('nexus-api-key', true);
+}
+
+function getNexusAuthMetadataPath() {
+    return getSystemFile('nexus-auth.json', true);
+}
+
+function getNexusAuthMethod() {
+    const metadata = readJsonSync(getNexusAuthMetadataPath(), {});
+    return metadata?.method === 'sso' ? 'sso' : 'personal';
+}
+
+function readNexusApiKey() {
+    const credentialPath = getNexusCredentialPath();
+    if (!fs.existsSync(credentialPath)) return null;
+    if (!safeStorage.isEncryptionAvailable()) {
+        const error = new Error('Secure credential storage is unavailable on this system.');
+        error.code = 'SECURE_STORAGE_UNAVAILABLE';
+        throw error;
+    }
+    try {
+        return safeStorage.decryptString(fs.readFileSync(credentialPath));
+    } catch {
+        const error = new Error('The saved Nexus Mods API key could not be decrypted. Remove it and connect again.');
+        error.code = 'NEXUS_CREDENTIAL_INVALID';
+        throw error;
+    }
+}
+
+function storeNexusApiKey(apiKey, method) {
+    writeFileAtomicSync(
+        getNexusCredentialPath(),
+        safeStorage.encryptString(apiKey),
+        { backup: false }
+    );
+    writeJsonAtomicSync(getNexusAuthMetadataPath(), {
+        schemaVersion: 1,
+        method: method === 'sso' ? 'sso' : 'personal',
+        updatedAt: new Date().toISOString()
+    }, { backup: false });
 }
 
 async function reorderInstalls() {
@@ -169,15 +220,15 @@ function obtainThemes() {
     return [...builtInThemes, ...customThemes];
 }
 
-function validateDeltarune(deltapath) {
+function resolveGameInstallation(deltapath, gameOrId, preferredPlatform) {
     if (typeof deltapath !== 'string' || !deltapath.trim() || deltapath === 'INVALID') return null;
-    const keyItems = ['data.win'];
-    const isValid = keyItems.every(item => {
-        const exists = fs.existsSync(path.join(deltapath, item));
-        if (!exists) console.log(`Missing key item: ${path.join(deltapath, item)}`);
-        return exists;
-    });
-    return isValid ? deltapath : null;
+    const game = typeof gameOrId === 'string' ? GameDB.getGameById(gameOrId) : gameOrId;
+    return GamePlatform.resolveGameInstallation(game, deltapath, { preferredPlatform });
+}
+
+function resolveStoredGameInstallation(store) {
+    if (!store || typeof store.gamePath !== 'string') return null;
+    return resolveGameInstallation(store.gamePath, store.gamePid, store.gamePlatform);
 }
 
 async function getInstallations(suppressWarnings = false) {
@@ -193,14 +244,12 @@ async function getInstallations(suppressWarnings = false) {
         const storeJSON = path.join(installPath, 'store.json');
 
         const storeData = readJsonSync(storeJSON, {});
-        const deltaruneInstall = typeof storeData.gamePath === 'string'
-            ? validateDeltarune(storeData.gamePath)
-            : null;
+        const gameInstallation = resolveStoredGameInstallation(storeData);
 
         const cnamePath = path.join(installPath, '_cname');
         const issues = [];
         if (!fs.existsSync(storeJSON)) issues.push('Installation data store is missing');
-        if (!deltaruneInstall) issues.push('Game directory or data.win is missing');
+        if (!gameInstallation) issues.push('Game directory, executable, or GameMaker data file is missing');
         if (!fs.existsSync(getPacketDatabase()) || !fs.statSync(getPacketDatabase()).isDirectory()) {
             issues.push('Community mod store is missing');
         }
@@ -219,6 +268,9 @@ async function getInstallations(suppressWarnings = false) {
             pid: KeyValue.readKVSOfIndex('gamePid', index),
             appid: KeyValue.readKVSOfIndex('steamAppId', index),
             valid: issues.length === 0,
+            platform: gameInstallation?.platform || storeData.gamePlatform || null,
+            native: gameInstallation?.native || false,
+            canOpenInUndertaleModTool: process.platform === 'win32' && Boolean(gameInstallation),
             issues,
             repairActions: issues.length ? ['repair', 're-import', 'remove'] : []
         });
@@ -294,7 +346,109 @@ module.exports = function registerIPCHandlers(context) {
     const GameBanana = require('./GameBanana');
     const profileImports = new Map();
     const gameImports = new Map();
+    const easterEggWindowShaker = new EasterEggWindowShaker();
+    const configuredNexusSsoAppId = parseNexusSsoAppId(
+        process.env.DELTAMOD_NEXUS_SSO_APP_ID || require('../package.json').nexusSsoAppId
+    );
+    const nexusSso = new NexusSsoClient({
+        appId: configuredNexusSsoAppId,
+        openExternal: url => shell.openExternal(parseExternalHttpsUrl(url, ['nexusmods.com']))
+    });
+    const nexusPersonalKeyFallbackAllowed =
+        !nexusSso.available || semver.prerelease(app.getVersion()) !== null;
     // { getGBUIConf, collections }
+
+    const undertaleModToolConfigPath = getSystemFile('undertale-mod-tool.json', true);
+    const communityCliConfigPath = getSystemFile('deltamod-community-cli.json', true);
+
+    function configuredUndertaleModToolExecutable() {
+        const config = readJsonSync(undertaleModToolConfigPath, {});
+        const candidates = [
+            config?.executable,
+            process.env.DELTAMOD_UMT_PATH
+        ].filter(Boolean);
+
+        for (const candidate of candidates) {
+            try {
+                return UndertaleModTool.validateExecutablePath(candidate);
+            } catch {}
+        }
+        return null;
+    }
+
+    async function chooseUndertaleModToolExecutable() {
+        if (process.platform !== 'win32') {
+            const error = new Error('The WinUI UndertaleModTool integration is available only on Windows.');
+            error.code = 'UMT_PLATFORM_UNSUPPORTED';
+            throw error;
+        }
+
+        const options = {
+            title: 'Choose UndertaleModTool',
+            properties: ['openFile'],
+            filters: [
+                { name: 'UndertaleModTool executable', extensions: ['exe'] }
+            ]
+        };
+        const owner = getWindow();
+        const result = owner
+            ? await dialog.showOpenDialog(owner, options)
+            : await dialog.showOpenDialog(options);
+        if (result.canceled || result.filePaths.length !== 1) return null;
+
+        const executable = UndertaleModTool.validateExecutablePath(result.filePaths[0]);
+        writeJsonAtomicSync(undertaleModToolConfigPath, {
+            schemaVersion: 1,
+            executable,
+            updatedAt: new Date().toISOString()
+        });
+        return executable;
+    }
+
+    function configuredCommunityCliExecutable() {
+        const config = readJsonSync(communityCliConfigPath, {});
+        const candidates = [
+            config?.executable,
+            process.env.DELTAMOD_CLI_PATH,
+            path.join(path.dirname(process.execPath), 'deltamod-community-cli.exe')
+        ].filter(Boolean);
+
+        for (const candidate of candidates) {
+            try {
+                return UndertaleModTool.validateCliExecutablePath(candidate);
+            } catch {}
+        }
+        return null;
+    }
+
+    async function chooseCommunityCliExecutable() {
+        if (process.platform !== 'win32') {
+            const error = new Error('The UndertaleModTool bridge is currently available only on Windows.');
+            error.code = 'UMT_PLATFORM_UNSUPPORTED';
+            throw error;
+        }
+
+        const options = {
+            title: 'Choose Deltamod Community CLI',
+            properties: ['openFile'],
+            filters: [
+                { name: 'Deltamod Community CLI executable', extensions: ['exe'] }
+            ]
+        };
+        const owner = getWindow();
+        const result = owner
+            ? await dialog.showOpenDialog(owner, options)
+            : await dialog.showOpenDialog(options);
+        if (result.canceled || result.filePaths.length !== 1) return null;
+
+        const executable = UndertaleModTool.validateCliExecutablePath(result.filePaths[0]);
+        writeJsonAtomicSync(communityCliConfigPath, {
+            schemaVersion: 1,
+            executable,
+            updatedAt: new Date().toISOString()
+        });
+        return executable;
+    }
 
     function requireTrustedRenderer(event) {
         const senderUrl = event.senderFrame?.url || event.sender?.getURL?.() || '';
@@ -399,7 +553,7 @@ module.exports = function registerIPCHandlers(context) {
                 sourceVersion: detected.version,
                 signal: controller.signal,
                 migrateCredential: async encryptedCredential => {
-                    if (!safeStorage.isEncryptionAvailable()) return null;
+                    if (!getCredentialStorageStatus(safeStorage).available) return null;
                     try {
                         return safeStorage.encryptString(safeStorage.decryptString(encryptedCredential));
                     } catch {
@@ -425,6 +579,17 @@ module.exports = function registerIPCHandlers(context) {
         requireTrustedRenderer(event);
         app.relaunch({ args: process.argv.slice(1).filter(arg => !/^deltamod(?:-community)?:\/\//i.test(arg)) });
         app.exit();
+    });
+    handle('shakeCommunityWindowForEasterEgg', (event, args) => {
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        return easterEggWindowShaker.setPhase(senderWindow, String(args?.[0] || ''));
+    });
+    handle('quitCommunityForEasterEgg', () => {
+        // This deliberately performs no file or profile operations. The
+        // Undertale-inspired ending is presentation only.
+        easterEggWindowShaker.stop();
+        setImmediate(() => app.quit());
+        return { closing: true };
     });
 
     handle('sampleError', () => errorWin('This is a sample error triggered from the renderer process.'));
@@ -498,14 +663,42 @@ module.exports = function registerIPCHandlers(context) {
         return themeId;
     });
 
-    handle('importTheme', async () => {
+    handle('importTheme', async (event, args) => {
         const win = getWindow();
-        const musicPath = (await dialog.showOpenDialog(win, { title: 'Select your music file', filters: [{ name: 'Song files', extensions: ['mp3', 'ogg'] }] })).filePaths[0];
-        const bgPath = (await dialog.showOpenDialog(win, { title: 'Select your background image', filters: [{ name: 'Image files', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif' ] }] })).filePaths[0];
-        if (!musicPath || !bgPath) return;
-        const musicExtension = path.extname(musicPath).toLowerCase();
+        const request = args?.[0] && typeof args[0] === 'object' ? args[0] : {};
+        const requestedName = String(request.name || '').trim().slice(0, 100);
+        const requestedDescription = String(request.description || '').trim().slice(0, 500);
+        const includeMusic = request.includeMusic === true;
+        if (!requestedName) throw new Error('A theme name is required.');
+
+        const backgroundSelection = await dialog.showOpenDialog(win, {
+            title: 'Choose the theme background',
+            properties: ['openFile'],
+            filters: [{ name: 'Image files', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }]
+        });
+        const bgPath = backgroundSelection.filePaths[0];
+        if (backgroundSelection.canceled || !bgPath) {
+            return { created: false, canceled: true, stage: 'background' };
+        }
+
+        let musicPath = null;
+        if (includeMusic) {
+            const musicSelection = await dialog.showOpenDialog(win, {
+                title: 'Choose the optional theme music',
+                properties: ['openFile'],
+                filters: [{ name: 'Song files', extensions: ['mp3', 'ogg'] }]
+            });
+            musicPath = musicSelection.filePaths[0];
+            if (musicSelection.canceled || !musicPath) {
+                return { created: false, canceled: true, stage: 'music' };
+            }
+        }
+
+        const musicExtension = musicPath ? path.extname(musicPath).toLowerCase() : '';
         const imageExtension = path.extname(bgPath).toLowerCase();
-        if (!['.mp3', '.ogg'].includes(musicExtension)) throw new Error('Unsupported theme audio type.');
+        if (musicPath && !['.mp3', '.ogg'].includes(musicExtension)) {
+            throw new Error('Unsupported theme audio type.');
+        }
         if (!['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(imageExtension)) {
             throw new Error('Unsupported theme image type.');
         }
@@ -515,27 +708,28 @@ module.exports = function registerIPCHandlers(context) {
 
         const randomSeed = Math.random().toString(36).substring(2, 15);
         const themeId = `custom_${randomSeed}`;
-        const themeName = `Custom Theme #${randomSeed.substring(0, 5).toUpperCase()}`;
         const customThemesDir = path.join(app.getPath('userData'), 'customThemes');
         for (const directory of ['mus', 'img', 'data']) {
             fs.mkdirSync(path.join(customThemesDir, directory), { recursive: true });
         }
 
-        fs.copyFileSync(musicPath, path.join(customThemesDir, 'mus', `${themeId}${musicExtension}`));
+        if (musicPath) {
+            fs.copyFileSync(musicPath, path.join(customThemesDir, 'mus', `${themeId}${musicExtension}`));
+        }
         fs.copyFileSync(bgPath, path.join(customThemesDir, 'img', `${themeId}${imageExtension}`));
 
         const config = {
-            name: themeName,
+            name: requestedName,
             background: `${themeId}${imageExtension}`,
-            description: `This is a custom theme by the user.`,
-            mainSong: `${themeId}${musicExtension}`,
+            description: requestedDescription || 'A custom Deltamod Community theme.',
+            mainSong: musicPath ? `${themeId}${musicExtension}` : 'ch5.mp3',
             id: themeId,
-            musicTrack: "Custom music",
+            musicTrack: musicPath ? 'Custom music' : 'Base Theme music',
             color: await dominantColor(bgPath)
         };
 
         writeJsonAtomicSync(path.join(customThemesDir, 'data', `${themeId}.theme.json`), config);
-        page('themesel');
+        return { created: true, themeId };
     });
 
     handle('renameCustomTheme', async (event, args) => {
@@ -596,11 +790,12 @@ module.exports = function registerIPCHandlers(context) {
 
     // GameBanana Auth & API
     handle('loginGamebanana', async () => {
-        if (!safeStorage.isEncryptionAvailable()) {
+        const credentialStorage = getCredentialStorageStatus(safeStorage);
+        if (!credentialStorage.available) {
             dialog.showMessageBoxSync({
                 type: 'error',
                 title: 'Secure storage unavailable',
-                message: 'GameBanana login cannot be saved because encrypted credential storage is unavailable on this system.',
+                message: `GameBanana login cannot be saved. ${credentialStorage.reason}`,
             });
             return false;
         }
@@ -610,9 +805,7 @@ module.exports = function registerIPCHandlers(context) {
         return true;
     });
     handle('logoutGamebanana', async () => {
-        try { fs.unlinkSync(getSystemFile('bananapwd', true)); } catch {}
-        GameBanana.clearCache();
-        return true;
+        return GameBanana.clearLoginSession();
     });
     handle('eraseGamebananaCache', () => GameBanana.clearCache());
     handle('leaveCommentGamebanana', async (event, args) => {
@@ -640,6 +833,223 @@ module.exports = function registerIPCHandlers(context) {
         } catch (error) {
             console.error('Error fetching GameBanana user info:', error);
             return { loggedIn: false };
+        }
+    });
+
+    // Mod source catalogue and credentials
+    handle('modSources:getProviders', () => {
+        const game = GameDB.getGameById(KeyValue.readKVS('gamePid'));
+        return ModSources.getAvailableProviders(game);
+    });
+    handle('modSources:browse', async (event, args) => {
+        try {
+            const request = ModSources.BrowseRequest.parse(args?.[0] || {});
+            const game = GameDB.getGameById(KeyValue.readKVS('gamePid'));
+            if (!game) {
+                const error = new Error('No current game installation is selected.');
+                error.code = 'GAME_NOT_SELECTED';
+                throw error;
+            }
+            let result;
+            if (request.provider === 'moddb') {
+                result = await ModSources.browseModDb({
+                    slug: game.sources?.moddb?.slug,
+                    query: request.query
+                });
+            } else if (request.provider === 'nexus') {
+                result = await ModSources.browseNexus({
+                    domain: game.sources?.nexus?.domain,
+                    query: request.query,
+                    sort: request.sort,
+                    apiKey: readNexusApiKey()
+                });
+            } else {
+                const error = new Error('GameBanana continues to use its compatibility catalogue.');
+                error.code = 'MOD_SOURCE_LEGACY_PROVIDER';
+                throw error;
+            }
+            return { ok: true, result };
+        } catch (error) {
+            return {
+                ok: false,
+                error: {
+                    code: String(error?.code || 'MOD_SOURCE_BROWSE_FAILED'),
+                    message: String(error?.message || 'The selected mod catalogue could not be loaded.'),
+                    status: Number.isInteger(error?.status) ? error.status : undefined
+                }
+            };
+        }
+    });
+    handle('modSources:nexusStatus', async () => {
+        const baseStatus = {
+            ssoAvailable: nexusSso.available,
+            ssoPending: nexusSso.pending,
+            personalKeyFallbackAllowed: nexusPersonalKeyFallbackAllowed,
+            authMethod: fs.existsSync(getNexusCredentialPath()) ? getNexusAuthMethod() : null
+        };
+        let key;
+        try {
+            key = readNexusApiKey();
+        } catch (error) {
+            return {
+                ...baseStatus,
+                configured: fs.existsSync(getNexusCredentialPath()),
+                connected: false,
+                error: error.message,
+                code: error.code || 'NEXUS_CREDENTIAL_INVALID'
+            };
+        }
+        if (!key) return { ...baseStatus, configured: false, connected: false };
+        try {
+            return {
+                ...baseStatus,
+                configured: true,
+                connected: true,
+                ...(await ModSources.validateNexusApiKey(key))
+            };
+        } catch (error) {
+            return {
+                ...baseStatus,
+                configured: true,
+                connected: false,
+                error: error.message,
+                code: error.code || 'NEXUS_STATUS_FAILED'
+            };
+        }
+    });
+    handle('modSources:setNexusKey', async (event, args) => {
+        if (!nexusPersonalKeyFallbackAllowed) {
+            const error = new Error('Personal Nexus Mods API keys are disabled in registered stable builds. Use Nexus Mods sign-in.');
+            error.code = 'NEXUS_PERSONAL_KEY_DISABLED';
+            throw error;
+        }
+        if (!safeStorage.isEncryptionAvailable()) {
+            const error = new Error('Secure credential storage is unavailable. The Nexus Mods key was not saved.');
+            error.code = 'SECURE_STORAGE_UNAVAILABLE';
+            throw error;
+        }
+        const key = String(args?.[0] || '').trim();
+        const status = await ModSources.validateNexusApiKey(key);
+        storeNexusApiKey(key, 'personal');
+        return {
+            configured: true,
+            connected: true,
+            authMethod: 'personal',
+            ssoAvailable: nexusSso.available,
+            ssoPending: false,
+            personalKeyFallbackAllowed: nexusPersonalKeyFallbackAllowed,
+            ...status
+        };
+    });
+    handle('modSources:startNexusSso', async event => {
+        const cancelOnRendererClose = () => nexusSso.cancel();
+        event.sender.once('destroyed', cancelOnRendererClose);
+        try {
+            if (!safeStorage.isEncryptionAvailable()) {
+                const error = new Error('Secure credential storage is unavailable. Nexus Mods sign-in cannot be saved.');
+                error.code = 'SECURE_STORAGE_UNAVAILABLE';
+                throw error;
+            }
+            const key = await nexusSso.start();
+            const status = await ModSources.validateNexusApiKey(key);
+            storeNexusApiKey(key, 'sso');
+            return {
+                ok: true,
+                status: {
+                    configured: true,
+                    connected: true,
+                    authMethod: 'sso',
+                    ssoAvailable: true,
+                    ssoPending: false,
+                    personalKeyFallbackAllowed: nexusPersonalKeyFallbackAllowed,
+                    ...status
+                }
+            };
+        } catch (error) {
+            return {
+                ok: false,
+                error: {
+                    code: error.code || 'NEXUS_SSO_FAILED',
+                    message: error.message || 'Nexus Mods sign-in failed.'
+                }
+            };
+        } finally {
+            event.sender.removeListener('destroyed', cancelOnRendererClose);
+        }
+    });
+    handle('modSources:cancelNexusSso', () => {
+        return nexusSso.cancel();
+    });
+    handle('modSources:clearNexusKey', () => {
+        nexusSso.cancel();
+        try { fs.rmSync(getNexusCredentialPath(), { force: true }); } catch {}
+        try { fs.rmSync(getNexusAuthMetadataPath(), { force: true }); } catch {}
+        return true;
+    });
+    handle('modSources:open', async (event, args) => {
+        const provider = ModSources.ProviderId.parse(args?.[0]?.provider);
+        const url = String(args?.[0]?.url || '');
+        const allowedHosts = provider === 'nexus'
+            ? ['nexusmods.com']
+            : provider === 'moddb'
+                ? ['moddb.com']
+                : ['gamebanana.com'];
+        await shell.openExternal(parseExternalHttpsUrl(url, allowedHosts));
+        return true;
+    });
+    handle('modSources:downloadNexus', async (event, args) => {
+        const request = z.object({
+            modId: z.union([z.string(), z.number()]),
+            operationId: z.string().regex(/^[a-z0-9-]{1,64}$/i),
+            sourceUrl: z.string().url().max(1000)
+        }).parse(args?.[0] || {});
+        const game = GameDB.getGameById(KeyValue.readKVS('gamePid'));
+        const domain = game?.sources?.nexus?.domain;
+        if (!domain) {
+            const error = new Error('Nexus Mods is not mapped for the selected game.');
+            error.code = 'MOD_SOURCE_UNAVAILABLE';
+            throw error;
+        }
+        const resolved = await ModSources.getNexusPrimaryDownload({
+            domain,
+            modId: request.modId,
+            apiKey: readNexusApiKey()
+        });
+        const sourceUrl = parseExternalHttpsUrl(request.sourceUrl, ['nexusmods.com']);
+        try {
+            return await Modstore.downloadModFromURL(
+                resolved.downloadUrl,
+                (progress, downloaded) => {
+                    event.sender.send('mod-source-progress', {
+                        operationId: request.operationId,
+                        phase: 'download',
+                        completed: downloaded,
+                        total: progress > 0 ? Math.round(downloaded / (progress / 100)) : 0,
+                        currentItem: resolved.fileName
+                    });
+                },
+                {
+                    provider: 'nexus',
+                    id: String(request.modId),
+                    fileId: String(resolved.fileId),
+                    url: sourceUrl
+                },
+                null,
+                {
+                    maximumBytes: resolved.maximumBytes,
+                    allowedHosts: ModSources.isNexusDownloadHost
+                }
+            );
+        } catch (error) {
+            event.sender.send('mod-source-progress', {
+                operationId: request.operationId,
+                phase: 'failed',
+                completed: 0,
+                total: 0,
+                currentItem: resolved.fileName,
+                error: error.message
+            });
+            throw error;
         }
     });
     
@@ -724,8 +1134,12 @@ module.exports = function registerIPCHandlers(context) {
     handle('loadedDeltarune', () => {
         try {
             const kvs = KeyValue.readKVS('gamePid');
-            const gameInfo = GameDB.getGameById(kvs);
-            return { loaded: fs.existsSync(path.join(KeyValue.readKVS('gamePath'), gameInfo.exeName)), path: kvs };
+            const resolution = resolveGameInstallation(
+                KeyValue.readKVS('gamePath'),
+                kvs,
+                KeyValue.readKVS('gamePlatform', null)
+            );
+            return { loaded: Boolean(resolution), path: kvs };
         } catch {
             return { loaded: false, path: "" };
         }
@@ -741,7 +1155,22 @@ module.exports = function registerIPCHandlers(context) {
             win.webContents.send('audio', false);
         }
 
-        if (KeyValue.readKVS('isSteam')) {
+        const gameConfig = GameDB.getGameById(KeyValue.readKVS('gamePid'));
+        const gameResolution = resolveGameInstallation(
+            installPath,
+            gameConfig,
+            KeyValue.readKVS('gamePlatform', null)
+        );
+        if (!gameResolution) {
+            errorWin('Could not find a supported executable and GameMaker data file to run.');
+            if (win) {
+                win.show();
+                win.webContents.send('audio', true);
+            }
+            return false;
+        }
+
+        if (KeyValue.readKVS('isSteam') && process.platform === 'win32') {
             const steamAppId = String(KeyValue.readKVS('steamAppId') ?? '');
             if (!/^\d{1,12}$/.test(steamAppId)) {
                 errorWin('The Steam application ID stored for this installation is invalid.');
@@ -756,35 +1185,10 @@ module.exports = function registerIPCHandlers(context) {
             return process.exit(0);
         }
 
-        const gameConfig = GameDB.getGameById(KeyValue.readKVS('gamePid'));
-        const exePath = path.join(installPath, gameConfig.exeName);
-        if (!fs.existsSync(exePath)) {
-            errorWin('Could not find executable to run.');
-            if (win) {
-                win.show();
-                win.webContents.send('audio', true);
-            }
-            return false;
-        }
-
         if (isControllerMode) CMode.stop();
 
         const configuredLauncher = KeyValue.readKVS('linuxLauncher', null);
-        const launcher = process.platform === 'linux'
-            ? (
-                configuredLauncher
-                && typeof configuredLauncher === 'object'
-                && typeof configuredLauncher.command === 'string'
-                && configuredLauncher.command.trim()
-                    ? {
-                        command: configuredLauncher.command.trim(),
-                        args: Array.isArray(configuredLauncher.args)
-                            ? configuredLauncher.args.map(arg => String(arg).replaceAll('{exe}', exePath))
-                            : [exePath]
-                    }
-                    : { command: 'wine', args: [exePath] }
-            )
-            : { command: exePath, args: [] };
+        const launcher = GamePlatform.createLaunchSpec(gameResolution, configuredLauncher);
 
         let finalized = false;
         const finalizeGame = () => {
@@ -800,7 +1204,7 @@ module.exports = function registerIPCHandlers(context) {
         };
 
         const gameProcess = spawn(launcher.command, launcher.args, {
-            cwd: path.dirname(exePath),
+            cwd: launcher.cwd,
             windowsHide: true,
             shell: false
         });
@@ -911,6 +1315,14 @@ module.exports = function registerIPCHandlers(context) {
             const baking = args[1] === 'baker';
             const pathname = KeyValue.readKVS('gamePath');
             if (!pathname) return dialog.showErrorBox('Error', 'Please import a Deltarune install first.');
+            const gameResolution = resolveGameInstallation(
+                pathname,
+                KeyValue.readKVS('gamePid'),
+                KeyValue.readKVS('gamePlatform', null)
+            );
+            if (!gameResolution) {
+                return dialog.showErrorBox('Error', 'The selected game installation is incomplete or unsupported on this platform.');
+            }
 
             GamePatching.restore(pathname);
 
@@ -928,6 +1340,8 @@ module.exports = function registerIPCHandlers(context) {
                 win?.webContents.send('gplog', {log, percent: -1});
             }, (percent) => {
                 win?.webContents.send('gplog', {log: '', percent});
+            }, {
+                mapPatchTarget: gameResolution.mapPatchTarget
             }).catch(err => {
                 return { patched: false, log: `Error during patching: ${err.message}` };
             });
@@ -1049,7 +1463,7 @@ module.exports = function registerIPCHandlers(context) {
                 const index = file.split('-')[1];
                 if (index === 'unique') continue;
                 const store = readJsonSync(path.join(app.getPath('userData'), file, 'store.json'), {});
-                if (!validateDeltarune(store.gamePath)) {
+                if (!resolveStoredGameInstallation(store)) {
                     invalidInstalls.push(index);
                     continue;
                 }
@@ -1124,13 +1538,9 @@ module.exports = function registerIPCHandlers(context) {
             }
         }
 
-        if (!validateDeltarune(sourcePath)) {
+        const sourceResolution = resolveGameInstallation(sourcePath, gameInfo);
+        if (!sourceResolution) {
             dialog.showErrorBox('Invalid folder', steam ? 'Game missing from Steam library.' : 'Invalid game installation.');
-            return false;
-        }
-
-        if (!fs.existsSync(path.join(sourcePath, gameInfo.exeName))) {
-            dialog.showErrorBox('Invalid install', `Missing executable: ${gameInfo.exeName}`);
             return false;
         }
 
@@ -1186,6 +1596,7 @@ module.exports = function registerIPCHandlers(context) {
                 loadedDeltarune: true,
                 gamePath: destPath,
                 gamePid: selectedGame,
+                gamePlatform: sourceResolution.platform,
                 deltaruneEdition: 'rem',
                 enabledMods: [],
                 isSteam: steam,
@@ -1230,7 +1641,9 @@ module.exports = function registerIPCHandlers(context) {
 
         const issues = [];
         if (!fs.existsSync(storePath)) issues.push('Installation data store is missing');
-        if (!validateDeltarune(candidateGamePath)) issues.push('Game directory or data.win is missing');
+        if (!resolveGameInstallation(candidateGamePath, store.gamePid, store.gamePlatform)) {
+            issues.push('Game directory, executable, or GameMaker data file is missing');
+        }
         return { repaired: issues.length === 0, issues };
     });
 
@@ -1252,7 +1665,8 @@ module.exports = function registerIPCHandlers(context) {
         });
         if (selection.canceled || !selection.filePaths[0]) return { cancelled: true };
         const sourcePath = selection.filePaths[0];
-        if (!validateDeltarune(sourcePath) || !fs.existsSync(path.join(sourcePath, gameInfo.exeName))) {
+        const sourceResolution = resolveGameInstallation(sourcePath, gameInfo);
+        if (!sourceResolution) {
             throw new Error(`The selected folder is not a valid ${gameInfo.name} installation.`);
         }
 
@@ -1277,7 +1691,8 @@ module.exports = function registerIPCHandlers(context) {
                 ...store,
                 version: `DELTAMOD_DATA_${require('../package.json').version}`,
                 loadedDeltarune: true,
-                gamePath: destination
+                gamePath: destination,
+                gamePlatform: sourceResolution.platform
             });
             return { repaired: true, operationId, destination };
         } catch (error) {
@@ -1343,6 +1758,67 @@ module.exports = function registerIPCHandlers(context) {
         const index = parseInstallationIndex(args?.[0]);
         return shell.openPath(getSystemFolderOfIndex('deltaruneInstall', index));
     });
+    handle('undertaleModTool:status', () => {
+        const executable = configuredUndertaleModToolExecutable();
+        const cliExecutable = configuredCommunityCliExecutable();
+        return {
+            supported: process.platform === 'win32',
+            configured: Boolean(executable),
+            executableName: executable ? path.basename(executable) : null,
+            cliConfigured: Boolean(cliExecutable),
+            cliExecutableName: cliExecutable ? path.basename(cliExecutable) : null
+        };
+    });
+    handle('undertaleModTool:choose', async () => {
+        const executable = await chooseUndertaleModToolExecutable();
+        return {
+            configured: Boolean(executable),
+            executableName: executable ? path.basename(executable) : null,
+            canceled: executable === null
+        };
+    });
+    handle('undertaleModTool:openInstallation', async (event, args) => {
+        const index = parseInstallationIndex(args?.[0]);
+        if (!fs.existsSync(getInstallationProfilePath(index))) {
+            const error = new Error('Installation profile does not exist.');
+            error.code = 'INSTALLATION_NOT_FOUND';
+            throw error;
+        }
+
+        let executable = configuredUndertaleModToolExecutable();
+        if (!executable) executable = await chooseUndertaleModToolExecutable();
+        if (!executable) return { launched: false, canceled: true };
+
+        let cliExecutable = configuredCommunityCliExecutable();
+        if (!cliExecutable) cliExecutable = await chooseCommunityCliExecutable();
+        if (!cliExecutable) return { launched: false, canceled: true };
+
+        const gamePath = KeyValue.readKVSOfIndex('gamePath', index);
+        const sourceDataFile = UndertaleModTool.resolveGameDataFile(gamePath);
+        const installationNamePath = System.getSystemFileOfIndex('_cname', index);
+        const installationName = fs.existsSync(installationNamePath)
+            ? fs.readFileSync(installationNamePath, 'utf8').trim()
+            : `Installation ${Number(index) + 1}`;
+        const gameId = KeyValue.readKVSOfIndex('gamePid', index);
+        const workspace = await UndertaleModTool.createWorkspace({
+            workspaceRoot: path.join(app.getPath('userData'), 'tool-workspaces', 'undertale-mod-tool'),
+            sourceDataFile,
+            cliExecutable,
+            installationIndex: index,
+            installationName,
+            gameId,
+            author: os.userInfo().username
+        });
+        const result = await UndertaleModTool.launchEditor(executable, workspace.dataFile);
+        return {
+            launched: result.launched,
+            executableName: path.basename(result.executable),
+            dataFileName: path.basename(result.dataFile),
+            workspacePath: workspace.workspace,
+            sourceSha256: workspace.sourceSha256,
+            workCopy: true
+        };
+    });
 
     // Folders & Misc
     handle('openSysFolder', (event, args) => shell.openPath(args[0] === 'mods' ? getPacketDatabase() : getSystemFolder('deltaruneInstall', false)));
@@ -1389,10 +1865,12 @@ module.exports = function registerIPCHandlers(context) {
         const pathdial = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name, extensions: [extension] }] });
         return pathdial.canceled ? null : pathdial.filePaths[0];
     });
-    handle('locateDelta', async () => {
+    handle('locateDelta', async (event, args) => {
         const win = getWindow();
         const pathdial = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
-        return pathdial.canceled ? null : (validateDeltarune(pathdial.filePaths[0]) ? pathdial.filePaths[0] : "Invalid");
+        return pathdial.canceled
+            ? null
+            : (resolveGameInstallation(pathdial.filePaths[0], args?.[0]) ? pathdial.filePaths[0] : "Invalid");
     });
     handle('canReportError', () => !isDevToolsEnabled && !state.updateAvailable);
     

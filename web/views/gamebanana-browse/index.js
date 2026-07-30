@@ -7,6 +7,9 @@ const setInterval = (handler, delay, ...args) => {
 };
 let PAGE = (window._pageArguments && window._pageArguments.lp) ? parseInt(window._pageArguments.lp) : 1;
 let pageActive = true;
+let SHOP_PROVIDER = window._pageArguments?.provider
+    || localStorage.getItem('modShopProvider')
+    || 'gamebanana';
 
 window.PAGE = PAGE;
 
@@ -47,7 +50,7 @@ const observer = new IntersectionObserver((entries) => {
   threshold: 0.1
 });
 
-observer.observe(element);
+if (SHOP_PROVIDER === 'gamebanana') observer.observe(element);
 
 window._onClosePage.push(() => {
     observer.disconnect();
@@ -226,7 +229,7 @@ function applyContentFilter(records) {
     const status = document.getElementById('contentFilterStatus');
     if (status) {
         status.innerText = filter === 'all'
-            ? `Showing all ${visibleRecords.length} compatible submission(s) on this page.`
+            ? `Showing ${visibleRecords.length} compatible mod${visibleRecords.length === 1 ? '' : 's'} on this page.`
             : `Showing ${visibleRecords.length}; ${excluded} excluded by the visible Content filter.`;
     }
     return visibleRecords;
@@ -254,20 +257,28 @@ async function gameBananaLogin() {
 
     isGBLoggedIn = loggedin;
 
-    if (loggedin) {
-        var pic = await window.electronAPI.invoke('getGamebananaPic',[]);
-        document.getElementById('gbPic').src = pic;
-    }
-    else {
-        document.getElementById('gbPic').src = './img/mod-placeholder.png';
-    }
-
-    document.getElementById('gbPic').onclick = async () => {
+    const accountPicture = document.getElementById('gbPic');
+    accountPicture.onclick = async () => {
         window._pageArguments = {
             cat: 'gb'
         };
         page('options');
     };
+
+    if (loggedin) {
+        var pic = await window.electronAPI.invoke('getGamebananaPic',[]);
+        if (typeof pic === 'string' && pic.trim()) {
+            accountPicture.src = pic;
+            accountPicture.hidden = false;
+            accountPicture.onerror = () => {
+                accountPicture.hidden = true;
+                accountPicture.removeAttribute('src');
+            };
+            return;
+        }
+    }
+    accountPicture.hidden = true;
+    accountPicture.removeAttribute('src');
 };
 
 function roundViews(views) {
@@ -280,19 +291,29 @@ let capi = '';
 let csearch = '';
 
 async function search(searchQuery = null) {
-    let gameID = (await window.electronAPI.invoke('getCurrentGameInfo',[])).gamebanana.id;
     let query = searchQuery || document.getElementById('searchInput').value;
     if (searchQuery) {
         document.getElementById('searchInput').value = searchQuery;
     }
-    if (query.length < 3) {
-        await htmlAlert("Search query too short","Please enter at least 3 characters to search.",[{text:"Ok",resolveWith:'ok'}], 'error');
+    if (query.trim().length < 2) {
+        await htmlAlert("Search query too short","Please enter at least 2 characters to search.",[{text:"Ok",resolveWith:'ok'}], 'error');
         return;
     }
 
-    // TODO: Implement author lookup and other search features if needed
+    if (SHOP_PROVIDER !== 'gamebanana') {
+        window._pageArguments = {
+            provider: SHOP_PROVIDER,
+            sourceQuery: query.trim()
+        };
+        page('gamebanana-browse');
+        return;
+    }
+
+    let gameID = (await window.electronAPI.invoke('getCurrentGameInfo',[])).gamebanana.id;
+
     {
-        // general lookup
+        // Search names, descriptions, owners, credits, and studios in one
+        // request so creator names work without a separate author-only mode.
         window._pageArguments.gbAPI = 'https://gamebanana.com/apiv11/Util/Search/Results?_sModelName=Mod&_sOrder=best_match&_sSearchString=' + encodeURIComponent(query) + '&_csvFields=name%2Cdescription%2Carticle%2Cattribs%2Cstudio%2Cowner%2Ccredits&_idGameRow=' + gameID + '&_nPage=$PAGE';
         window._pageArguments.gbAPIFilter = async function(data) {
             return data;
@@ -423,7 +444,7 @@ async function renderMods(table, GB_API, filter, gameID) {
 
                 var td0 = document.createElement('td');
                 td0.style.display = 'flex';
-                td0.style.alignItems = 'top';
+                td0.style.alignItems = 'flex-start';
                 td0.style.gap = '8px';
                 td0.style.justifyContent = 'left';
                 // Rendering of td0
@@ -496,16 +517,6 @@ async function renderMods(table, GB_API, filter, gameID) {
                     smallImg.style.cursor = 'pointer';
                     gridSmallImages.appendChild(smallImg);
                 });
-
-                var emptySpaces = 9 - thumbs.slice(0, 9).length;
-                for (let j = 0; j < emptySpaces; j++) {
-                    var emptyDiv = document.createElement('div');
-                    emptyDiv.style.width = '30px';
-                    emptyDiv.style.aspectRatio = '16 / 9';
-                    emptyDiv.style.borderRadius = '4px';
-                    emptyDiv.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                    gridSmallImages.appendChild(emptyDiv);
-                }
 
                 div0.appendChild(gridSmallImages);
                 div0.appendChild(img);
@@ -817,6 +828,280 @@ async function renderMods(table, GB_API, filter, gameID) {
     firstgeneration = false;
 }
 
+function renderSourceState(table, title, message, action = null) {
+    table.closest('table')?.classList.add('is-state');
+    table.replaceChildren();
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 2;
+    td.className = 'shop-state';
+    const heading = document.createElement('h2');
+    heading.innerText = title;
+    const detail = document.createElement('p');
+    detail.className = 'calibri';
+    detail.innerText = message;
+    td.append(heading, detail);
+    if (action) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.innerText = action.label;
+        button.onclick = action.run;
+        td.appendChild(button);
+    }
+    tr.appendChild(td);
+    table.appendChild(tr);
+}
+
+function formatSourceDate(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.valueOf())) return 'Date unavailable';
+    return new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+    }).format(date);
+}
+
+function setExternalSourceControlsDisabled(disabled) {
+    document.getElementById('searchInput').disabled = disabled;
+    document.getElementById('modShopSearchButton').disabled = disabled;
+    const sort = document.getElementById('nexusSort');
+    if (sort) sort.disabled = disabled;
+}
+
+async function downloadNexusSource(item, button) {
+    const operationId = crypto.randomUUID();
+    const original = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = icon('progress_activity', '0.9em');
+    const unsubscribe = window.communityAPI.modSources.onProgress(progress => {
+        if (progress.operationId !== operationId) return;
+        if (progress.phase === 'download' && progress.total > 0) {
+            const percentage = Math.max(0, Math.min(100, (progress.completed / progress.total) * 100));
+            button.classList.add('download-progress');
+            button.style.setProperty('--download-progress', `${percentage}%`);
+        }
+    });
+    try {
+        await window.communityAPI.modSources.downloadNexus({
+            modId: item.id,
+            operationId,
+            sourceUrl: item.sourceUrl
+        });
+        button.innerHTML = icon('done_outline', '0.9em');
+    } catch (error) {
+        button.innerHTML = icon('cancel', '0.9em');
+        const manual = error?.code === 'NEXUS_MANUAL_DOWNLOAD_REQUIRED'
+            || /non-premium|website/i.test(error?.message || '');
+        const choice = await htmlAlert(
+            manual ? 'Download confirmation required' : 'Nexus Mods download failed',
+            manual
+                ? 'Nexus Mods requires this download to be confirmed on its website. The mod page can be opened now.'
+                : (error?.message || 'The archive could not be downloaded and imported.'),
+            manual
+                ? [
+                    { text: 'Open mod page', resolveWith: 'open' },
+                    { text: 'Cancel', resolveWith: 'cancel' }
+                ]
+                : [{ text: 'OK', resolveWith: 'ok' }],
+            manual ? undefined : 'error'
+        );
+        if (choice === 'open') {
+            await window.communityAPI.modSources.open({ provider: 'nexus', url: item.sourceUrl });
+        }
+    } finally {
+        unsubscribe();
+        button.disabled = false;
+        button.classList.remove('download-progress');
+        button.style.removeProperty('--download-progress');
+        if (button.textContent === '') button.innerHTML = original;
+    }
+}
+
+function renderExternalMods(table, result) {
+    table.closest('table')?.classList.remove('is-state');
+    table.replaceChildren();
+    const items = Array.isArray(result?.items) ? result.items : [];
+    const status = document.getElementById('contentFilterStatus');
+    const attribution = document.getElementById('sourceAttribution');
+    status.innerText = SHOP_PROVIDER === 'moddb'
+        ? `Showing ${items.length} recent ModDB download${items.length === 1 ? '' : 's'} from the RSS feed.`
+        : `Showing ${items.length} Nexus mod${items.length === 1 ? '' : 's'}.`;
+    attribution.replaceChildren(document.createTextNode(result?.attribution || ''));
+    if (SHOP_PROVIDER === 'moddb' && result?.catalogUrl) {
+        const browseFullCatalog = document.createElement('a');
+        browseFullCatalog.href = result.catalogUrl;
+        browseFullCatalog.className = 'source-catalog-link';
+        browseFullCatalog.innerText = 'Browse the full ModDB catalogue';
+        browseFullCatalog.onclick = event => {
+            event.preventDefault();
+            return window.communityAPI.modSources.open({
+            provider: 'moddb',
+            url: result.catalogUrl
+            });
+        };
+        attribution.append(' ', browseFullCatalog);
+    }
+
+    if (items.length === 0) {
+        renderSourceState(
+            table,
+            'No mods found',
+            SHOP_PROVIDER === 'moddb'
+                ? 'The RSS feed contains only recent ModDB downloads. Older entries may still be available in the complete catalogue.'
+                : 'Try another search or change the catalogue sort.',
+            SHOP_PROVIDER === 'moddb' && result?.catalogUrl ? {
+                label: 'Browse full ModDB catalogue',
+                run: () => window.communityAPI.modSources.open({
+                    provider: 'moddb',
+                    url: result.catalogUrl
+                })
+            } : null
+        );
+        return;
+    }
+
+    for (const item of items) {
+        const tr = document.createElement('tr');
+        const info = document.createElement('td');
+        info.style.display = 'flex';
+        info.style.alignItems = 'center';
+        info.style.gap = '14px';
+
+        const image = document.createElement('img');
+        image.className = 'modThumbImg';
+        image.width = 130;
+        image.height = 76;
+        image.loading = 'lazy';
+        image.alt = '';
+        image.src = item.imageUrl || './img/mod-placeholder.png';
+        image.onerror = () => {
+            image.onerror = null;
+            image.src = './img/mod-placeholder.png';
+        };
+        if (item.imageUrl) {
+            image.tabIndex = 0;
+            image.setAttribute('role', 'button');
+            image.setAttribute('aria-label', `Preview ${item.title}`);
+            image.onclick = () => openImageLightbox(item.title, [{
+                urlA: item.imageUrl,
+                urlB: item.imageUrl,
+                urlCard220: item.imageUrl,
+                urlCard530: item.imageUrl
+            }]);
+            image.onkeydown = event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    image.click();
+                }
+            };
+        }
+
+        const card = document.createElement('div');
+        card.className = 'external-source-card';
+        const title = document.createElement('span');
+        title.className = 'modTitleSpan';
+        title.innerText = item.title;
+        const badge = document.createElement('span');
+        badge.className = 'external-source-badge';
+        badge.innerText = SHOP_PROVIDER === 'moddb' ? 'ModDB' : 'Nexus Mods';
+        const meta = document.createElement('div');
+        meta.className = 'modOtherInfoSpan calibri';
+        meta.innerText = `${item.author} · ${formatSourceDate(item.updatedAt)}`;
+        const summary = document.createElement('div');
+        summary.className = 'external-source-summary calibri';
+        summary.innerText = item.summary || 'No description was provided.';
+        card.append(title, badge, meta);
+        if (item.contentRating === 'adult') {
+            const rating = document.createElement('span');
+            rating.className = 'content-rating-chip';
+            rating.innerText = 'Adult content';
+            card.appendChild(rating);
+        }
+        card.appendChild(summary);
+        info.append(image, card);
+
+        const actions = document.createElement('td');
+        const actionGroup = document.createElement('div');
+        actionGroup.className = 'external-source-actions';
+        const primary = document.createElement('button');
+        primary.type = 'button';
+        primary.title = item.actionLabel;
+        primary.setAttribute('aria-label', `${item.actionLabel}: ${item.title}`);
+        primary.innerHTML = icon(item.provider === 'nexus' ? 'download' : 'open_in_new', '0.9em');
+        primary.onclick = () => item.provider === 'nexus'
+            ? downloadNexusSource(item, primary)
+            : window.communityAPI.modSources.open({ provider: item.provider, url: item.sourceUrl });
+
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.title = 'Open source page';
+        open.setAttribute('aria-label', `Open ${item.title} on ${badge.innerText}`);
+        open.innerHTML = icon('open_in_new', '0.9em');
+        open.onclick = () => window.communityAPI.modSources.open({
+            provider: item.provider,
+            url: item.sourceUrl
+        });
+        actionGroup.append(primary);
+        if (item.provider === 'nexus') actionGroup.append(open);
+        actions.appendChild(actionGroup);
+        tr.append(info, actions);
+        table.appendChild(tr);
+    }
+}
+
+async function initializeExternalSource(table) {
+    setExternalSourceControlsDisabled(false);
+    const query = String(window._pageArguments?.sourceQuery || '').trim();
+    const sort = document.getElementById('nexusSort')?.value || 'latest_added';
+    if (query) {
+        document.getElementById('searchInput').value = query;
+        const searchIndicator = document.getElementById('searchInd');
+        searchIndicator.style.display = 'block';
+        searchIndicator.innerText = `Currently showing results for "${query}"`;
+    }
+    renderSourceState(table, 'Loading catalogue…', 'Fetching metadata from the selected provider.');
+    try {
+        const response = await window.communityAPI.modSources.browse({
+            provider: SHOP_PROVIDER,
+            query,
+            sort
+        });
+        if (!response?.ok) {
+            const error = new Error(
+                response?.error?.message || 'The selected mod catalogue could not be loaded.'
+            );
+            error.code = response?.error?.code || 'MOD_SOURCE_BROWSE_FAILED';
+            if (Number.isInteger(response?.error?.status)) {
+                error.status = response.error.status;
+            }
+            throw error;
+        }
+        if (isCurrentShopPage()) renderExternalMods(table, response.result);
+    } catch (error) {
+        if (!isCurrentShopPage()) return;
+        const needsNexusKey = error?.code === 'NEXUS_API_KEY_REQUIRED'
+            || error?.code === 'NEXUS_AUTH_FAILED';
+        setExternalSourceControlsDisabled(needsNexusKey);
+        renderSourceState(
+            table,
+            needsNexusKey ? 'Connect Nexus Mods' : 'Catalogue unavailable',
+            needsNexusKey
+                ? 'Connect your Nexus Mods account in Settings before browsing this catalogue.'
+                : (error?.message || 'The selected mod catalogue could not be loaded.'),
+            needsNexusKey ? {
+                label: 'Open Nexus Mods settings',
+                run: () => {
+                    window._pageArguments = { cat: 'nexus' };
+                    page('options');
+                }
+            } : {
+                label: 'Retry',
+                run: () => initializeExternalSource(table)
+            }
+        );
+    }
+}
+
 async function plusPage(amt) {
     if (
         !isCurrentShopPage() ||
@@ -836,9 +1121,56 @@ async function plusPage(amt) {
         page('main');
         return;
     }
+    let table = document.getElementById('modsBody');
+    const sourceSelect = document.getElementById('modSourceSelect');
+    const providers = await window.communityAPI.modSources.providers();
+    const availableProviders = providers.filter(provider => provider.available);
+    if (!availableProviders.some(provider => provider.id === SHOP_PROVIDER)) {
+        SHOP_PROVIDER = availableProviders[0]?.id || 'gamebanana';
+    }
+    for (const provider of availableProviders) {
+        const option = document.createElement('option');
+        option.value = provider.id;
+        option.innerText = provider.name;
+        sourceSelect.appendChild(option);
+    }
+    sourceSelect.value = SHOP_PROVIDER;
+    sourceSelect.addEventListener('change', () => {
+        localStorage.setItem('modShopProvider', sourceSelect.value);
+        window._pageArguments = { provider: sourceSelect.value };
+        page('gamebanana-browse');
+    });
+    localStorage.setItem('modShopProvider', SHOP_PROVIDER);
+
+    const isGameBanana = SHOP_PROVIDER === 'gamebanana';
+    if (SHOP_PROVIDER === 'moddb') {
+        document.getElementById('searchInput').placeholder = 'Search recent ModDB downloads…';
+    }
+    document.getElementById('gamebananaFilterControls').hidden = !isGameBanana;
+    document.getElementById('nexusSortControls').hidden = SHOP_PROVIDER !== 'nexus';
+    document.getElementById('gbPic').hidden = true;
+    document.querySelector('.scrollBottomDetector').style.display = isGameBanana ? '' : 'none';
+
+    if (!isGameBanana) {
+        observer.disconnect();
+        const nexusSort = document.getElementById('nexusSort');
+        nexusSort.value = localStorage.getItem('nexusModSort') || 'latest_added';
+        nexusSort.addEventListener('change', () => {
+            localStorage.setItem('nexusModSort', nexusSort.value);
+            initializeExternalSource(table);
+        });
+        window.currentPageStack = {
+            ...window.currentPageStack,
+            table,
+            provider: SHOP_PROVIDER
+        };
+        await initializeExternalSource(table);
+        genbtnstyles();
+        return;
+    }
+
     let gameID = (await window.electronAPI.invoke('getCurrentGameInfo',[])).gamebanana.id;
     let GB_API = 'https://gamebanana.com/apiv11/Game/' + gameID + '/Subfeed?_sSort=default&_nPage=$PAGE';
-    let table = document.getElementById('modsBody');
     const contentRatingFilter = document.getElementById('contentRatingFilter');
     contentRatingFilter.value = currentContentFilter();
     contentRatingFilter.addEventListener('change', () => {
@@ -898,6 +1230,7 @@ searchel.addEventListener('keypress', function (e) {
 });
 
 searchel.addEventListener('focus', function (e) {
+    if (SHOP_PROVIDER !== 'gamebanana') return;
     autocomplete.style.opacity = '1';
     autocomplete.style.pointerEvents = 'auto';
 });
@@ -913,6 +1246,7 @@ let sval = 0;
 
 window._intervals = window._intervals || [];
 window._intervals.push(setInterval(async () => {
+    if (SHOP_PROVIDER !== 'gamebanana') return;
     var isFocused = document.activeElement === searchel;
     if (!isFocused) {
         autocomplete.style.opacity = '0';

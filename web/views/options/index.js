@@ -1,4 +1,10 @@
 (() => {
+const localize = (key, fallback, ...args) => (
+    window.Localization?.t(key, fallback, ...args) || fallback
+);
+const localizeKnown = value => (
+    window.Localization?.translateKnownText(value) || value
+);
 const setInterval = (handler, delay, ...args) => {
     const interval = window.setInterval(handler, delay, ...args);
     window._intervals = window._intervals || [];
@@ -16,6 +22,8 @@ function createSettingControlCell() {
 }
 
 async function addCheckboxOption(name, description, flagid, requiresRestart = false, changeHandler = (e) => {}) {
+    name = localizeKnown(name);
+    description = localizeKnown(description);
     const table = document.querySelector('tbody');
     const tr = document.createElement('tr');
 
@@ -72,6 +80,8 @@ window.electronAPI.invoke('isDevMode', []).then((devmode) => {
 });
 
 async function addSelectOption(name, description, options, requiresRestart = false, changeHandler = (val) => {}, defaultValue = '') {
+    name = localizeKnown(name);
+    description = localizeKnown(description);
     const table = document.querySelector('tbody');
     const tr = document.createElement('tr');
 
@@ -109,11 +119,11 @@ async function addSelectOption(name, description, options, requiresRestart = fal
         const opt = document.createElement('option');
         if (typeof option === 'object' && option !== null) {
             opt.value = option.value ?? option.id ?? option.key ?? '';
-            opt.innerText = option.label ?? option.name ?? String(opt.value);
+            opt.innerText = localizeKnown(option.label ?? option.name ?? String(opt.value));
             if (option.selected) select.value = opt.value;
         } else {
             opt.value = String(option);
-            opt.innerText = String(option);
+            opt.innerText = localizeKnown(String(option));
         }
         if (firstValue === '') firstValue = opt.value;
         select.appendChild(opt);
@@ -132,6 +142,11 @@ async function addSelectOption(name, description, options, requiresRestart = fal
 }
 
 async function addButton(name, description, click, buttonText, enabled = true, disabledReason = '', colour = '') {
+    name = localizeKnown(name);
+    description = localizeKnown(description);
+    buttonText = localizeKnown(buttonText);
+    disabledReason = localizeKnown(disabledReason);
+
     const table = document.querySelector('tbody');
     const tr = document.createElement('tr');
 
@@ -206,6 +221,10 @@ function appendPathValue(element, value) {
 }
 
 async function addInfoRow(name, value, description = '', valueKind = 'text') {
+    name = localizeKnown(name);
+    value = valueKind === 'path' ? value : localizeKnown(value);
+    description = localizeKnown(description);
+
     const table = document.querySelector('tbody');
     const tr = document.createElement('tr');
     const label = document.createElement('td');
@@ -226,6 +245,104 @@ async function addInfoRow(name, value, description = '', valueKind = 'text') {
         status.innerText = value;
     }
     tr.append(label, status);
+    table.appendChild(tr);
+}
+
+async function addLanguageOption(language, selected) {
+    const table = document.querySelector('tbody');
+    const tr = document.createElement('tr');
+    tr.className = 'language-option-row';
+
+    const details = document.createElement('td');
+    const option = document.createElement('div');
+    option.className = 'language-option';
+
+    const flag = document.createElement('img');
+    flag.className = 'language-option-flag';
+    flag.src = language.flag;
+    flag.alt = '';
+    flag.width = 42;
+    flag.height = 28;
+
+    const copy = document.createElement('div');
+    const name = document.createElement('strong');
+    name.className = 'setting-title';
+    name.textContent = language.name;
+
+    const metadata = document.createElement('small');
+    metadata.className = 'calibri';
+    metadata.textContent = `${language.author} · v${language.version}`;
+
+    copy.append(name, document.createElement('br'), metadata);
+    option.append(flag, copy);
+    details.appendChild(option);
+
+    const { td: action, control } = createSettingControlCell();
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.disabled = selected;
+    button.textContent = selected
+        ? localize('language_current', 'Current language')
+        : localize('select', 'Select');
+    button.addEventListener('click', async () => {
+        window._pageArguments = { cat: 'lang' };
+        await window.Localization.setLanguage(language.code);
+    });
+    control.appendChild(button);
+
+    tr.append(details, action);
+    table.appendChild(tr);
+}
+
+async function addNexusKeyRow() {
+    const table = document.querySelector('tbody');
+    const tr = document.createElement('tr');
+    tr.className = 'nexus-key-row';
+
+    const label = document.createElement('td');
+    const title = document.createElement('span');
+    title.className = 'setting-title';
+    title.innerText = 'Personal API key';
+    const description = document.createElement('small');
+    description.className = 'calibri';
+    description.innerText = 'Validated by Nexus Mods, then encrypted with the operating system before it is stored.';
+    label.append(title, document.createElement('br'), description);
+
+    const { td, control } = createSettingControlCell();
+    control.classList.add('nexus-key-control');
+    const input = document.createElement('input');
+    input.type = 'password';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.maxLength = 200;
+    input.placeholder = 'Paste API key';
+    input.setAttribute('aria-label', 'Nexus Mods personal API key');
+    const save = document.createElement('button');
+    save.innerText = 'Connect';
+    save.onclick = async () => {
+        const key = input.value.trim();
+        if (!key) return;
+        save.disabled = true;
+        save.innerText = 'Checking…';
+        try {
+            await window.communityAPI.modSources.setNexusKey(key);
+            input.value = '';
+            window._pageArguments = { cat: 'nexus' };
+            page('options');
+        } catch (error) {
+            await htmlAlert(
+                'Nexus Mods connection failed',
+                error?.message || 'The API key could not be validated.',
+                [{ text: 'OK', resolveWith: 'ok' }],
+                'error'
+            );
+        } finally {
+            save.disabled = false;
+            save.innerText = 'Connect';
+        }
+    };
+    control.append(input, save);
+    tr.append(label, td);
     table.appendChild(tr);
 }
 
@@ -310,11 +427,13 @@ window.currentPageStack.cat = async function(cat) {
     tbody.innerHTML = '';
 
     document.getElementById('b_gen').classList.remove('selected');
+    document.getElementById('b_lang').classList.remove('selected');
     document.getElementById('b_ui').classList.remove('selected');
     document.getElementById('b_inst').classList.remove('selected');
     document.getElementById('b_data').classList.remove('selected');
     document.getElementById('b_adv').classList.remove('selected');
     document.getElementById('b_gb').classList.remove('selected');
+    document.getElementById('b_nexus').classList.remove('selected');
     
     try {
         document.getElementById('b_dev').classList.remove('selected');
@@ -340,12 +459,43 @@ window.currentPageStack.cat = async function(cat) {
             await addButton("Open mod folder", "Open the folder where your mods are stored.", async () => {
                 await window.electronAPI.invoke('openSysFolder', ['mods']);
             }, "Open");
-            await addButton("Delete all Community data", "Deletes Community installations, mods, and options. Official Deltamod data is not changed.", async () => {
+            await addButton(
+                localize('community_delete_data_title', "Delete all Community data"),
+                localize('community_delete_data_desc', "Deletes Community installations, mods, and options. Official Deltamod data is not changed."),
+                async () => {
                 page('deleteall');
-            }, "Delete", true, '', 'red');
+                },
+                "Delete",
+                true,
+                '',
+                'red'
+            );
             await addCheckboxOption("Prompt controller mode when available", "When enabled, you will be asked to activate Controller Mode when a compatible controller is attached. Currently only compatible with DualSense.", 'CONTROLLER');
-            await addCheckboxOption("Enable hash checks", "Checks mod hashes for compatibility. This may make scans slower.", 'hashchecks', true);
+            await addCheckboxOption(
+                localize('community_hash_title', "Enable hash checks"),
+                localize('community_hash_desc', "Checks mod hashes for compatibility. This may make scans slower."),
+                'hashchecks',
+                true
+            );
             break;
+        case 'lang': {
+            await addRowHeader(`${icon('language', '20px')} ${localize('optcat_lang', 'Language')}`);
+            await addInfoRow(
+                localize('language_current', 'Current language'),
+                window.Localization.getLanguage().toUpperCase(),
+                localize(
+                    'language_help',
+                    'Choose the language used by Deltamod Community. New Community features may fall back to English until their translations are updated.'
+                )
+            );
+
+            const languages = await window.Localization.getLanguages();
+            const currentLanguage = window.Localization.getLanguage();
+            for (const language of languages) {
+                await addLanguageOption(language, language.code === currentLanguage);
+            }
+            break;
+        }
         case 'ui':
             await addCheckboxOption("Enable music in menus", "Plays background music in the main menus.", 'audio', false, async (enabled) => {
                 if (enabled) {
@@ -353,11 +503,16 @@ window.currentPageStack.cat = async function(cat) {
                     a.src = 'audio/orch1.mp3';
                     a.playbackRate = 1.3;
                     a.play();
-                    currentAudio = "";
-                    await page(pageN);
+                    if (themeUsesIntegratedVideoAudio()) {
+                        setThemeVideoAudioEnabled(true);
+                    } else {
+                        currentAudio = "";
+                        await page(pageN);
+                    }
                 }
                 else {
                     releaseAudioBuffer();
+                    setThemeVideoAudioEnabled(false);
                 }
             });
             await addCheckboxOption("Enable SFX in menus", "Plays sound effects in the main menus.", 'sfx', false, (enabled) => {
@@ -368,10 +523,18 @@ window.currentPageStack.cat = async function(cat) {
                     a.play();
                 }
             });
-            await addCheckboxOption("Enable dynamic music", "Enables dynamic background music that changes based on the page. If unchecked, always plays the default music for your theme.", 'dynamusic', true);
+            await addCheckboxOption(
+                localize('community_dynamic_music_title', "Enable dynamic music"),
+                localize(
+                    'community_dynamic_music_desc',
+                    "Enables dynamic background music that changes based on the page. If unchecked, always plays the default music for your theme."
+                ),
+                'dynamusic',
+                true
+            );
 
             await addSelectOption(
-                "Alert alignment",
+                localize('community_alert_alignment', "Alert alignment"),
                 "Choose how alerts are positioned on the screen.",
                 [
                     { value: "Top", label: "Top" },
@@ -558,12 +721,117 @@ window.currentPageStack.cat = async function(cat) {
             }
             else {
                 await addButton("Login", "Adds a GameBanana account to Deltamod.", async () => {
-                    await window.electronAPI.invoke('loginGamebanana', []);
-                    window._pageArguments = {cat: 'gb'};
-                    page('options');
+                    try {
+                        const loggedIn = await window.electronAPI.invoke('loginGamebanana', []);
+                        if (loggedIn) {
+                            window._pageArguments = {cat: 'gb'};
+                            page('options');
+                        }
+                    } catch (error) {
+                        await htmlAlert(
+                            'GameBanana login failed',
+                            error?.message || 'GameBanana could not verify the signed-in account.',
+                            [{ text: 'OK', resolveWith: 'ok' }],
+                            'error'
+                        );
+                    }
                 }, "Login", !gamebananaUserinfo.loggedIn, "You are already logged in to GameBanana.", '');
             }
             break;
+        case 'nexus': {
+            await addRowHeader(`${icon('key', '20px')} Nexus Mods`);
+            const status = await window.communityAPI.modSources.nexusStatus();
+            if (status.connected) {
+                await addInfoRow('Connection', `Connected as ${status.name}`);
+                await addInfoRow(
+                    'Authentication',
+                    status.authMethod === 'sso' ? 'Nexus Mods single sign-on' : 'Personal API key (beta fallback)'
+                );
+                await addInfoRow(
+                    'Download access',
+                    status.premium ? 'Premium API downloads available' : 'Website confirmation may be required',
+                    status.premium
+                        ? 'Compatible archives can be downloaded and imported directly.'
+                        : 'Nexus Mods restricts direct API downloads for non-premium accounts.'
+                );
+                await addButton(
+                    'Disconnect Nexus Mods',
+                    'Removes the encrypted Nexus Mods credential from this device.',
+                    async () => {
+                        await window.communityAPI.modSources.clearNexusKey();
+                        window._pageArguments = { cat: 'nexus' };
+                        page('options');
+                    },
+                    'Disconnect'
+                );
+            } else {
+                await addInfoRow(
+                    'Connection',
+                    status.configured ? 'Saved key needs attention' : 'Not connected',
+                    status.error || 'Connect a Nexus Mods account to browse its catalogue.'
+                );
+                if (status.ssoAvailable) {
+                    let signingIn = false;
+                    let ssoButton;
+                    const toggleSso = async () => {
+                        if (signingIn) {
+                            await window.communityAPI.modSources.cancelNexusSso();
+                            return;
+                        }
+                        signingIn = true;
+                        ssoButton.innerText = 'Cancel sign-in';
+                        try {
+                            await window.communityAPI.modSources.startNexusSso();
+                            window._pageArguments = { cat: 'nexus' };
+                            page('options');
+                        } catch (error) {
+                            if (error?.code !== 'NEXUS_SSO_CANCELLED') {
+                                await htmlAlert(
+                                    'Nexus Mods sign-in failed',
+                                    error?.message || 'The Nexus Mods account could not be connected.',
+                                    [{ text: 'OK', resolveWith: 'ok' }],
+                                    'error'
+                                );
+                            }
+                        } finally {
+                            signingIn = false;
+                            ssoButton.innerText = 'Sign in';
+                        }
+                    };
+                    ssoButton = await addButton(
+                        'Sign in with Nexus Mods',
+                        'Opens Nexus Mods in your browser. Authorization returns directly to Community; no API key needs to be copied.',
+                        toggleSso,
+                        status.ssoPending ? 'Cancel sign-in' : 'Sign in'
+                    );
+                    signingIn = Boolean(status.ssoPending);
+                } else {
+                    await addInfoRow(
+                        'Single sign-on',
+                        'Awaiting Nexus registration',
+                        'The integration is implemented, but Nexus Mods must issue the application slug before this button can be enabled.'
+                    );
+                }
+                if (status.personalKeyFallbackAllowed) {
+                    await addInfoRow(
+                        'Beta fallback',
+                        'Personal API key',
+                        'Available only in testing builds or while public SSO registration is pending.'
+                    );
+                    await addNexusKeyRow();
+                }
+            }
+            await addButton(
+                'Nexus Mods API access',
+                'Opens the official Nexus Mods page where personal API keys are managed.',
+                () => window.communityAPI.modSources.open({
+                    provider: 'nexus',
+                    url: 'https://www.nexusmods.com/users/myaccount?tab=api%20access'
+                }),
+                'Open key page'
+            );
+            break;
+        }
     }
     // theme adjustments
     // as far as i know this page is the only page that needs ts

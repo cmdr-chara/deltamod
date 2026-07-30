@@ -1,20 +1,20 @@
 <div class="content-page mods-page library-page">
     <div class="library-toolbar">
         <div class="page-heading">
-            <h1>All installed mods</h1>
-            <p>Browse and manage installed packages.</p>
+            <h1>$$allModsTitle$$</h1>
+            <p>$$community_allmods_subtitle$$</p>
         </div>
         <div class="library-filter">
-            <label for="gamesShow">Installation</label>
+            <label for="gamesShow">$$installation$$</label>
             <select name="gamesShow" id="gamesShow">
-                <option value="all">All installations</option>
+                <option value="all">$$installmanager_title$$</option>
             </select>
         </div>
     </div>
     <div class="mods-scroll">
         <div style="display: none;" class="modlist-error" id="error-banner">
-            <h2>{0} mod(s) failed to load</h2>
-            <span class="calibri">Click on this banner to view more details.</span>
+            <h2>$$modFail_bannerTitle$$</h2>
+            <span class="calibri">$$modFail_bannerClick$$</span>
         </div>
         <table id="modtable">
             <colgroup>
@@ -23,8 +23,8 @@
             </colgroup>
             <thead style="position: sticky; top: -2px;">
                 <tr>
-                    <th>Mod</th>
-                    <th>Actions</th>
+                    <th>$$mod$$</th>
+                    <th>$$actions$$</th>
                 </tr>
             </thead>
             <tbody id="modlist">
@@ -33,8 +33,8 @@
     </div>
 
     <dialog class="error-list-dialog" id="error-list-dialog">
-            <h2>Some mods failed to load</h2>
-            <span class="calibri">Some mods didn't load correctly. Here are the details:</span>
+            <h2>$$modFail_dialogTitle$$</h2>
+            <span class="calibri">$$modFail_dialogSubtitle$$</span>
             <div class="error-list-div" id="error-list-div">
 
             </div>
@@ -47,4 +47,4 @@
 JSL
 AUDIO[mainTheme.mp3]
 STYLESHEET[../main/main]
-TITLE[All installed mods]
+TITLE[$$allModsTitle$$]

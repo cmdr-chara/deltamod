@@ -1,3 +1,7 @@
+// Copyright © 2026 cmdr-chara
+// Modified for Deltamod Community on 2026-07-29.
+// Licensed under the EUPL 1.2.
+
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -164,7 +168,7 @@ async function acquireTarget(provenance, targetName) {
         }
 
         fs.renameSync(staging, destination);
-        if (targetName.startsWith('linux-')) fs.chmodSync(path.join(destination, artifact.executable), 0o755);
+        if (!targetName.startsWith('win32-')) fs.chmodSync(path.join(destination, artifact.executable), 0o755);
         verifyInstallation(root, provenance, targetName);
         console.log(`G3MTool ${targetName} acquired from the pinned upstream release and checksum-verified.`);
     } finally {

@@ -1,0 +1,47 @@
+{
+    "name": "Chara",
+    "background": "chara-theme.jpg",
+    "backgroundVideo": "chara-theme.mp4",
+    "videoHasAudio": true,
+    "description": "A hidden animated theme featuring Clara Kraft's Chara response.",
+    "mainSong": "mainTheme1.mp3",
+    "musicTrack": "Stronger than You - Chara response",
+    "id": "chara",
+    "color": "rgb(219, 34, 24)",
+    "soulColor": "#FF0000",
+    "hiddenByDefault": true,
+    "credits": [
+        {
+            "role": "Video, animation, and Chara response",
+            "name": "Clara Kraft",
+            "url": "https://www.youtube.com/watch?v=qg9IMJKnIAA"
+        },
+        {
+            "role": "Vocals and lyrics",
+            "name": "Milkychan",
+            "url": "https://www.youtube.com/channel/UC8aqrd64EoFHLjbQtEXFf_w"
+        },
+        {
+            "role": "Original song",
+            "name": "Estelle and Rebecca Sugar"
+        },
+        {
+            "role": "Instrumental cover",
+            "name": "Mémoire"
+        },
+        {
+            "role": "8-bit instrumental",
+            "name": "Soreperior",
+            "url": "https://www.youtube.com/watch?v=sT3N-pD_hGU"
+        },
+        {
+            "role": "Original parody",
+            "name": "djsmell",
+            "url": "https://www.youtube.com/watch?v=GPBBo1neb2U"
+        },
+        {
+            "role": "UNDERTALE",
+            "name": "Toby Fox"
+        }
+    ]
+}

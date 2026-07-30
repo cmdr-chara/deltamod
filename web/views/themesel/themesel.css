@@ -1,0 +1,623 @@
+.theme-page-heading {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.theme-page-heading h1 {
+    margin: 0.7rem 0 0.15rem;
+}
+
+.theme-page-heading p {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.76);
+}
+
+.theme-back-button {
+    background: rgba(255, 255, 255, 0.13) !important;
+}
+
+.theme-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: grid;
+    grid-template-columns: minmax(16rem, 1fr) auto;
+    align-items: end;
+    gap: 1rem;
+    margin-bottom: 0.85rem;
+    padding: 0.75rem;
+    border-radius: 12px;
+    background: rgba(9, 8, 9, 0.94);
+}
+
+.theme-search {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.theme-search input {
+    width: 100%;
+    min-width: 0;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.68);
+    color: white;
+    font: inherit;
+}
+
+.theme-search input:focus-visible {
+    outline: 2px solid var(--theme-color);
+    outline-offset: 2px;
+}
+
+#theme-count {
+    color: rgba(255, 255, 255, 0.7);
+    white-space: nowrap;
+}
+
+.theme-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.8rem;
+}
+
+.theme-card {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 9.5rem minmax(0, 1fr);
+    grid-template-rows: minmax(7.6rem, auto) auto;
+    overflow: hidden;
+    border-radius: 12px;
+    background: rgba(9, 8, 9, 0.88);
+}
+
+.theme-card[hidden] {
+    display: none;
+}
+
+.theme-card.is-current {
+    box-shadow: inset 0 0 0 2px var(--theme-color);
+}
+
+.theme-card-preview {
+    grid-row: 1 / 3;
+    min-height: 10.5rem;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+}
+
+.theme-card-content {
+    min-width: 0;
+    padding: 0.9rem 1rem 0.55rem;
+}
+
+.theme-card-heading {
+    display: grid;
+    grid-template-columns: 0.8rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.theme-card-heading h2 {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    font-size: 1.1rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.theme-accent {
+    width: 0.8rem;
+    height: 0.8rem;
+    border: 1px solid rgba(255, 255, 255, 0.76);
+    border-radius: 3px;
+}
+
+.theme-source {
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 0.68rem;
+    white-space: nowrap;
+}
+
+.theme-description {
+    display: -webkit-box;
+    min-height: 2.6em;
+    margin: 0.55rem 0;
+    overflow: hidden;
+    color: rgba(255, 255, 255, 0.82);
+    font-family: Calibri, "Segoe UI", sans-serif;
+    line-height: 1.3;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.theme-music {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: rgba(255, 255, 255, 0.68);
+    font-family: Calibri, "Segoe UI", sans-serif;
+    font-size: 0.82rem;
+}
+
+.theme-music span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.theme-credits {
+    margin-top: 0.55rem;
+    color: rgba(255, 255, 255, 0.76);
+    font-family: Calibri, "Segoe UI", sans-serif;
+    font-size: 0.78rem;
+}
+
+.theme-credits summary {
+    width: fit-content;
+    color: rgba(255, 255, 255, 0.88);
+    cursor: pointer;
+}
+
+.theme-credits ul {
+    display: grid;
+    gap: 0.22rem;
+    margin: 0.45rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.theme-credits a {
+    color: var(--theme-color);
+}
+
+.theme-card-actions {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: end;
+    gap: 0.45rem;
+    padding: 0.55rem 0.75rem 0.75rem;
+}
+
+.theme-card-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+}
+
+.theme-select-button:disabled {
+    opacity: 0.58;
+}
+
+.theme-delete-button {
+    background: rgba(255, 255, 255, 0.12) !important;
+}
+
+.is-editable {
+    cursor: text;
+}
+
+.is-editable:focus {
+    outline: 2px solid var(--theme-color);
+    outline-offset: 2px;
+}
+
+.theme-import {
+    max-width: 52rem;
+}
+
+#theme-import-form {
+    margin-bottom: 0.85rem;
+    padding: 1rem;
+    border-radius: 12px;
+    background: rgba(9, 8, 9, 0.94);
+}
+
+#theme-import-form[hidden],
+#open-theme-import[hidden],
+#theme-empty[hidden] {
+    display: none;
+}
+
+.theme-import-copy h2,
+#theme-empty h2 {
+    margin: 0 0 0.25rem;
+    font-size: 1.15rem;
+}
+
+.theme-import-copy p,
+#theme-empty p {
+    margin: 0;
+    max-width: 62ch;
+    color: rgba(255, 255, 255, 0.76);
+    line-height: 1.45;
+}
+
+#theme-import-form > label:not(.theme-import-music) {
+    display: grid;
+    grid-template-columns: 9rem minmax(0, 1fr);
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.65rem;
+}
+
+#theme-import-form input[type="text"],
+#theme-import-form textarea {
+    width: 100%;
+    min-width: 0;
+    padding: 0.65rem 0.75rem;
+    resize: vertical;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.68);
+    color: white;
+    font: inherit;
+}
+
+#theme-import-form input[type="text"]:focus-visible,
+#theme-import-form textarea:focus-visible {
+    outline: 2px solid var(--theme-color);
+    outline-offset: 2px;
+}
+
+.theme-import-music {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-top: 0.9rem;
+}
+
+.theme-import-music input {
+    width: 1.1rem;
+    height: 1.1rem;
+}
+
+.theme-import-actions {
+    display: flex;
+    gap: 0.55rem;
+    margin-top: 1rem;
+}
+
+.secondary-button {
+    background: rgba(255, 255, 255, 0.13) !important;
+}
+
+#theme-import-status {
+    min-height: 1.25rem;
+    margin: 0.75rem 0 0;
+    color: rgba(255, 255, 255, 0.78);
+}
+
+#theme-empty {
+    padding: 2rem;
+    text-align: center;
+    border-radius: 12px;
+    background: rgba(9, 8, 9, 0.88);
+}
+
+@media (max-width: 1120px) {
+    .theme-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 700px) {
+    .theme-page-heading {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .theme-toolbar,
+    .theme-search {
+        grid-template-columns: 1fr;
+    }
+
+    .theme-card {
+        grid-template-columns: 7rem minmax(0, 1fr);
+    }
+
+    #theme-import-form > label:not(.theme-import-music) {
+        grid-template-columns: 1fr;
+        gap: 0.35rem;
+    }
+}
+
+body.chara-sequence-active {
+    overflow: hidden;
+}
+
+.chara-easter-egg {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483000;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background: #000;
+    color: #fff;
+    font-family: "Pixel", monospace;
+    cursor: default;
+    user-select: none;
+}
+
+.chara-easter-egg:focus {
+    outline: none;
+}
+
+.chara-stage {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+    grid-template-rows: minmax(0.5rem, 1fr) auto auto auto minmax(0.5rem, 0.7fr);
+    justify-items: center;
+    overflow: hidden;
+    padding: clamp(0.75rem, 2vh, 1.5rem) clamp(0.75rem, 3vw, 2rem);
+}
+
+.chara-stage[hidden] {
+    display: none !important;
+}
+
+.chara-portrait-frame {
+    grid-row: 2;
+    display: grid;
+    width: 95px;
+    height: 170px;
+    flex: 0 0 auto;
+    place-items: end center;
+    transform-origin: 50% 58%;
+}
+
+.chara-portrait {
+    width: 95px;
+    max-width: none;
+    height: auto;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+}
+
+.chara-dialogue {
+    position: relative;
+    grid-row: 3;
+    width: min(90vw, 760px);
+    min-height: 7.2rem;
+    box-sizing: border-box;
+    margin-top: clamp(1.5rem, 4vh, 3.5rem);
+    padding: 0.75rem 1rem 1.6rem;
+}
+
+.chara-dialogue-text {
+    width: min(82vw, 500px);
+    margin: 0 auto;
+    color: #fff;
+    font: normal 30px/1.35 "Pixel", monospace;
+    letter-spacing: 0.04em;
+    text-align: left;
+    white-space: pre-line;
+}
+
+.chara-continue-indicator {
+    display: none;
+}
+
+.chara-continue-indicator.is-ready {
+    display: none;
+}
+
+.chara-choices {
+    grid-row: 4;
+    display: flex;
+    gap: clamp(1rem, 5vw, 4rem);
+    justify-content: center;
+    margin-top: clamp(0.25rem, 1.5vh, 0.8rem);
+}
+
+.chara-choices[hidden] {
+    display: none;
+}
+
+.chara-easter-egg .chara-choices .chara-choice,
+.chara-easter-egg .chara-choices .chara-choice:not(:hover) {
+    min-width: 8.5rem;
+    appearance: none;
+    padding: 0.35rem 0.5rem !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    color: #fff !important;
+    font: normal 26px/1 "Pixel", monospace !important;
+}
+
+.chara-easter-egg .chara-choices .chara-choice:hover,
+.chara-easter-egg .chara-choices .chara-choice:focus-visible {
+    outline: 0;
+    background: transparent !important;
+    color: #ffff00 !important;
+    text-shadow: none;
+}
+
+.chara-easter-egg.is-red-flashing::before {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: #f00;
+    content: "";
+    opacity: 0;
+    pointer-events: none;
+    animation: chara-red-flash 120ms steps(2, end) infinite;
+}
+
+.chara-portrait-frame.is-weird {
+    transform: scale(1);
+}
+
+.chara-portrait-frame.is-lunging {
+    animation:
+        chara-lunge 2500ms steps(32, end) forwards,
+        chara-screen-shake 82ms steps(2, end) infinite;
+}
+
+.chara-strike {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 4;
+    width: auto;
+    height: 122vh;
+    max-width: none;
+    transform: translate(-50%, -50%) rotate(-13deg);
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    pointer-events: none;
+}
+
+.chara-strike[hidden] {
+    display: none;
+}
+
+.chara-number-screen {
+    position: fixed;
+    inset: -18px;
+    z-index: 5;
+    display: none;
+    background-color: #000;
+    background-image: url("../../assets/chara-easter-egg/num9-tile.png");
+    background-position: 0 0;
+    background-repeat: repeat;
+    background-size: 72px 72px;
+    image-rendering: pixelated;
+}
+
+.chara-number-screen.is-visible {
+    display: block;
+    animation: chara-number-shake 52ms steps(2, end) infinite;
+}
+
+.chara-easter-egg.is-window-shake-fallback {
+    animation: chara-window-shake-fallback 44ms steps(2, end) infinite;
+}
+
+@keyframes chara-red-flash {
+    50% {
+        opacity: 0.23;
+    }
+}
+
+@keyframes chara-lunge {
+    0%,
+    12% {
+        transform: scale(1);
+    }
+    38% {
+        transform: scale(1.28);
+    }
+    67% {
+        transform: scale(1.75);
+    }
+    86% {
+        transform: scale(2.2);
+    }
+    100% {
+        transform: scale(2.65);
+    }
+}
+
+@keyframes chara-window-shake-fallback {
+    0% {
+        transform: translateX(-12px);
+    }
+    50% {
+        transform: translateX(11px);
+    }
+    100% {
+        transform: translateX(-8px);
+    }
+}
+
+@keyframes chara-screen-shake {
+    0% {
+        margin: -8px 0 0 -10px;
+    }
+    25% {
+        margin: 7px 0 0 9px;
+    }
+    50% {
+        margin: -5px 0 0 12px;
+    }
+    75% {
+        margin: 10px 0 0 -7px;
+    }
+    100% {
+        margin: -8px 0 0 -10px;
+    }
+}
+
+@keyframes chara-number-shake {
+    0% {
+        transform: translate(-7px, 5px);
+    }
+    50% {
+        transform: translate(8px, -6px);
+    }
+    100% {
+        transform: translate(-4px, -8px);
+    }
+}
+
+@media (max-height: 700px), (max-width: 800px) {
+    .chara-portrait-frame {
+        width: 76px;
+        height: 136px;
+    }
+
+    .chara-portrait {
+        width: 76px;
+    }
+
+    .chara-dialogue {
+        min-height: 5.8rem;
+        margin-top: clamp(1rem, 3vh, 2rem);
+    }
+
+    .chara-dialogue-text {
+        width: min(82vw, 430px);
+        font-size: 26px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chara-easter-egg.is-red-flashing::before {
+        opacity: 0.15;
+    }
+
+    .chara-portrait-frame.is-lunging {
+        animation: none;
+        transform: scale(2.4);
+    }
+
+    .chara-number-screen.is-visible {
+        transform: none;
+    }
+}

@@ -5,7 +5,7 @@
 }
 
 @keyframes spawn {
-    0% { opacity: 0; transform: translateY(-20px); }
+    0% { opacity: 0; transform: translateY(-6px); }
     100% { opacity: 1; transform: translateY(0); }
 }
 
@@ -87,7 +87,7 @@
 }
 
 #next:hover {
-    transform: scale(1.2);
+    color: rgb(15, 15, 15);
 }
 
 /* Small text */
@@ -110,6 +110,6 @@ small {
     padding: 10px;
     border-radius: 10px;
     overflow: hidden;
-    animation: spawn 0.5s ease-in-out;
+    animation: spawn var(--motion-standard) var(--motion-ease-out);
     box-sizing: border-box;
 }

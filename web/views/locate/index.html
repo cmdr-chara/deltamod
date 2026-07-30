@@ -1,32 +1,32 @@
 <div>
-    <h1>Locate your game</h1>
-    <p class="calibri">To use Deltamod Community, locate a supported game installation.</p>
+    <h1>$$locate_title$$</h1>
+    <p class="calibri">$$locate_desc$$</p>
     <hr>
     <div>
         <p style="display: flex; justify-content: left; align-items: center; gap: 10px;">
         <span class="material-symbols-outlined">gamepad_up</span>
-        Select the game you are trying to add.
+        $$locate_selectgame$$
         </p>
         <div class="gOptions">
 
         </div>
         <p style="display: flex; justify-content: left; align-items: center; gap: 10px;">
         <span class="material-symbols-outlined">folder</span>
-        Select the folder where your game is installed.
+        $$locate_selectfolder$$
         </p>
         <div class="fileInput" style="display: flex; justify-content: left; align-items: center; gap: 5px;">
-            <input type="text" name="" id="dpath" placeholder="Path to your game installation" style="width: 100%;">
+            <input type="text" name="" id="dpath" placeholder="$$locate_path_placeholder$$" style="width: 100%;">
             <button onclick="window.currentPageStack.locateDelta()">
                 <span class="material-symbols-outlined" style="font-size: 17px;">folder_open</span>
             </button>
         </div>
-        <p class="smaller">These other methods are also available for importing the game:</p>
+        <p class="smaller">$$locate_other_methods$$</p>
         <div class="otherImports">
             <button onclick="window.currentPageStack.steam()" id="feat_steam">
-                <brand-icon style="font-size: 14px;">S</brand-icon> Import from Steam
+                <brand-icon style="font-size: 14px;">S</brand-icon> $$locate_steam_import$$
             </button>
             <button onclick="window.currentPageStack.downloadDelta()" id="feat_autodownload">
-                <span class="material-symbols-outlined" style="font-size: 14px;">cloud_download</span> Automatic download
+                <span class="material-symbols-outlined" style="font-size: 14px;">cloud_download</span> $$locate_autodownload$$
             </button>
         </div>
     </div>
@@ -34,7 +34,7 @@
     <hr>
     <div class="copyAnyways">
         <input type="checkbox" name="" id="copyAnyways">
-        <label for="copyAnyways">Save a copy of this game on your main drive</label>
+        <label for="copyAnyways">$$locate_copyanyways$$</label>
     </div>
     <section id="gameImportProgress" class="importProgress" hidden aria-live="polite">
         <div><strong id="gameImportPhase">Preparing import…</strong> <span id="gameImportAmount"></span></div>
@@ -43,7 +43,7 @@
         <button id="cancelGameImport" type="button">Cancel import</button>
     </section>
     <br>
-    <button onclick="window.currentPageStack.id()">Save and close</button>
+    <button onclick="window.currentPageStack.id()">$$save_and_close$$</button>
     <br><br>
 </div>
 <style>
@@ -51,16 +51,22 @@
         width: 30px;
         opacity: 0.4;
         padding: 10px;
+        border-radius: var(--control-radius);
+        background: transparent;
         cursor: pointer;
-        transition: all 0.3s ease;
+        transition:
+            background-color var(--motion-fast) var(--motion-ease-out),
+            box-shadow var(--motion-fast) var(--motion-ease-out),
+            opacity var(--motion-fast) linear;
     }
     .gameIco:hover {
-        scale: 1.1;
         opacity: 0.8;
+        background: rgba(255, 255, 255, 0.08);
     }
     .gameIco.selectedGameIco {
-        scale: 1.3;
         opacity: 1;
+        background: var(--theme-color-point2);
+        box-shadow: inset 0 0 0 2px var(--theme-color);
     }
     .copyAnyways {
         display: flex;
@@ -120,4 +126,4 @@
 </style>
 JSL
 AUDIO[mainTheme.mp3]
-TITLE[Locate your game]
+TITLE[$$locate_title$$]

@@ -58,7 +58,7 @@
 }
 
 .viewport #modtable tr {
-    transition: background-color 0.1s ease;
+    transition: background-color var(--motion-fast) var(--motion-ease-out);
 }
 
 .viewport #modtable tr:hover {
@@ -83,8 +83,8 @@
 }
 
 .viewport .cat > button.blur {
-    opacity: 0.5;
-    filter: grayscale(50%);
+    opacity: 0.78;
+    filter: grayscale(20%);
 }
 
 .setting-control {
@@ -150,7 +150,10 @@
     padding-left: 12px;
     text-align: left;
     border-radius: 13px;
-    transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+    transition:
+        background-color var(--motion-fast) var(--motion-ease-out),
+        color var(--motion-fast) var(--motion-ease-out),
+        opacity var(--motion-fast) linear;
 }
 
 .viewport .cat > button:not(:last-child) {
@@ -178,6 +181,45 @@
     overflow-wrap: anywhere;
     word-break: normal;
     white-space: normal;
+}
+
+.language-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.language-option-flag {
+    flex: 0 0 auto;
+    object-fit: cover;
+    image-rendering: pixelated;
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px var(--panel-divider);
+}
+
+.language-option-row button:disabled {
+    cursor: default;
+    opacity: 0.72;
+}
+
+.nexus-key-control {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.nexus-key-control input {
+    width: min(260px, 100%);
+    min-width: 120px;
+    margin: 0;
+}
+
+@media (max-width: 980px) {
+    .nexus-key-control {
+        align-items: stretch;
+        flex-direction: column;
+    }
 }
 
 @media (max-width: 900px) {

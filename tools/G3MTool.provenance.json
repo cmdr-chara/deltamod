@@ -23,6 +23,22 @@
       "installDirectory": "linux-x64",
       "executable": "G3MTool",
       "executableSha256": "17feda6649ff1e6a447fd38311c04e94bbe978a9ad3d3ad4876b0e578b0d1d99"
+    },
+    "darwin-x64": {
+      "archiveUrl": "https://github.com/y114git/G3MTool/releases/download/1.2.5/G3MTool-macOS-x64-1.2.5.zip",
+      "archiveSize": 54857801,
+      "archiveSha256": "a0714ebd9fa7e40a496ffa655912b57582df9e9dd20bba9e0edbe7bc73a3ac78",
+      "installDirectory": "mac-x64",
+      "executable": "G3MTool",
+      "executableSha256": "264116458a2e767b919b6070f40da5b96b9168a7dca943268a028de880d72e75"
+    },
+    "darwin-arm64": {
+      "archiveUrl": "https://github.com/y114git/G3MTool/releases/download/1.2.5/G3MTool-macOS-arm64-1.2.5.zip",
+      "archiveSize": 50761020,
+      "archiveSha256": "3128932fcd2314a4b89107f52c73d14d482699d3ccc1eb1fa5f7309a9906ec2f",
+      "installDirectory": "mac-arm64",
+      "executable": "G3MTool",
+      "executableSha256": "5a90898fc8a20c88bb04a3455a68f24e7383efecd5fc9496478f7f20747522e5"
     }
   }
 }

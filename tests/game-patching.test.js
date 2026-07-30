@@ -1,3 +1,7 @@
+// Copyright © 2026 cmdr-chara
+// Modified for Deltamod Community on 2026-07-29.
+// Licensed under the EUPL 1.2.
+
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -44,6 +48,17 @@ describe('patch planning', () => {
         const data = fixture();
         fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="override" patch="../outside.txt" to="data/target.txt"/></root>');
         expect(() => buildPatchPlan(data.game, data.mods, ['example-id'])).toThrow(/traversal|escapes/i);
+    });
+
+    it('applies a platform target mapping before containment checks', () => {
+        const data = fixture();
+        fs.mkdirSync(path.join(data.game, 'assets'), { recursive: true });
+        fs.writeFileSync(path.join(data.game, 'assets', 'game.unx'), 'original');
+        fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="override" patch="files/replacement.txt" to="data.win"/></root>');
+        const plan = buildPatchPlan(data.game, data.mods, ['example-id'], {
+            mapPatchTarget: target => target === 'data.win' ? 'assets/game.unx' : target
+        });
+        expect(plan.direct[0].target).toBe(path.join(data.game, 'assets', 'game.unx'));
     });
 
     it('recovers only files named by the transaction journal', () => {

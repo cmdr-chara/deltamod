@@ -1,3 +1,7 @@
+// Copyright © 2026 cmdr-chara
+// Modified for Deltamod Community on 2026-07-29.
+// Licensed under the EUPL 1.2.
+
 export {};
 
 type ProgressEvent = {
@@ -25,6 +29,19 @@ type OfficialProfileSummary = {
 
 type Unsubscribe = () => void;
 
+type NexusStatus = {
+    configured: boolean;
+    connected: boolean;
+    ssoAvailable: boolean;
+    ssoPending: boolean;
+    personalKeyFallbackAllowed: boolean;
+    authMethod: 'sso' | 'personal' | null;
+    name?: string;
+    premium?: boolean;
+    error?: string;
+    code?: string;
+};
+
 declare global {
     interface Window {
         communityAPI: {
@@ -34,6 +51,11 @@ declare global {
                 minimize(): Promise<void>;
                 toggleFullscreen(): Promise<void>;
                 openMaintainerProfile(): Promise<void>;
+                shakeForEasterEgg(phase: 'slash' | 'numbers' | 'stop'): Promise<{
+                    phase: 'slash' | 'numbers' | 'stop';
+                    native: boolean;
+                }>;
+                quitForEasterEgg(): Promise<{ closing: boolean }>;
             };
             profile: {
                 summary(): Promise<OfficialProfileSummary>;
@@ -49,6 +71,59 @@ declare global {
                 check(): Promise<unknown>;
                 install(): Promise<void>;
                 ignore(): Promise<void>;
+            };
+            tools: {
+                undertaleModToolStatus(): Promise<{
+                    supported: boolean;
+                    configured: boolean;
+                    executableName: string | null;
+                    cliConfigured: boolean;
+                    cliExecutableName: string | null;
+                }>;
+                chooseUndertaleModTool(): Promise<{
+                    configured: boolean;
+                    executableName: string | null;
+                    canceled: boolean;
+                }>;
+                openInstallationInUndertaleModTool(installationIndex: string): Promise<{
+                    launched: boolean;
+                    canceled?: boolean;
+                    executableName?: string;
+                    dataFileName?: string;
+                    workspacePath?: string;
+                    sourceSha256?: string;
+                    workCopy?: boolean;
+                }>;
+            };
+            modSources: {
+                providers(): Promise<Array<{
+                    id: 'gamebanana' | 'nexus' | 'moddb';
+                    name: string;
+                    available: boolean;
+                    requiresAuthentication?: boolean;
+                    catalogScope?: 'recent';
+                    installMode?: 'manual';
+                }>>;
+                browse(request: {
+                    provider: 'nexus' | 'moddb';
+                    query?: string;
+                    sort?: string;
+                }): Promise<unknown>;
+                nexusStatus(): Promise<NexusStatus>;
+                setNexusKey(key: string): Promise<NexusStatus>;
+                startNexusSso(): Promise<NexusStatus>;
+                cancelNexusSso(): Promise<boolean>;
+                clearNexusKey(): Promise<boolean>;
+                open(request: {
+                    provider: 'gamebanana' | 'nexus' | 'moddb';
+                    url: string;
+                }): Promise<boolean>;
+                downloadNexus(request: {
+                    modId: string | number;
+                    operationId: string;
+                    sourceUrl: string;
+                }): Promise<unknown>;
+                onProgress(callback: (event: ProgressEvent) => void): Unsubscribe;
             };
         };
         electronAPI: {

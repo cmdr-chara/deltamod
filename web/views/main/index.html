@@ -1,16 +1,16 @@
 <div class="content-page mods-page">
     <div class="spacebet">
         <div class="p1">
-            <h1 id="ptitle" style="margin-bottom: 5px;">Patch menu</h1>
+            <h1 id="ptitle" style="margin-bottom: 5px;">$$main_title$$</h1>
             <span style="display: flex; justify-content: left; align-items: center; gap: 10px; margin-bottom: 10px;">
                 <label for="sortWay">
-                    Sort by
+                    $$sortBy$$
                 </label> <select name="sortWay" id="sortWay" style="width: 130px !important; margin: 0;">
-                    <option value="asc">Name (A-Z)</option>
-                    <option value="desc">Name (Z-A)</option>
-                    <option value="size-asc">Size (Smallest)</option>
-                    <option value="size-desc">Size (Largest)</option>
-                    <option value="author">By author</option>
+                    <option value="asc">$$sort_asc$$</option>
+                    <option value="desc">$$sort_desc$$</option>
+                    <option value="size-asc">$$sort_sizeAsc$$</option>
+                    <option value="size-desc">$$sort_sizeDesc$$</option>
+                    <option value="author">$$sort_author$$</option>
                 </select>
             </span>
         </div>
@@ -29,8 +29,8 @@
     </div>
     <div class="mods-scroll">
         <div style="display: none;" class="modlist-error" id="error-banner">
-            <h2>{0} mod(s) failed to load</h2>
-            <span class="calibri">Click on this banner to view more details.</span>
+            <h2>$$modFail_bannerTitle$$</h2>
+            <span class="calibri">$$modFail_bannerClick$$</span>
         </div>
         <table id="modtable">
             <colgroup>
@@ -39,8 +39,8 @@
             </colgroup>
             <thead style="position: sticky; top: -2px;">
                 <tr>
-                    <th>Mod</th>
-                    <th>Enabled</th>
+                    <th>$$mod$$</th>
+                    <th>$$enabled$$</th>
                 </tr>
             </thead>
             <tbody id="modlist">
@@ -49,8 +49,8 @@
     </div>
 
         <dialog class="error-list-dialog" id="error-list-dialog">
-            <h2>Some mods failed to load</h2>
-            <span class="calibri">Some mods didn't load correctly. Here are the details:</span>
+            <h2>$$modFail_dialogTitle$$</h2>
+            <span class="calibri">$$modFail_dialogSubtitle$$</span>
             <div class="error-list-div" id="error-list-div">
 
             </div>
@@ -63,4 +63,4 @@
 JSL
 AUDIO[mainTheme.mp3]
 STYLESHEET[main]
-TITLE[Patch menu]
+TITLE[$$main_title$$]

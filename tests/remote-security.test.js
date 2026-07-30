@@ -1,3 +1,7 @@
+// Copyright © 2026 cmdr-chara
+// Modified for Deltamod Community on 2026-07-29.
+// Licensed under the EUPL 1.2.
+
 const { describe, expect, it } = globalThis;
 const {
     isApprovedGameBananaHost,

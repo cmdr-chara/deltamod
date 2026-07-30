@@ -1,21 +1,58 @@
-<button onclick="page('options')">Back</button>
-<br><br>
-<h1>Select a theme</h1>
-<table>
-    <colgroup>
-        <col style="width: 50px;">
-        <col style="width: calc(90% - 50px);">
-        <col style="width: 10%;">
-    </colgroup>
-    <tr>
-        <th>Preview</th>
-        <th>Theme name</th>
-        <th>Actions</th>
-    </tr>
-    <tbody id="themes"></tbody>
-</table>
-<br>
-<button onclick="invoke('importTheme',[])">Import your own theme</button>
+<div class="theme-page-heading">
+    <div>
+        <button class="theme-back-button" type="button" onclick="page('options')">$$back$$</button>
+        <h1>$$themesel_title$$</h1>
+        <p>Change the background, accent color, and menu music together.</p>
+    </div>
+    <button id="open-theme-import" type="button">Create theme</button>
+</div>
+
+<div class="theme-toolbar">
+    <label class="theme-search">
+        <span>Search themes</span>
+        <input id="theme-filter" type="search" placeholder="THE TRUE NAME">
+    </label>
+    <span id="theme-count" aria-live="polite"></span>
+</div>
+
+<section class="theme-import">
+    <form id="theme-import-form" hidden>
+        <div class="theme-import-copy">
+            <h2>Create a custom theme</h2>
+            <p>
+                Choose the background first. Music is optional and, when enabled,
+                will be requested afterwards.
+            </p>
+        </div>
+        <label>
+            <span>$$themesel_name$$</span>
+            <input id="theme-import-name" type="text" maxlength="100"
+                placeholder="My theme" required>
+        </label>
+        <label>
+            <span>Description</span>
+            <textarea id="theme-import-description" maxlength="500"
+                rows="2" placeholder="What is this theme based on?"></textarea>
+        </label>
+        <label class="theme-import-music">
+            <input id="theme-import-include-music" type="checkbox">
+            <span>Add custom music (.mp3 or .ogg)</span>
+        </label>
+        <div class="theme-import-actions">
+            <button id="create-theme" type="submit">Choose background</button>
+            <button id="cancel-theme-import" type="button" class="secondary-button">Cancel</button>
+        </div>
+        <p id="theme-import-status" role="status" aria-live="polite"></p>
+    </form>
+</section>
+
+<section id="themes" class="theme-grid" aria-label="Available themes"></section>
+<div id="theme-empty" hidden>
+    <h2>No matching themes</h2>
+    <p>Try a different name, description, or music track.</p>
+</div>
+
 JSL
-TITLE[Select a theme]
+STYLESHEET[themesel]
+TITLE[$$themesel_title$$]
 AUDIO[views/options/ost.mp3]
