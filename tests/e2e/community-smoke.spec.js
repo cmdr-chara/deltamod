@@ -19,11 +19,22 @@ test('launches securely and keeps Options categories inside their column', async
     fs.mkdirSync(gamePath);
     fs.mkdirSync(installationPath);
     fs.mkdirSync(officialInstallationPath, { recursive: true });
-    fs.writeFileSync(path.join(gamePath, 'DELTARUNE.exe'), '');
-    fs.writeFileSync(path.join(gamePath, 'data.win'), '');
+    const gamePlatform = process.platform === 'darwin' ? 'darwin' : 'win32';
+    const gameFiles = gamePlatform === 'darwin'
+        ? [
+            'DELTARUNE.app/Contents/MacOS/Mac_Runner',
+            'DELTARUNE.app/Contents/Resources/game.ios'
+        ]
+        : ['DELTARUNE.exe', 'data.win'];
+    for (const relativePath of gameFiles) {
+        const target = path.join(gamePath, relativePath);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, '');
+    }
     fs.writeFileSync(path.join(installationPath, '_cname'), 'Test installation');
     fs.writeFileSync(path.join(installationPath, 'store.json'), JSON.stringify({
         gamePid: 'toby.deltarune',
+        gamePlatform,
         deltaruneEdition: 'rem',
         version: 'DELTAMOD_DATA_2.0.2',
         loadedDeltarune: true,
