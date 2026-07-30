@@ -510,7 +510,7 @@ test('launches securely and keeps Options categories inside their column', async
         ]) {
             await window.evaluate(pageName => {
                 if (pageName === 'allmods') window._pageArguments = null;
-                page(pageName);
+                return page(pageName);
             }, route);
             await window.waitForFunction(pageName => window.pageN === pageName, route);
             await expect(window.locator(selector)).toBeVisible();
