@@ -1,7 +1,7 @@
 {
   "name": "deltamod-community",
   "productName": "Deltamod Community",
-  "version": "2.0.3-beta.1",
+  "version": "2.0.3-beta.2",
   "nexusSsoAppId": "",
   "description": "Community-maintained Deltarune mod manager",
   "main": "node/Runner.js",

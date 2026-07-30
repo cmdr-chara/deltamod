@@ -1,49 +1,40 @@
-Deltamod Community 2.0.3-beta.1
-2026-07-28
+Deltamod Community 2.0.3-beta.2
+2026-07-30
 
 This is an unsigned prerelease. Windows may show an unknown-publisher warning.
 
 Added
-- Separate Deltamod Community identity, protocol, update channel, and data directory.
-- Guided import of compatible official Deltamod profiles with staging, validation,
-  progress, cancellation, manifests, and conflict handling.
-- Transaction journals and rollback for patch operations.
-- GameBanana content-rating filters, resilient images, safer downloads, and
-  in-app image viewing.
-- Keyboard zoom controls and additional empty, error, progress, and repair states.
-- Windows NSIS, experimental Linux AppImage, and experimental macOS Intel/Apple
-  Silicon packaging through Electron Builder.
+- Safe local mod archive import through the Deltamod Community protocol.
+- GameBanana, ModDB, and Nexus Mods catalogue adapters with source-specific
+  availability and authentication states.
+- A guarded UndertaleModTool workspace bridge.
+- Native Linux and macOS game-layout adapters.
+- Additional built-in themes, theme customization, localization updates, and a
+  keyboard-accessible language selector.
 
 Changed
-- Restored the original game-inspired visual structure while improving readability,
-  alignment, spacing, focus states, and reduced-motion behavior.
-- Replaced the website updater with fork-owned GitHub prereleases.
-- Pinned G3MTool 1.2.5 to official GPL-3.0-only release archives with size,
-  archive, and executable verification.
-- Renamed the interactive development command to `npm run dev`; `npm test` now
-  runs the automated test suite.
+- Improved native Windows, Linux, Intel macOS, and Apple Silicon packaging.
+- Improved theme palettes, sprite recoloring, text contrast, navigation speed,
+  audio continuity, and background-video resource handling.
+- Updated GitHub Actions runtimes and release checks.
+- The README release badge now recognizes prereleases.
 
 Fixed
-- Removed the hidden GameBanana submission blacklist.
-- Corrected installation validation, staged copying, atomic JSON storage, and
-  interrupted-operation cleanup.
-- Corrected GameBanana comment failure handling, download containment, and
-  long-path presentation.
-- Corrected Options category overlap, table alignment, action-button centering,
-  excessive animation, and several small-window layout failures.
+- GameBanana logout now clears the active session.
+- Local mod import rejects linked files and unsafe parent paths consistently
+  across Windows, Linux, and macOS.
+- Native macOS game fixtures and paths are recognized correctly.
+- Electron smoke navigation now waits for each page to finish initializing,
+  preventing intermittent renderer failures on macOS.
 
 Security
-- Enabled renderer context isolation and sandboxing with a restrictive CSP.
-- Replaced unrestricted renderer IPC access with allowlisted preload APIs and
-  validated main-process requests.
-- Added path, archive, protocol, image, redirect, and download containment checks.
-- GameBanana credentials are not stored as plaintext.
-- Production dependency audit currently reports zero known vulnerabilities.
+- Local archive imports are staged and checked for links and path escapes.
+- External mod sources use explicit IPC and URL validation.
+- GameBanana and Nexus Mods authentication state is kept out of renderer storage.
 
 Known limitations
 - Windows builds are intentionally unsigned during the beta period.
-- Native Linux support remains experimental. UNDERTALE uses its native
-  `game.unx` layout; Windows-only games continue to require Wine or Proton.
-- macOS builds are unsigned. UNDERTALE, DELTARUNE, and DELTARUNE Demo now
-  recognize and patch their native `.app` / `game.ios` layouts.
-- GameBanana may require login again after importing an official profile.
+- Linux and macOS support remains experimental.
+- macOS packages are unsigned and may require manual approval in System Settings.
+- Nexus Mods downloads still depend on the authentication and download access
+  provided by Nexus Mods.
