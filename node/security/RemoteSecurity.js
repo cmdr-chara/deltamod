@@ -58,6 +58,7 @@ async function fetchWithValidatedRedirects(value, options = {}) {
         const response = await fetch(current, {
             method: options.method || 'GET',
             headers: options.headers,
+            body: options.body,
             redirect: 'manual',
             signal: options.signal
         });

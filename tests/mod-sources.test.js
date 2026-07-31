@@ -6,6 +6,8 @@ const { describe, expect, it } = globalThis;
 const {
     BrowseRequest,
     buildModDbCatalogUrl,
+    buildNexusSearchVariables,
+    browseNexus,
     getAvailableProviders,
     isNexusDownloadHost,
     normalizeModDbFeed,
@@ -92,7 +94,9 @@ describe('Nexus Mods normalization and download host containment', () => {
             author: 'Chara',
             updated_timestamp: 1_700_000_000,
             contains_adult_content: true,
-            picture_url: 'https://staticdelivery.nexusmods.com/example.png'
+            picture_url: 'https://staticdelivery.nexusmods.com/example.png',
+            downloads: 120,
+            endorsements: 12
         }], 'deltarune', 'useful');
         expect(records).toHaveLength(1);
         expect(records[0]).toMatchObject({
@@ -100,11 +104,117 @@ describe('Nexus Mods normalization and download host containment', () => {
             id: '42',
             title: 'A useful patch',
             summary: 'Fixes a thing',
-            contentRating: 'adult'
+            contentRating: 'adult',
+            downloads: 120,
+            endorsements: 12
         });
         expect(records[0].sourceUrl).toBe('https://www.nexusmods.com/deltarune/mods/42');
     });
 
+    it('builds a full-catalogue GraphQL title search and normalizes API v2 records', () => {
+        expect(buildNexusSearchVariables(
+            'deltarune',
+            'Deltarune - Kris Gender Mod CHAPTER 5',
+            'latest_added'
+        )).toMatchObject({
+            filter: {
+                op: 'AND',
+                gameDomainName: [{ value: 'deltarune', op: 'EQUALS' }],
+                nameStemmed: [{ value: 'Deltarune - Kris Gender Mod CHAPTER 5', op: 'MATCHES' }]
+            },
+            sort: [
+                { relevance: { direction: 'DESC' } },
+                { createdAt: { direction: 'DESC' } }
+            ]
+        });
+        expect(buildNexusSearchVariables(
+            'deltarune',
+            '',
+            'latest_updated',
+            50
+        )).toEqual({
+            filter: { op: 'AND', gameDomainName: [{ value: 'deltarune', op: 'EQUALS' }] },
+            sort: [{ updatedAt: { direction: 'DESC' } }],
+            offset: 50,
+            count: 50
+        });
+        expect(buildNexusSearchVariables('deltarune', '', 'trending')).toMatchObject({
+            sort: [
+                { endorsements: { direction: 'DESC' } },
+                { downloads: { direction: 'DESC' } }
+            ]
+        });
+        expect(normalizeNexusMods([{
+            modId: 23,
+            name: 'Deltarune - Kris Gender Mod CHAPTER 5',
+            summary: 'Choose masculine or feminine text for Kris.',
+            author: 'Ryzex',
+            updatedAt: '2026-06-27T20:20:42Z',
+            pictureUrl: 'https://staticdelivery.nexusmods.com/mods/4064/images/23/example.png',
+            adultContent: false,
+            downloads: 321,
+            endorsements: 45
+        }], 'deltarune')).toEqual([
+            expect.objectContaining({
+                id: '23',
+                title: 'Deltarune - Kris Gender Mod CHAPTER 5',
+                author: 'Ryzex',
+                sourceUrl: 'https://www.nexusmods.com/deltarune/mods/23',
+                downloads: 321,
+                endorsements: 45,
+                featured: true
+            })
+        ]);
+    });
+
+
+    it('loads every Nexus catalogue page instead of stopping after the recent list', async () => {
+        const originalFetch = globalThis.fetch;
+        const requestedOffsets = [];
+        globalThis.fetch = async (_input, options) => {
+            const request = JSON.parse(options.body);
+            const offset = request.variables.offset;
+            requestedOffsets.push(offset);
+            const pageLength = offset === 0 ? 50 : 1;
+            const nodes = Array.from({ length: pageLength }, (_, index) => {
+                const modId = offset + index + 1;
+                return {
+                    modId,
+                    name: `Nexus mod ${modId}`,
+                    summary: '',
+                    author: 'Test author',
+                    updatedAt: '2026-07-31T00:00:00Z',
+                    pictureUrl: null,
+                    adultContent: false
+                };
+            });
+            return new Response(JSON.stringify({
+                data: {
+                    mods: {
+                        totalCount: 51,
+                        nodes
+                    }
+                }
+            }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            });
+        };
+
+        try {
+            const result = await browseNexus({
+                domain: 'deltarune',
+                sort: 'latest_added'
+            });
+            expect(requestedOffsets).toEqual([0, 50]);
+            expect(result.items).toHaveLength(51);
+            expect(result.items[0].id).toBe('23');
+            expect(result.items[0].featured).toBe(true);
+            expect(result.items.at(-1).id).toBe('51');
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
     it('allows Nexus CDNs without accepting suffix lookalikes', () => {
         expect(isNexusDownloadHost('cf-files.nexusmods.com')).toBe(true);
         expect(isNexusDownloadHost('cdn.nexus-cdn.com')).toBe(true);

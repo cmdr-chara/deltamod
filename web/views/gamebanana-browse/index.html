@@ -3,17 +3,28 @@
         <img alt="" width="32" height="32" id="gbPic" hidden>
         <label class="shop-source-label" for="modSourceSelect">Source</label>
         <select id="modSourceSelect" title="Choose a mod catalogue" aria-label="Mod catalogue"></select>
-        <button onclick="page('')" title="Return to the first Mod Shop page" aria-label="Return to the first Mod Shop page">
-            <span class="material-symbols-outlined smicon">home</span>
+        <button id="modShopHomeButton" class="shop-toolbar-icon-button" onclick="page('main')" title="Return home" aria-label="Return home">
+            <svg class="shop-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="m4 11 8-7 8 7"></path>
+                <path d="M6.5 10v9h11v-9M10 19v-5h4v5"></path>
+            </svg>
         </button>
         <div class="autocomplete">
-        <input type="text" id="searchInput" placeholder="$$shop_search$$">
+            <input type="text" id="searchInput" placeholder="$$shop_search$$">
+            <button type="button" id="clearModSearchButton" class="shop-search-clear" title="Clear search" aria-label="Clear search" hidden>
+                <svg class="shop-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="m7 7 10 10M17 7 7 17"></path>
+                </svg>
+            </button>
             <div class="results" style="opacity: 0; pointer-events: none;">
 
             </div>
         </div>
-        <button id="modShopSearchButton" onclick="window.currentPageStack.search()" title="Search mods" aria-label="Search mods">
-            <span class="material-symbols-outlined smicon">search</span>
+        <button class="shop-toolbar-icon-button" id="modShopSearchButton" onclick="window.currentPageStack.search()" title="Search mods" aria-label="Search mods">
+            <svg class="shop-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="11" cy="11" r="6.5"></circle>
+                <path d="m16 16 4 4"></path>
+            </svg>
         </button>
         <div id="gamebananaFilterControls" class="shop-filter-controls">
             <label class="content-filter-label" for="contentRatingFilter">Content</label>
@@ -26,15 +37,28 @@
         <div id="nexusSortControls" class="shop-filter-controls" hidden>
             <label class="content-filter-label" for="nexusSort">Sort</label>
             <select id="nexusSort" title="Sort Nexus Mods">
+                <option value="trending">Popular</option>
                 <option value="latest_added">Latest added</option>
                 <option value="latest_updated">Latest updated</option>
-                <option value="trending">Trending</option>
             </select>
         </div>
     </div>
     <p id="searchInd" style="display: none; font-style: italic !important;"></p>
     <p id="contentFilterStatus" class="calibri content-filter-status" aria-live="polite"></p>
     <p id="sourceAttribution" class="calibri source-attribution"></p>
+    <section id="modDownloadStatus" class="mod-download-status calibri" hidden aria-live="polite" aria-atomic="true">
+        <div class="mod-download-status-heading">
+            <strong id="modDownloadStatusTitle">Downloading mod…</strong>
+            <span id="modDownloadStatusPercent">0%</span>
+        </div>
+        <div class="mod-download-status-details">
+            <span id="modDownloadStatusItem"></span>
+            <span id="modDownloadStatusBytes"></span>
+        </div>
+        <div id="modDownloadProgressTrack" class="mod-download-progress-track" role="progressbar" aria-label="Mod download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <span id="modDownloadProgressBar"></span>
+        </div>
+    </section>
     <table>
         <colgroup>
             <col style="width: calc(100% - 200px);">

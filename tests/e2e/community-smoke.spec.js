@@ -8,11 +8,17 @@ const os = require('os');
 const path = require('path');
 
 test('launches securely and keeps Options categories inside their column', async () => {
-    test.setTimeout(90000);
+    test.setTimeout(120000);
     const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'deltamod-community-e2e-'));
     // A partially initialized or migrated profile may contain the parent folder
     // before any custom theme assets have been created.
     fs.mkdirSync(path.join(userData, 'customThemes'));
+    const uniqueDataPath = path.join(userData, 'deltamod_system-unique');
+    fs.mkdirSync(uniqueDataPath);
+    fs.writeFileSync(path.join(uniqueDataPath, 'flagDB.config'), [
+        'AUDIO = 0',
+        'SFX = 0'
+    ].join('\n'));
     const gamePath = path.join(userData, 'game');
     const installationPath = path.join(userData, 'deltamod_system-0');
     const officialInstallationPath = path.join(userData, 'appData', 'deltamod', 'deltamod_system-0');
@@ -57,6 +63,7 @@ test('launches securely and keeps Options categories inside their column', async
             env: {
                 ...process.env,
                 DELTAMOD_TEST: '1',
+                DELTAMOD_TEST_ALLOW_AUDIO: '1',
                 DELTAMOD_TEST_USER_DATA: userData,
                 DELTAMOD_NEXUS_SSO_APP_ID: 'deltamod-community-test'
             }
@@ -89,6 +96,28 @@ test('launches securely and keeps Options categories inside their column', async
             music: await window.electronAPI.invoke('getUniqueFlag', ['AUDIO']),
             sfx: await window.electronAPI.invoke('getUniqueFlag', ['SFX'])
         }))).toEqual({ music: false, sfx: false });
+
+        const dismissSoundCount = await window.evaluate(async () => {
+            const originalPlay = HTMLMediaElement.prototype.play;
+            let dismissSounds = 0;
+            HTMLMediaElement.prototype.play = function() {
+                if (this.src.endsWith('/audio/booow.mp3')) dismissSounds += 1;
+                return Promise.resolve();
+            };
+            await window.electronAPI.invoke('setUniqueFlag', ['SFX', true]);
+            try {
+                const alertResult = htmlAlert('Sound test', 'Dismiss this dialog.', [
+                    { text: 'Close', resolveWith: 'closed' }
+                ]);
+                document.querySelector('.alertButtons button').click();
+                await alertResult;
+                return dismissSounds;
+            } finally {
+                await window.electronAPI.invoke('setUniqueFlag', ['SFX', false]);
+                HTMLMediaElement.prototype.play = originalPlay;
+            }
+        });
+        expect(dismissSoundCount).toBe(1);
 
         const resumedMenuAudioPositions = await window.evaluate(() => {
             const realAudio = audio;
@@ -500,6 +529,60 @@ test('launches securely and keeps Options categories inside their column', async
         await sendZoomShortcut('0');
         await expect.poll(getZoomFactor).toBeCloseTo(1, 5);
 
+        await window.evaluate(() => {
+            window.__deltamodOriginalRendererFetch = window.fetch;
+            window.fetch = async (input, options) => {
+                const url = String(input);
+                if (url.includes('/Subfeed')) {
+                    return new Response(JSON.stringify({
+                        _aMetadata: { _bIsComplete: true },
+                        _aRecords: [{
+                            _idRow: 42,
+                            _sModelName: 'Mod',
+                            _sName: 'Gallery test mod',
+                            _sDescription: 'A GameBanana card using the shared shop layout.',
+                            _sProfileUrl: 'https://gamebanana.com/mods/42',
+                            _bHasFiles: true,
+                            _bHasContentRatings: false,
+                            _tsDateAdded: 1751328000,
+                            _tsDateModified: 1751328000,
+                            _aSubmitter: {
+                                _idRow: 7,
+                                _sName: 'Test author',
+                                _sProfileUrl: 'https://gamebanana.com/members/7',
+                                _sAvatarUrl: './img/mod-placeholder.png'
+                            },
+                            _aPreviewMedia: {
+                                _aImages: [
+                                    {
+                                        _sBaseUrl: './img',
+                                        _sFile: 'mod-placeholder.png',
+                                        _sFile100: 'mod-placeholder.png',
+                                        _sFile220: 'mod-placeholder.png',
+                                        _sFile530: 'mod-placeholder.png'
+                                    },
+                                    {
+                                        _sBaseUrl: './img',
+                                        _sFile: 'mod-placeholder.png',
+                                        _sFile100: 'mod-placeholder.png',
+                                        _sFile220: 'mod-placeholder.png',
+                                        _sFile530: 'mod-placeholder.png'
+                                    }
+                                ]
+                            }
+                        }]
+                    }), { status: 200, headers: { 'content-type': 'application/json' } });
+                }
+                if (url.includes('/TopSubs')) {
+                    return new Response(JSON.stringify([{ _idRow: 42, _sPeriod: 'week' }]), {
+                        status: 200,
+                        headers: { 'content-type': 'application/json' }
+                    });
+                }
+                return window.__deltamodOriginalRendererFetch(input, options);
+            };
+        });
+
         for (const [route, selector] of [
             ['main', '#modtable'],
             ['allmods', '#modtable'],
@@ -527,6 +610,16 @@ test('launches securely and keeps Options categories inside their column', async
                 expect(filterWidth).toBeLessThanOrEqual(320);
             }
             if (route === 'gamebanana-browse') {
+                await expect(window.locator('#modsBody')).toContainText('Gallery test mod');
+                await expect(window.locator('#modsBody tr').first()).toContainText('GameBanana');
+                await expect(window.locator('#modsBody tr').first()).toContainText('A GameBanana card using the shared shop layout.');
+                await expect(window.locator('.mod-gallery-count').first()).toHaveText('+1');
+                await expect(window.locator('.modThumbGrid')).toHaveCount(0);
+                await window.getByRole('button', { name: 'Preview Gallery test mod (2 images)' }).first().click();
+                await expect(window.locator('#modImageLightboxCounter')).toHaveText('1 of 2');
+                await window.keyboard.press('Escape');
+                await expect(window.locator('#modImageLightbox')).not.toBeVisible();
+
                 await window.evaluate(() => window.currentPageStack.openImageLightbox(
                     'Test mod preview',
                     [
@@ -568,6 +661,12 @@ test('launches securely and keeps Options categories inside their column', async
             }
         }
 
+        await window.evaluate(() => page('gamebanana-browse'));
+        await window.waitForFunction(() => window.pageN === 'gamebanana-browse');
+        await window.getByRole('button', { name: 'Return home' }).click();
+        await window.waitForFunction(() => window.pageN === 'main');
+        await expect(window.locator('#modtable')).toBeVisible();
+
         for (const viewport of [
             { width: 900, height: 600 },
             { width: 1366, height: 768 }
@@ -591,6 +690,11 @@ test('launches securely and keeps Options categories inside their column', async
                 expect(overflow.width).toBeLessThanOrEqual(overflow.viewport + 1);
             }
         }
+
+        await window.evaluate(() => {
+            window.fetch = window.__deltamodOriginalRendererFetch;
+            delete window.__deltamodOriginalRendererFetch;
+        });
 
         await window.evaluate(() => window.electronAPI.invoke('setTheme', ['base']));
         await expect.poll(() => window.evaluate(() => window.electronAPI.invoke('getTheme', []))).toBe('base');
@@ -673,6 +777,66 @@ test('launches securely and keeps Options categories inside their column', async
             scrollWidth: select.scrollWidth
         }));
         expect(providerSelectLayout.scrollWidth).toBeLessThanOrEqual(providerSelectLayout.clientWidth);
+        const shopActionIcons = window.locator(
+            '.shop-toolbar-icon-button > .shop-action-icon, '
+            + '.external-source-actions button > .shop-action-icon'
+        );
+        const shopActionIconGeometry = await shopActionIcons.evaluateAll(icons => icons.map(icon => {
+            const iconRect = icon.getBoundingClientRect();
+            const buttonRect = icon.parentElement.getBoundingClientRect();
+            const style = getComputedStyle(icon);
+            return {
+                width: iconRect.width,
+                height: iconRect.height,
+                x: iconRect.left + (iconRect.width / 2) - (buttonRect.left + (buttonRect.width / 2)),
+                y: iconRect.top + (iconRect.height / 2) - (buttonRect.top + (buttonRect.height / 2)),
+                fill: style.fill,
+                stroke: style.stroke
+            };
+        }));
+        expect(shopActionIconGeometry).toHaveLength(3);
+        for (const icon of shopActionIconGeometry) {
+            expect(icon.width).toBe(20);
+            expect(icon.height).toBe(20);
+            expect(Math.abs(icon.x)).toBeLessThanOrEqual(0.05);
+            expect(Math.abs(icon.y)).toBeLessThanOrEqual(0.05);
+            expect(icon.fill).toBe('none');
+            expect(icon.stroke).not.toBe('none');
+        }
+        const externalActionGeometry = await window.locator('.external-source-actions button').first().evaluate(button => ({
+            width: button.getBoundingClientRect().width,
+            height: button.getBoundingClientRect().height,
+            radius: getComputedStyle(button).borderRadius
+        }));
+        expect(externalActionGeometry.width).toBe(36);
+        expect(externalActionGeometry.height).toBe(36);
+        expect(externalActionGeometry.radius).toBe('50%');        await window.evaluate(() => window.currentPageStack.updateModDownloadStatus({
+            phase: 'download',
+            completed: 524288,
+            total: 1048576,
+            currentItem: 'sample-mod.zip'
+        }));
+        await expect(window.locator('#modDownloadStatus')).toBeVisible();
+        await expect(window.locator('#modDownloadStatusTitle')).toHaveText('Downloading mod…');
+        await expect(window.locator('#modDownloadStatusItem')).toHaveText('sample-mod.zip');
+        await expect(window.locator('#modDownloadStatusBytes')).toHaveText('512 KB / 1 MB');
+        await expect(window.locator('#modDownloadStatusPercent')).toHaveText('50%');
+        await expect(window.locator('#modDownloadProgressTrack')).toHaveAttribute('aria-valuenow', '50');
+        await window.evaluate(() => window.currentPageStack.updateModDownloadStatus({
+            phase: 'import',
+            completed: 1048576,
+            total: 1048576,
+            currentItem: 'sample-mod.zip'
+        }));
+        await expect(window.locator('#modDownloadStatusTitle')).toHaveText('Importing mod…');
+        await window.evaluate(() => window.currentPageStack.updateModDownloadStatus({
+            phase: 'complete',
+            completed: 1048576,
+            total: 1048576,
+            currentItem: 'sample-mod.zip'
+        }));
+        await expect(window.locator('#modDownloadStatusTitle')).toHaveText('Mod imported successfully');
+        await expect(window.locator('#modDownloadStatusPercent')).toHaveText('100%');
         const modDbOverflow = await window.evaluate(() => ({
             width: document.documentElement.scrollWidth,
             viewport: document.documentElement.clientWidth
@@ -688,6 +852,48 @@ test('launches securely and keeps Options categories inside their column', async
             globalThis.fetch = globalThis.__deltamodOriginalFetch;
             delete globalThis.__deltamodOriginalFetch;
         });
+        await application.evaluate(() => {
+            globalThis.__deltamodOriginalFetch = globalThis.fetch;
+            globalThis.fetch = async (input, options) => {
+                if (String(input).includes('api.nexusmods.com/v2/graphql')) {
+                    return new Response(JSON.stringify({
+                        data: {
+                            mods: {
+                                totalCount: 2,
+                                nodes: [
+                                    {
+                                        modId: 23,
+                                        name: 'Deltarune - Kris Gender Mod CHAPTER 5',
+                                        summary: 'Choose masculine or feminine text for Kris.',
+                                        author: 'Ryzex',
+                                        updatedAt: '2026-06-27T20:20:42Z',
+                                        pictureUrl: null,
+                                        adultContent: false,
+                                        downloads: 23,
+                                        endorsements: 2
+                                    },
+                                    {
+                                        modId: 53,
+                                        name: 'Nexus mod 53',
+                                        summary: '',
+                                        author: 'Seanbot10',
+                                        updatedAt: '2026-07-29T14:23:00Z',
+                                        pictureUrl: null,
+                                        adultContent: false,
+                                        downloads: 530,
+                                        endorsements: 53
+                                    }
+                                ]
+                            }
+                        }
+                    }), {
+                        status: 200,
+                        headers: { 'content-type': 'application/json' }
+                    });
+                }
+                return globalThis.__deltamodOriginalFetch(input, options);
+            };
+        });
 
         await window.evaluate(() => {
             localStorage.setItem('modShopProvider', 'nexus');
@@ -695,12 +901,33 @@ test('launches securely and keeps Options categories inside their column', async
             page('gamebanana-browse');
         });
         await expect(window.locator('#modSourceSelect')).toHaveValue('nexus');
-        await expect(window.getByRole('heading', { name: 'Connect Nexus Mods' })).toBeVisible();
-        await expect(window.locator('#modsBody')).not.toContainText('Error invoking remote method');
-        await expect(window.getByRole('button', { name: 'Open Nexus Mods settings' })).toBeVisible();
-        await expect(window.locator('#searchInput')).toBeDisabled();
-        await expect(window.locator('#nexusSort')).toBeDisabled();
-        await expect(window.locator('.shop-page thead')).toBeHidden();
+        await expect(window.locator('#modsBody')).toContainText('Deltarune - Kris Gender Mod CHAPTER 5');
+        await expect(window.locator('#modsBody tr').first()).toContainText('Deltarune - Kris Gender Mod CHAPTER 5');
+        await expect(window.locator('#modsBody tr').first()).toContainText('Featured');
+        await expect(window.locator('#modsBody tr').first()).toContainText('23 downloads · 2 endorsements');
+        await expect(window.locator('#nexusSort')).toHaveValue('trending');
+        await expect(window.locator('#searchInput')).toBeEnabled();
+        await expect(window.locator('#nexusSort')).toBeEnabled();
+        await expect(window.locator('.shop-page thead')).toBeVisible();
+        const nexusSearch = window.locator('#searchInput');
+        const clearSearch = window.getByRole('button', { name: 'Clear search' });
+        await nexusSearch.fill('kris');
+        await expect(clearSearch).toBeVisible();
+        await clearSearch.click();
+        await expect(window.locator('#searchInput')).toHaveValue('');
+        await expect(window.getByRole('button', { name: 'Clear search' })).toBeHidden();
+        await expect(window.locator('#modsBody')).toContainText('Nexus mod 53');
+        await window.getByRole('button', {
+            name: 'Download: Deltarune - Kris Gender Mod CHAPTER 5'
+        }).click();
+        await expect(window.locator('.alertMsg h1')).toHaveText('Nexus Mods authorization required');
+        await expect(window.locator('.alertMsg p')).toContainText('continue on the official mod page');
+        await expect(window.getByRole('button', { name: 'Open Nexus Mods' })).toBeVisible();
+        await window.getByRole('button', { name: 'Cancel' }).click();
+        await application.evaluate(() => {
+            globalThis.fetch = globalThis.__deltamodOriginalFetch;
+            delete globalThis.__deltamodOriginalFetch;
+        });
 
         await window.evaluate(() => {
             page('options');

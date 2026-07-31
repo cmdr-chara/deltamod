@@ -150,6 +150,24 @@
     font-size: var(--font-size-meta);
 }
 
+.external-featured-badge {
+    display: inline-flex;
+    width: fit-content;
+    margin-left: 6px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--accent-color);
+    color: var(--accent-contrast, #fff);
+    font-family: "Pixel", sans-serif;
+    font-size: var(--font-size-meta);
+}
+
+.external-source-popularity {
+    display: inline;
+    margin-left: 8px;
+    color: var(--muted-text);
+}
+
 .external-source-actions {
     display: flex;
     align-items: center;
@@ -162,8 +180,13 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 38px;
-    min-height: 38px;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    line-height: 0;
 }
 
 .shop-state {
@@ -237,13 +260,46 @@
     font-family: "Calibri", sans-serif;
 }
 
-.tspandiv > button {
+.tspandiv > .shop-toolbar-icon-button {
+    box-sizing: border-box;
+    flex: 0 0 36px;
     border-radius: 50%;
-    width: 35px;
-    height: 35px;
-    display: flex;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
+    line-height: 0;
+}
+
+.shop-action-icon {
+    box-sizing: border-box;
+    display: block;
+    width: 20px;
+    height: 20px;
+    overflow: visible;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.shop-action-icon.is-spinning {
+    animation: shop-icon-spin 700ms linear infinite;
+}
+
+@keyframes shop-icon-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .shop-action-icon.is-spinning {
+        animation: none;
+    }
 }
 .bfgroup {
     display: flex;
@@ -262,26 +318,57 @@
     align-items: center;
     justify-content: center;
 }
-.smicon {
-    font-size: 18px;
-}
-
 input {
     margin-bottom: 0 !important;
 }
 #searchInput {
-    width: calc(100% - 20px);
+    box-sizing: border-box;
+    width: 100%;
+    padding-right: 42px;
     border: 0;
     border-radius: 13px;
 }
 
 .autocomplete {
     position: relative;
-    display: inline-block;
-    width: 100%;
-
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
     z-index: 100;
 }
+
+.shop-search-clear {
+    box-sizing: border-box;
+    position: absolute;
+    top: 50%;
+    right: 5px;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: var(--muted-text);
+    transform: translateY(-50%);
+}
+
+.shop-search-clear:hover,
+.shop-search-clear:focus-visible {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-color, #fff);
+}
+
+.shop-search-clear[hidden] {
+    display: none;
+}
+
 
 .autocomplete > .results {
     transition: 150ms opacity;
@@ -448,10 +535,41 @@ input {
     box-shadow: 0 5px 14px rgba(0, 0, 0, 0.24);
 }
 
-.shop-page .modThumbGrid img {
-    border: 0 !important;
-    border-radius: 5px !important;
-    opacity: 0.82;
+.mod-gallery-preview {
+    position: relative;
+    flex: 0 0 130px;
+    width: 130px;
+}
+
+.mod-gallery-preview .modThumbImg {
+    box-sizing: border-box;
+    display: block;
+    width: 100% !important;
+}
+
+.mod-gallery-preview .modThumbImg[role="button"] {
+    cursor: zoom-in;
+}
+
+.mod-gallery-preview .modThumbImg[role="button"]:focus-visible {
+    outline: 2px solid var(--theme-color);
+    outline-offset: 3px;
+}
+
+.mod-gallery-count {
+    position: absolute;
+    right: 7px;
+    bottom: 7px;
+    min-width: 24px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.82);
+    color: #fff;
+    font-family: "Pixel", sans-serif;
+    font-size: var(--font-size-meta);
+    line-height: 1.2;
+    text-align: center;
+    pointer-events: none;
 }
 
 .shop-page tbody td {
@@ -467,6 +585,74 @@ input {
     place-items: center;
     border-radius: 50%;
     line-height: 0;
+}
+
+.mod-download-status {
+    box-sizing: border-box;
+    margin: 10px 0 14px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: rgba(8, 8, 8, 0.82);
+    box-shadow: inset 0 0 0 1px var(--panel-divider);
+}
+
+.mod-download-status[hidden] {
+    display: none;
+}
+
+.mod-download-status-heading,
+.mod-download-status-details {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.mod-download-status-heading strong {
+    color: var(--text-color, #fff);
+}
+
+.mod-download-status-details {
+    min-height: 20px;
+    margin-top: 4px;
+    color: var(--muted-text);
+    font-size: var(--font-size-meta);
+}
+
+#modDownloadStatusItem {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#modDownloadStatusBytes {
+    flex: 0 0 auto;
+}
+
+.mod-download-progress-track {
+    height: 7px;
+    margin-top: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.13);
+}
+
+.mod-download-progress-track > span {
+    display: block;
+    width: var(--mod-download-progress, 0%);
+    height: 100%;
+    border-radius: inherit;
+    background: var(--theme-color);
+    transition: width 120ms linear;
+}
+
+.mod-download-status[data-phase="complete"] .mod-download-progress-track > span {
+    background: #54d881;
+}
+
+.mod-download-status[data-phase="failed"] .mod-download-progress-track > span {
+    background: #ff5b5b;
 }
 
 .shop-page .serietast:first-child {
@@ -504,12 +690,9 @@ input {
         flex-basis: calc(100% - 52px);
     }
 
-    .shop-page .modThumbGrid {
-        display: none !important;
-    }
-
-    .shop-page .modThumbImg {
-        width: 112px !important;
+    .shop-page .mod-gallery-preview {
+        flex-basis: 112px;
+        width: 112px;
     }
 
     .shop-page .modCopy {

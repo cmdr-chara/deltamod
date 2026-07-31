@@ -113,8 +113,8 @@ function asyncTimeout(amount) {
 function writeTopPart() {
     process.stdout.write(`\x1b]0;${PRODUCT_NAME}\x07`);
     console.clear();
-    process.stdout.write(`${fs.readFileSync(path.join(__dirname, '..', 'ascii.txt'), 'utf8')}\r\n\r\n`);
-    process.stdout.write(`[ version ${app.getVersion()} ]\r\n\r\n`);
+    const ascii = fs.readFileSync(path.join(__dirname, '..', 'ascii.txt'), 'utf8');
+    console.startupHeader(PRODUCT_NAME, app.getVersion(), ascii);
 }
 
 /**

@@ -2,6 +2,7 @@ const { BrowserWindow } = require("electron");
 const { getWindow } = require("./Utils");
 const Paths = require("./Paths");
 const { PARTITION } = require("./Config");
+const { normalizeProgressFraction } = require("./progress/ProgressValue");
 
 const progressModals = new Set();
 
@@ -32,11 +33,7 @@ function createProgressModal() {
 
     progressModals.add(modal);
     modal.on('closed', () => {
-        progressModals.delete(modal)
-        console.log("THE WINDOW SHALL ACTUALLY CLOSE NOW.");
-        // hopefully this actually destroys the modal
-        modal.destroy();
-        console.log("IT SHOULD BE CLOSED BY NOW.");
+        progressModals.delete(modal);
     });
 
     modal.loadURL('deltapack://web/dlmodal/index.html');
@@ -53,7 +50,8 @@ function createProgressModal() {
  * @param {string?} logPrefix
  */
 function updateProgressModal(modal, mainWindow, frac, logPrefix) {
-    const percent = Math.round(frac * 100 * 100) / 100;
+    const normalized = normalizeProgressFraction(frac);
+    const percent = Math.round(normalized * 100 * 100) / 100;
 
     if (logPrefix == null) {
         console.log(`Progress: ${percent}%`);
@@ -61,8 +59,8 @@ function updateProgressModal(modal, mainWindow, frac, logPrefix) {
         console.log(`${logPrefix} ${percent}%`);
     }
 
-    if (mainWindow != null) {
-        getWindow().setProgressBar(Math.round(percent)/100);
+    if (mainWindow != null && !mainWindow.isDestroyed()) {
+        mainWindow.setProgressBar(normalized);
     }
 
     if (!modal.isDestroyed()) modal.webContents.send('progress', percent);

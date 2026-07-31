@@ -860,8 +860,7 @@ module.exports = function registerIPCHandlers(context) {
                 result = await ModSources.browseNexus({
                     domain: game.sources?.nexus?.domain,
                     query: request.query,
-                    sort: request.sort,
-                    apiKey: readNexusApiKey()
+                    sort: request.sort
                 });
             } else {
                 const error = new Error('GameBanana continues to use its compatibility catalogue.');
@@ -1010,21 +1009,40 @@ module.exports = function registerIPCHandlers(context) {
             error.code = 'MOD_SOURCE_UNAVAILABLE';
             throw error;
         }
-        const resolved = await ModSources.getNexusPrimaryDownload({
-            domain,
-            modId: request.modId,
-            apiKey: readNexusApiKey()
-        });
+        let resolved;
+        try {
+            resolved = await ModSources.getNexusPrimaryDownload({
+                domain,
+                modId: request.modId,
+                apiKey: readNexusApiKey()
+            });
+        } catch (error) {
+            if ([
+                'NEXUS_API_KEY_REQUIRED',
+                'NEXUS_AUTH_FAILED',
+                'NEXUS_MANUAL_DOWNLOAD_REQUIRED'
+            ].includes(error.code)) {
+                return {
+                    ok: false,
+                    error: {
+                        code: error.code,
+                        message: error.message
+                    }
+                };
+            }
+            throw error;
+        }
         const sourceUrl = parseExternalHttpsUrl(request.sourceUrl, ['nexusmods.com']);
         try {
             return await Modstore.downloadModFromURL(
                 resolved.downloadUrl,
-                (progress, downloaded) => {
+                (progress, downloaded, state = {}) => {
                     event.sender.send('mod-source-progress', {
                         operationId: request.operationId,
-                        phase: 'download',
+                        phase: state.phase || 'download',
                         completed: downloaded,
-                        total: progress > 0 ? Math.round(downloaded / (progress / 100)) : 0,
+                        total: state.total
+                            || (progress > 0 ? Math.round(downloaded / (progress / 100)) : 0),
                         currentItem: resolved.fileName
                     });
                 },
@@ -1094,8 +1112,15 @@ module.exports = function registerIPCHandlers(context) {
         const requestId = String(queryme ?? '');
         if (!/^[a-z0-9]{1,32}$/i.test(requestId)) throw new Error('Invalid download operation identifier.');
         try {
-            return await Modstore.downloadModFromURL(url, (progress, downloaded) => {
-                event.sender.send('dlmodURL-progress', { progress, downloaded, queryme: requestId, error: false });
+            return await Modstore.downloadModFromURL(url, (progress, downloaded, state = {}) => {
+                event.sender.send('dlmodURL-progress', {
+                    progress,
+                    downloaded,
+                    total: state.total || 0,
+                    phase: state.phase || 'download',
+                    queryme: requestId,
+                    error: false
+                });
             }, modid, modmodel);
         } catch (error) {
             event.sender.send('dlmodURL-progress', {

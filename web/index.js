@@ -485,7 +485,7 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
             var btn = document.createElement('button');
             btn.textContent = button.text;
             btn.style.flex = '1 1 0';
-            btn.onclick = function() {
+            btn.onclick = async function() {
                 buttonsHTML.style.pointerEvents = 'none';
                 // Outro animation
                 alertMsgR.style.animation = animationDuration === 0
@@ -503,8 +503,8 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
                 // Play dismiss SFX
                 var a = new Audio();
                 a.src = 'audio/booow.mp3';
-                if (window.electronAPI.invoke('getUniqueFlag', ["SFX"]) === true) {
-                    a.play();
+                if (await window.electronAPI.invoke('getUniqueFlag', ["SFX"]) === true) {
+                    a.play().catch(() => {});
                 }
 
                 // Resolve/Reject

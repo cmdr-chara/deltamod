@@ -17,6 +17,25 @@ const BrowseRequest = z.object({
 const MODDB_FEED_HOST = 'rss.moddb.com';
 const NEXUS_API_HOST = 'api.nexusmods.com';
 const MAX_CATALOG_BYTES = 4 * 1024 * 1024;
+const NEXUS_PAGE_SIZE = 50;
+const NEXUS_CATALOG_QUERY = `
+    query BrowseMods($filter: ModsFilter, $sort: [ModsSort!], $offset: Int, $count: Int) {
+        mods(filter: $filter, sort: $sort, offset: $offset, count: $count) {
+            totalCount
+            nodes {
+                modId
+                name
+                summary
+                author
+                updatedAt
+                pictureUrl
+                adultContent
+                downloads
+                endorsements
+            }
+        }
+    }
+`;
 
 function hostMatches(hostname, approved) {
     const host = String(hostname || '').toLowerCase().replace(/\.$/, '');
@@ -113,26 +132,131 @@ function normalizeModDbFeed(xml, query = '') {
 
 function normalizeNexusMods(records, domain, query = '') {
     const needle = String(query || '').trim().toLocaleLowerCase();
-    return (Array.isArray(records) ? records : []).map(mod => ({
-        provider: 'nexus',
-        id: String(mod.mod_id),
-        title: String(mod.name || `Nexus mod ${mod.mod_id}`),
-        summary: stripMarkup(mod.summary || mod.description || ''),
-        author: String(mod.author || mod.uploaded_by || 'Nexus Mods contributor'),
-        updatedAt: mod.updated_time || (
-            Number.isFinite(Number(mod.updated_timestamp))
-                ? new Date(Number(mod.updated_timestamp) * 1000).toISOString()
-                : ''
-        ),
-        imageUrl: safeHttpsUrl(mod.picture_url, isNexusPublicHost),
-        sourceUrl: `https://www.nexusmods.com/${encodeURIComponent(domain)}/mods/${Number(mod.mod_id)}`,
-        contentRating: mod.contains_adult_content ? 'adult' : 'general',
-        installMode: 'nexus',
-        actionLabel: 'Download'
-    })).filter(item => {
+    return (Array.isArray(records) ? records : []).map(mod => {
+        const modId = Number(mod.mod_id ?? mod.modId);
+        return {
+            provider: 'nexus',
+            id: String(modId),
+            title: String(mod.name || `Nexus mod ${modId}`),
+            summary: stripMarkup(mod.summary || mod.description || ''),
+            author: String(mod.author || mod.uploaded_by || 'Nexus Mods contributor'),
+            updatedAt: mod.updated_time || mod.updatedAt || (
+                Number.isFinite(Number(mod.updated_timestamp))
+                    ? new Date(Number(mod.updated_timestamp) * 1000).toISOString()
+                    : ''
+            ),
+            imageUrl: safeHttpsUrl(mod.picture_url || mod.pictureUrl, isNexusPublicHost),
+            sourceUrl: `https://www.nexusmods.com/${encodeURIComponent(domain)}/mods/${modId}`,
+            contentRating: (mod.contains_adult_content ?? mod.adultContent) ? 'adult' : 'general',
+            downloads: Math.max(0, Number(mod.downloads) || 0),
+            endorsements: Math.max(0, Number(mod.endorsements) || 0),
+            featured: String(domain).toLowerCase() === 'deltarune' && modId === 23,
+            installMode: 'nexus',
+            actionLabel: 'Download'
+        };
+    }).filter(item => {
+        if (!/^\d+$/.test(item.id) || Number(item.id) <= 0) return false;
         if (!needle) return true;
         return `${item.title} ${item.summary} ${item.author}`.toLocaleLowerCase().includes(needle);
     });
+}
+
+function buildNexusSearchVariables(domain, query = '', sort = 'latest_added', offset = 0) {
+    const secondarySort = {
+        latest_added: 'createdAt',
+        latest_updated: 'updatedAt',
+        trending: 'endorsements'
+    }[sort] || 'createdAt';
+    const normalizedQuery = String(query || '').trim();
+    const filter = {
+        op: 'AND',
+        gameDomainName: [{ value: domain, op: 'EQUALS' }]
+    };
+    if (normalizedQuery) {
+        filter.nameStemmed = [{ value: normalizedQuery, op: 'MATCHES' }];
+    }
+    return {
+        filter,
+        sort: normalizedQuery
+            ? [
+                { relevance: { direction: 'DESC' } },
+                { [secondarySort]: { direction: 'DESC' } }
+            ]
+            : sort === 'trending'
+                ? [
+                    { endorsements: { direction: 'DESC' } },
+                    { downloads: { direction: 'DESC' } }
+                ]
+                : [{ [secondarySort]: { direction: 'DESC' } }],
+        offset: Math.max(0, Number(offset) || 0),
+        count: NEXUS_PAGE_SIZE
+    };
+}
+
+async function fetchNexusModsPage({ domain, query, sort, offset }) {
+    const { response } = await fetchWithValidatedRedirects(
+        `https://${NEXUS_API_HOST}/v2/graphql`,
+        {
+            allowedHosts: isNexusApiHost,
+            maximumRedirects: 0,
+            method: 'POST',
+            headers: {
+                accept: 'application/json',
+                'content-type': 'application/json',
+                'application-name': 'Deltamod Community',
+                'application-version': require('../package.json').version
+            },
+            body: JSON.stringify({
+                query: NEXUS_CATALOG_QUERY,
+                variables: buildNexusSearchVariables(domain, query, sort, offset)
+            })
+        }
+    );
+    if (!response.ok) {
+        const error = new Error(`Nexus Mods search failed with HTTP ${response.status}.`);
+        error.code = 'MOD_SOURCE_REQUEST_FAILED';
+        error.status = response.status;
+        throw error;
+    }
+    const payload = JSON.parse(await readLimitedText(response));
+    const page = payload?.data?.mods;
+    const records = page?.nodes;
+    if (payload?.errors?.length || !Array.isArray(records)) {
+        const error = new Error('Nexus Mods could not complete this catalogue search.');
+        error.code = 'MOD_SOURCE_REQUEST_FAILED';
+        throw error;
+    }
+    return {
+        records,
+        totalCount: Number.isInteger(page.totalCount) && page.totalCount >= 0
+            ? page.totalCount
+            : null
+    };
+}
+
+async function fetchAllNexusMods({ domain, query, sort }) {
+    const records = [];
+    const seenModIds = new Set();
+    let offset = 0;
+    let totalCount = null;
+
+    do {
+        const page = await fetchNexusModsPage({ domain, query, sort, offset });
+        totalCount = page.totalCount ?? totalCount;
+        for (const record of page.records) {
+            const modId = String(record?.modId ?? record?.mod_id ?? '');
+            if (!seenModIds.has(modId)) {
+                seenModIds.add(modId);
+                records.push(record);
+            }
+        }
+        offset += page.records.length;
+        if (page.records.length === 0) break;
+    } while (totalCount === null
+        ? offset % NEXUS_PAGE_SIZE === 0
+        : offset < totalCount);
+
+    return records;
 }
 
 function buildModDbCatalogUrl(slug) {
@@ -209,25 +333,24 @@ async function validateNexusApiKey(apiKey) {
     };
 }
 
-async function browseNexus({ domain, query = '', sort = 'latest_added', apiKey }) {
+async function browseNexus({ domain, query = '', sort = 'latest_added' }) {
     if (!/^[a-z0-9][a-z0-9-]{0,79}$/i.test(String(domain || ''))) {
         const error = new Error('This game does not have a valid Nexus Mods source mapping.');
         error.code = 'MOD_SOURCE_UNAVAILABLE';
         throw error;
     }
-    const endpoint = {
-        latest_added: 'latest_added',
-        latest_updated: 'latest_updated',
-        trending: 'trending'
-    }[sort] || 'latest_added';
-    const records = await nexusRequest(
-        `games/${encodeURIComponent(domain)}/mods/${endpoint}.json`,
-        apiKey
-    );
+    const normalizedQuery = String(query || '').trim();
+    const records = await fetchAllNexusMods({
+        domain: String(domain),
+        query: normalizedQuery,
+        sort
+    });
+    const items = normalizeNexusMods(records, domain, normalizedQuery);
+    items.sort((left, right) => Number(right.featured) - Number(left.featured));
     return {
         provider: 'nexus',
-        attribution: 'Metadata provided by Nexus Mods',
-        items: normalizeNexusMods(records, domain, query)
+        attribution: 'Metadata and popularity counts provided by Nexus Mods',
+        items
     };
 }
 
@@ -300,6 +423,7 @@ module.exports = {
     BrowseRequest,
     ProviderId,
     buildModDbCatalogUrl,
+    buildNexusSearchVariables,
     browseModDb,
     browseNexus,
     getAvailableProviders,

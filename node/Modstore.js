@@ -15,6 +15,8 @@ const { loadHashCache, hashGameFile, saveHashCache } = require('./storage/GameHa
 const computerName = os.hostname();
 
 async function downloadModFromURL(url, onProgress, mID, mModel, downloadOptions = {}) {
+    let downloadedBytes = 0;
+    let totalBytes = 0;
     const filePath = path.join(system.getTemporary(), `${crypto.randomUUID()}.modarchive`);
     try {
         await downloadToFile(url, filePath, {
@@ -22,13 +24,17 @@ async function downloadModFromURL(url, onProgress, mID, mModel, downloadOptions 
             allowedHosts: downloadOptions.allowedHosts,
             headers: downloadOptions.headers,
             onProgress: ({ completed, total }) => {
+                downloadedBytes = completed;
+                totalBytes = total;
                 const percentage = total > 0 ? (completed / total) * 100 : 0;
                 console.log(`Download progress: ${percentage.toFixed(1)}%`);
-                onProgress?.(percentage, completed);
+                onProgress?.(percentage, completed, { phase: 'download', total });
             }
         });
+        onProgress?.(100, downloadedBytes, { phase: 'import', total: totalBytes });
         const imported = await importMod(filePath, "donothing", mID, mModel);
         if (imported !== true) throw new Error('The downloaded mod was not imported.');
+        onProgress?.(100, downloadedBytes, { phase: 'complete', total: totalBytes });
         return true;
     } finally {
         try { await fs.promises.rm(filePath, { force: true }); } catch {}
