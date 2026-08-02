@@ -261,6 +261,50 @@ function applyContentFilter(records) {
     return visibleRecords;
 }
 
+const featuredPeriodPriority = new Map([
+    ['alltime', 7],
+    ['year', 6],
+    ['6month', 5],
+    ['3month', 4],
+    ['month', 3],
+    ['week', 2],
+    ['today', 1]
+]);
+
+function prioritizeFeaturedRecords(records, featuredIDs) {
+    const bestRankByID = new Map();
+    for (const featured of featuredIDs) {
+        const rank = featuredPeriodPriority.get(featured.period) || 0;
+        bestRankByID.set(featured.id, Math.max(bestRankByID.get(featured.id) || 0, rank));
+    }
+
+    return records
+        .map((mod, index) => ({
+            mod,
+            index,
+            rank: bestRankByID.get(mod._idRow) || 0
+        }))
+        .sort((left, right) => right.rank - left.rank || left.index - right.index)
+        .map(entry => entry.mod);
+}
+
+function featuredRankForID(featuredIDs, id) {
+    return featuredIDs.reduce((bestRank, featured) => {
+        if (featured.id !== id) return bestRank;
+        return Math.max(bestRank, featuredPeriodPriority.get(featured.period) || 0);
+    }, 0);
+}
+
+function insertRankedGameBananaRow(table, row, rank) {
+    row.dataset.featuredRank = String(rank);
+    const lowerRankRow = Array.from(table.children).find(existingRow =>
+        existingRow.dataset.featuredRank !== undefined &&
+        Number(existingRow.dataset.featuredRank) < rank
+    );
+    if (lowerRankRow) table.insertBefore(row, lowerRankRow);
+    else table.appendChild(row);
+}
+
 async function describeContentRatings(mod, chip) {
     if (!mod._bHasContentRatings) return;
     chip.innerText = 'Content-rated submission';
@@ -573,13 +617,20 @@ async function renderMods(table, GB_API, filter, gameID) {
     if (!isCurrentShopPage()) return;
     var featuredIDs = featuredData.map(x => {return {id: x._idRow, period: x._sPeriod};});
 
+    if (firstgeneration) {
+        table.replaceChildren();
+    }
+
     try {
         if (data._aMetadata._bIsComplete) {
             observer.disconnect(); // stop observing since there's no more content to load
             document.querySelector('.scrollBottomDetector').style.display = 'none'; // hide the loading indicator
         }
 
-        const records = applyContentFilter(Array.isArray(data._aRecords) ? data._aRecords : []);
+        const records = prioritizeFeaturedRecords(
+            applyContentFilter(Array.isArray(data._aRecords) ? data._aRecords : []),
+            featuredIDs
+        );
 
         if (records.length == 0 && firstgeneration) {
             var tr = document.createElement('tr');
@@ -686,13 +737,13 @@ async function renderMods(table, GB_API, filter, gameID) {
                     img.style.borderColor = 'gold';
 
                     var periodsDesc = [
-                        ["today","Best of today"],
-                        ["week","Best of this week"],
-                        ["month","Best of this month"],
-                        ["3month","Best of last 3 months"],
-                        ["6month","Best of last 6 months"],
+                        ["alltime","All-time featured"],
                         ["year","Best of this year"],
-                        ["alltime","All-time featured"]
+                        ["6month","Best of last 6 months"],
+                        ["3month","Best of last 3 months"],
+                        ["month","Best of this month"],
+                        ["week","Best of this week"],
+                        ["today","Best of today"]
                     ]
                     var featSpan = document.createElement('span');
                     featSpan.className = 'modFeaturedSpan iptspan';
@@ -923,7 +974,11 @@ async function renderMods(table, GB_API, filter, gameID) {
                 tr.appendChild(td0);
                 tr.appendChild(td1);
 
-                table.appendChild(tr);
+                insertRankedGameBananaRow(
+                    table,
+                    tr,
+                    featuredRankForID(featuredIDs, mod._idRow)
+                );
             })();
         };
     }
@@ -962,6 +1017,39 @@ function renderSourceState(table, title, message, action = null) {
     }
     tr.appendChild(td);
     table.appendChild(tr);
+}
+
+function renderSourceLoading(table, rowCount = 4) {
+    table.closest('table')?.classList.remove('is-state');
+    table.replaceChildren();
+
+    for (let index = 0; index < rowCount; index += 1) {
+        const row = document.createElement('tr');
+        row.className = 'shop-skeleton-row';
+        row.setAttribute('aria-hidden', 'true');
+
+        const cell = document.createElement('td');
+        cell.colSpan = 2;
+
+        const skeleton = document.createElement('div');
+        skeleton.className = 'shop-skeleton';
+
+        const thumbnail = document.createElement('span');
+        thumbnail.className = 'shop-skeleton-thumb';
+
+        const copy = document.createElement('span');
+        copy.className = 'shop-skeleton-copy';
+        copy.append(document.createElement('i'), document.createElement('i'), document.createElement('i'));
+
+        const actions = document.createElement('span');
+        actions.className = 'shop-skeleton-actions';
+        actions.append(document.createElement('i'), document.createElement('i'));
+
+        skeleton.append(thumbnail, copy, actions);
+        cell.appendChild(skeleton);
+        row.appendChild(cell);
+        table.appendChild(row);
+    }
 }
 
 function formatSourceDate(value) {
@@ -1198,7 +1286,7 @@ async function initializeExternalSource(table) {
         searchIndicator.style.display = 'block';
         searchIndicator.innerText = `Currently showing results for "${query}"`;
     }
-    renderSourceState(table, 'Loading catalogue…', 'Fetching metadata from the selected provider.');
+    renderSourceLoading(table);
     try {
         const response = await window.communityAPI.modSources.browse({
             provider: SHOP_PROVIDER,
@@ -1346,7 +1434,7 @@ async function plusPage(amt) {
 
     await gameBananaLogin();
 
-    table.innerHTML = '';
+    renderSourceLoading(table);
 
     window.currentPageStack = {
         ...window.currentPageStack,

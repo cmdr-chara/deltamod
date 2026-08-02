@@ -537,6 +537,31 @@ test('launches securely and keeps Options categories inside their column', async
                     return new Response(JSON.stringify({
                         _aMetadata: { _bIsComplete: true },
                         _aRecords: [{
+                            _idRow: 41,
+                            _sModelName: 'Mod',
+                            _sName: 'Regular test mod',
+                            _sDescription: 'A regular GameBanana card.',
+                            _sProfileUrl: 'https://gamebanana.com/mods/41',
+                            _bHasFiles: true,
+                            _bHasContentRatings: false,
+                            _tsDateAdded: 1751328001,
+                            _tsDateModified: 1751328001,
+                            _aSubmitter: {
+                                _idRow: 8,
+                                _sName: 'Regular author',
+                                _sProfileUrl: 'https://gamebanana.com/members/8',
+                                _sAvatarUrl: './img/mod-placeholder.png'
+                            },
+                            _aPreviewMedia: {
+                                _aImages: [{
+                                    _sBaseUrl: './img',
+                                    _sFile: 'mod-placeholder.png',
+                                    _sFile100: 'mod-placeholder.png',
+                                    _sFile220: 'mod-placeholder.png',
+                                    _sFile530: 'mod-placeholder.png'
+                                }]
+                            }
+                        }, {
                             _idRow: 42,
                             _sModelName: 'Mod',
                             _sName: 'Gallery test mod',
@@ -570,11 +595,14 @@ test('launches securely and keeps Options categories inside their column', async
                                     }
                                 ]
                             }
-                        }]
+                        }].filter(mod => url.includes('_nPage=2') ? mod._idRow === 42 : mod._idRow === 41)
                     }), { status: 200, headers: { 'content-type': 'application/json' } });
                 }
                 if (url.includes('/TopSubs')) {
-                    return new Response(JSON.stringify([{ _idRow: 42, _sPeriod: 'week' }]), {
+                    return new Response(JSON.stringify([
+                        { _idRow: 42, _sPeriod: 'week' },
+                        { _idRow: 42, _sPeriod: 'alltime' }
+                    ]), {
                         status: 200,
                         headers: { 'content-type': 'application/json' }
                     });
@@ -597,6 +625,22 @@ test('launches securely and keeps Options categories inside their column', async
             }, route);
             await window.waitForFunction(pageName => window.pageN === pageName, route);
             await expect(window.locator(selector)).toBeVisible();
+            if (route === 'main') {
+                const patchMenuLayout = await window.evaluate(() => {
+                    const toolbar = document.querySelector('.patch-toolbar').getBoundingClientRect();
+                    const actions = document.querySelector('.patch-actions').getBoundingClientRect();
+                    const table = document.querySelector('#modtable').getBoundingClientRect();
+                    return {
+                        actionsInsideToolbar: actions.top >= toolbar.top
+                            && actions.right <= toolbar.right + 1
+                            && actions.bottom <= toolbar.bottom + 1,
+                        tableGap: table.top - toolbar.bottom
+                    };
+                });
+                expect(patchMenuLayout.actionsInsideToolbar).toBe(true);
+                expect(patchMenuLayout.tableGap).toBeGreaterThanOrEqual(0);
+                expect(patchMenuLayout.tableGap).toBeLessThanOrEqual(24);
+            }
             if (route === 'options') {
                 await window.waitForFunction(() =>
                     typeof window.currentPageStack?.cat === 'function'
@@ -610,9 +654,14 @@ test('launches securely and keeps Options categories inside their column', async
                 expect(filterWidth).toBeLessThanOrEqual(320);
             }
             if (route === 'gamebanana-browse') {
+                await expect(window.locator('#modsBody tr').first()).toContainText('Regular test mod');
+                await window.evaluate(() => window.currentPageStack.plusPage(1));
                 await expect(window.locator('#modsBody')).toContainText('Gallery test mod');
-                await expect(window.locator('#modsBody tr').first()).toContainText('GameBanana');
-                await expect(window.locator('#modsBody tr').first()).toContainText('A GameBanana card using the shared shop layout.');
+                const firstMod = window.locator('#modsBody tr').first();
+                await expect(firstMod).toContainText('Gallery test mod');
+                await expect(firstMod).toContainText('GameBanana');
+                await expect(firstMod).toContainText('All-time featured');
+                await expect(firstMod).toContainText('A GameBanana card using the shared shop layout.');
                 await expect(window.locator('.mod-gallery-count').first()).toHaveText('+1');
                 await expect(window.locator('.modThumbGrid')).toHaveCount(0);
                 await window.getByRole('button', { name: 'Preview Gallery test mod (2 images)' }).first().click();

@@ -75,14 +75,18 @@
             </tr>
         </thead>
         <tbody id="modsBody">
-            <tr>
-                <td colspan="2" style="text-align: center;">$$loading$$</td>
+            <tr class="shop-skeleton-row" aria-hidden="true">
+                <td colspan="2">
+                    <div class="shop-skeleton">
+                        <span class="shop-skeleton-thumb"></span>
+                        <span class="shop-skeleton-copy"><i></i><i></i><i></i></span>
+                        <span class="shop-skeleton-actions"><i></i><i></i></span>
+                    </div>
+                </td>
             </tr>
         </tbody>
     </table>
-    <div class="scrollBottomDetector">
-        <div class="loadingBar"></div>
-    </div>
+    <div class="scrollBottomDetector" aria-hidden="true"></div>
 </div>
 <dialog id="modImageLightbox" class="mod-image-lightbox" aria-labelledby="modImageLightboxTitle">
     <div class="mod-image-lightbox-shell">

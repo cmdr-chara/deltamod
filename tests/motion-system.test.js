@@ -53,4 +53,18 @@ describe('motion system', () => {
         expect(downloadModal).toContain('if (elapsed < 1)');
         expect(downloadModal).toContain('prefers-reduced-motion: reduce');
     });
+
+    it('uses a bounded Mod Shop skeleton and disables it for reduced motion', () => {
+        const shopMarkup = read('web/views/gamebanana-browse/index.html');
+        const shopCss = read('web/views/gamebanana-browse/indx.css');
+        const shopScript = read('web/views/gamebanana-browse/index.js');
+
+        expect(shopMarkup).toContain('shop-skeleton-row');
+        expect(shopMarkup).toContain('<div class="scrollBottomDetector" aria-hidden="true"></div>');
+        expect(shopMarkup).not.toMatch(/scrollBottomDetector[\s\S]{0,80}loadingBar/);
+        expect(shopScript).toContain('function renderSourceLoading(table, rowCount = 4)');
+        expect(shopScript).not.toContain("table.innerHTML = ''");
+        expect(shopCss).toContain('animation: shop-skeleton-sweep 1.1s var(--motion-ease-out) infinite');
+        expect(shopCss).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.shop-skeleton::after[\s\S]*display: none/);
+    });
 });
