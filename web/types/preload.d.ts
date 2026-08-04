@@ -29,17 +29,45 @@ type OfficialProfileSummary = {
 
 type Unsubscribe = () => void;
 
+type NexusQuotaWindow = {
+    limit?: number | null;
+    remaining?: number | null;
+    resetAt?: string | null;
+};
+
+type NexusQuota = {
+    daily?: NexusQuotaWindow;
+    hourly?: NexusQuotaWindow;
+};
+
 type NexusStatus = {
     configured: boolean;
     connected: boolean;
     ssoAvailable: boolean;
     ssoPending: boolean;
-    personalKeyFallbackAllowed: boolean;
-    authMethod: 'sso' | 'personal' | null;
+    authMethod: 'sso' | null;
     name?: string;
     premium?: boolean;
     error?: string;
     code?: string;
+    retryAfterMs?: number | null;
+    retryAt?: string | null;
+    quota?: NexusQuota;
+};
+
+type ModSourceBrowseError = {
+    code: string;
+    message: string;
+    status?: number;
+    retryAfterMs?: number | null;
+    retryAt?: string | null;
+    quota?: NexusQuota;
+};
+
+type ModSourceBrowseResponse = {
+    ok: boolean;
+    result?: unknown;
+    error?: ModSourceBrowseError;
 };
 
 declare global {
@@ -108,9 +136,8 @@ declare global {
                     provider: 'nexus' | 'moddb';
                     query?: string;
                     sort?: string;
-                }): Promise<unknown>;
+                }): Promise<ModSourceBrowseResponse>;
                 nexusStatus(): Promise<NexusStatus>;
-                setNexusKey(key: string): Promise<NexusStatus>;
                 startNexusSso(): Promise<NexusStatus>;
                 cancelNexusSso(): Promise<boolean>;
                 clearNexusKey(): Promise<boolean>;

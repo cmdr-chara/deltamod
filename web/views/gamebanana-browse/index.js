@@ -11,10 +11,24 @@ let SHOP_PROVIDER = window._pageArguments?.provider
     || localStorage.getItem('modShopProvider')
     || 'gamebanana';
 
+// External catalogue requests are shared across page instances. Navigating or
+// changing sort while a Nexus request is in flight must not create another
+// request against the same quota window; callers with a different query wait
+// for the active request to finish before starting their own.
+const externalBrowseState = window._communityExternalBrowseState
+    || (window._communityExternalBrowseState = { active: null });
+let externalRetryTimer = null;
+let gameBananaPageRequestActive = false;
+let gameBananaInitialLoadComplete = false;
+
 window.PAGE = PAGE;
 
 window._onClosePage.push(() => {
     pageActive = false;
+    if (externalRetryTimer) {
+        clearTimeout(externalRetryTimer);
+        externalRetryTimer = null;
+    }
     delete window.PAGE;
 });
 
@@ -42,7 +56,12 @@ const element = document.querySelector('.scrollBottomDetector');
 
 const observer = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
-    if (entry.isIntersecting && isCurrentShopPage()) {
+    if (
+        entry.isIntersecting
+        && isCurrentShopPage()
+        && gameBananaInitialLoadComplete
+        && !gameBananaPageRequestActive
+    ) {
         plusPage(1);
     }
   });
@@ -1062,12 +1081,120 @@ function formatSourceDate(value) {
 }
 
 function setExternalSourceControlsDisabled(disabled) {
-    document.getElementById('searchInput').disabled = disabled;
-    document.getElementById('modShopSearchButton').disabled = disabled;
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) searchInput.disabled = disabled;
+    const searchButton = document.getElementById('modShopSearchButton');
+    if (searchButton) searchButton.disabled = disabled;
     const clearButton = document.getElementById('clearModSearchButton');
     if (clearButton) clearButton.disabled = disabled;
     const sort = document.getElementById('nexusSort');
     if (sort) sort.disabled = disabled;
+}
+
+function externalBrowseRequestKey(request) {
+    return JSON.stringify([
+        request?.provider || '',
+        request?.query || '',
+        request?.sort || ''
+    ]);
+}
+
+function requestExternalSource(request) {
+    const key = externalBrowseRequestKey(request);
+    const active = externalBrowseState.active;
+    if (active) {
+        if (active.key === key) return active.promise;
+        // A new search may be requested from a freshly mounted page while the
+        // old page is still waiting on the network. Queue it behind the old
+        // request so only one Nexus call is active at a time.
+        return active.promise
+            .catch(() => undefined)
+            .then(() => requestExternalSource(request));
+    }
+
+    const promise = Promise.resolve().then(() => window.communityAPI.modSources.browse(request));
+    externalBrowseState.active = { key, promise };
+    promise.finally(() => {
+        if (externalBrowseState.active?.promise === promise) {
+            externalBrowseState.active = null;
+        }
+    }).catch(() => {});
+    return promise;
+}
+
+function copyRateLimitMetadata(target, source) {
+    if (!source || typeof source !== 'object') return target;
+    if (source.retryAfterMs != null && Number.isFinite(Number(source.retryAfterMs))) {
+        target.retryAfterMs = Math.max(0, Number(source.retryAfterMs));
+    }
+    if (source.retryAt != null) target.retryAt = source.retryAt;
+    if (source.quota && typeof source.quota === 'object') target.quota = source.quota;
+    return target;
+}
+
+function nexusRateLimitMetadata(error) {
+    const retryAtMs = Date.parse(String(error?.retryAt || ''));
+    const retryAfterMs = Number(error?.retryAfterMs);
+    let waitMs = Number.isFinite(retryAfterMs) ? Math.max(0, retryAfterMs) : 0;
+    if (Number.isFinite(retryAtMs)) waitMs = Math.max(waitMs, retryAtMs - Date.now());
+    if (!waitMs) {
+        const quotaResets = ['daily', 'hourly']
+            .map(period => Date.parse(String(error?.quota?.[period]?.resetAt || '')))
+            .filter(Number.isFinite)
+            .map(timestamp => timestamp - Date.now())
+            .filter(value => value > 0);
+        if (quotaResets.length) waitMs = Math.min(...quotaResets);
+    }
+    // A typed rate-limit response without a usable reset value still deserves
+    // a quiet wait period; never offer an immediate retry that can hammer 429.
+    if (!waitMs) waitMs = 60 * 1000;
+    return {
+        waitMs,
+        retryAtMs: Number.isFinite(retryAtMs) ? retryAtMs : Date.now() + waitMs
+    };
+}
+
+function formatRateLimitMessage(error) {
+    const { waitMs, retryAtMs } = nexusRateLimitMetadata(error);
+    const waitSeconds = Math.max(1, Math.ceil(waitMs / 1000));
+    const waitText = waitSeconds < 120
+        ? `${waitSeconds} second${waitSeconds === 1 ? '' : 's'}`
+        : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+            .format(new Date(retryAtMs));
+    const quotaParts = ['daily', 'hourly']
+        .map(period => {
+            const window = error?.quota?.[period];
+            if (!window || !Number.isFinite(Number(window.remaining))) return '';
+            const label = period === 'daily' ? 'today' : 'this hour';
+            return `${window.remaining} ${label}`;
+        })
+        .filter(Boolean);
+    const quotaText = quotaParts.length ? ` Remaining quota: ${quotaParts.join(', ')}.` : '';
+    return `Nexus Mods asked Community to wait before another catalogue request. Try again after ${waitText}.${quotaText}`;
+}
+
+function scheduleNexusRateLimitRetry(table, error) {
+    if (externalRetryTimer) clearTimeout(externalRetryTimer);
+    const { waitMs } = nexusRateLimitMetadata(error);
+    // setTimeout accepts a signed 32-bit delay; a long quota reset is still
+    // represented in the message, while the controls remain disabled safely.
+    const delay = Math.min(Math.max(1000, waitMs), 2_147_000_000);
+    externalRetryTimer = setTimeout(() => {
+        externalRetryTimer = null;
+        if (!isCurrentShopPage()) return;
+        setExternalSourceControlsDisabled(false);
+        renderSourceState(
+            table,
+            'Nexus Mods ready to retry',
+            'The reported quota window has elapsed. Retry when you are ready.',
+            { label: 'Retry', run: () => initializeExternalSource(table) }
+        );
+    }, delay);
+}
+
+function isNexusRateLimited(error) {
+    return SHOP_PROVIDER === 'nexus'
+        && (error?.code === 'NEXUS_RATE_LIMITED' || Number(error?.status) === 429);
 }
 
 async function downloadNexusSource(item, button) {
@@ -1099,6 +1226,8 @@ async function downloadNexusSource(item, button) {
         if (response?.ok === false) {
             const error = new Error(response?.error?.message || 'Nexus Mods download is unavailable.');
             error.code = response?.error?.code || 'NEXUS_DOWNLOAD_FAILED';
+            if (Number.isInteger(response?.error?.status)) error.status = response.error.status;
+            copyRateLimitMetadata(error, response?.error);
             throw error;
         }
         setDownloadButtonIcon(button, 'done_outline');
@@ -1106,8 +1235,18 @@ async function downloadNexusSource(item, button) {
     } catch (error) {
         setDownloadButtonIcon(button, 'cancel');
         updateModDownloadStatus({ phase: 'failed', currentItem: error?.message || item.title });
+        if (isNexusRateLimited(error)) {
+            await htmlAlert(
+                'Nexus Mods rate limit reached',
+                formatRateLimitMessage(error),
+                [{ text: 'OK', resolveWith: 'ok' }],
+                'error'
+            );
+            return;
+        }
         const authorizationRequired = [
-            'NEXUS_API_KEY_REQUIRED',
+            'NEXUS_SSO_REQUIRED',
+            'NEXUS_AUTH_REQUIRED',
             'NEXUS_AUTH_FAILED'
         ].includes(error?.code);
         const manual = authorizationRequired
@@ -1118,7 +1257,7 @@ async function downloadNexusSource(item, button) {
                 ? 'Nexus Mods authorization required'
                 : manual ? 'Download confirmation required' : 'Nexus Mods download failed',
             authorizationRequired
-                ? 'Direct download needs Nexus Mods authorization. Until Community sign-in is available, continue on the official mod page.'
+                ? 'Direct download needs Nexus Mods authorization. Connect with single sign-on in Settings, then try again or continue on the official mod page.'
                 : manual
                     ? 'Nexus Mods requires this download to be confirmed on its website. The mod page can be opened now.'
                 : (error?.message || 'The archive could not be downloaded and imported.'),
@@ -1276,7 +1415,7 @@ function renderExternalMods(table, result) {
 }
 
 async function initializeExternalSource(table) {
-    setExternalSourceControlsDisabled(false);
+    setExternalSourceControlsDisabled(true);
     const query = String(window._pageArguments?.sourceQuery || '').trim();
     const sort = document.getElementById('nexusSort')?.value || 'latest_added';
     if (query) {
@@ -1288,11 +1427,12 @@ async function initializeExternalSource(table) {
     }
     renderSourceLoading(table);
     try {
-        const response = await window.communityAPI.modSources.browse({
+        const request = {
             provider: SHOP_PROVIDER,
             query,
             sort
-        });
+        };
+        const response = await requestExternalSource(request);
         if (!response?.ok) {
             const error = new Error(
                 response?.error?.message || 'The selected mod catalogue could not be loaded.'
@@ -1301,21 +1441,34 @@ async function initializeExternalSource(table) {
             if (Number.isInteger(response?.error?.status)) {
                 error.status = response.error.status;
             }
+            copyRateLimitMetadata(error, response?.error);
             throw error;
         }
-        if (isCurrentShopPage()) renderExternalMods(table, response.result);
+        if (isCurrentShopPage()) {
+            renderExternalMods(table, response.result);
+            setExternalSourceControlsDisabled(false);
+        }
     } catch (error) {
         if (!isCurrentShopPage()) return;
-        const needsNexusKey = error?.code === 'NEXUS_API_KEY_REQUIRED'
-            || error?.code === 'NEXUS_AUTH_FAILED';
-        setExternalSourceControlsDisabled(needsNexusKey);
+        if (isNexusRateLimited(error)) {
+            setExternalSourceControlsDisabled(true);
+            renderSourceState(table, 'Nexus Mods rate limit reached', formatRateLimitMessage(error));
+            scheduleNexusRateLimitRetry(table, error);
+            return;
+        }
+        const needsNexusAuth = [
+            'NEXUS_SSO_REQUIRED',
+            'NEXUS_AUTH_REQUIRED',
+            'NEXUS_AUTH_FAILED'
+        ].includes(error?.code);
+        setExternalSourceControlsDisabled(needsNexusAuth);
         renderSourceState(
             table,
-            needsNexusKey ? 'Connect Nexus Mods' : 'Catalogue unavailable',
-            needsNexusKey
-                ? 'Connect your Nexus Mods account in Settings before browsing this catalogue.'
+            needsNexusAuth ? 'Sign in with Nexus Mods' : 'Catalogue unavailable',
+            needsNexusAuth
+                ? 'Connect your Nexus Mods account with single sign-on in Settings before browsing this catalogue.'
                 : (error?.message || 'The selected mod catalogue could not be loaded.'),
-            needsNexusKey ? {
+            needsNexusAuth ? {
                 label: 'Open Nexus Mods settings',
                 run: () => {
                     window._pageArguments = { cat: 'nexus' };
@@ -1332,14 +1485,24 @@ async function initializeExternalSource(table) {
 async function plusPage(amt) {
     if (
         !isCurrentShopPage() ||
+        gameBananaPageRequestActive ||
         typeof window.currentPageStack?.GB_API !== 'string' ||
         !window.currentPageStack?.table?.isConnected
     ) {
         return;
     }
     if (!Number.isFinite(window.PAGE)) window.PAGE = 1;
+    const previousPage = window.PAGE;
     window.PAGE += amt;
-    await renderMods(window.currentPageStack.table, window.currentPageStack.GB_API, window.currentPageStack.filter, window.currentPageStack.gameID);
+    gameBananaPageRequestActive = true;
+    try {
+        await renderMods(window.currentPageStack.table, window.currentPageStack.GB_API, window.currentPageStack.filter, window.currentPageStack.gameID);
+    } catch (error) {
+        window.PAGE = previousPage;
+        throw error;
+    } finally {
+        gameBananaPageRequestActive = false;
+    }
 }
 
 (async () => {
@@ -1444,7 +1607,13 @@ async function plusPage(amt) {
         gameID
     };
 
-    await renderMods(table, GB_API, filter, gameID);
+    gameBananaPageRequestActive = true;
+    try {
+        await renderMods(table, GB_API, filter, gameID);
+        gameBananaInitialLoadComplete = true;
+    } finally {
+        gameBananaPageRequestActive = false;
+    }
 
     genbtnstyles();
 })();

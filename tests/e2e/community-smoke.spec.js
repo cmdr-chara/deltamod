@@ -984,10 +984,10 @@ test('launches securely and keeps Options categories inside their column', async
         });
         await window.locator('#b_nexus').waitFor({ state: 'visible' });
         await window.evaluate(() => window.currentPageStack.cat('nexus'));
-        await expect(window.locator('.nexus-key-row input')).toBeVisible();
+        await expect(window.locator('.nexus-key-row input')).toHaveCount(0);
         await expect(window.locator('#options')).toContainText('Not connected');
         await expect(window.getByRole('button', { name: 'Sign in' })).toBeVisible();
-        await expect(window.locator('#options')).toContainText('no API key needs to be copied');
+        await expect(window.locator('#options')).toContainText('returns authorization directly to Community');
         if (process.env.DELTAMOD_SCREENSHOT_DIR) {
             await window.screenshot({
                 path: path.join(process.env.DELTAMOD_SCREENSHOT_DIR, '08-nexus-settings.png')
