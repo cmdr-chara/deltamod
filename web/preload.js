@@ -45,7 +45,6 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'modSources:getProviders',
     'modSources:browse',
     'modSources:nexusStatus',
-    'modSources:setNexusKey',
     'modSources:startNexusSso',
     'modSources:cancelNexusSso',
     'modSources:clearNexusKey',
@@ -158,7 +157,6 @@ contextBridge.exposeInMainWorld('communityAPI', {
         providers: () => invoke('modSources:getProviders'),
         browse: request => invoke('modSources:browse', [request]),
         nexusStatus: () => invoke('modSources:nexusStatus'),
-        setNexusKey: key => invoke('modSources:setNexusKey', [key]),
         startNexusSso: async () => {
             const response = await invoke('modSources:startNexusSso');
             if (!response?.ok) {

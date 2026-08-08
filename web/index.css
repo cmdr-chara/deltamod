@@ -6,6 +6,92 @@
     --topbar-height: 40px;
     --sidebar-size: 150px;
 }
+
+#deltamod-boot-root {
+    position: fixed;
+    inset: 0;
+    /* Keep in-app alerts (z-index: 2000) usable during optional migration
+       prompts while still covering the normal shell below it. */
+    z-index: 1500;
+    overflow: hidden;
+    background: #080808;
+    cursor: wait;
+    -webkit-app-region: drag;
+}
+
+#deltamod-boot-root .deltamod-boot {
+    min-height: 100%;
+    -webkit-app-region: drag;
+}
+
+body.deltamod-boot-active > .bg,
+body.deltamod-boot-active > .theme-background-video,
+body.deltamod-boot-active > .dmodicon,
+body.deltamod-boot-active > .topbar,
+body.deltamod-boot-active > .viewport,
+body.deltamod-boot-active > .sidebar,
+body.deltamod-boot-active > .language-wheel-toggle {
+    opacity: 0 !important;
+}
+
+body.deltamod-boot-active > .dmodicon,
+body.deltamod-boot-active > .topbar,
+body.deltamod-boot-active > .viewport,
+body.deltamod-boot-active > .sidebar {
+    transform: translateY(5px);
+}
+
+body.deltamod-ui-entering > .bg,
+body.deltamod-ui-entering > .theme-background-video {
+    --deltamod-ui-final-opacity: 0.34;
+}
+
+body.deltamod-ui-entering > .dmodicon {
+    --deltamod-ui-final-opacity: 0.42;
+}
+
+body.deltamod-ui-entering > .topbar,
+body.deltamod-ui-entering > .viewport,
+body.deltamod-ui-entering > .sidebar {
+    --deltamod-ui-final-opacity: 1;
+}
+
+body.deltamod-ui-entering > .bg,
+body.deltamod-ui-entering > .theme-background-video,
+body.deltamod-ui-entering > .dmodicon,
+body.deltamod-ui-entering > .topbar,
+body.deltamod-ui-entering > .viewport,
+body.deltamod-ui-entering > .sidebar,
+body.deltamod-ui-entering > .language-wheel-toggle {
+    opacity: var(--deltamod-ui-final-opacity, 1) !important;
+    transition: opacity 900ms linear 280ms,
+                transform 760ms cubic-bezier(0.16, 1, 0.3, 1) 280ms;
+}
+
+body.deltamod-ui-entering > .dmodicon,
+body.deltamod-ui-entering > .topbar,
+body.deltamod-ui-entering > .viewport,
+body.deltamod-ui-entering > .sidebar {
+    transform: translateY(0);
+}
+
+#deltamod-boot-root[hidden] {
+    display: none;
+}
+
+/* The language wheel lives above most application chrome. Keep every part of
+   it absent until the boot overlay has fully dismissed. */
+#deltamod-boot-root:not([hidden]):not([data-dismissed="true"]) ~ .language-wheel-toggle {
+    visibility: hidden;
+    opacity: 0 !important;
+    pointer-events: none;
+}
+
+#deltamod-boot-root:not([hidden]) ~ .language-wheel-backdrop,
+#deltamod-boot-root:not([hidden]) ~ .language-wheel {
+    display: none !important;
+}
+
 .loadingBar {
     width: 70px;
     height: 70px;
@@ -570,55 +656,61 @@ body {
 .language-wheel-toggle,
 .language-wheel-toggle:not(:hover) {
     position: fixed;
-    left: 11px;
+    left: calc((var(--rail-width) - 44px) / 2);
     bottom: 14px;
     z-index: 1996;
     display: grid;
-    width: 52px;
-    height: 52px;
+    width: 44px;
+    height: 44px;
     box-sizing: border-box;
     margin: 0;
-    padding: 8px;
+    padding: 5px;
     place-items: center;
     overflow: visible;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    border-radius: 50%;
-    background: rgba(12, 12, 16, 0.9) !important;
+    border: 0;
+    border-radius: 0;
+    outline: none;
+    background: transparent !important;
+    background-color: transparent !important;
     color: white;
-    box-shadow:
-        inset 0 0 0 3px rgba(0, 0, 0, 0.56),
-        0 0 0 2px var(--theme-color-point3),
-        0 5px 14px rgba(0, 0, 0, 0.34);
-    transition:
-        transform var(--motion-fast) var(--motion-ease-out),
-        border-color var(--motion-fast) var(--motion-ease-out),
-        background-color var(--motion-fast) var(--motion-ease-out);
+    box-shadow: none;
     -webkit-app-region: no-drag;
 }
 
 .language-wheel-toggle:hover,
 .language-wheel-toggle[aria-expanded="true"] {
-    transform: translateY(-3px);
-    border-color: var(--theme-color);
-    background: rgba(20, 20, 24, 0.98) !important;
+    background: transparent !important;
     color: white;
-    box-shadow:
-        inset 0 0 0 3px rgba(0, 0, 0, 0.62),
-        0 0 0 2px var(--theme-color),
-        0 7px 18px rgba(0, 0, 0, 0.42);
+    box-shadow: none;
 }
 
 .language-wheel-toggle:active {
-    transform: translateY(0);
+    background: transparent !important;
 }
 
 .language-wheel-toggle img {
-    width: 32px;
-    height: 23px;
-    object-fit: cover;
-    border-radius: 3px;
-    image-rendering: auto;
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28);
+    display: block;
+    width: 30px;
+    height: 24px;
+    object-fit: fill;
+    border-radius: 0;
+    image-rendering: pixelated;
+    pointer-events: none;
+    transition: transform var(--motion-fast) var(--motion-ease-out);
+}
+
+.language-wheel-toggle:hover img,
+.language-wheel-toggle[aria-expanded="true"] img {
+    transform: translateY(-2px);
+}
+
+.language-wheel-toggle:active img {
+    transform: translateY(1px);
+}
+
+.language-wheel-toggle:focus-visible img {
+    outline: 2px solid white;
+    outline-offset: 2px;
 }
 
 .language-wheel-backdrop {
@@ -886,7 +978,8 @@ body {
     .language-wheel,
     .language-wheel-backdrop,
     .language-wheel-option,
-    .language-wheel-toggle {
+    .language-wheel-toggle,
+    .language-wheel-toggle img {
         transition-duration: 0ms !important;
         transition-delay: 0ms !important;
     }

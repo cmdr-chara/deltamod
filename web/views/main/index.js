@@ -110,17 +110,10 @@ async function createMod(mod, modListElement) {
     let modNameContainer = document.createElement('td');
 
     let bigAhhContainer = document.createElement('div');
-    bigAhhContainer.style.display = 'flex';
-    bigAhhContainer.style.alignItems = 'center';
-    bigAhhContainer.style.gap = '10px';
-    bigAhhContainer.style.justifyContent = 'left';
+    bigAhhContainer.className = 'patch-mod-layout';
 
-    let IMAGE_DIMENSION = 70;
     let imageContainer = document.createElement('div');
-    imageContainer.style.width = IMAGE_DIMENSION + 'px';
-    imageContainer.style.height = IMAGE_DIMENSION + 'px';
-    imageContainer.style.margin = '4px';
-    imageContainer.style.marginLeft = '2px';
+    imageContainer.className = 'patch-mod-artwork';
 
     tippy(imageContainer, {
         content: "Right click to view in library",
@@ -141,11 +134,7 @@ async function createMod(mod, modListElement) {
     let img = document.createElement('img');
     img.src = imeta.path;
     img.classList.add('mod-image');
-    img.style.border = '3px solid ';
-    img.style.width = IMAGE_DIMENSION + 'px';
-    img.style.height = IMAGE_DIMENSION + 'px';
-    img.style.objectFit = 'cover';
-    img.alt = '';
+    img.alt = `${mod.name} cover`;
     img.onerror = () => {
         img.onerror = null;
         img.src = 'deltapack://web/img/mod-placeholder.png';
@@ -162,12 +151,11 @@ async function createMod(mod, modListElement) {
     };
 
 
-    img.style.border = '3px solid ' + `var(--theme-color-point2)`;
-    
     let infoContainer = document.createElement('div');
+    infoContainer.className = 'patch-mod-info';
     let titleSpan = document.createElement('span');
     titleSpan.innerText = mod.name;
-    titleSpan.style.fontSize = '23px';
+    titleSpan.className = 'patch-mod-title';
     if (mod.new) {
         titleSpan = adaptForIconsA(titleSpan);
         titleSpan.style.marginBottom = '0px';
@@ -176,28 +164,14 @@ async function createMod(mod, modListElement) {
     titleSpan.id = `modtitle-${mod.uid}`;
     infoContainer.appendChild(titleSpan);
 
-    infoContainer.appendChild(document.createElement('br'));
-
     let descSpan = document.createElement('span');
-    descSpan.className = 'calibri';
-    descSpan.style = 'font-size: 12px; color: #ffffff;';
+    descSpan.className = 'calibri patch-mod-description';
     descSpan.innerText = purifyDescription(mod.description);
     descSpan.id = `moddesc-${mod.uid}`;
     infoContainer.appendChild(descSpan);
 
     let flexContnainer = document.createElement('div');
-    flexContnainer.style.display = 'flex';
-    flexContnainer.style.alignItems = 'center';
-    flexContnainer.style.justifyContent = 'left';
-    flexContnainer.style.gap = '6px';
-    flexContnainer.style.marginTop = '8px';
-    flexContnainer.style.backgroundColor = 'var(--theme-color-point3)';
-    flexContnainer.style.backdropFilter = 'blur(5px)';
-    flexContnainer.style.borderRadius = '50px';
-    flexContnainer.style.width = 'fit-content';
-    flexContnainer.style.padding = '4px';
-    flexContnainer.style.paddingLeft = '10px';
-    flexContnainer.style.paddingRight = '10px';
+    flexContnainer.className = 'patch-mod-meta';
     infoContainer.appendChild(flexContnainer);
 
     const authors = Array.isArray(mod.author) ? mod.author : [mod.author || 'Unknown'];
@@ -208,8 +182,6 @@ async function createMod(mod, modListElement) {
     authorSpan = adaptForIconsA(authorSpan);
     authorSpan.style.margin = '0px';
     authorSpan.className = 'calibri';
-    authorSpan.style.fontSize = fontSize + 'px';
-    authorSpan.style.color = '#ffffff';
     setIconText(authorSpan, 'attribution', reducedAuthorStr, fontSize + 'px');
     authorSpan.id = `modauthor-${mod.uid}`;
     flexContnainer.appendChild(authorSpan);
@@ -218,8 +190,6 @@ async function createMod(mod, modListElement) {
     versionSpan = adaptForIconsA(versionSpan);
     versionSpan.style.margin = '0px';
     versionSpan.className = 'calibri';
-    versionSpan.style.fontSize = fontSize + 'px';
-    versionSpan.style.color = '#ffffff';
     setIconText(versionSpan, 'change_history', mod.version || "Unknown", fontSize + 'px');
     versionSpan.id = `modsize-${mod.uid}`;
     flexContnainer.appendChild(versionSpan);
@@ -229,11 +199,7 @@ async function createMod(mod, modListElement) {
 
         let mergeSpan = document.createElement('p');
         mergeSpan = adaptForIconsA(mergeSpan);
-        mergeSpan.style.margin = '0px';
-        mergeSpan.style.marginTop = '10px';
-        mergeSpan.className = 'calibri';
-        mergeSpan.style.fontSize = fontSize + 'px';
-        mergeSpan.style.color = '#ffffff';
+        mergeSpan.className = 'calibri patch-mod-warning';
         setIconText(mergeSpan, 'warning', "This mod is incompatible with multiple mod support", fontSize + 'px');
         mergeSpan.id = `modmerge-${mod.uid}`;
         infoContainer.appendChild(mergeSpan);
@@ -241,14 +207,7 @@ async function createMod(mod, modListElement) {
 
     if (mod.variants != null) {
         let variantSelect = document.createElement('select');
-        variantSelect.style.marginTop = '10px';
-        variantSelect.classList.add('variant-select');
-        variantSelect.classList.add('calibri');
-        variantSelect.style.backgroundColor = 'var(--theme-color-point3)';
-        variantSelect.style.border = '1px solid var(--theme-color-point2)';
-        variantSelect.style.fontSize = fontSize + 'px';
-        variantSelect.style.width = '40%';
-        variantSelect.style.color = '#ffffff';
+        variantSelect.className = 'variant-select calibri patch-mod-variant';
         for (const variant of mod.variants) {
             let option = document.createElement('option');
             option.value = variant.filename;
@@ -278,21 +237,32 @@ async function createMod(mod, modListElement) {
 
     // Column 2 (Actions)
     let enabledContainer = document.createElement('td');
-    enabledContainer.style.textAlign = 'center';
     enabledContainer.className = 'modlist-enabled-column';
     {
+        let toggleLabel = document.createElement('label');
+        toggleLabel.className = 'patch-toggle';
+
         let enabled = document.createElement("input");
         enabled.type = 'checkbox';
         enabled.id = `modcheck-${mod.uid}`;
+        enabled.setAttribute('aria-label', `Enable ${mod.name}`);
         enabled.checked = await window.electronAPI.invoke('getModState', [mod.uid]);
+        modRow.classList.toggle('is-enabled', enabled.checked);
         enabled.onchange = e => {
             const c = e.target;
             const isEnabled = c.checked;
             const forMod = mod.uid;
 
+            modRow.classList.toggle('is-enabled', isEnabled);
             window.electronAPI.invoke("toggleModState", [forMod, isEnabled]);
         };
-        enabledContainer.appendChild(enabled);
+
+        let toggleTrack = document.createElement('span');
+        toggleTrack.className = 'patch-toggle-track';
+        toggleTrack.setAttribute('aria-hidden', 'true');
+        toggleLabel.appendChild(enabled);
+        toggleLabel.appendChild(toggleTrack);
+        enabledContainer.appendChild(toggleLabel);
     }
 
     modRow.appendChild(modNameContainer);

@@ -9,7 +9,6 @@ const https = require('https');
 const createDesktopShortcut = require('create-desktop-shortcuts');
 const axios = require('axios');
 const { z } = require('zod');
-const semver = require('semver');
 var elevate = require('windows-elevate');
 // Local modules
 const KeyValue = require('./KeyValue');
@@ -98,9 +97,27 @@ function getNexusAuthMethod() {
     return metadata?.method === 'sso' ? 'sso' : 'personal';
 }
 
+function createNexusPersonalKeyDisabledError() {
+    const error = new Error('Personal Nexus Mods API keys are disabled. Use Nexus Mods sign-in.');
+    error.code = 'NEXUS_PERSONAL_KEY_DISABLED';
+    return error;
+}
+
+function clearNexusCredentialFiles() {
+    try { fs.rmSync(getNexusCredentialPath(), { force: true }); } catch {}
+    try { fs.rmSync(getNexusAuthMetadataPath(), { force: true }); } catch {}
+}
+
 function readNexusApiKey() {
     const credentialPath = getNexusCredentialPath();
     if (!fs.existsSync(credentialPath)) return null;
+    // SSO is the only supported authentication path. Treat credentials from
+    // older builds (including those explicitly marked method=personal) as
+    // unusable and remove the local copy instead of silently sending it to Nexus.
+    if (getNexusAuthMethod() !== 'sso') {
+        clearNexusCredentialFiles();
+        return null;
+    }
     if (!safeStorage.isEncryptionAvailable()) {
         const error = new Error('Secure credential storage is unavailable on this system.');
         error.code = 'SECURE_STORAGE_UNAVAILABLE';
@@ -116,6 +133,12 @@ function readNexusApiKey() {
 }
 
 function storeNexusApiKey(apiKey, method) {
+    if (method !== 'sso') throw createNexusPersonalKeyDisabledError();
+    if (!safeStorage.isEncryptionAvailable()) {
+        const error = new Error('Secure credential storage is unavailable on this system.');
+        error.code = 'SECURE_STORAGE_UNAVAILABLE';
+        throw error;
+    }
     writeFileAtomicSync(
         getNexusCredentialPath(),
         safeStorage.encryptString(apiKey),
@@ -123,9 +146,80 @@ function storeNexusApiKey(apiKey, method) {
     );
     writeJsonAtomicSync(getNexusAuthMetadataPath(), {
         schemaVersion: 1,
-        method: method === 'sso' ? 'sso' : 'personal',
+        method: 'sso',
         updatedAt: new Date().toISOString()
     }, { backup: false });
+}
+
+function toJsonSafe(value, depth = 0) {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (depth > 4 || value === undefined || typeof value !== 'object') return undefined;
+    if (Array.isArray(value)) {
+        return value.slice(0, 64).map(item => toJsonSafe(item, depth + 1));
+    }
+    const result = {};
+    for (const [key, item] of Object.entries(value).slice(0, 64)) {
+        const safe = toJsonSafe(item, depth + 1);
+        if (safe !== undefined) result[String(key)] = safe;
+    }
+    return result;
+}
+
+function nexusErrorMetadata(error) {
+    const metadata = {};
+    if (Number.isInteger(error?.status)) metadata.status = error.status;
+
+    if (Object.prototype.hasOwnProperty.call(error || {}, 'retryAfterMs')) {
+        if (error.retryAfterMs === null) {
+            metadata.retryAfterMs = null;
+        } else if (error.retryAfterMs !== undefined && error.retryAfterMs !== '') {
+            const retryAfterMs = Number(error.retryAfterMs);
+            if (Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
+                metadata.retryAfterMs = Math.round(retryAfterMs);
+            }
+        }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(error || {}, 'retryAt')) {
+        if (error.retryAt === null) {
+            metadata.retryAt = null;
+        } else if (typeof error.retryAt === 'string' && error.retryAt.trim()) {
+            metadata.retryAt = error.retryAt;
+        } else if (typeof error.retryAt === 'number' && Number.isFinite(error.retryAt)) {
+            metadata.retryAt = error.retryAt;
+        }
+    }
+
+    const quota = toJsonSafe(error?.quota);
+    if (quota !== undefined) metadata.quota = quota;
+    return metadata;
+}
+
+function serializeNexusError(error, fallbackCode, fallbackMessage) {
+    return {
+        code: String(error?.code || fallbackCode),
+        message: String(error?.message || fallbackMessage),
+        ...nexusErrorMetadata(error)
+    };
+}
+
+function isNexusRateLimitedError(error) {
+    const code = String(error?.code || '');
+    const quotaExhausted = ['daily', 'hourly'].some(period =>
+        Number.isFinite(Number(error?.quota?.[period]?.remaining))
+        && Number(error.quota[period].remaining) <= 0
+    );
+    return Number(error?.status) === 429
+        || error?.retryAfterMs !== null && error?.retryAfterMs !== undefined
+        || error?.retryAt !== null && error?.retryAt !== undefined
+        || quotaExhausted
+        || [
+            'NEXUS_RATE_LIMITED',
+            'NEXUS_QUOTA_EXCEEDED',
+            'MOD_SOURCE_RATE_LIMITED',
+            'MOD_SOURCE_QUOTA_EXCEEDED'
+        ].includes(code);
 }
 
 async function reorderInstalls() {
@@ -354,8 +448,6 @@ module.exports = function registerIPCHandlers(context) {
         appId: configuredNexusSsoAppId,
         openExternal: url => shell.openExternal(parseExternalHttpsUrl(url, ['nexusmods.com']))
     });
-    const nexusPersonalKeyFallbackAllowed =
-        !nexusSso.available || semver.prerelease(app.getVersion()) !== null;
     // { getGBUIConf, collections }
 
     const undertaleModToolConfigPath = getSystemFile('undertale-mod-tool.json', true);
@@ -860,8 +952,7 @@ module.exports = function registerIPCHandlers(context) {
                 result = await ModSources.browseNexus({
                     domain: game.sources?.nexus?.domain,
                     query: request.query,
-                    sort: request.sort,
-                    apiKey: readNexusApiKey()
+                    sort: request.sort
                 });
             } else {
                 const error = new Error('GameBanana continues to use its compatibility catalogue.');
@@ -870,13 +961,14 @@ module.exports = function registerIPCHandlers(context) {
             }
             return { ok: true, result };
         } catch (error) {
+            const serialized = serializeNexusError(
+                error,
+                'MOD_SOURCE_BROWSE_FAILED',
+                'The selected mod catalogue could not be loaded.'
+            );
             return {
                 ok: false,
-                error: {
-                    code: String(error?.code || 'MOD_SOURCE_BROWSE_FAILED'),
-                    message: String(error?.message || 'The selected mod catalogue could not be loaded.'),
-                    status: Number.isInteger(error?.status) ? error.status : undefined
-                }
+                error: serialized
             };
         }
     });
@@ -884,19 +976,29 @@ module.exports = function registerIPCHandlers(context) {
         const baseStatus = {
             ssoAvailable: nexusSso.available,
             ssoPending: nexusSso.pending,
-            personalKeyFallbackAllowed: nexusPersonalKeyFallbackAllowed,
-            authMethod: fs.existsSync(getNexusCredentialPath()) ? getNexusAuthMethod() : null
+            // Kept as a false compatibility field for older renderers. There
+            // is no backend path that accepts or uses personal API keys.
+            personalKeyFallbackAllowed: false,
+            authMethod: fs.existsSync(getNexusCredentialPath()) && getNexusAuthMethod() === 'sso'
+                ? 'sso'
+                : null
         };
         let key;
         try {
             key = readNexusApiKey();
         } catch (error) {
+            const serialized = serializeNexusError(
+                error,
+                'NEXUS_CREDENTIAL_INVALID',
+                'The saved Nexus Mods credential could not be read.'
+            );
             return {
                 ...baseStatus,
                 configured: fs.existsSync(getNexusCredentialPath()),
                 connected: false,
-                error: error.message,
-                code: error.code || 'NEXUS_CREDENTIAL_INVALID'
+                error: serialized.message,
+                code: serialized.code,
+                ...nexusErrorMetadata(error)
             };
         }
         if (!key) return { ...baseStatus, configured: false, connected: false };
@@ -908,43 +1010,35 @@ module.exports = function registerIPCHandlers(context) {
                 ...(await ModSources.validateNexusApiKey(key))
             };
         } catch (error) {
+            const serialized = serializeNexusError(
+                error,
+                'NEXUS_STATUS_FAILED',
+                'Nexus Mods status could not be loaded.'
+            );
             return {
                 ...baseStatus,
                 configured: true,
                 connected: false,
-                error: error.message,
-                code: error.code || 'NEXUS_STATUS_FAILED'
+                error: serialized.message,
+                code: serialized.code,
+                ...nexusErrorMetadata(error)
             };
         }
     });
-    handle('modSources:setNexusKey', async (event, args) => {
-        if (!nexusPersonalKeyFallbackAllowed) {
-            const error = new Error('Personal Nexus Mods API keys are disabled in registered stable builds. Use Nexus Mods sign-in.');
-            error.code = 'NEXUS_PERSONAL_KEY_DISABLED';
-            throw error;
-        }
-        if (!safeStorage.isEncryptionAvailable()) {
-            const error = new Error('Secure credential storage is unavailable. The Nexus Mods key was not saved.');
-            error.code = 'SECURE_STORAGE_UNAVAILABLE';
-            throw error;
-        }
-        const key = String(args?.[0] || '').trim();
-        const status = await ModSources.validateNexusApiKey(key);
-        storeNexusApiKey(key, 'personal');
-        return {
-            configured: true,
-            connected: true,
-            authMethod: 'personal',
-            ssoAvailable: nexusSso.available,
-            ssoPending: false,
-            personalKeyFallbackAllowed: nexusPersonalKeyFallbackAllowed,
-            ...status
-        };
+    handle('modSources:setNexusKey', async () => {
+        // Keep the channel for older renderers, but never accept or persist a
+        // pasted personal API key in any build configuration.
+        throw createNexusPersonalKeyDisabledError();
     });
     handle('modSources:startNexusSso', async event => {
         const cancelOnRendererClose = () => nexusSso.cancel();
         event.sender.once('destroyed', cancelOnRendererClose);
         try {
+            if (!nexusSso.available) {
+                const error = new Error('Nexus Mods SSO is unavailable until Nexus issues the application slug.');
+                error.code = 'NEXUS_SSO_NOT_REGISTERED';
+                throw error;
+            }
             if (!safeStorage.isEncryptionAvailable()) {
                 const error = new Error('Secure credential storage is unavailable. Nexus Mods sign-in cannot be saved.');
                 error.code = 'SECURE_STORAGE_UNAVAILABLE';
@@ -961,17 +1055,19 @@ module.exports = function registerIPCHandlers(context) {
                     authMethod: 'sso',
                     ssoAvailable: true,
                     ssoPending: false,
-                    personalKeyFallbackAllowed: nexusPersonalKeyFallbackAllowed,
+                    personalKeyFallbackAllowed: false,
                     ...status
                 }
             };
         } catch (error) {
+            const serialized = serializeNexusError(
+                error,
+                'NEXUS_SSO_FAILED',
+                'Nexus Mods sign-in failed.'
+            );
             return {
                 ok: false,
-                error: {
-                    code: error.code || 'NEXUS_SSO_FAILED',
-                    message: error.message || 'Nexus Mods sign-in failed.'
-                }
+                error: serialized
             };
         } finally {
             event.sender.removeListener('destroyed', cancelOnRendererClose);
@@ -982,8 +1078,7 @@ module.exports = function registerIPCHandlers(context) {
     });
     handle('modSources:clearNexusKey', () => {
         nexusSso.cancel();
-        try { fs.rmSync(getNexusCredentialPath(), { force: true }); } catch {}
-        try { fs.rmSync(getNexusAuthMetadataPath(), { force: true }); } catch {}
+        clearNexusCredentialFiles();
         return true;
     });
     handle('modSources:open', async (event, args) => {
@@ -1010,21 +1105,44 @@ module.exports = function registerIPCHandlers(context) {
             error.code = 'MOD_SOURCE_UNAVAILABLE';
             throw error;
         }
-        const resolved = await ModSources.getNexusPrimaryDownload({
-            domain,
-            modId: request.modId,
-            apiKey: readNexusApiKey()
-        });
+        let resolved;
+        try {
+            resolved = await ModSources.getNexusPrimaryDownload({
+                domain,
+                modId: request.modId,
+                apiKey: readNexusApiKey()
+            });
+        } catch (error) {
+            if ([
+                'NEXUS_SSO_REQUIRED',
+                'NEXUS_AUTH_FAILED',
+                'NEXUS_MANUAL_DOWNLOAD_REQUIRED',
+                'NEXUS_PERSONAL_KEY_DISABLED',
+                'NEXUS_RATE_LIMITED'
+            ].includes(error.code) || isNexusRateLimitedError(error)) {
+                const serialized = serializeNexusError(
+                    error,
+                    'NEXUS_DOWNLOAD_FAILED',
+                    'Nexus Mods download is unavailable.'
+                );
+                return {
+                    ok: false,
+                    error: serialized
+                };
+            }
+            throw error;
+        }
         const sourceUrl = parseExternalHttpsUrl(request.sourceUrl, ['nexusmods.com']);
         try {
             return await Modstore.downloadModFromURL(
                 resolved.downloadUrl,
-                (progress, downloaded) => {
+                (progress, downloaded, state = {}) => {
                     event.sender.send('mod-source-progress', {
                         operationId: request.operationId,
-                        phase: 'download',
+                        phase: state.phase || 'download',
                         completed: downloaded,
-                        total: progress > 0 ? Math.round(downloaded / (progress / 100)) : 0,
+                        total: state.total
+                            || (progress > 0 ? Math.round(downloaded / (progress / 100)) : 0),
                         currentItem: resolved.fileName
                     });
                 },
@@ -1041,14 +1159,24 @@ module.exports = function registerIPCHandlers(context) {
                 }
             );
         } catch (error) {
+            const serialized = serializeNexusError(
+                error,
+                'NEXUS_DOWNLOAD_FAILED',
+                'The Nexus Mods archive could not be downloaded.'
+            );
             event.sender.send('mod-source-progress', {
                 operationId: request.operationId,
                 phase: 'failed',
                 completed: 0,
                 total: 0,
                 currentItem: resolved.fileName,
-                error: error.message
+                error: serialized.message,
+                errorCode: serialized.code,
+                ...nexusErrorMetadata(error)
             });
+            if (isNexusRateLimitedError(error)) {
+                return { ok: false, error: serialized };
+            }
             throw error;
         }
     });
@@ -1094,8 +1222,15 @@ module.exports = function registerIPCHandlers(context) {
         const requestId = String(queryme ?? '');
         if (!/^[a-z0-9]{1,32}$/i.test(requestId)) throw new Error('Invalid download operation identifier.');
         try {
-            return await Modstore.downloadModFromURL(url, (progress, downloaded) => {
-                event.sender.send('dlmodURL-progress', { progress, downloaded, queryme: requestId, error: false });
+            return await Modstore.downloadModFromURL(url, (progress, downloaded, state = {}) => {
+                event.sender.send('dlmodURL-progress', {
+                    progress,
+                    downloaded,
+                    total: state.total || 0,
+                    phase: state.phase || 'download',
+                    queryme: requestId,
+                    error: false
+                });
             }, modid, modmodel);
         } catch (error) {
             event.sender.send('dlmodURL-progress', {

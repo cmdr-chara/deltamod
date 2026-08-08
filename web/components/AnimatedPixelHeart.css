@@ -1,0 +1,45 @@
+.animated-pixel-heart {
+  --aph-size: 256px;
+  display: grid;
+  width: var(--aph-size);
+  aspect-ratio: 1;
+  box-sizing: border-box;
+  place-items: center;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: var(--aph-background, transparent) !important;
+  background-color: var(--aph-background, transparent) !important;
+  color: var(--aph-foreground, #ffffff);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.animated-pixel-heart canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--aph-background, transparent);
+  background-color: var(--aph-background, transparent) !important;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.animated-pixel-heart:hover {
+  background: var(--aph-background, transparent) !important;
+  color: var(--aph-foreground, #ffffff);
+}
+
+.animated-pixel-heart:disabled,
+.animated-pixel-heart[data-interactive="false"] {
+  opacity: 1;
+  cursor: default;
+  pointer-events: none;
+}
+
+.animated-pixel-heart:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
+}

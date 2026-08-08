@@ -11,10 +11,24 @@ let SHOP_PROVIDER = window._pageArguments?.provider
     || localStorage.getItem('modShopProvider')
     || 'gamebanana';
 
+// External catalogue requests are shared across page instances. Navigating or
+// changing sort while a Nexus request is in flight must not create another
+// request against the same quota window; callers with a different query wait
+// for the active request to finish before starting their own.
+const externalBrowseState = window._communityExternalBrowseState
+    || (window._communityExternalBrowseState = { active: null });
+let externalRetryTimer = null;
+let gameBananaPageRequestActive = false;
+let gameBananaInitialLoadComplete = false;
+
 window.PAGE = PAGE;
 
 window._onClosePage.push(() => {
     pageActive = false;
+    if (externalRetryTimer) {
+        clearTimeout(externalRetryTimer);
+        externalRetryTimer = null;
+    }
     delete window.PAGE;
 });
 
@@ -42,7 +56,12 @@ const element = document.querySelector('.scrollBottomDetector');
 
 const observer = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
-    if (entry.isIntersecting && isCurrentShopPage()) {
+    if (
+        entry.isIntersecting
+        && isCurrentShopPage()
+        && gameBananaInitialLoadComplete
+        && !gameBananaPageRequestActive
+    ) {
         plusPage(1);
     }
   });
@@ -89,6 +108,32 @@ function setCardImageSource(image, thumb) {
     image.sizes = '130px';
     image.srcset = sourceSet;
     image.src = source530;
+}
+
+function createGalleryPreview(image, modName, images) {
+    const preview = document.createElement('div');
+    preview.className = 'mod-gallery-preview';
+    preview.appendChild(image);
+    if (!Array.isArray(images) || images.length === 0) return preview;
+
+    image.tabIndex = 0;
+    image.setAttribute('role', 'button');
+    image.setAttribute('aria-label', `Preview ${modName} (${images.length} image${images.length === 1 ? '' : 's'})`);
+    image.onclick = () => openImageLightbox(modName, images);
+    image.onkeydown = event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            image.click();
+        }
+    };
+    if (images.length > 1) {
+        const count = document.createElement('span');
+        count.className = 'mod-gallery-count';
+        count.innerText = `+${images.length - 1}`;
+        count.setAttribute('aria-hidden', 'true');
+        preview.appendChild(count);
+    }
+    return preview;
 }
 
 function openImageLightbox(modName, imageList, initialIndex = 0) {
@@ -235,6 +280,50 @@ function applyContentFilter(records) {
     return visibleRecords;
 }
 
+const featuredPeriodPriority = new Map([
+    ['alltime', 7],
+    ['year', 6],
+    ['6month', 5],
+    ['3month', 4],
+    ['month', 3],
+    ['week', 2],
+    ['today', 1]
+]);
+
+function prioritizeFeaturedRecords(records, featuredIDs) {
+    const bestRankByID = new Map();
+    for (const featured of featuredIDs) {
+        const rank = featuredPeriodPriority.get(featured.period) || 0;
+        bestRankByID.set(featured.id, Math.max(bestRankByID.get(featured.id) || 0, rank));
+    }
+
+    return records
+        .map((mod, index) => ({
+            mod,
+            index,
+            rank: bestRankByID.get(mod._idRow) || 0
+        }))
+        .sort((left, right) => right.rank - left.rank || left.index - right.index)
+        .map(entry => entry.mod);
+}
+
+function featuredRankForID(featuredIDs, id) {
+    return featuredIDs.reduce((bestRank, featured) => {
+        if (featured.id !== id) return bestRank;
+        return Math.max(bestRank, featuredPeriodPriority.get(featured.period) || 0);
+    }, 0);
+}
+
+function insertRankedGameBananaRow(table, row, rank) {
+    row.dataset.featuredRank = String(rank);
+    const lowerRankRow = Array.from(table.children).find(existingRow =>
+        existingRow.dataset.featuredRank !== undefined &&
+        Number(existingRow.dataset.featuredRank) < rank
+    );
+    if (lowerRankRow) table.insertBefore(row, lowerRankRow);
+    else table.appendChild(row);
+}
+
 async function describeContentRatings(mod, chip) {
     if (!mod._bHasContentRatings) return;
     chip.innerText = 'Content-rated submission';
@@ -289,13 +378,130 @@ function roundViews(views) {
 
 let capi = '';
 let csearch = '';
+function syncSearchClearButton() {
+    const input = document.getElementById('searchInput');
+    const clearButton = document.getElementById('clearModSearchButton');
+    if (input && clearButton) clearButton.hidden = input.value.length === 0;
+}
+
+function hideSearchSuggestions() {
+    const suggestions = document.querySelector('.autocomplete .results');
+    if (!suggestions) return;
+    suggestions.innerHTML = '';
+    suggestions.style.opacity = '0';
+    suggestions.style.pointerEvents = 'none';
+}
+
+function clearModSearch() {
+    const input = document.getElementById('searchInput');
+    if (input) input.value = '';
+    csearch = '';
+    syncSearchClearButton();
+    hideSearchSuggestions();
+    window._pageArguments = { provider: SHOP_PROVIDER };
+    page('gamebanana-browse');
+}
+
+const SHOP_ICON_PATHS = Object.freeze({
+    download: '<path d="M12 4v10m-4-4 4 4 4-4M5 19h14"/>',
+    loading: '<path d="M19.4 7.5A8 8 0 1 0 20 12"/>',
+    cancel: '<path d="m6 6 12 12M18 6 6 18"/>',
+    done: '<path d="m5 12 4 4L19 6"/>',
+    question: '<circle cx="12" cy="12" r="8"/><path d="M9.8 9a2.4 2.4 0 0 1 4.6 1c0 1.8-2.4 2-2.4 4"/><path d="M12 17h.01"/>',
+    comment: '<path d="M5 5h14v11H9l-4 3V5Z"/>',
+    heart: '<path d="M20.5 9c0 4.8-8.5 10-8.5 10S3.5 13.8 3.5 9A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 8.5 2Z"/>',
+    smile: '<circle cx="12" cy="12" r="8"/><path d="M9 10h.01M15 10h.01M8.5 14c1 1.4 2.1 2 3.5 2s2.5-.6 3.5-2"/>',
+    open: '<path d="M13 5h6v6m0-6-9 9"/><path d="M17 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h5"/>'
+});
+
+function shopIcon(name) {
+    const aliases = {
+        search_activity: 'loading',
+        downloading: 'loading',
+        progress_activity: 'loading',
+        done_outline: 'done',
+        indeterminate_question_box: 'question',
+        mood_heart: 'heart',
+        sentiment_very_satisfied: 'smile',
+        open_in_new: 'open'
+    };
+    const iconName = aliases[name] || name;
+    const path = SHOP_ICON_PATHS[iconName];
+    if (!path) return icon(name, '0.9em');
+    const spinning = iconName === 'loading' ? ' is-spinning' : '';
+    return `<svg class="shop-action-icon${spinning}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${path}</svg>`;
+}
+
+function formatDownloadBytes(value) {
+    const bytes = Math.max(0, Number(value) || 0);
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const amount = bytes / (1024 ** unit);
+    const decimals = unit === 0 || amount >= 10 || Number.isInteger(amount) ? 0 : 1;
+    return `${amount.toFixed(decimals)} ${units[unit]}`;
+}
+
+function updateModDownloadStatus({ phase = 'download', completed = 0, total = 0, currentItem = '' }) {
+    const panel = document.getElementById('modDownloadStatus');
+    if (!panel) return;
+    const title = document.getElementById('modDownloadStatusTitle');
+    const percent = document.getElementById('modDownloadStatusPercent');
+    const item = document.getElementById('modDownloadStatusItem');
+    const bytes = document.getElementById('modDownloadStatusBytes');
+    const track = document.getElementById('modDownloadProgressTrack');
+    const bar = document.getElementById('modDownloadProgressBar');
+    const completedBytes = Math.max(0, Number(completed) || 0);
+    const totalBytes = Math.max(0, Number(total) || 0);
+    const percentage = phase === 'complete'
+        ? 100
+        : totalBytes > 0
+            ? Math.max(0, Math.min(100, (completedBytes / totalBytes) * 100))
+            : 0;
+    const titles = {
+        download: 'Downloading mod…',
+        import: 'Importing mod…',
+        complete: 'Mod imported successfully',
+        failed: 'Download or import failed'
+    };
+
+    panel.hidden = false;
+    panel.dataset.phase = phase;
+    title.textContent = titles[phase] || titles.download;
+    percent.textContent = phase === 'import'
+        ? 'Importing'
+        : phase === 'failed' && percentage === 0
+            ? 'Failed'
+            : `${Math.round(percentage)}%`;
+    item.textContent = currentItem || 'Mod package';
+    bytes.textContent = totalBytes > 0
+        ? `${formatDownloadBytes(completedBytes)} / ${formatDownloadBytes(totalBytes)}`
+        : completedBytes > 0
+            ? formatDownloadBytes(completedBytes)
+            : '';
+    track.setAttribute('aria-valuenow', String(Math.round(percentage)));
+    track.setAttribute('aria-valuetext', title.textContent);
+    bar.style.setProperty('--mod-download-progress', `${percentage}%`);
+}
+
+function setDownloadButtonIcon(button, glyph) {
+    button.innerHTML = shopIcon(glyph);
+}
+
+window.currentPageStack.updateModDownloadStatus = updateModDownloadStatus;
 
 async function search(searchQuery = null) {
-    let query = searchQuery || document.getElementById('searchInput').value;
-    if (searchQuery) {
-        document.getElementById('searchInput').value = searchQuery;
+    const input = document.getElementById('searchInput');
+    let query = String(searchQuery ?? input.value).trim();
+    if (searchQuery !== null) {
+        input.value = String(searchQuery);
     }
-    if (query.trim().length < 2) {
+    syncSearchClearButton();
+    if (query.length === 0) {
+        clearModSearch();
+        return;
+    }
+    if (query.length < 2) {
         await htmlAlert("Search query too short","Please enter at least 2 characters to search.",[{text:"Ok",resolveWith:'ok'}], 'error');
         return;
     }
@@ -339,22 +545,33 @@ async function featured() {
 window.currentPageStack.featured = featured;
 window.currentPageStack.qms = {}; //queryme stack
 
-async function dlmod(dlurl, buttonElem=null, modid, modmodel) {
+async function dlmod(dlurl, buttonElem=null, modid, modmodel, currentItem = `GameBanana ${modmodel} ${modid}`) {
     lockUs = true;
     Array.from(document.querySelectorAll('.sidebar-button')).forEach(e => e.disabled = true);
     let queryme = Math.random().toString(36).substring(2, 15);
 
-    buttonElem.innerHTML = icon('search_activity', '0.9em');
+    setDownloadButtonIcon(buttonElem, 'search_activity');
+    updateModDownloadStatus({ phase: 'download', currentItem });
 
     window.currentPageStack.qms[queryme] = function(info) {
         if (info.error) {
             lockUs = false;
             Array.from(document.querySelectorAll('.sidebar-button')).forEach(e => e.disabled = false);
-            buttonElem.innerHTML = icon('cancel', '0.9em')
+            setDownloadButtonIcon(buttonElem, 'cancel');
+            updateModDownloadStatus({
+                phase: 'failed',
+                currentItem
+            });
             return;
         }
 
         const p = Math.max(0, Math.min(100, Number(info.progress) || 0));
+        updateModDownloadStatus({
+            phase: info.phase || 'download',
+            completed: info.downloaded,
+            total: info.total,
+            currentItem
+        });
         buttonElem.style.transition = 'none';
         buttonElem.classList.add('download-progress');
         buttonElem.style.setProperty('--download-progress', `${p}%`);
@@ -363,9 +580,11 @@ async function dlmod(dlurl, buttonElem=null, modid, modmodel) {
 
     try {
         await window.electronAPI.invoke('dlmodURL',[dlurl, queryme, modid, modmodel]);
-        buttonElem.innerHTML = icon('done_outline', '0.9em');
+        setDownloadButtonIcon(buttonElem, 'done_outline');
+        updateModDownloadStatus({ phase: 'complete', currentItem });
     } catch (error) {
-        buttonElem.innerHTML = icon('cancel', '0.9em');
+        setDownloadButtonIcon(buttonElem, 'cancel');
+        updateModDownloadStatus({ phase: 'failed', currentItem });
         await htmlAlert(
             'Download failed',
             error?.message || 'The mod could not be downloaded or imported.',
@@ -417,13 +636,20 @@ async function renderMods(table, GB_API, filter, gameID) {
     if (!isCurrentShopPage()) return;
     var featuredIDs = featuredData.map(x => {return {id: x._idRow, period: x._sPeriod};});
 
+    if (firstgeneration) {
+        table.replaceChildren();
+    }
+
     try {
         if (data._aMetadata._bIsComplete) {
             observer.disconnect(); // stop observing since there's no more content to load
             document.querySelector('.scrollBottomDetector').style.display = 'none'; // hide the loading indicator
         }
 
-        const records = applyContentFilter(Array.isArray(data._aRecords) ? data._aRecords : []);
+        const records = prioritizeFeaturedRecords(
+            applyContentFilter(Array.isArray(data._aRecords) ? data._aRecords : []),
+            featuredIDs
+        );
 
         if (records.length == 0 && firstgeneration) {
             var tr = document.createElement('tr');
@@ -444,17 +670,11 @@ async function renderMods(table, GB_API, filter, gameID) {
 
                 var td0 = document.createElement('td');
                 td0.style.display = 'flex';
-                td0.style.alignItems = 'flex-start';
-                td0.style.gap = '8px';
+                td0.style.alignItems = 'center';
+                td0.style.gap = '14px';
                 td0.style.justifyContent = 'left';
                 // Rendering of td0
                 {
-                var div0 = document.createElement('div');
-                div0.style.display = 'flex';
-                div0.style.alignItems = 'center';
-                div0.style.gap = '8px';
-                div0.className = 'modThumbDiv';
-                
                 let thumbs = getAllThumbs(mod);
                 var img = document.createElement('img');
                 img.className = 'modThumbImg';
@@ -466,67 +686,17 @@ async function renderMods(table, GB_API, filter, gameID) {
                     img.onerror = null;
                     img.src = './img/mod-placeholder.png';
                 };
-                let i = 0;
                 img.style.width = '130px';
-                img.style.margin = '4px';
                 img.style.aspectRatio = '16 / 9';
-                img.style.borderRadius = '4px';
-                img.style.border = '2px solid var(--theme-color)';
                 img.style.height = 'auto';
-                img.style.cursor = 'zoom-in';
-                img.onclick = () => openImageLightbox(mod._sName, thumbs, i);
                 img.style.objectFit = 'cover';
-                img.style.transition = 'opacity 0.3s ease-in-out';
                 img.style.objectPosition = 'center';
 
-                var gridSmallImages = document.createElement('div');
-                gridSmallImages.className = 'modThumbGrid';
-                gridSmallImages.style.display = 'grid';
-                gridSmallImages.style.gridTemplateColumns = 'repeat(3, 1fr)';
-                gridSmallImages.style.gridTemplateRows = 'repeat(3, auto)';
-                gridSmallImages.style.gap = '4px';
-                gridSmallImages.style.marginTop = '4px';
-                gridSmallImages.style.width = '100%';
-
-                thumbs.slice(0, 9).forEach((thumb, index) => {
-                    var smallImg = document.createElement('img');
-                    smallImg.src = thumb.urlB;
-                    smallImg.loading = 'lazy';
-                    smallImg.decoding = 'async';
-                    smallImg.alt = `${mod._sName || 'Mod'} thumbnail ${index + 1}`;
-                    smallImg.onerror = () => {
-                        smallImg.onerror = null;
-                        smallImg.src = './img/mod-placeholder.png';
-                    };
-                    smallImg.style.width = '30px';
-                    smallImg.style.aspectRatio = '16 / 9';
-                    smallImg.style.objectFit = 'cover';
-                    smallImg.style.objectPosition = 'center';
-                    smallImg.style.borderRadius = '4px';
-                    smallImg.style.border = '1px solid var(--theme-color)';
-                    smallImg.onclick = async () => {
-                        i = index;
-                        img.style.opacity = '0';
-                        await timeoutPromise(300);
-                        setCardImageSource(img, thumb);
-                        img.onload = () => {
-                            img.style.opacity = '1';
-                            img.onload = null; // Remove the onload handler after it has been called
-                        }
-                    }
-                    smallImg.style.cursor = 'pointer';
-                    gridSmallImages.appendChild(smallImg);
-                });
-
-                div0.appendChild(gridSmallImages);
-                div0.appendChild(img);
+                var div0 = createGalleryPreview(img, mod._sName, thumbs);
+                div0.classList.add('modThumbDiv');
 
                 var div1 = document.createElement('div');
-                div1.className = 'modCopy';
-                div1.style.marginLeft = '8px';
-                div1.style.display = 'flex';
-                div1.style.flexDirection = 'column';
-                div1.style.justifyContent = 'space-between';
+                div1.className = 'modCopy external-source-card';
                 td0.appendChild(div0);
                 td0.appendChild(div1);
 
@@ -540,12 +710,18 @@ async function renderMods(table, GB_API, filter, gameID) {
                     window.open(mod._sProfileUrl, '_blank');
                 };
                 div1.appendChild(biggerSpan);
+                var sourceBadge = document.createElement('span');
+                sourceBadge.className = 'external-source-badge';
+                sourceBadge.innerText = 'GameBanana';
+                div1.appendChild(sourceBadge);
 
                 var otherInfoSpan = document.createElement('div');
-                otherInfoSpan.className = 'modOtherInfoSpan';
+                otherInfoSpan.className = 'modOtherInfoSpan calibri';
                 otherInfoSpan.style.fontSize = '0.9em';
                 otherInfoSpan.style.display = 'flex';
-                otherInfoSpan.style.flexDirection = 'column';
+                otherInfoSpan.style.alignItems = 'center';
+                otherInfoSpan.style.flexWrap = 'wrap';
+                otherInfoSpan.style.gap = '8px';
                 otherInfoSpan.style.color = '#cccccc';
                 otherInfoSpan.style.marginTop = '7px';
                 otherInfoSpan.style.width = '100%';
@@ -580,13 +756,13 @@ async function renderMods(table, GB_API, filter, gameID) {
                     img.style.borderColor = 'gold';
 
                     var periodsDesc = [
-                        ["today","Best of today"],
-                        ["week","Best of this week"],
-                        ["month","Best of this month"],
-                        ["3month","Best of last 3 months"],
-                        ["6month","Best of last 6 months"],
+                        ["alltime","All-time featured"],
                         ["year","Best of this year"],
-                        ["alltime","All-time featured"]
+                        ["6month","Best of last 6 months"],
+                        ["3month","Best of last 3 months"],
+                        ["month","Best of this month"],
+                        ["week","Best of this week"],
+                        ["today","Best of today"]
                     ]
                     var featSpan = document.createElement('span');
                     featSpan.className = 'modFeaturedSpan iptspan';
@@ -641,6 +817,11 @@ async function renderMods(table, GB_API, filter, gameID) {
 
                 desc.innerHTML = icon('acute', '1.1em') + ' ' + relativeDate;
                 otherInfoSpan.appendChild(desc);
+
+                var summary = document.createElement('div');
+                summary.className = 'external-source-summary calibri';
+                summary.innerText = mod._sDescription || 'No description was provided.';
+                div1.appendChild(summary);
                 }
 
                 var td1 = document.createElement('td');
@@ -648,13 +829,13 @@ async function renderMods(table, GB_API, filter, gameID) {
                 // Rendering of td1
                 {
                     var dlBtn = document.createElement('button');
-                    dlBtn.innerHTML = icon('download', '0.9em') + '';
+                    dlBtn.innerHTML = shopIcon('download');
                     dlBtn.className = 'serietast';
                     dlBtn.title = 'Download and import mod';
                     dlBtn.setAttribute('aria-label', `Download ${mod._sName}`);
                     dlBtn.onclick = async () => {
                         dlBtn.disabled = true;
-                        dlBtn.innerHTML = icon('downloading', '0.9em');
+                        setDownloadButtonIcon(dlBtn, 'downloading');
                         dlBtn.style.opacity = '0.7';
 
                         var dlpage = await fetch(`https://gamebanana.com/apiv11/${mod._sModelName}/${mod._idRow}/ProfilePage`);
@@ -675,7 +856,7 @@ async function renderMods(table, GB_API, filter, gameID) {
                         });
 
                         if (eligibleDownloads.length === 0) {
-                            dlBtn.innerHTML = icon('cancel', '0.9em');
+                            setDownloadButtonIcon(dlBtn, 'cancel');
                             var open = await htmlAlert("One-click download not available", "This mod cannot be downloaded via Deltamod because the owner did not package it for usage with the tool.",[{text:"Ok",resolveWith:'no',},{text:"Open mod page on GameBanana",resolveWith:'yes'}], 'web_traffic');
                             if (open === 'yes') {
                                 window.open(mod._sProfileUrl, '_blank');
@@ -684,7 +865,7 @@ async function renderMods(table, GB_API, filter, gameID) {
                         }
 
                         if (eligibleDownloads.length > 1) {
-                            dlBtn.innerHTML = icon('indeterminate_question_box', '0.9em');
+                            setDownloadButtonIcon(dlBtn, 'indeterminate_question_box');
                             var dtr = document.createElement('tr');
                             var td = document.createElement('td');
                             td.colSpan = 2;
@@ -702,7 +883,7 @@ async function renderMods(table, GB_API, filter, gameID) {
                                 thisBtn.style.margin = '4px';
                                 thisBtn.style.width = '100%';
                                 thisBtn.onclick = async () => {
-                                    dlmod(file._sDownloadUrl.replace('dl','mmdl'), dlBtn, mod._idRow, mod._sModelName);
+                                    dlmod(file._sDownloadUrl.replace('dl','mmdl'), dlBtn, mod._idRow, mod._sModelName, file._sFile || file._sName || mod._sName);
                                     dtr.remove();
                                 };
                                 btnsDiv.appendChild(thisBtn);
@@ -763,13 +944,14 @@ async function renderMods(table, GB_API, filter, gameID) {
                             return;
                         }
 
-                        dlmod(eligibleDownloads[0]._sDownloadUrl.replace('dl','mmdl'), dlBtn, mod._idRow, mod._sModelName);
+                        const file = eligibleDownloads[0];
+                        dlmod(file._sDownloadUrl.replace('dl','mmdl'), dlBtn, mod._idRow, mod._sModelName, file._sFile || file._sName || mod._sName);
                     };
 
                     td1.appendChild(dlBtn);
 
                     var commentBtn = document.createElement('button');
-                    commentBtn.innerHTML = icon('comment', '0.9em') + '';
+                    commentBtn.innerHTML = shopIcon('comment');
                     commentBtn.style.marginLeft = '8px';
                     commentBtn.className = 'serietast';
                     commentBtn.title = 'View comments';
@@ -784,7 +966,7 @@ async function renderMods(table, GB_API, filter, gameID) {
                     td1.appendChild(commentBtn);
 
                     var likeBtn = document.createElement('button');
-                    likeBtn.innerHTML = icon('mood_heart', '0.9em') + '';
+                    likeBtn.innerHTML = shopIcon('heart');
                     likeBtn.style.marginLeft = '8px';
                     likeBtn.className = 'serietast';
                     likeBtn.title = isGBLoggedIn ? 'Like mod' : 'Log in to GameBanana to like mods';
@@ -793,12 +975,12 @@ async function renderMods(table, GB_API, filter, gameID) {
                     likeBtn.onclick = async () => {
                         let res = await window.electronAPI.invoke('gbLikeMod',[mod._sModelName, mod._idRow]);
                         if (res.status == 200) {
-                            likeBtn.innerHTML = icon('sentiment_very_satisfied', '0.9em') + '';
+                            setDownloadButtonIcon(likeBtn, 'sentiment_very_satisfied');
                             likeBtn.disabled = true;
                         }
                         else if (res.data._sErrorCode.toLowerCase() == 'already_liked') {
                             await htmlAlert("Can't like the mod","You've already liked this mod. Can't get any more likes than that!",[{text:'Ok',resolveWith:'ok'}], 'sentiment_very_satisfied');
-                            likeBtn.innerHTML = icon('sentiment_very_satisfied', '0.9em') + '';
+                            setDownloadButtonIcon(likeBtn, 'sentiment_very_satisfied');
                             likeBtn.disabled = true;
                         } else {
                             await htmlAlert("Can't like the mod",res.data._sErrorCode,[{text:'Ok',resolveWith:'ok'}], 'error');
@@ -811,7 +993,11 @@ async function renderMods(table, GB_API, filter, gameID) {
                 tr.appendChild(td0);
                 tr.appendChild(td1);
 
-                table.appendChild(tr);
+                insertRankedGameBananaRow(
+                    table,
+                    tr,
+                    featuredRankForID(featuredIDs, mod._idRow)
+                );
             })();
         };
     }
@@ -852,6 +1038,39 @@ function renderSourceState(table, title, message, action = null) {
     table.appendChild(tr);
 }
 
+function renderSourceLoading(table, rowCount = 4) {
+    table.closest('table')?.classList.remove('is-state');
+    table.replaceChildren();
+
+    for (let index = 0; index < rowCount; index += 1) {
+        const row = document.createElement('tr');
+        row.className = 'shop-skeleton-row';
+        row.setAttribute('aria-hidden', 'true');
+
+        const cell = document.createElement('td');
+        cell.colSpan = 2;
+
+        const skeleton = document.createElement('div');
+        skeleton.className = 'shop-skeleton';
+
+        const thumbnail = document.createElement('span');
+        thumbnail.className = 'shop-skeleton-thumb';
+
+        const copy = document.createElement('span');
+        copy.className = 'shop-skeleton-copy';
+        copy.append(document.createElement('i'), document.createElement('i'), document.createElement('i'));
+
+        const actions = document.createElement('span');
+        actions.className = 'shop-skeleton-actions';
+        actions.append(document.createElement('i'), document.createElement('i'));
+
+        skeleton.append(thumbnail, copy, actions);
+        cell.appendChild(skeleton);
+        row.appendChild(cell);
+        table.appendChild(row);
+    }
+}
+
 function formatSourceDate(value) {
     const date = new Date(value);
     if (Number.isNaN(date.valueOf())) return 'Date unavailable';
@@ -862,44 +1081,189 @@ function formatSourceDate(value) {
 }
 
 function setExternalSourceControlsDisabled(disabled) {
-    document.getElementById('searchInput').disabled = disabled;
-    document.getElementById('modShopSearchButton').disabled = disabled;
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) searchInput.disabled = disabled;
+    const searchButton = document.getElementById('modShopSearchButton');
+    if (searchButton) searchButton.disabled = disabled;
+    const clearButton = document.getElementById('clearModSearchButton');
+    if (clearButton) clearButton.disabled = disabled;
     const sort = document.getElementById('nexusSort');
     if (sort) sort.disabled = disabled;
+}
+
+function externalBrowseRequestKey(request) {
+    return JSON.stringify([
+        request?.provider || '',
+        request?.query || '',
+        request?.sort || ''
+    ]);
+}
+
+function requestExternalSource(request) {
+    const key = externalBrowseRequestKey(request);
+    const active = externalBrowseState.active;
+    if (active) {
+        if (active.key === key) return active.promise;
+        // A new search may be requested from a freshly mounted page while the
+        // old page is still waiting on the network. Queue it behind the old
+        // request so only one Nexus call is active at a time.
+        return active.promise
+            .catch(() => undefined)
+            .then(() => requestExternalSource(request));
+    }
+
+    const promise = Promise.resolve().then(() => window.communityAPI.modSources.browse(request));
+    externalBrowseState.active = { key, promise };
+    promise.finally(() => {
+        if (externalBrowseState.active?.promise === promise) {
+            externalBrowseState.active = null;
+        }
+    }).catch(() => {});
+    return promise;
+}
+
+function copyRateLimitMetadata(target, source) {
+    if (!source || typeof source !== 'object') return target;
+    if (source.retryAfterMs != null && Number.isFinite(Number(source.retryAfterMs))) {
+        target.retryAfterMs = Math.max(0, Number(source.retryAfterMs));
+    }
+    if (source.retryAt != null) target.retryAt = source.retryAt;
+    if (source.quota && typeof source.quota === 'object') target.quota = source.quota;
+    return target;
+}
+
+function nexusRateLimitMetadata(error) {
+    const retryAtMs = Date.parse(String(error?.retryAt || ''));
+    const retryAfterMs = Number(error?.retryAfterMs);
+    let waitMs = Number.isFinite(retryAfterMs) ? Math.max(0, retryAfterMs) : 0;
+    if (Number.isFinite(retryAtMs)) waitMs = Math.max(waitMs, retryAtMs - Date.now());
+    if (!waitMs) {
+        const quotaResets = ['daily', 'hourly']
+            .map(period => Date.parse(String(error?.quota?.[period]?.resetAt || '')))
+            .filter(Number.isFinite)
+            .map(timestamp => timestamp - Date.now())
+            .filter(value => value > 0);
+        if (quotaResets.length) waitMs = Math.min(...quotaResets);
+    }
+    // A typed rate-limit response without a usable reset value still deserves
+    // a quiet wait period; never offer an immediate retry that can hammer 429.
+    if (!waitMs) waitMs = 60 * 1000;
+    return {
+        waitMs,
+        retryAtMs: Number.isFinite(retryAtMs) ? retryAtMs : Date.now() + waitMs
+    };
+}
+
+function formatRateLimitMessage(error) {
+    const { waitMs, retryAtMs } = nexusRateLimitMetadata(error);
+    const waitSeconds = Math.max(1, Math.ceil(waitMs / 1000));
+    const waitText = waitSeconds < 120
+        ? `${waitSeconds} second${waitSeconds === 1 ? '' : 's'}`
+        : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+            .format(new Date(retryAtMs));
+    const quotaParts = ['daily', 'hourly']
+        .map(period => {
+            const window = error?.quota?.[period];
+            if (!window || !Number.isFinite(Number(window.remaining))) return '';
+            const label = period === 'daily' ? 'today' : 'this hour';
+            return `${window.remaining} ${label}`;
+        })
+        .filter(Boolean);
+    const quotaText = quotaParts.length ? ` Remaining quota: ${quotaParts.join(', ')}.` : '';
+    return `Nexus Mods asked Community to wait before another catalogue request. Try again after ${waitText}.${quotaText}`;
+}
+
+function scheduleNexusRateLimitRetry(table, error) {
+    if (externalRetryTimer) clearTimeout(externalRetryTimer);
+    const { waitMs } = nexusRateLimitMetadata(error);
+    // setTimeout accepts a signed 32-bit delay; a long quota reset is still
+    // represented in the message, while the controls remain disabled safely.
+    const delay = Math.min(Math.max(1000, waitMs), 2_147_000_000);
+    externalRetryTimer = setTimeout(() => {
+        externalRetryTimer = null;
+        if (!isCurrentShopPage()) return;
+        setExternalSourceControlsDisabled(false);
+        renderSourceState(
+            table,
+            'Nexus Mods ready to retry',
+            'The reported quota window has elapsed. Retry when you are ready.',
+            { label: 'Retry', run: () => initializeExternalSource(table) }
+        );
+    }, delay);
+}
+
+function isNexusRateLimited(error) {
+    return SHOP_PROVIDER === 'nexus'
+        && (error?.code === 'NEXUS_RATE_LIMITED' || Number(error?.status) === 429);
 }
 
 async function downloadNexusSource(item, button) {
     const operationId = crypto.randomUUID();
     const original = button.innerHTML;
     button.disabled = true;
-    button.innerHTML = icon('progress_activity', '0.9em');
+    setDownloadButtonIcon(button, 'progress_activity');
+    updateModDownloadStatus({ phase: 'download', currentItem: item.title });
     const unsubscribe = window.communityAPI.modSources.onProgress(progress => {
         if (progress.operationId !== operationId) return;
-        if (progress.phase === 'download' && progress.total > 0) {
+        updateModDownloadStatus({
+            phase: progress.phase || 'download',
+            completed: progress.completed,
+            total: progress.total,
+            currentItem: progress.currentItem || item.title
+        });
+        if (progress.total > 0) {
             const percentage = Math.max(0, Math.min(100, (progress.completed / progress.total) * 100));
             button.classList.add('download-progress');
             button.style.setProperty('--download-progress', `${percentage}%`);
         }
     });
     try {
-        await window.communityAPI.modSources.downloadNexus({
+        const response = await window.communityAPI.modSources.downloadNexus({
             modId: item.id,
             operationId,
             sourceUrl: item.sourceUrl
         });
-        button.innerHTML = icon('done_outline', '0.9em');
+        if (response?.ok === false) {
+            const error = new Error(response?.error?.message || 'Nexus Mods download is unavailable.');
+            error.code = response?.error?.code || 'NEXUS_DOWNLOAD_FAILED';
+            if (Number.isInteger(response?.error?.status)) error.status = response.error.status;
+            copyRateLimitMetadata(error, response?.error);
+            throw error;
+        }
+        setDownloadButtonIcon(button, 'done_outline');
+        updateModDownloadStatus({ phase: 'complete', currentItem: item.title });
     } catch (error) {
-        button.innerHTML = icon('cancel', '0.9em');
-        const manual = error?.code === 'NEXUS_MANUAL_DOWNLOAD_REQUIRED'
+        setDownloadButtonIcon(button, 'cancel');
+        updateModDownloadStatus({ phase: 'failed', currentItem: error?.message || item.title });
+        if (isNexusRateLimited(error)) {
+            await htmlAlert(
+                'Nexus Mods rate limit reached',
+                formatRateLimitMessage(error),
+                [{ text: 'OK', resolveWith: 'ok' }],
+                'error'
+            );
+            return;
+        }
+        const authorizationRequired = [
+            'NEXUS_SSO_REQUIRED',
+            'NEXUS_AUTH_REQUIRED',
+            'NEXUS_AUTH_FAILED'
+        ].includes(error?.code);
+        const manual = authorizationRequired
+            || error?.code === 'NEXUS_MANUAL_DOWNLOAD_REQUIRED'
             || /non-premium|website/i.test(error?.message || '');
         const choice = await htmlAlert(
-            manual ? 'Download confirmation required' : 'Nexus Mods download failed',
-            manual
-                ? 'Nexus Mods requires this download to be confirmed on its website. The mod page can be opened now.'
+            authorizationRequired
+                ? 'Nexus Mods authorization required'
+                : manual ? 'Download confirmation required' : 'Nexus Mods download failed',
+            authorizationRequired
+                ? 'Direct download needs Nexus Mods authorization. Connect with single sign-on in Settings, then try again or continue on the official mod page.'
+                : manual
+                    ? 'Nexus Mods requires this download to be confirmed on its website. The mod page can be opened now.'
                 : (error?.message || 'The archive could not be downloaded and imported.'),
             manual
                 ? [
-                    { text: 'Open mod page', resolveWith: 'open' },
+                    { text: 'Open Nexus Mods', resolveWith: 'open' },
                     { text: 'Cancel', resolveWith: 'cancel' }
                 ]
                 : [{ text: 'OK', resolveWith: 'ok' }],
@@ -978,23 +1342,13 @@ function renderExternalMods(table, result) {
             image.onerror = null;
             image.src = './img/mod-placeholder.png';
         };
-        if (item.imageUrl) {
-            image.tabIndex = 0;
-            image.setAttribute('role', 'button');
-            image.setAttribute('aria-label', `Preview ${item.title}`);
-            image.onclick = () => openImageLightbox(item.title, [{
-                urlA: item.imageUrl,
-                urlB: item.imageUrl,
-                urlCard220: item.imageUrl,
-                urlCard530: item.imageUrl
-            }]);
-            image.onkeydown = event => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    image.click();
-                }
-            };
-        }
+        const previewImages = item.imageUrl ? [{
+            urlA: item.imageUrl,
+            urlB: item.imageUrl,
+            urlCard220: item.imageUrl,
+            urlCard530: item.imageUrl
+        }] : [];
+        const preview = createGalleryPreview(image, item.title, previewImages);
 
         const card = document.createElement('div');
         card.className = 'external-source-card';
@@ -1004,13 +1358,24 @@ function renderExternalMods(table, result) {
         const badge = document.createElement('span');
         badge.className = 'external-source-badge';
         badge.innerText = SHOP_PROVIDER === 'moddb' ? 'ModDB' : 'Nexus Mods';
+        const featured = document.createElement('span');
+        featured.className = 'external-featured-badge';
+        featured.innerText = 'Featured';
         const meta = document.createElement('div');
         meta.className = 'modOtherInfoSpan calibri';
         meta.innerText = `${item.author} · ${formatSourceDate(item.updatedAt)}`;
+        if (item.provider === 'nexus') {
+            const popularity = document.createElement('span');
+            popularity.className = 'external-source-popularity calibri';
+            popularity.innerText = `${Number(item.downloads || 0).toLocaleString()} downloads · ${Number(item.endorsements || 0).toLocaleString()} endorsements`;
+            meta.appendChild(popularity);
+        }
         const summary = document.createElement('div');
         summary.className = 'external-source-summary calibri';
         summary.innerText = item.summary || 'No description was provided.';
-        card.append(title, badge, meta);
+        card.append(title, badge);
+        if (item.featured) card.appendChild(featured);
+        card.appendChild(meta);
         if (item.contentRating === 'adult') {
             const rating = document.createElement('span');
             rating.className = 'content-rating-chip';
@@ -1018,7 +1383,7 @@ function renderExternalMods(table, result) {
             card.appendChild(rating);
         }
         card.appendChild(summary);
-        info.append(image, card);
+        info.append(preview, card);
 
         const actions = document.createElement('td');
         const actionGroup = document.createElement('div');
@@ -1027,7 +1392,7 @@ function renderExternalMods(table, result) {
         primary.type = 'button';
         primary.title = item.actionLabel;
         primary.setAttribute('aria-label', `${item.actionLabel}: ${item.title}`);
-        primary.innerHTML = icon(item.provider === 'nexus' ? 'download' : 'open_in_new', '0.9em');
+        primary.innerHTML = shopIcon(item.provider === 'nexus' ? 'download' : 'open');
         primary.onclick = () => item.provider === 'nexus'
             ? downloadNexusSource(item, primary)
             : window.communityAPI.modSources.open({ provider: item.provider, url: item.sourceUrl });
@@ -1036,7 +1401,7 @@ function renderExternalMods(table, result) {
         open.type = 'button';
         open.title = 'Open source page';
         open.setAttribute('aria-label', `Open ${item.title} on ${badge.innerText}`);
-        open.innerHTML = icon('open_in_new', '0.9em');
+        open.innerHTML = shopIcon('open');
         open.onclick = () => window.communityAPI.modSources.open({
             provider: item.provider,
             url: item.sourceUrl
@@ -1050,22 +1415,24 @@ function renderExternalMods(table, result) {
 }
 
 async function initializeExternalSource(table) {
-    setExternalSourceControlsDisabled(false);
+    setExternalSourceControlsDisabled(true);
     const query = String(window._pageArguments?.sourceQuery || '').trim();
     const sort = document.getElementById('nexusSort')?.value || 'latest_added';
     if (query) {
         document.getElementById('searchInput').value = query;
+        syncSearchClearButton();
         const searchIndicator = document.getElementById('searchInd');
         searchIndicator.style.display = 'block';
         searchIndicator.innerText = `Currently showing results for "${query}"`;
     }
-    renderSourceState(table, 'Loading catalogue…', 'Fetching metadata from the selected provider.');
+    renderSourceLoading(table);
     try {
-        const response = await window.communityAPI.modSources.browse({
+        const request = {
             provider: SHOP_PROVIDER,
             query,
             sort
-        });
+        };
+        const response = await requestExternalSource(request);
         if (!response?.ok) {
             const error = new Error(
                 response?.error?.message || 'The selected mod catalogue could not be loaded.'
@@ -1074,21 +1441,34 @@ async function initializeExternalSource(table) {
             if (Number.isInteger(response?.error?.status)) {
                 error.status = response.error.status;
             }
+            copyRateLimitMetadata(error, response?.error);
             throw error;
         }
-        if (isCurrentShopPage()) renderExternalMods(table, response.result);
+        if (isCurrentShopPage()) {
+            renderExternalMods(table, response.result);
+            setExternalSourceControlsDisabled(false);
+        }
     } catch (error) {
         if (!isCurrentShopPage()) return;
-        const needsNexusKey = error?.code === 'NEXUS_API_KEY_REQUIRED'
-            || error?.code === 'NEXUS_AUTH_FAILED';
-        setExternalSourceControlsDisabled(needsNexusKey);
+        if (isNexusRateLimited(error)) {
+            setExternalSourceControlsDisabled(true);
+            renderSourceState(table, 'Nexus Mods rate limit reached', formatRateLimitMessage(error));
+            scheduleNexusRateLimitRetry(table, error);
+            return;
+        }
+        const needsNexusAuth = [
+            'NEXUS_SSO_REQUIRED',
+            'NEXUS_AUTH_REQUIRED',
+            'NEXUS_AUTH_FAILED'
+        ].includes(error?.code);
+        setExternalSourceControlsDisabled(needsNexusAuth);
         renderSourceState(
             table,
-            needsNexusKey ? 'Connect Nexus Mods' : 'Catalogue unavailable',
-            needsNexusKey
-                ? 'Connect your Nexus Mods account in Settings before browsing this catalogue.'
+            needsNexusAuth ? 'Sign in with Nexus Mods' : 'Catalogue unavailable',
+            needsNexusAuth
+                ? 'Connect your Nexus Mods account with single sign-on in Settings before browsing this catalogue.'
                 : (error?.message || 'The selected mod catalogue could not be loaded.'),
-            needsNexusKey ? {
+            needsNexusAuth ? {
                 label: 'Open Nexus Mods settings',
                 run: () => {
                     window._pageArguments = { cat: 'nexus' };
@@ -1105,14 +1485,24 @@ async function initializeExternalSource(table) {
 async function plusPage(amt) {
     if (
         !isCurrentShopPage() ||
+        gameBananaPageRequestActive ||
         typeof window.currentPageStack?.GB_API !== 'string' ||
         !window.currentPageStack?.table?.isConnected
     ) {
         return;
     }
     if (!Number.isFinite(window.PAGE)) window.PAGE = 1;
+    const previousPage = window.PAGE;
     window.PAGE += amt;
-    await renderMods(window.currentPageStack.table, window.currentPageStack.GB_API, window.currentPageStack.filter, window.currentPageStack.gameID);
+    gameBananaPageRequestActive = true;
+    try {
+        await renderMods(window.currentPageStack.table, window.currentPageStack.GB_API, window.currentPageStack.filter, window.currentPageStack.gameID);
+    } catch (error) {
+        window.PAGE = previousPage;
+        throw error;
+    } finally {
+        gameBananaPageRequestActive = false;
+    }
 }
 
 (async () => {
@@ -1154,9 +1544,9 @@ async function plusPage(amt) {
     if (!isGameBanana) {
         observer.disconnect();
         const nexusSort = document.getElementById('nexusSort');
-        nexusSort.value = localStorage.getItem('nexusModSort') || 'latest_added';
+        nexusSort.value = localStorage.getItem('nexusModSortV2') || 'trending';
         nexusSort.addEventListener('change', () => {
-            localStorage.setItem('nexusModSort', nexusSort.value);
+            localStorage.setItem('nexusModSortV2', nexusSort.value);
             initializeExternalSource(table);
         });
         window.currentPageStack = {
@@ -1195,6 +1585,7 @@ async function plusPage(amt) {
     if (window._pageArguments && window._pageArguments.leSearchQuery) {
         document.getElementById('searchInput').value = window._pageArguments.leSearchQuery;
         csearch = window._pageArguments.leSearchQuery;
+        syncSearchClearButton();
 
         let searchInd = document.getElementById('searchInd');
         searchInd.style.display = 'block';
@@ -1206,7 +1597,7 @@ async function plusPage(amt) {
 
     await gameBananaLogin();
 
-    table.innerHTML = '';
+    renderSourceLoading(table);
 
     window.currentPageStack = {
         ...window.currentPageStack,
@@ -1216,13 +1607,29 @@ async function plusPage(amt) {
         gameID
     };
 
-    await renderMods(table, GB_API, filter, gameID);
+    gameBananaPageRequestActive = true;
+    try {
+        await renderMods(table, GB_API, filter, gameID);
+        gameBananaInitialLoadComplete = true;
+    } finally {
+        gameBananaPageRequestActive = false;
+    }
 
     genbtnstyles();
 })();
 
 var searchel = document.getElementById('searchInput');
 var autocomplete = document.querySelector('.autocomplete .results');
+var clearSearchButton = document.getElementById('clearModSearchButton');
+clearSearchButton.addEventListener('click', clearModSearch);
+searchel.addEventListener('input', syncSearchClearButton);
+searchel.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && searchel.value) {
+        event.preventDefault();
+        clearModSearch();
+    }
+});
+syncSearchClearButton();
 searchel.addEventListener('keypress', function (e) {
     if (e.key === 'Enter') {
         search();

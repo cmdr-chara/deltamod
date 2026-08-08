@@ -47,6 +47,25 @@ function rememberMenuAudioPosition() {
     }
 }
 
+function configureMenuAudioPlayback(source) {
+    const themeSource = theme?.mainSong
+        ? `themeprot://mus/${theme.mainSong}`
+        : '';
+    const isThemeTrack = source === themeSource;
+    const configuredRate = isThemeTrack ? Number(theme?.musicPlaybackRate) : 1;
+    const playbackRate = Number.isFinite(configuredRate)
+        ? Math.min(2, Math.max(0.5, configuredRate))
+        : 1;
+
+    audio.defaultPlaybackRate = playbackRate;
+    audio.playbackRate = playbackRate;
+    if ('preservesPitch' in audio) {
+        audio.preservesPitch = isThemeTrack
+            ? theme?.musicPreservesPitch !== false
+            : true;
+    }
+}
+
 function switchMenuAudioSource(source) {
     rememberMenuAudioPosition();
     audio.pause();
@@ -54,6 +73,7 @@ function switchMenuAudioSource(source) {
     const resumeAt = menuAudioPositions.get(source) || 0;
     currentAudioSource = source;
     audio.src = source;
+    configureMenuAudioPlayback(source);
 
     const restorePosition = () => {
         if (currentAudioSource !== source) return;
@@ -485,7 +505,7 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
             var btn = document.createElement('button');
             btn.textContent = button.text;
             btn.style.flex = '1 1 0';
-            btn.onclick = function() {
+            btn.onclick = async function() {
                 buttonsHTML.style.pointerEvents = 'none';
                 // Outro animation
                 alertMsgR.style.animation = animationDuration === 0
@@ -503,8 +523,8 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
                 // Play dismiss SFX
                 var a = new Audio();
                 a.src = 'audio/booow.mp3';
-                if (window.electronAPI.invoke('getUniqueFlag', ["SFX"]) === true) {
-                    a.play();
+                if (await window.electronAPI.invoke('getUniqueFlag', ["SFX"]) === true) {
+                    a.play().catch(() => {});
                 }
 
                 // Resolve/Reject
@@ -675,6 +695,34 @@ function icon(name, fontSize) {
     return `<span class="material-symbols-outlined" style="font-size: ${fontSize}">${name}</span>`;
 }
 
+// The React boot overlay is optional so the vanilla renderer remains usable if
+// a development build is missing the generated bundle. These helpers also keep
+// loading milestones in one place instead of coupling page code to React.
+function bootProgress(progress, status) {
+    window.DeltamodBoot?.setProgress(progress, status);
+}
+
+function bootTheme(themeConfig) {
+    if (!themeConfig) return;
+    window.DeltamodBoot?.setTheme({
+        themeColor: themeConfig.color,
+        soulColor: themeConfig.soulColor || themeConfig.color,
+        backgroundImage: themeConfig.background
+            ? `themeprot://img/${themeConfig.background}`
+            : undefined,
+        backgroundVideo: themeConfig.backgroundVideo
+            ? `themeprot://video/${themeConfig.backgroundVideo}`
+            : undefined,
+        readyAtVideoTime: Number.isFinite(themeConfig.bootSyncTime)
+            ? themeConfig.bootSyncTime
+            : undefined,
+    });
+}
+
+function finishBoot() {
+    window.DeltamodBoot?.finish();
+}
+
 /**
  * ==========================================
  * Theme & Audio Rendering
@@ -687,6 +735,7 @@ function icon(name, fontSize) {
  */
 async function themeRefresh(refreshAudio = true) {
     theme = await fetch('themeprot://data/' + (await window.electronAPI.invoke('getTheme', [])) + '.theme.json').then(response => response.json());
+    bootTheme(theme);
     applyThemeBackground();
     window.ThemeSprites?.apply(theme.soulColor || theme.color, document).catch(error => {
         console.warn('Unable to recolor theme sprites:', error);
@@ -725,7 +774,66 @@ function elisten(element, event, handler) {
  * Navigates to a specific internal page and processes HTML/CSS injections.
  * @param {string} name - The identifier of the page to load.
  */
-async function page(name) {
+let activePageNavigation = null;
+let queuedPageNavigation = null;
+let pageNavigationDrain = null;
+
+function page(name) {
+    const forceReload = name === '';
+    const target = forceReload ? pageN : name;
+
+    if (!target) {
+        return Promise.resolve(false);
+    }
+
+    if (!forceReload && (
+        target === activePageNavigation ||
+        target === queuedPageNavigation?.target
+    )) {
+        return Promise.resolve(false);
+    }
+
+    const navigation = new Promise((resolve, reject) => {
+        if (queuedPageNavigation) {
+            queuedPageNavigation.resolve(false);
+        }
+        queuedPageNavigation = { target, resolve, reject };
+    });
+
+    schedulePageNavigationDrain();
+
+    return navigation;
+}
+
+function schedulePageNavigationDrain() {
+    if (pageNavigationDrain) return;
+
+    pageNavigationDrain = drainPageNavigations().finally(() => {
+        pageNavigationDrain = null;
+        if (queuedPageNavigation) {
+            schedulePageNavigationDrain();
+        }
+    });
+}
+
+async function drainPageNavigations() {
+    while (queuedPageNavigation) {
+        const navigation = queuedPageNavigation;
+        queuedPageNavigation = null;
+        activePageNavigation = navigation.target;
+
+        try {
+            await renderPage(navigation.target);
+            navigation.resolve(true);
+        } catch (error) {
+            navigation.reject(error);
+        } finally {
+            activePageNavigation = null;
+        }
+    }
+}
+
+async function renderPage(name) {
     rew();
 
     // Clear existing intervals/listeners to prevent memory leaks
@@ -932,6 +1040,7 @@ async function page(name) {
     /* Generated by Deltamod */
     :root {
         --theme-color: ${theme.color};
+        --theme-soul-color: ${theme.soulColor || theme.color};
         --theme-color-rgbaless: rgba(${rgbNumbers.r}, ${rgbNumbers.g}, ${rgbNumbers.b}, 0.8);
         --theme-color-point2: rgba(${rgbNumbers.r}, ${rgbNumbers.g}, ${rgbNumbers.b}, 0.2);
         --theme-color-point3: rgba(${rgbNumbers.r}, ${rgbNumbers.g}, ${rgbNumbers.b}, 0.3);
@@ -1124,7 +1233,7 @@ async function setupLanguageWheel() {
 
     const syncLanguageWheel = () => {
         const language = selectedLanguage();
-        toggleFlag.src = language.flag;
+        toggleFlag.src = wheelFlag(language);
         previewLanguage(language);
 
         const changeLabel = window.Localization.t('language_switcher_label', 'Change language');
@@ -1325,23 +1434,36 @@ async function setupLanguageWheel() {
  * ==========================================
  */
 (async function() {
+    bootProgress(0.03, 'Starting local runtime');
     await reapplyHAStyles();
+    bootProgress(0.09, 'Loading interface styles');
 
     cmode = await window.electronAPI.invoke('isCMode', []);
+    bootProgress(0.15, 'Checking controller mode');
 
     var ribbon = document.querySelectorAll('.sidebar-button');
     ribbon.forEach(r => {
-        r.addEventListener('click', async () => {
-            if (r.getAttribute('data-disabled') === 'true') {
+        r.addEventListener('click', () => {
+            const target = r.getAttribute('data-page');
+            if (
+                r.getAttribute('data-disabled') === 'true' ||
+                target === pageN ||
+                target === activePageNavigation ||
+                target === queuedPageNavigation?.target
+            ) {
                 return;
             }
-            page(r.getAttribute('data-page'));
+            page(target).catch(error => {
+                console.error('Unable to navigate from the sidebar:', error);
+            });
         });
     });
     
     // Initialize Theme prior to initial page loads
     await themeRefresh(false); 
+    bootProgress(0.28, 'Applying active theme');
     await setupLanguageWheel();
+    bootProgress(0.38, 'Preparing language services');
 
     // Setup Controller Mode visual adjustments
     if (cmode) {
@@ -1392,12 +1514,18 @@ async function setupLanguageWheel() {
         }
     }
 
-    if (await offerOfficialProfileImport()) return;
+    if (await offerOfficialProfileImport()) {
+        bootProgress(0.7, 'Waiting for profile import');
+        finishBoot();
+        return;
+    }
 
     var loaded = await window.electronAPI.invoke('loadedDeltarune',[]);
+    bootProgress(0.56, 'Finding installed games');
 
     if (await window.electronAPI.invoke('fetchSharedVariable',["gb1click"]) === true) {
-        page('goc-dl');
+        await page('goc-dl');
+        finishBoot();
         return;
     }
 
@@ -1409,28 +1537,36 @@ async function setupLanguageWheel() {
             }
         }, 50);
     });
+    bootProgress(0.72, 'Reading mod sources');
 
     // Main App Branching Route
     if (loaded.loaded) {
         var available = await window.electronAPI.invoke('fireUpdate', []);
         console.log('Update check complete. Update available:', available);
+        bootProgress(0.84, 'Checking patch tools');
 
         var im = await window.electronAPI.invoke('shouldGoIM', []);
+        bootProgress(0.9, 'Preparing file overlay');
         if (im) {
             await page('installmanager');
         } else {
             await page('main');
         }
+        finishBoot();
         (window.requestIdleCallback || (callback => setTimeout(callback, 0)))(warmPageMarkupCache);
 
         window.electronAPI.invoke('executeArgumentCmd',[]);
     } else {
         await page('locate');
+        finishBoot();
         (window.requestIdleCallback || (callback => setTimeout(callback, 0)))(warmPageMarkupCache);
         document.querySelectorAll('.sidebar-button').forEach(button => button.setAttribute('data-disabled', 'true'));
         window.electronAPI.invoke('executeArgumentCmd',[]);
     }
-})();
+})().catch(error => {
+    console.error('Deltamod initialization failed:', error);
+    window.DeltamodBoot?.fail('Continuing');
+});
 
 function closeAudio() {
     if (audio) {

@@ -1,12 +1,27 @@
 .mods-page .mods-scroll {
-  min-height: 530px;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-bottom: 20px;
 }
 
 .mods-page #modtable {
+  table-layout: fixed;
   overflow: hidden;
+}
+
+.mods-page #modtable thead {
+  position: sticky;
+  top: -2px;
+  z-index: 2;
+}
+
+.patch-mod-column {
+  width: 84%;
+}
+
+.patch-enabled-column {
+  width: 16%;
 }
 
 .library-page .library-toolbar {
@@ -53,44 +68,71 @@ a {
   text-decoration: none;
 }
 
-.spacebet {
+.patch-toolbar {
   display: flex;
+  align-items: flex-end;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
+  gap: 20px;
+  margin-bottom: 14px;
 }
-.p2 {
-  padding: 7px;
-  border: 0;
-  border-radius: 999px;
-  display: flex;
-  justify-content: center;
+
+.patch-toolbar-copy {
+  min-width: 0;
+}
+
+.patch-toolbar h1 {
+  margin: 0 0 8px;
+}
+
+.patch-sort-control {
+  display: grid;
+  grid-template-columns: auto minmax(130px, 180px);
   align-items: center;
-  gap: 7px;
+  gap: 10px;
+}
+
+.patch-sort-control label {
+  color: var(--muted-text);
+}
+
+.patch-sort-control select {
+  width: 100%;
+  margin: 0;
+}
+
+.patch-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 999px;
   background: var(--panel-bg-strong);
   backdrop-filter: blur(var(--panel-blur)) brightness(0.76);
 }
-.p2 > button {
+
+.patch-actions > button {
   display: grid;
-  flex: 0 0 50px;
-  width: 50px;
-  height: 50px;
+  flex: 0 0 46px;
+  width: 46px;
+  height: 46px;
   margin: 0;
   padding: 0;
   place-items: center;
-  border-radius: 50%;
   border: 0 !important;
+  border-radius: 50%;
   line-height: 1;
 }
-.p2 > button > .material-symbols-outlined {
+
+.patch-actions > button > .material-symbols-outlined {
   display: block;
-  width: 26px;
-  height: 26px;
-  font-size: 26px;
-  line-height: 26px;
+  width: 24px;
+  height: 24px;
+  font-size: 24px;
+  line-height: 24px;
   text-align: center;
 }
-.p2 > button:hover {
+
+.patch-actions > button:hover {
   cursor: pointer;
 }
 select {
@@ -108,18 +150,95 @@ th {
   text-align: left;
 }
 
+.modrow > td {
+  vertical-align: middle;
+}
+
+.modrow.is-enabled > td:first-child {
+  box-shadow: inset 3px 0 0 var(--theme-color);
+}
+
+.patch-mod-layout {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  min-height: 84px;
+}
+
+.patch-mod-artwork {
+  width: 76px;
+  height: 76px;
+  cursor: context-menu;
+}
+
 .mod-image {
-  border-radius: 10px;
-  border: 0;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.22);
-  object-fit: contain;
   display: block;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  width: 76px;
+  height: 76px;
+  object-fit: cover;
+  border: 2px solid var(--theme-color-point2);
+  border-radius: 7px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.22);
+  transition: border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out);
 }
 
 .mod-image:hover {
-  border: 0;
+  border-color: var(--theme-color);
   box-shadow: 0 0 0 2px var(--theme-color-point3);
+}
+
+.patch-mod-info {
+  min-width: 0;
+}
+
+.patch-mod-title {
+  display: block;
+  overflow: hidden;
+  font-size: clamp(18px, 1.25vw, 22px);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.patch-mod-description {
+  display: block;
+  max-width: 72ch;
+  margin-top: 5px;
+  color: var(--muted-text);
+  font-size: var(--font-size-body);
+  line-height: 1.35;
+}
+
+.patch-mod-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 8px;
+  color: var(--muted-text);
+}
+
+.patch-mod-meta > p {
+  margin: 0;
+  color: inherit;
+  font-size: var(--font-size-meta);
+}
+
+.patch-mod-warning {
+  margin: 9px 0 0;
+  color: #ffd36a;
+  font-size: var(--font-size-meta);
+}
+
+.patch-mod-variant {
+  width: min(360px, 100%);
+  margin: 10px 0 0;
+  border-color: var(--theme-color-point2);
+  background: var(--panel-bg-strong);
+  color: white;
+  font-family: "Calibri", sans-serif;
+  font-size: var(--font-size-meta);
 }
 
 .modlist-actions-column-bdiv {
@@ -142,15 +261,66 @@ th {
   line-height: 0;
 }
 
+.patch-enabled-heading,
 .modlist-enabled-column {
-  input[type=checkbox] {
-      margin: 0;
-      width: 40px;
-      height: 25px;
-      cursor: pointer;
-      accent-color: rgba(57, 57, 57, 0.455);
-      border: 6px solid white;
-    }
+  text-align: center;
+}
+
+.patch-toggle {
+  position: relative;
+  display: inline-grid;
+  width: 50px;
+  height: 30px;
+  margin: 0;
+  place-items: center;
+  cursor: pointer;
+}
+
+.patch-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.patch-toggle-track {
+  position: relative;
+  display: block;
+  width: 50px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out);
+}
+
+.patch-toggle-track::after {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+  content: "";
+  transition: transform var(--motion-fast) var(--motion-ease-out);
+}
+
+.patch-toggle input:checked + .patch-toggle-track {
+  border-color: var(--theme-color);
+  background: var(--theme-color);
+}
+
+.patch-toggle input:checked + .patch-toggle-track::after {
+  transform: translateX(20px);
+}
+
+.patch-toggle input:focus-visible + .patch-toggle-track {
+  outline: 3px solid white;
+  outline-offset: 3px;
 }
 
 .modlist-error {
@@ -242,5 +412,42 @@ th {
     width: 100%;
     max-width: 320px;
     justify-self: end;
+  }
+
+  .patch-toolbar {
+    align-items: center;
+  }
+
+  .patch-actions > button {
+    flex-basis: 42px;
+    width: 42px;
+    height: 42px;
+  }
+
+  .patch-mod-column {
+    width: 80%;
+  }
+
+  .patch-enabled-column {
+    width: 20%;
+  }
+
+  .patch-mod-layout {
+    grid-template-columns: 68px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .patch-mod-artwork,
+  .mod-image {
+    width: 68px;
+    height: 68px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mod-image,
+  .patch-toggle-track,
+  .patch-toggle-track::after {
+    transition: none;
   }
 }

@@ -91,7 +91,7 @@ p {
     line-height: 1.5;
 }
 
-button:not(.sidebar-button):not(:hover) {
+button:not(.sidebar-button):not(.animated-pixel-heart):not(.language-wheel-toggle):not(.chara-choice):not(:hover) {
     background-color: var(--theme-color) !important; 
 }
 button, input, select {

@@ -1,0 +1,388 @@
+@font-face {
+  font-family: "Pixel";
+  src: url("../commons/8bitoperator-JVE-fixed2.ttf") format("truetype");
+}
+
+.deltamod-boot {
+  --db-fx-x: 0px;
+  --db-fx-y: 0px;
+  --db-scene-x: 0px;
+  --db-scene-y: 0px;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  width: 100%;
+  min-width: 320px;
+  min-height: 100dvh;
+  overflow: hidden;
+  background-color: rgb(8, 8, 8);
+  color: #ffffff;
+  /* The app shell already registers Geist as Calibri. Reusing that face keeps
+     the packaged boot bundle from embedding a second 3.6 MB font copy. */
+  font-family: "Calibri", sans-serif;
+  image-rendering: pixelated;
+}
+
+.deltamod-boot *,
+.deltamod-boot *::before,
+.deltamod-boot *::after {
+  box-sizing: border-box;
+}
+
+.db-scene-base,
+.db-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.db-scene-base {
+  z-index: 0;
+  inset: -20px;
+  background-image: var(--db-background-image);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  image-rendering: pixelated;
+  transform: translate3d(var(--db-scene-x), var(--db-scene-y), 0);
+  will-change: transform;
+}
+
+.db-scene-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.db-backdrop {
+  z-index: 1;
+  background: rgba(8, 8, 8, 0.72);
+  transition: background-color 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.db-scene-echo,
+.db-scene-slice,
+.db-curtain,
+.db-effects {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.db-scene-echo {
+  z-index: 2;
+  overflow: hidden;
+}
+
+.db-scene-slice {
+  background-image: var(--db-background-image);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  opacity: 0;
+  will-change: clip-path, opacity, transform;
+}
+
+.deltamod-boot[data-glitch="a"] .db-scene-slice-a {
+  clip-path: inset(19% 0 70% 0);
+  opacity: 0.72;
+  transform: translateX(14px);
+}
+
+.deltamod-boot[data-glitch="b"] .db-scene-slice-b {
+  clip-path: inset(47% 0 43% 0);
+  opacity: 0.68;
+  transform: translateX(-18px);
+}
+
+.deltamod-boot[data-glitch="c"] .db-scene-slice-c {
+  clip-path: inset(72% 0 20% 0);
+  opacity: 0.74;
+  transform: translateX(10px);
+}
+
+.db-curtain {
+  z-index: 3;
+  height: calc(50% + 1px);
+  background: rgb(8, 8, 8);
+  will-change: transform;
+}
+
+.db-curtain-top {
+  bottom: auto;
+  animation: db-curtain-top-open 1.36s steps(10, end) 420ms both;
+}
+
+.db-curtain-bottom {
+  top: auto;
+  animation: db-curtain-bottom-open 1.36s steps(10, end) 420ms both;
+}
+
+.db-effects {
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  border: 0 solid var(--db-soul-color);
+  border-top-color: var(--db-soul-color);
+  background: transparent;
+  color: var(--db-theme-color);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  transform: translate3d(var(--db-fx-x), var(--db-fx-y), 0);
+  will-change: transform;
+}
+
+.db-main {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: clamp(28px, 7vmin, 72px) 24px;
+}
+
+.db-sequence {
+  position: relative;
+  display: grid;
+  width: min(82vw, 430px);
+  justify-items: center;
+}
+
+.db-emblem-stage {
+  display: grid;
+  place-items: center;
+  will-change: transform;
+}
+
+.db-emblem-stage .animated-pixel-heart {
+  position: relative;
+}
+
+.db-loading {
+  position: absolute;
+  top: calc(100% + clamp(16px, 3vmin, 28px));
+  width: min(100%, 380px);
+  margin-top: 0;
+  opacity: 1;
+  transition:
+    opacity 260ms ease-out,
+    transform 260ms ease-out;
+}
+
+.db-status-line {
+  display: grid;
+  min-height: 20px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 18px;
+}
+
+.db-status,
+.db-percent {
+  font-size: 13px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.db-status {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.88);
+  white-space: nowrap;
+}
+
+.db-percent {
+  color: var(--db-theme-color);
+  text-align: right;
+}
+
+.db-progress {
+  display: grid;
+  height: 6px;
+  grid-template-columns: repeat(32, 1fr);
+  gap: 2px;
+  margin-top: 10px;
+}
+
+.db-progress span {
+  background: rgba(255, 255, 255, 0.13);
+  transform: translateY(0);
+}
+
+.db-progress span[data-state="on"] {
+  background: var(--db-theme-color);
+}
+
+.db-progress span[data-state="head"] {
+  background: var(--db-soul-color);
+}
+
+.deltamod-boot[data-tick="on"] .db-progress span[data-state="head"] {
+  height: 10px;
+  transform: translateY(-2px);
+}
+
+.db-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.deltamod-boot[data-phase="cold"] .db-backdrop {
+  background: rgba(8, 8, 8, 0.94);
+}
+
+.deltamod-boot[data-phase="wake"] .db-backdrop {
+  background: rgba(8, 8, 8, 0.84);
+}
+
+.deltamod-boot[data-phase="cold"] .db-loading,
+.deltamod-boot[data-phase="wake"] .db-loading {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.deltamod-boot[data-phase="ready"] .db-backdrop {
+  background: rgba(8, 8, 8, 0.62);
+}
+
+.deltamod-boot[data-phase="ready"] .db-percent {
+  color: var(--db-soul-color);
+}
+
+.deltamod-boot[data-phase="ready"] .db-progress span[data-state="on"] {
+  background: var(--db-soul-color);
+}
+
+.deltamod-boot[data-phase="ready"] .db-status {
+  color: #ffffff;
+  font-family: "Pixel", sans-serif;
+}
+
+.deltamod-boot:not([data-glitch="off"]) .db-loading {
+  transition-duration: 0ms;
+}
+
+.deltamod-boot:not([data-glitch="off"]) .db-status,
+.deltamod-boot:not([data-glitch="off"]) .db-percent {
+  text-shadow:
+    2px 0 0 var(--db-soul-color),
+    -2px 0 0 var(--db-theme-color);
+}
+
+.deltamod-boot[data-lock="flash"] .db-backdrop {
+  background: rgba(8, 8, 8, 0.48);
+  transition-duration: 0ms;
+}
+
+.deltamod-boot[data-autoplay="off"] .db-curtain,
+.deltamod-boot[data-autoplay="off"] .db-effects,
+.deltamod-boot[data-autoplay="off"] .db-scene-echo {
+  display: none;
+}
+
+.deltamod-boot[data-video="on"] .db-scene-echo {
+  display: none;
+}
+
+#deltamod-boot-root[data-dismissed="true"] {
+  pointer-events: none;
+  animation: deltamod-boot-shell-out 1120ms linear both;
+}
+
+#deltamod-boot-root[data-dismissed="true"] .db-emblem-stage {
+  transform-origin: center center;
+  animation: deltamod-emblem-camera-push 820ms cubic-bezier(0.42, 0, 0.72, 0.36) both;
+}
+
+#deltamod-boot-root[data-dismissed="true"] .db-loading {
+  opacity: 0;
+  transform: translateY(7px);
+  transition: opacity 220ms ease-out, transform 220ms ease-in;
+}
+
+@keyframes deltamod-emblem-camera-push {
+  0% {
+    transform: scale(1);
+  }
+
+  100% {
+    transform: scale(18);
+  }
+}
+
+@keyframes deltamod-boot-shell-out {
+  0%,
+  42% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes db-curtain-top-open {
+  0%,
+  12% {
+    transform: translateY(0);
+  }
+
+  100% {
+    transform: translateY(-102%);
+  }
+}
+
+@keyframes db-curtain-bottom-open {
+  0%,
+  12% {
+    transform: translateY(0);
+  }
+
+  100% {
+    transform: translateY(102%);
+  }
+}
+
+@media (max-width: 520px) {
+  .db-main {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .db-sequence {
+    width: min(88vw, 360px);
+  }
+
+  .db-loading {
+    width: min(100%, 320px);
+  }
+
+  .db-progress {
+    gap: 1px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-backdrop,
+  .db-loading {
+    transition: none;
+  }
+
+  .db-curtain,
+  .db-effects,
+  .db-scene-echo {
+    display: none;
+  }
+
+  .db-main,
+  .db-scene-base {
+    transform: none;
+  }
+
+}

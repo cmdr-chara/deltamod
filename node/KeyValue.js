@@ -78,6 +78,7 @@ function readUniqueFlag(name) {
     try {
         if (
             process.env.DELTAMOD_TEST === '1' &&
+            process.env.DELTAMOD_TEST_ALLOW_AUDIO !== '1' &&
             ['AUDIO', 'SFX'].includes(name.toUpperCase())
         ) {
             return false;

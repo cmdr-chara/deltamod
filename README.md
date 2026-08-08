@@ -7,7 +7,7 @@
 <p align="center">A community-maintained desktop mod manager for DELTARUNE and other supported GameMaker games.</p>
 
 <p align="center">
-  <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?include_prereleases&amp;sort=semver&amp;style=flat-square"></a>
+  <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?include_prereleases&amp;sort=semver&amp;style=flat-square&amp;cacheSeconds=300"></a>
   <a href="./LICENSE.txt"><img alt="License: EUPL 1.2" src="https://img.shields.io/badge/license-EUPL--1.2-4c8bf5?style=flat-square"></a>
 </p>
 
@@ -57,7 +57,7 @@ On first launch, Community detects the standard official profile and offers **Im
 
 ## Mod catalogues
 
-The Mod Shop keeps GameBanana as the default source and adds Nexus Mods and ModDB for DELTARUNE and UNDERTALE. Nexus single sign-on is implemented and becomes active after Nexus Mods issues the application slug. Until registration is complete, beta testers can use their own personal API key under **Options → Nexus Mods**. Credentials are validated and encrypted with the operating system’s credential protection; they are never bundled with the application. Premium API downloads are imported when the archive is Deltamod-compatible, while restricted downloads open the Nexus website for confirmation.
+The Mod Shop keeps GameBanana as the default source and adds Nexus Mods and ModDB for DELTARUNE and UNDERTALE. Nexus access is single-sign-on only: Community enables the sign-in flow once Nexus Mods issues the application slug, and shows a pending-registration state until then. The app does not accept or store pasted credentials. SSO credentials are validated and encrypted with the operating system’s credential protection; they are never bundled with the application. Nexus browsing requests one bounded result page at a time, uses short-lived caching and request coalescing, and respects quota and `Retry-After` signals before allowing another refresh. Premium downloads are imported when the archive is Deltamod-compatible, while restricted downloads open the Nexus website for confirmation.
 
 ModDB shows the recent downloads exposed by its official RSS feeds, clearly labels that list as incomplete, and links to the full game catalogue. Because ModDB archives are not necessarily Deltamod packages, Community opens their download page and leaves installation manual instead of claiming compatibility it cannot verify.
 

@@ -1,40 +1,40 @@
-Deltamod Community 2.0.3-beta.2
-2026-07-30
+# Deltamod Community 2.0.3-beta.3
+
+Released 2026-08-08.
 
 This is an unsigned prerelease. Windows may show an unknown-publisher warning.
 
-Added
-- Safe local mod archive import through the Deltamod Community protocol.
-- GameBanana, ModDB, and Nexus Mods catalogue adapters with source-specific
-  availability and authentication states.
-- A guarded UndertaleModTool workspace bridge.
-- Native Linux and macOS game-layout adapters.
-- Additional built-in themes, theme customization, localization updates, and a
-  keyboard-accessible language selector.
+## Highlights
 
-Changed
-- Improved native Windows, Linux, Intel macOS, and Apple Silicon packaging.
-- Improved theme palettes, sprite recoloring, text contrast, navigation speed,
-  audio continuity, and background-video resource handling.
-- Updated GitHub Actions runtimes and release checks.
-- The README release badge now recognizes prereleases.
+- Added a theme-aware animated startup sequence.
+- Redesigned the Mod Shop with clearer source cards, image previews, loading
+  states, search controls, and download/import progress.
+- Improved GameBanana featured sorting and guarded pagination against duplicate
+  requests.
+- Improved Nexus Mods request coalescing, quota tracking, rate-limit handling,
+  and authorization messaging.
 
-Fixed
-- GameBanana logout now clears the active session.
-- Local mod import rejects linked files and unsafe parent paths consistently
-  across Windows, Linux, and macOS.
-- Native macOS game fixtures and paths are recognized correctly.
-- Electron smoke navigation now waits for each page to finish initializing,
-  preventing intermittent renderer failures on macOS.
+## Fixed
 
-Security
-- Local archive imports are staged and checked for links and path escapes.
-- External mod sources use explicit IPC and URL validation.
-- GameBanana and Nexus Mods authentication state is kept out of renderer storage.
+- Resolved production dependency audit failures and updated vulnerable
+  transitive dependencies.
+- Stabilized the Electron smoke test by waiting for renderer navigation to
+  finish before continuing.
+- Prevented repeated external-catalogue requests while another request is still
+  active.
 
-Known limitations
+## Nexus Mods status
+
+Nexus Mods account connection is not enabled in this build because the
+Deltamod Community application registration is still pending. The app shows a
+pending-registration state instead of requesting or storing pasted API keys.
+GameBanana, ModDB, and local mod imports remain available.
+
+## Known limitations
+
 - Windows builds are intentionally unsigned during the beta period.
 - Linux and macOS support remains experimental.
-- macOS packages are unsigned and may require manual approval in System Settings.
-- Nexus Mods downloads still depend on the authentication and download access
-  provided by Nexus Mods.
+- macOS packages are unsigned and may require manual approval in System
+  Settings.
+- Nexus Mods browsing and downloads will remain unavailable until application
+  registration is approved and a future build supplies the SSO application ID.

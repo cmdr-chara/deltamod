@@ -23,14 +23,22 @@ function rendererLog(prefix, page, ...args) {
     process.stdout.write(colors.bold(prefixColorMap[prefix]('[' + prefix + ']')) + ' ' + colors.yellowBright('[RENDER] ' + (page !== null ? '["' + page + '"] ' : '' )) + args.join(' ') + '\n');
 }
 
+function startupHeader(productName, version, ascii) {
+    process.stdout.write(colors.bold(colors.yellowBright(ascii.trimEnd())) + '\n');
+    process.stdout.write(colors.yellowBright('[ SYSTEM ]') + ' ' + colors.bold(productName.toUpperCase()) + '\n');
+    process.stdout.write(colors.yellowBright('[ BUILD  ]') + ' ' + colors.green('v' + version) + '\n');
+    process.stdout.write(colors.yellowBright('[ STATUS ]') + ' ' + colors.green('INITIALIZING') + '\n\n');
+}
+
 
 
 module.exports = {
     log: (...a) => log('LOG', ...a),
     rendererLog,
+    startupHeader,
     warn: (...a) => log('WARN', ...a),
     error: (...a) => log('ERROR', ...a),
     info: (...a) => log('INFO', ...a),
     debug: (...a) => log('DEBUG', ...a),
-    clear: () => process.stdout.write('\x1b[2J\x1b[0f'),
+    clear: () => process.stdout.write('\x1b[2J\x1b[H'),
 };

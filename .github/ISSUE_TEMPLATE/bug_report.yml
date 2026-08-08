@@ -17,7 +17,7 @@ body:
     id: version
     attributes:
       label: Deltamod Community version
-      placeholder: 2.0.3-beta.1
+      placeholder: 2.0.3-beta.2
     validations:
       required: true
   - type: dropdown
