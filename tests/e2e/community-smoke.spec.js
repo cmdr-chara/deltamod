@@ -854,10 +854,10 @@ test('launches securely and keeps Options categories inside their column', async
             };
         }, modDbFixture);
         await window.setViewportSize({ width: 900, height: 600 });
-        await window.evaluate(() => {
+        await window.evaluate(async () => {
             localStorage.setItem('modShopProvider', 'moddb');
             window._pageArguments = { provider: 'moddb' };
-            page('gamebanana-browse');
+            await page('gamebanana-browse');
         });
         await expect(window.locator('#modSourceSelect')).toHaveValue('moddb');
         await expect(window.locator('#modSourceSelect option:checked')).toHaveText('ModDB (recent)');
@@ -988,10 +988,10 @@ test('launches securely and keeps Options categories inside their column', async
             };
         });
 
-        await window.evaluate(() => {
+        await window.evaluate(async () => {
             localStorage.setItem('modShopProvider', 'nexus');
             window._pageArguments = { provider: 'nexus' };
-            page('gamebanana-browse');
+            await page('gamebanana-browse');
         });
         await expect(window.locator('#modSourceSelect')).toHaveValue('nexus');
         await expect(window.locator('#modsBody')).toContainText('Deltarune - Kris Gender Mod CHAPTER 5');
@@ -1022,11 +1022,14 @@ test('launches securely and keeps Options categories inside their column', async
             delete globalThis.__deltamodOriginalFetch;
         });
 
-        await window.evaluate(() => {
-            page('options');
+        await window.evaluate(async () => {
             window._pageArguments = { cat: 'nexus' };
+            await page('options');
         });
         await window.locator('#b_nexus').waitFor({ state: 'visible' });
+        await window.waitForFunction(() =>
+            typeof window.currentPageStack?.cat === 'function'
+        );
         await window.evaluate(() => window.currentPageStack.cat('nexus'));
         await expect(window.locator('.nexus-key-row input')).toHaveCount(0);
         await expect(window.locator('#options')).toContainText('Not connected');
