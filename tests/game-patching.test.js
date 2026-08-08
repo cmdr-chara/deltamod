@@ -130,6 +130,8 @@ describe('patch planning', () => {
         };
 
         const result = await startGamePatch(data.game, data.mods, ['example-id'], null, null, {
+            platform: 'win32',
+            arch: 'x64',
             undertaleModCliPath: process.execPath,
             spawnImpl
         });
@@ -165,6 +167,8 @@ describe('patch planning', () => {
         };
 
         const result = await startGamePatch(data.game, data.mods, ['example-id'], null, null, {
+            platform: 'win32',
+            arch: 'x64',
             undertaleModCliPath: process.execPath,
             spawnImpl
         });
@@ -186,6 +190,8 @@ describe('patch planning', () => {
 
         const result = await startGamePatch(data.game, data.mods, ['example-id'], null, null, {
             approvedPlan,
+            platform: 'win32',
+            arch: 'x64',
             undertaleModCliPath: process.execPath,
             spawnImpl: () => { throw new Error('The changed script must not execute.'); }
         });
@@ -208,6 +214,8 @@ describe('patch planning', () => {
 
         const result = await startGamePatch(data.game, data.mods, ['example-id'], null, null, {
             approvedPlan,
+            platform: 'win32',
+            arch: 'x64',
             undertaleModCliPath: process.execPath,
             spawnImpl: () => { throw new Error('Changed resources must not execute.'); }
         });
@@ -252,6 +260,8 @@ describe('patch planning', () => {
         };
 
         const result = await startGamePatch(data.game, data.mods, ['example-id'], null, null, {
+            platform: 'win32',
+            arch: 'x64',
             undertaleModCliPath: process.execPath,
             spawnImpl,
             terminateProcessTree,
