@@ -51,9 +51,7 @@ jobs:
             npx electron-builder --win --dir --publish never
             node scripts/verify-packaged-undertale-mod-tool.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            node scripts/acquire-g3mtool.js darwin-x64
-            npx electron-builder --mac --dir --publish never
-            node scripts/verify-packaged-undertale-mod-tool.js "dist/mac/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64 --tree-only
+            npx electron-builder --mac --arm64 --dir --publish never
             node scripts/verify-packaged-undertale-mod-tool.js "dist/mac-arm64/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64 --tree-only
           else
             npx electron-builder --linux --dir --publish never
