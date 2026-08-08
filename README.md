@@ -4,7 +4,7 @@
 
 <h1 align="center">Deltamod Community</h1>
 
-<p align="center">A community-maintained desktop mod manager for DELTARUNE and other supported GameMaker games.</p>
+<p align="center">Install and manage mods for DELTARUNE, UNDERTALE, and other supported GameMaker games.</p>
 
 <p align="center">
   <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?include_prereleases&amp;sort=semver&amp;style=flat-square&amp;cacheSeconds=300"></a>
@@ -17,86 +17,120 @@
   <a href="https://github.com/cmdr-chara/deltamod/issues">Issues</a>
 </p>
 
-## Download and install
+## Download
 
-### Windows
+| System | Download |
+| --- | --- |
+| Windows 64-bit | **[Download installer](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-win-x64.exe)** |
+| Mac with Apple chip | [Download DMG](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-mac-arm64.dmg) |
+| Mac with Intel chip | [Download DMG](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-mac-x64.dmg) |
+| Linux 64-bit | [Download AppImage](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-linux-x86_64.AppImage) |
 
-**[Download Deltamod Community for Windows](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-win-x64.exe)**
+This is a beta. Windows and macOS builds are not signed yet.
 
-1. Open the downloaded `.exe` file.
-2. If Windows displays **Windows protected your PC**, select **More info** and
-   then **Run anyway**. This warning appears because the beta is not yet signed.
-3. Follow the installer, then open **Deltamod Community** from the desktop or
-   Start menu.
+### Install on Windows
 
-### macOS and Linux
+1. Open the downloaded installer.
+2. If Windows shows **Windows protected your PC**, click **More info**.
+3. Click **Run anyway**.
+4. Finish the installer and open **Deltamod Community**.
 
-- [Apple Silicon Mac download](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-mac-arm64.dmg)
-- [Intel Mac download](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-mac-x64.dmg)
-- [Linux x64 download](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-linux-x86_64.AppImage)
+### Install on macOS
 
-Not sure which Mac you have? Open the Apple menu, select **About This Mac**, and
-check whether the chip says **Apple** or **Intel**. Because the macOS beta is
-unsigned, you may need to approve it under **System Settings > Privacy &
-Security**. On Linux, mark the AppImage as executable before opening it.
+1. Open the downloaded DMG and move Deltamod Community to Applications.
+2. If macOS blocks it, open **System Settings > Privacy & Security**.
+3. Click **Open Anyway**.
 
-Files ending in `.blockmap` or `.yml`, the G3MTool source archive, and GitHub's
-automatic **Source code** downloads are not the application installer.
+To check your Mac type, open **Apple menu > About This Mac** and look for
+**Chip: Apple** or **Processor: Intel**.
 
-Deltamod Community manages multiple game installations, imports local mods, browses GameBanana, Nexus Mods, and ModDB catalogues, and applies selected patches transactionally before launch. It installs beside official Deltamod and uses a separate profile.
+### Install on Linux
 
-Supported games: **DELTARUNE**, **DELTARUNE Demo**, **DELTARUNE Demo (LTS)**, **UNDERTALE**, **Undertale Yellow**, and **Pizza Tower**. Compatibility still depends on the game version and how each mod is packaged.
+Make the AppImage executable, then open it:
+
+```console
+chmod +x deltamod-community-*.AppImage
+./deltamod-community-*.AppImage
+```
+
+Do not download `.blockmap`, `.yml`, G3MTool source, or GitHub's automatic
+source archives unless you are a developer.
+
+## Features
+
+- Install and remove compatible mod packages.
+- Import local mod archives.
+- Browse and install supported GameBanana mods.
+- Browse ModDB listings and open their download pages.
+- Keep multiple game installations and mod setups.
+- Import data from official Deltamod without changing the official profile.
+
+Nexus Mods support is present but disabled while the application registration
+is pending. You do not need Nexus Mods to use Deltamod Community.
+
+## Supported games
+
+- DELTARUNE
+- DELTARUNE Demo
+- DELTARUNE Demo (LTS)
+- UNDERTALE
+- Undertale Yellow
+- Pizza Tower
+
+Individual mods may only work with specific game versions.
 
 ## Platform status
 
-| Setup | Stability | Notes |
-| --- | --- | --- |
-| Windows | In stabilization | NSIS beta builds are intentionally unsigned; Windows may show an unknown-publisher warning |
-| Native Linux | Experimental | AppImage build; native UNDERTALE import, patching, and launch; Wine/Proton fallback for Windows-only games |
-| Native macOS | Experimental | Unsigned DMG and ZIP builds for Apple Silicon and Intel; native UNDERTALE, DELTARUNE, and DELTARUNE Demo import, patching, and launch |
-| Windows build through Wine/CrossOver | Unofficial | Generally usable; mention emulation when reporting issues |
+| Platform | Status |
+| --- | --- |
+| Windows 64-bit | Beta |
+| Linux 64-bit | Experimental |
+| macOS Apple and Intel | Experimental |
+| Wine or CrossOver | Unofficial |
 
-## Run from source
+## Help
 
-Install [Node.js](https://nodejs.org/), clone the repository, and install its dependencies:
+- [Report a bug](https://github.com/cmdr-chara/deltamod/issues/new/choose)
+- [View all releases](https://github.com/cmdr-chara/deltamod/releases)
+- [GameBanana page](https://gamebanana.com/tools/20575)
+- For security problems, read [SECURITY.md](./SECURITY.md).
+
+When reporting a problem, include your operating system, game, mod, and the
+steps that caused it.
+
+## Development
+
+Requires [Node.js 22](https://nodejs.org/).
 
 ```console
 git clone https://github.com/cmdr-chara/deltamod.git
 cd deltamod
 npm ci
+npm run dev
 ```
 
-Run the app and automated checks:
+Checks:
 
 ```console
-npm run dev
 npm test
 npm run typecheck
 npm run security:audit
 ```
 
-Patching uses the GPL-3.0-only [G3MTool](https://github.com/y114git/G3MTool) executable. `npm run acquire:g3mtool` downloads the pinned native Windows, Linux, or macOS archive, enforces its size and SHA-256 checksums, validates its contents, and installs it under the ignored `tools/g3mtool/` directory. Release builds also publish the exact corresponding G3MTool source archive. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+Builds are written to `dist/`:
 
-## Import from official Deltamod
+| System | Command |
+| --- | --- |
+| Windows | `npm run build-windows` |
+| Linux | `npm run build-linux` |
+| macOS | `npm run build-macos` |
 
-On first launch, Community detects the standard official profile and offers **Import from Deltamod**. It stages and validates the copy before committing it; the official profile is never modified. Settings provides the same action later for importing changes. Conflicting installations are copied separately, conflicting themes are renamed, and conflicting mod package IDs are quarantined for review. GameBanana may request a new login when credentials cannot be migrated securely.
-
-## Mod catalogues
-
-The Mod Shop keeps GameBanana as the default source and adds Nexus Mods and ModDB for DELTARUNE and UNDERTALE. Nexus access is single-sign-on only: Community enables the sign-in flow once Nexus Mods issues the application slug, and shows a pending-registration state until then. The app does not accept or store pasted credentials. SSO credentials are validated and encrypted with the operating system’s credential protection; they are never bundled with the application. Nexus browsing requests one bounded result page at a time, uses short-lived caching and request coalescing, and respects quota and `Retry-After` signals before allowing another refresh. Premium downloads are imported when the archive is Deltamod-compatible, while restricted downloads open the Nexus website for confirmation.
-
-ModDB shows the recent downloads exposed by its official RSS feeds, clearly labels that list as incomplete, and links to the full game catalogue. Because ModDB archives are not necessarily Deltamod packages, Community opens their download page and leaves installation manual instead of claiming compatibility it cannot verify.
-
-## Build
-
-| Target | Command | Output |
-| --- | --- | --- |
-| Windows x64 | `npm run build-windows` | NSIS installer |
-| Linux x64 | `npm run build-linux` | AppImage |
-| macOS Intel and Apple Silicon | `npm run build-macos` | DMG and ZIP |
-
-Artifacts are written to `dist/` by Electron Builder. Tags named `community-v<package version>` run the unsigned beta release workflow and create a GitHub prerelease. It refuses to publish when unit tests, the Electron workflow test, the production dependency audit, G3MTool provenance, or version matching fail. Authenticode signing can be enabled later for stable releases without changing the application data format.
+Patching uses [G3MTool](https://github.com/y114git/G3MTool). Run
+`npm run acquire:g3mtool` to download and verify the pinned build. Licensing and
+source details are in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
 ## License
 
-Deltamod Community is licensed under the [European Union Public Licence 1.2](./LICENSE.txt). Community contributions and modifications are identified in the [copyright notice](./NOTICE.md). Third-party components retain their respective licenses.
+[EUPL 1.2](./LICENSE.txt). See [NOTICE.md](./NOTICE.md) and
+[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for attribution and bundled
+third-party software.
