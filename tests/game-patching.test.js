@@ -5,8 +5,15 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { EventEmitter } = require('events');
 const { afterEach, describe, expect, it } = globalThis;
-const { buildPatchPlan, restore } = require('../node/GamePatching');
+const {
+    assertCsxPlatformSupported,
+    buildPatchPlan,
+    restore,
+    startGamePatch,
+    terminateProcessTree
+} = require('../node/GamePatching');
 
 const roots = [];
 
@@ -30,6 +37,20 @@ afterEach(() => {
 });
 
 describe('patch planning', () => {
+    it('preflights CSX platform support', () => {
+        expect(() => assertCsxPlatformSupported({ scripts: [{}] }, 'win32', 'x64')).not.toThrow();
+        expect(() => assertCsxPlatformSupported({ scripts: [{}] }, 'linux', 'x64')).not.toThrow();
+        expect(() => assertCsxPlatformSupported({ scripts: [{}] }, 'darwin', 'x64')).not.toThrow();
+        expect(() => assertCsxPlatformSupported({ scripts: [{}] }, 'darwin', 'arm64')).toThrow(/not packaged/i);
+        expect(() => assertCsxPlatformSupported({ scripts: [] }, 'darwin', 'arm64')).not.toThrow();
+    });
+
+    it('falls back to force-killing an owned child when no process group is available', () => {
+        const child = { exitCode: null, kill: vi.fn() };
+        terminateProcessTree(child, 'linux');
+        expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+    });
+
     it('builds a contained direct patch plan', () => {
         const data = fixture();
         fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="override" patch="files/replacement.txt" to="data/target.txt"/></root>');
@@ -59,6 +80,188 @@ describe('patch planning', () => {
             mapPatchTarget: target => target === 'data.win' ? 'assets/game.unx' : target
         });
         expect(plan.direct[0].target).toBe(path.join(data.game, 'assets', 'game.unx'));
+    });
+
+    it('plans CSX scripts for a GameMaker data file', () => {
+        const data = fixture();
+        const gameData = path.join(data.game, 'data.win');
+        const script = path.join(data.mod, 'files', 'patch.csx');
+        fs.writeFileSync(gameData, 'FORM-original');
+        fs.writeFileSync(script, 'Data.GeneralInfo.Name.Content = "Patched";');
+        fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="csx" patch="files/patch.csx" to="data.win"/></root>');
+
+        const plan = buildPatchPlan(data.game, data.mods, ['example-id']);
+
+        expect(plan.scripts).toHaveLength(1);
+        expect(plan.scripts[0].patches[0].source).toBe(script);
+        expect(plan.scripts[0].target).toBe(gameData);
+    });
+
+    it('rejects CSX scripts targeting a non-GameMaker file', () => {
+        const data = fixture();
+        fs.writeFileSync(path.join(data.mod, 'files', 'patch.csx'), 'return;');
+        fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="csx" patch="files/patch.csx" to="data/target.txt"/></root>');
+        expect(() => buildPatchPlan(data.game, data.mods, ['example-id'])).toThrow(/GameMaker data file/i);
+    });
+
+    it('stages successful CSX output and keeps it recoverable', async () => {
+        const data = fixture();
+        const gameData = path.join(data.game, 'data.win');
+        fs.writeFileSync(gameData, 'FORM-original');
+        fs.writeFileSync(path.join(data.mod, 'files', 'patch.csx'), 'script');
+        fs.writeFileSync(path.join(data.mod, 'files', 'resource.txt'), 'companion');
+        fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="csx" patch="files/patch.csx" to="data.win"/></root>');
+        let invocation;
+        const spawnImpl = (command, args, options) => {
+            invocation = { command, args, options };
+            invocation.scriptContent = fs.readFileSync(args.at(-1), 'utf8');
+            invocation.companionContent = fs.readFileSync(path.join(path.dirname(args.at(-1)), 'resource.txt'), 'utf8');
+            const child = new EventEmitter();
+            child.stdout = new EventEmitter();
+            child.stderr = new EventEmitter();
+            child.kill = vi.fn();
+            queueMicrotask(() => {
+                const input = args[1];
+                const output = args[args.indexOf('--output') + 1];
+                fs.writeFileSync(output, `${fs.readFileSync(input, 'utf8')}-patched`);
+                child.emit('exit', 0);
+            });
+            return child;
+        };
+
+        const result = await startGamePatch(data.game, data.mods, ['example-id'], null, null, {
+            undertaleModCliPath: process.execPath,
+            spawnImpl
+        });
+
+        expect(result.patched).toBe(true);
+        expect(fs.readFileSync(gameData, 'utf8')).toBe('FORM-original-patched');
+        expect(invocation.command).toBe(process.execPath);
+        expect(invocation.args.slice(0, 2)).toEqual(['load', expect.any(String)]);
+        expect(invocation.args).toContain('--scripts');
+        expect(invocation.args.at(-1)).toMatch(/[\\/]files[\\/]patch\.csx$/);
+        expect(invocation.scriptContent).toBe('script');
+        expect(invocation.companionContent).toBe('companion');
+        expect(invocation.options.shell).toBe(false);
+        expect(invocation.options.cwd).toBe(path.dirname(process.execPath));
+        expect(invocation.options.env).not.toHaveProperty('NEXUS_API_KEY');
+        restore(data.game);
+        expect(fs.readFileSync(gameData, 'utf8')).toBe('FORM-original');
+    });
+
+    it('leaves the game unchanged when a CSX script fails', async () => {
+        const data = fixture();
+        const gameData = path.join(data.game, 'data.win');
+        fs.writeFileSync(gameData, 'FORM-original');
+        fs.writeFileSync(path.join(data.mod, 'files', 'patch.csx'), 'throw new Exception();');
+        fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="csx" patch="files/patch.csx" to="data.win"/></root>');
+        const spawnImpl = () => {
+            const child = new EventEmitter();
+            child.stdout = new EventEmitter();
+            child.stderr = new EventEmitter();
+            child.kill = vi.fn();
+            queueMicrotask(() => child.emit('exit', 1));
+            return child;
+        };
+
+        const result = await startGamePatch(data.game, data.mods, ['example-id'], null, null, {
+            undertaleModCliPath: process.execPath,
+            spawnImpl
+        });
+
+        expect(result.patched).toBe(false);
+        expect(fs.readFileSync(gameData, 'utf8')).toBe('FORM-original');
+        expect(fs.existsSync(path.join(data.game, '.deltamod-community-patch-journal.json'))).toBe(false);
+    });
+
+    it('rejects a CSX script changed after approval', async () => {
+        const data = fixture();
+        const gameData = path.join(data.game, 'data.win');
+        const script = path.join(data.mod, 'files', 'patch.csx');
+        fs.writeFileSync(gameData, 'FORM-original');
+        fs.writeFileSync(script, 'approved script');
+        fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="csx" patch="files/patch.csx" to="data.win"/></root>');
+        const approvedPlan = buildPatchPlan(data.game, data.mods, ['example-id']);
+        fs.writeFileSync(script, 'swapped script');
+
+        const result = await startGamePatch(data.game, data.mods, ['example-id'], null, null, {
+            approvedPlan,
+            undertaleModCliPath: process.execPath,
+            spawnImpl: () => { throw new Error('The changed script must not execute.'); }
+        });
+
+        expect(result.patched).toBe(false);
+        expect(result.log).toMatch(/changed after (?:it|they) were approved/i);
+        expect(fs.readFileSync(gameData, 'utf8')).toBe('FORM-original');
+    });
+
+    it('rejects companion resources changed after approval', async () => {
+        const data = fixture();
+        const gameData = path.join(data.game, 'data.win');
+        const resource = path.join(data.mod, 'files', 'resource.txt');
+        fs.writeFileSync(gameData, 'FORM-original');
+        fs.writeFileSync(path.join(data.mod, 'files', 'patch.csx'), 'script');
+        fs.writeFileSync(resource, 'approved resource');
+        fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="csx" patch="files/patch.csx" to="data.win"/></root>');
+        const approvedPlan = buildPatchPlan(data.game, data.mods, ['example-id']);
+        fs.writeFileSync(resource, 'swapped resource');
+
+        const result = await startGamePatch(data.game, data.mods, ['example-id'], null, null, {
+            approvedPlan,
+            undertaleModCliPath: process.execPath,
+            spawnImpl: () => { throw new Error('Changed resources must not execute.'); }
+        });
+
+        expect(result.patched).toBe(false);
+        expect(result.log).toMatch(/resources.*changed after they were approved/i);
+        expect(fs.readFileSync(gameData, 'utf8')).toBe('FORM-original');
+    });
+
+    it('rejects CSX before execution on unsupported platforms', async () => {
+        const data = fixture();
+        const gameData = path.join(data.game, 'data.win');
+        fs.writeFileSync(gameData, 'FORM-original');
+        fs.writeFileSync(path.join(data.mod, 'files', 'patch.csx'), 'script');
+        fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="csx" patch="files/patch.csx" to="data.win"/></root>');
+
+        const result = await startGamePatch(data.game, data.mods, ['example-id'], null, null, {
+            platform: 'darwin',
+            arch: 'arm64',
+            spawnImpl: () => { throw new Error('Unsupported platforms must not execute.'); }
+        });
+
+        expect(result.patched).toBe(false);
+        expect(result.log).toMatch(/not packaged for darwin-arm64/i);
+        expect(fs.readFileSync(gameData, 'utf8')).toBe('FORM-original');
+    });
+
+    it('leaves the game unchanged when UndertaleModCli times out', async () => {
+        const data = fixture();
+        const gameData = path.join(data.game, 'data.win');
+        fs.writeFileSync(gameData, 'FORM-original');
+        fs.writeFileSync(path.join(data.mod, 'files', 'patch.csx'), 'while (true) {}');
+        fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="csx" patch="files/patch.csx" to="data.win"/></root>');
+        let child;
+        const terminateProcessTree = vi.fn();
+        const spawnImpl = () => {
+            child = new EventEmitter();
+            child.stdout = new EventEmitter();
+            child.stderr = new EventEmitter();
+            child.kill = vi.fn();
+            return child;
+        };
+
+        const result = await startGamePatch(data.game, data.mods, ['example-id'], null, null, {
+            undertaleModCliPath: process.execPath,
+            spawnImpl,
+            terminateProcessTree,
+            timeoutMs: 5
+        });
+
+        expect(result.patched).toBe(false);
+        expect(result.log).toMatch(/timed out/i);
+        expect(terminateProcessTree).toHaveBeenCalledWith(child);
+        expect(fs.readFileSync(gameData, 'utf8')).toBe('FORM-original');
     });
 
     it('recovers only files named by the transaction journal', () => {

@@ -30,6 +30,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run security:audit
       - run: npm run verify:g3mtool-manifest
+      - run: npm run verify:undertale-mod-tool-manifest
       - name: Electron workflow smoke test
         if: runner.os == 'macOS'
         run: npm run test:e2e
@@ -38,11 +39,41 @@ jobs:
         run: |
           npm run acquire:g3mtool
           npm run verify:g3mtool
+          if [[ "$RUNNER_OS" == "macOS" && "$RUNNER_ARCH" == "ARM64" ]]; then
+            node scripts/acquire-undertale-mod-tool.js darwin-x64
+            node scripts/verify-undertale-mod-tool.js darwin-x64 --tree-only
+          else
+            npm run acquire:undertale-mod-tool
+            npm run verify:undertale-mod-tool
+            npm run smoke:game-patching-csx
+          fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             npx electron-builder --win --dir --publish never
+            node scripts/verify-packaged-undertale-mod-tool.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             node scripts/acquire-g3mtool.js darwin-x64
             npx electron-builder --mac --dir --publish never
+            node scripts/verify-packaged-undertale-mod-tool.js "dist/mac/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64 --tree-only
+            node scripts/verify-packaged-undertale-mod-tool.js "dist/mac-arm64/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64 --tree-only
           else
             npx electron-builder --linux --dir --publish never
+            node scripts/verify-packaged-undertale-mod-tool.js "dist/linux-unpacked/resources/app.asar.unpacked" linux-x64
           fi
+
+  verify-csx-macos-intel:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run acquire:undertale-mod-tool
+      - run: npm run verify:undertale-mod-tool
+      - run: npm run acquire:g3mtool
+      - run: npm run verify:g3mtool
+      - run: npm run smoke:game-patching-csx
+      - run: npm run build:boot
+      - run: npx electron-builder --mac --x64 --dir --publish never
+      - run: node scripts/verify-packaged-undertale-mod-tool.js "dist/mac/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64

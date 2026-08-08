@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const os = require('os');
+const crypto = require('crypto');
+const { spawn, spawnSync } = require('child_process');
 const TOML = require('js-toml');
 const XML = require('xml-js');
 const console = require('./Console');
@@ -15,7 +17,13 @@ const PATCHER_LAYOUTS = Object.freeze({
 });
 const JOURNAL_NAME = '.deltamod-community-patch-journal.json';
 const BACKUP_DIRECTORY_NAME = '.deltamod-community-patch-backups';
-const SUPPORTED_PATCH_TYPES = new Set(['override', 'copy', 'xdelta', 'g3mpatch']);
+const SUPPORTED_PATCH_TYPES = new Set(['override', 'copy', 'xdelta', 'g3mpatch', 'csx']);
+const GAME_DATA_FILE_NAMES = new Set(['data.win', 'game.ios', 'game.unx', 'game.droid']);
+const UNDERTALE_MOD_CLI_LAYOUTS = Object.freeze({
+    'win32-x64': ['win-x64', 'UndertaleModCli.exe'],
+    'linux-x64': ['linux-x64', 'UndertaleModCli'],
+    'darwin-x64': ['mac-x64', 'UndertaleModCli']
+});
 const activePatchers = new Set();
 
 function patcherPathFor(platform = process.platform, arch = process.arch) {
@@ -24,6 +32,29 @@ function patcherPathFor(platform = process.platform, arch = process.arch) {
         throw new Error(`G3MTool is not packaged for ${platform}-${arch}.`);
     }
     return path.join(__dirname, '..', 'tools', 'g3mtool', ...layout);
+}
+
+function undertaleModCliPathFor(platform = process.platform, arch = process.arch) {
+    const layout = UNDERTALE_MOD_CLI_LAYOUTS[`${platform}-${arch}`];
+    if (!layout) {
+        throw new Error(`UndertaleModCli is not packaged for ${platform}-${arch}.`);
+    }
+    return path.join(__dirname, '..', 'tools', 'undertale-mod-tool', ...layout);
+}
+
+function assertCsxPlatformSupported(plan, platform = process.platform, arch = process.arch) {
+    if (plan.scripts.length > 0) undertaleModCliPathFor(platform, arch);
+}
+
+function assertCsxRuntimeAvailable(plan, options = {}) {
+    if (plan.scripts.length === 0) return;
+    assertCsxPlatformSupported(plan, options.platform || process.platform, options.arch || process.arch);
+    const executable = options.undertaleModCliPath || undertaleModCliPathFor(
+        options.platform || process.platform,
+        options.arch || process.arch
+    );
+    if (!fs.existsSync(executable)) throw new Error('UndertaleModCli is missing from the tools directory.');
+    assertPatchFile(executable, 'UndertaleModCli executable');
 }
 
 function assertPatchFile(filePath, description) {
@@ -111,6 +142,7 @@ function buildPatchPlan(gamePath, modFolder, selectedIds, options = {}) {
         : value => value;
     const direct = [];
     const merged = new Map();
+    const scripts = new Map();
     const targetOwners = new Map();
 
     for (const mod of mods) {
@@ -122,16 +154,47 @@ function buildPatchPlan(gamePath, modFolder, selectedIds, options = {}) {
             assertPatchFile(source, `Patch source "${patch.patch}"`);
             if (fs.existsSync(target)) assertPatchFile(target, `Patch target "${patch.to}"`);
 
+            if (patch.type === 'csx') {
+                if (path.extname(source).toLowerCase() !== '.csx') {
+                    throw new Error(`CSX patch "${patch.patch}" from "${mod.name}" must use the .csx extension.`);
+                }
+                if (!GAME_DATA_FILE_NAMES.has(path.basename(target).toLowerCase())) {
+                    throw new Error(`CSX patch from "${mod.name}" must target a supported GameMaker data file.`);
+                }
+                if (!fs.existsSync(target)) {
+                    throw new Error(`CSX target "${patch.to}" required by "${mod.name}" does not exist.`);
+                }
+                if (targetOwners.has(targetKey) || merged.has(targetKey)) {
+                    throw new Error(`Patch conflict: "${patch.to}" has both CSX and non-CSX patches.`);
+                }
+                if (!scripts.has(targetKey)) {
+                    scripts.set(targetKey, { target, relativeTarget: mappedTarget, patches: [] });
+                }
+                scripts.get(targetKey).patches.push({
+                    ...patch,
+                    source,
+                    sourceHash: sha256File(source),
+                    modRoot: mod.root,
+                    modTreeHash: treeSha256(mod.root),
+                    relativeSource: path.relative(mod.root, source),
+                    modId: mod.uuid
+                });
+                continue;
+            }
+
             if (patch.type === 'override' || patch.type === 'copy') {
                 if (targetOwners.has(targetKey)) {
                     throw new Error(`Patch conflict: "${patch.to}" is modified by both "${targetOwners.get(targetKey)}" and "${mod.name}".`);
+                }
+                if (merged.has(targetKey) || scripts.has(targetKey)) {
+                    throw new Error(`Patch conflict: "${patch.to}" has both direct and non-direct patches.`);
                 }
                 targetOwners.set(targetKey, mod.name);
                 direct.push({ ...patch, source, target, mappedTarget, modId: mod.uuid });
                 continue;
             }
 
-            if (targetOwners.has(targetKey)) {
+            if (targetOwners.has(targetKey) || scripts.has(targetKey)) {
                 throw new Error(`Patch conflict: "${patch.to}" has both direct and merge patches.`);
             }
             if (!fs.existsSync(target)) {
@@ -148,8 +211,43 @@ function buildPatchPlan(gamePath, modFolder, selectedIds, options = {}) {
         mods,
         direct,
         merged: [...merged.values()],
-        operationCount: direct.length + merged.size
+        scripts: [...scripts.values()],
+        operationCount: direct.length + merged.size + scripts.size
     };
+}
+
+function treeSha256(directory) {
+    const entries = [];
+    const visit = (current, relative = '') => {
+        for (const entry of fs.readdirSync(current, { withFileTypes: true }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) {
+            const absolute = path.join(current, entry.name);
+            const childRelative = path.posix.join(relative, entry.name);
+            const stat = fs.lstatSync(absolute);
+            if (stat.isSymbolicLink()) throw new Error(`Script resources contain a symbolic link: ${childRelative}`);
+            if (stat.isDirectory()) visit(absolute, childRelative);
+            else if (stat.isFile()) entries.push(`${childRelative}\0${sha256File(absolute)}\n`);
+            else throw new Error(`Script resources contain an unsupported file: ${childRelative}`);
+        }
+    };
+    visit(directory);
+    return crypto.createHash('sha256').update(entries.join('')).digest('hex');
+}
+
+function copyTreeSnapshot(source, destination) {
+    fs.mkdirSync(destination, { recursive: true });
+    for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+        const from = path.join(source, entry.name);
+        const to = path.join(destination, entry.name);
+        const stat = fs.lstatSync(from);
+        if (stat.isSymbolicLink()) throw new Error(`Script resources contain a symbolic link: ${entry.name}`);
+        if (stat.isDirectory()) copyTreeSnapshot(from, to);
+        else if (stat.isFile()) fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
+        else throw new Error(`Script resources contain an unsupported file: ${entry.name}`);
+    }
+}
+
+function sha256File(filePath) {
+    return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
 function writeJournal(gamePath, journal) {
@@ -181,19 +279,21 @@ async function g3mtool(callback, args, gamePath, options = {}) {
     console.log('Running G3MTool with args:', args.join(' '));
     return new Promise((resolve, reject) => {
         const child = spawn(patcherPath, args, {
-            stdio: 'pipe',
+            stdio: ['ignore', 'pipe', 'pipe'],
             cwd: gamePath,
-            windowsHide: true
+            windowsHide: true,
+            shell: false,
+            detached: process.platform !== 'win32'
         });
         activePatchers.add(child);
         let output = '';
         let settled = false;
         const timeout = setTimeout(() => {
             if (!settled) {
-                child.kill();
+                (options.terminateProcessTree || terminateProcessTree)(child);
                 const error = new Error('G3MTool timed out.');
                 error.code = 'PATCHER_TIMEOUT';
-                reject(error);
+                finish(() => reject(error));
             }
         }, options.timeoutMs || 10 * 60 * 1000);
 
@@ -226,6 +326,110 @@ async function g3mtool(callback, args, gamePath, options = {}) {
     });
 }
 
+function childEnvironment() {
+    return Object.fromEntries(Object.entries(process.env).filter(([name]) => (
+        !/(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|AUTHORIZATION|COOKIE)/i.test(name)
+    )));
+}
+
+function terminateProcessTree(child, platform = process.platform) {
+    if (!child || child.exitCode !== null) return;
+    try {
+        if (platform === 'win32' && Number.isSafeInteger(child.pid)) {
+            const result = spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+                stdio: 'ignore',
+                windowsHide: true,
+                timeout: 15_000
+            });
+            if (!result.error && result.status === 0) return;
+        } else if (Number.isSafeInteger(child.pid)) {
+            process.kill(-child.pid, 'SIGKILL');
+            return;
+        }
+    } catch {}
+    try { child.kill('SIGKILL'); } catch {}
+}
+
+async function runUndertaleModScripts(group, stagingRoot, log, options = {}) {
+    const executable = options.undertaleModCliPath || undertaleModCliPathFor();
+    if (!fs.existsSync(executable)) {
+        throw new Error('UndertaleModCli is missing from the tools directory.');
+    }
+    assertPatchFile(executable, 'UndertaleModCli executable');
+    if (process.platform !== 'win32') fs.chmodSync(executable, 0o755);
+
+    const targetName = path.basename(group.target);
+    const input = path.join(stagingRoot, `input-${crypto.randomUUID()}-${targetName}`);
+    const output = path.join(stagingRoot, `output-${crypto.randomUUID()}-${targetName}`);
+    fs.copyFileSync(group.target, input, fs.constants.COPYFILE_EXCL);
+    const modSnapshots = new Map();
+    const stagedScripts = group.patches.map(patch => {
+        let modSnapshot = modSnapshots.get(patch.modRoot);
+        if (!modSnapshot) {
+            modSnapshot = path.join(stagingRoot, `mod-${modSnapshots.size}-${crypto.randomUUID()}`);
+            copyTreeSnapshot(patch.modRoot, modSnapshot);
+            if (treeSha256(modSnapshot) !== patch.modTreeHash) {
+                throw new Error(`Mod resources for CSX patch "${patch.patch}" changed after they were approved.`);
+            }
+            modSnapshots.set(patch.modRoot, modSnapshot);
+        }
+        const staged = resolveWithin(modSnapshot, patch.relativeSource, { mustExist: true });
+        if (sha256File(staged) !== patch.sourceHash) {
+            throw new Error(`CSX patch "${patch.patch}" changed after it was approved.`);
+        }
+        return staged;
+    });
+    const args = [
+        'load', input,
+        '--verbose',
+        '--output', output,
+        '--scripts', ...stagedScripts
+    ];
+
+    log(`Running ${group.patches.length} UndertaleModTool script(s) for ${group.relativeTarget}.`);
+    await new Promise((resolve, reject) => {
+        const child = (options.spawnImpl || spawn)(executable, args, {
+            stdio: ['ignore', 'pipe', 'pipe'],
+            cwd: path.dirname(executable),
+            windowsHide: true,
+            shell: false,
+            detached: process.platform !== 'win32',
+            env: childEnvironment()
+        });
+        activePatchers.add(child);
+        let outputLog = '';
+        let settled = false;
+        const append = (prefix, data) => {
+            const text = data.toString();
+            outputLog = `${outputLog}${text}`.slice(-1024 * 1024);
+            log(`${prefix}${text}`);
+        };
+        const finish = action => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            activePatchers.delete(child);
+            action();
+        };
+        const timeout = setTimeout(() => {
+            if (settled) return;
+            (options.terminateProcessTree || terminateProcessTree)(child);
+            finish(() => reject(new Error('UndertaleModCli script execution timed out.')));
+        }, options.timeoutMs || 10 * 60 * 1000);
+        child.stdout.on('data', data => append('[UTMT] ', data));
+        child.stderr.on('data', data => append('[UTMT/STDERR] ', data));
+        child.on('error', error => finish(() => reject(new Error(`Could not start UndertaleModCli: ${error.message}`))));
+        child.on('exit', code => finish(() => {
+            if (code === 0) resolve();
+            else reject(new Error(`UndertaleModCli exited with code ${code}.\n${outputLog}`));
+        }));
+    });
+
+    if (!fs.existsSync(output)) throw new Error('UndertaleModCli did not produce a patched data file.');
+    assertPatchFile(output, 'UndertaleModCli output');
+    return output;
+}
+
 async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCallback, options = {}) {
     let fullLog = '';
     const log = (...args) => {
@@ -235,21 +439,38 @@ async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCa
         logCallback?.(message);
     };
 
-    const patcherPath = patcherPathFor();
-    if (!fs.existsSync(patcherPath)) throw new Error('G3MTool is missing from the tools directory.');
-    if (process.platform !== 'win32') fs.chmodSync(patcherPath, 0o755);
-
     restore(gamePath);
     let plan;
     try {
-        plan = buildPatchPlan(gamePath, modFolder, mods, options);
+        plan = options.approvedPlan || buildPatchPlan(gamePath, modFolder, mods, options);
+        assertCsxRuntimeAvailable(plan, options);
     } catch (error) {
         return { patched: false, log: error.message, fullLog };
+    }
+
+    if (plan.merged.length > 0) {
+        const patcherPath = patcherPathFor();
+        if (!fs.existsSync(patcherPath)) throw new Error('G3MTool is missing from the tools directory.');
+        if (process.platform !== 'win32') fs.chmodSync(patcherPath, 0o755);
     }
 
     if (plan.operationCount === 0) {
         progressCallback?.(100);
         return { patched: true, log: '', fullLog };
+    }
+
+    const scriptStagingRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'deltamod-csx-'));
+    const stagedScripts = [];
+    try {
+        for (const group of plan.scripts) {
+            stagedScripts.push({
+                group,
+                output: await runUndertaleModScripts(group, scriptStagingRoot, log, options)
+            });
+        }
+    } catch (error) {
+        fs.rmSync(scriptStagingRoot, { recursive: true, force: true });
+        return { patched: false, log: error.message, fullLog };
     }
 
     const journal = {
@@ -288,7 +509,7 @@ async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCa
                     ...group.patches.map(patch => patch.source),
                     '-a',
                     group.target
-                ], gamePath);
+                ], gamePath, options);
             } else {
                 await g3mtool(log, [
                     'patch',
@@ -296,8 +517,16 @@ async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCa
                     path.relative(gamePath, backup),
                     group.patches[0].source,
                     path.relative(gamePath, group.target)
-                ], gamePath);
+                ], gamePath, options);
             }
+            completed += 1;
+            progress();
+        }
+
+        for (const staged of stagedScripts) {
+            log(`Committing ${staged.group.patches.length} CSX script patch(es) to ${staged.group.relativeTarget}.`);
+            backupTarget(staged.group.target, journal, gamePath);
+            fs.copyFileSync(staged.output, staged.group.target);
             completed += 1;
             progress();
         }
@@ -310,6 +539,8 @@ async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCa
         log(`Patching failed: ${error.message}`);
         restore(gamePath);
         return { patched: false, log: error.message, fullLog };
+    } finally {
+        fs.rmSync(scriptStagingRoot, { recursive: true, force: true });
     }
 }
 
@@ -362,7 +593,7 @@ function restore(gamePath) {
 
 function stopOwnedPatchers() {
     for (const child of activePatchers) {
-        try { child.kill(); } catch {}
+        terminateProcessTree(child);
     }
     activePatchers.clear();
 }
@@ -370,6 +601,10 @@ function stopOwnedPatchers() {
 module.exports = {
     buildPatchPlan,
     patcherPathFor,
+    undertaleModCliPathFor,
+    assertCsxPlatformSupported,
+    assertCsxRuntimeAvailable,
+    terminateProcessTree,
     startGamePatch,
     restore,
     restoreOriginalsIfAny: restore,

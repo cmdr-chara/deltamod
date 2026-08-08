@@ -60,13 +60,16 @@ source archives unless you are a developer.
 
 - Install and remove compatible mod packages.
 - Import local mod archives.
+- Apply UndertaleModTool `.csx` script patches after an explicit safety warning.
 - Browse and install supported GameBanana mods.
 - Browse ModDB listings and open their download pages.
 - Keep multiple game installations and mod setups.
 - Import data from official Deltamod without changing the official profile.
 
 Nexus Mods support is present but disabled while the application registration
-is pending. You do not need Nexus Mods to use Deltamod Community.
+is pending. When enabled, it uses single-sign-on only, requests a bounded result page,
+and respects quota responses using the server's `Retry-After` value. You
+do not need Nexus Mods to use Deltamod Community.
 
 ## Supported games
 
@@ -87,6 +90,13 @@ Individual mods may only work with specific game versions.
 | Linux 64-bit | Experimental |
 | macOS Apple and Intel | Experimental |
 | Wine or CrossOver | Unofficial |
+
+UndertaleModTool `.csx` patches currently require Windows x64, Linux x64, or
+an Intel Mac because upstream does not publish an Apple Silicon CLI binary.
+Script patches use `<patch type="csx" patch="scripts/patch.csx" to="data.win" />`.
+Deltamod snapshots the complete mod directory before execution, so scripts can
+load companion files relative to their staged script path without accessing a
+partially changed package.
 
 ## Help
 
@@ -125,9 +135,11 @@ Builds are written to `dist/`:
 | Linux | `npm run build-linux` |
 | macOS | `npm run build-macos` |
 
-Patching uses [G3MTool](https://github.com/y114git/G3MTool). Run
-`npm run acquire:g3mtool` to download and verify the pinned build. Licensing and
-source details are in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+Patching uses [G3MTool](https://github.com/y114git/G3MTool) and the
+[UndertaleModTool CLI](https://github.com/UnderminersTeam/UndertaleModTool).
+Run `npm run acquire:g3mtool` and `npm run acquire:undertale-mod-tool` to
+download and verify the pinned builds. Licensing and source details are in
+[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
 ## License
 

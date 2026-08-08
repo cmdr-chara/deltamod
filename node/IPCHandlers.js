@@ -1461,13 +1461,34 @@ module.exports = function registerIPCHandlers(context) {
 
             GamePatching.restore(pathname);
 
+            const patchOptions = { mapPatchTarget: gameResolution.mapPatchTarget };
+            const preview = GamePatching.buildPatchPlan(
+                pathname,
+                getPacketDatabase(),
+                selectedMods,
+                patchOptions
+            );
+            patchOptions.approvedPlan = preview;
+            GamePatching.assertCsxRuntimeAvailable(preview);
+            if (preview.scripts.length > 0) {
+                const scriptCount = preview.scripts.reduce((count, group) => count + group.patches.length, 0);
+                const choice = dialog.showMessageBoxSync(win, {
+                    type: 'warning',
+                    title: 'Run mod scripts?',
+                    message: `${scriptCount} selected patch script${scriptCount === 1 ? '' : 's'} can run code on this computer.`,
+                    detail: 'Only continue if you trust the selected mods and where you downloaded them. Deltamod runs scripts without administrator privileges, but UndertaleModTool scripts are not sandboxed.',
+                    buttons: ['Cancel', 'Run scripts'],
+                    defaultId: 0,
+                    cancelId: 0,
+                    noLink: true
+                });
+                if (choice !== 1) return false;
+            }
+
             let mods = fs.readdirSync(getPacketDatabase()).filter(f => fs.existsSync(path.join(getPacketDatabase(), f, '__deltaID.json'))).map(f => {
                 const dataPath = path.join(getPacketDatabase(), f, '__deltaID.json');
                 const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
-                if (selectedMods.includes(String(data.uniqueId))) {
-                    data.new = false;
-                    writeJsonAtomicSync(dataPath, data);
-                }
+                if (selectedMods.includes(String(data.uniqueId))) data.new = false;
                 return data;
             });
 
@@ -1475,9 +1496,7 @@ module.exports = function registerIPCHandlers(context) {
                 win?.webContents.send('gplog', {log, percent: -1});
             }, (percent) => {
                 win?.webContents.send('gplog', {log: '', percent});
-            }, {
-                mapPatchTarget: gameResolution.mapPatchTarget
-            }).catch(err => {
+            }, patchOptions).catch(err => {
                 return { patched: false, log: `Error during patching: ${err.message}` };
             });
 
@@ -1504,6 +1523,15 @@ module.exports = function registerIPCHandlers(context) {
                 win?.webContents.send('audio', true);
                 page('main');
                 return false;
+            }
+
+            for (const folder of fs.readdirSync(getPacketDatabase())) {
+                const dataPath = path.join(getPacketDatabase(), folder, '__deltaID.json');
+                if (!fs.existsSync(dataPath)) continue;
+                const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+                if (!selectedMods.includes(String(data.uniqueId))) continue;
+                data.new = false;
+                writeJsonAtomicSync(dataPath, data);
             }
 
             const notif = new Notification({ title: 'Patch complete!', body: 'The game has been patched successfully!' });

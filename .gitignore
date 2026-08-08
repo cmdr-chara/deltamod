@@ -21,6 +21,7 @@ tools/G3MTool
 /G3MToolCLI
 /tools/*
 !/tools/G3MTool.provenance.json
+!/tools/UndertaleModTool.provenance.json
 /test-results
 /playwright-report
 /.codex-run/

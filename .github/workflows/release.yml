@@ -28,6 +28,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run security:audit
       - run: npm run verify:g3mtool-manifest
+      - run: npm run verify:undertale-mod-tool-manifest
 
   package-windows:
     needs: validate
@@ -43,7 +44,11 @@ jobs:
       - run: npm ci
       - run: npm run acquire:g3mtool
       - run: npm run verify:g3mtool
+      - run: npm run acquire:undertale-mod-tool
+      - run: npm run verify:undertale-mod-tool
+      - run: npm run smoke:game-patching-csx
       - run: npm run build-windows
+      - run: node scripts/verify-packaged-undertale-mod-tool.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
       - name: Verify unsigned beta installer
         shell: pwsh
         run: |
@@ -75,7 +80,11 @@ jobs:
       - run: npm ci
       - run: npm run acquire:g3mtool
       - run: npm run verify:g3mtool
+      - run: npm run acquire:undertale-mod-tool
+      - run: npm run verify:undertale-mod-tool
+      - run: npm run smoke:game-patching-csx
       - run: npm run build-linux
+      - run: node scripts/verify-packaged-undertale-mod-tool.js "dist/linux-unpacked/resources/app.asar.unpacked" linux-x64
       - uses: actions/upload-artifact@v4
         with:
           name: linux
@@ -103,7 +112,13 @@ jobs:
       - run: npm run verify:g3mtool
       - name: Acquire Intel patcher for the x64 package
         run: node scripts/acquire-g3mtool.js darwin-x64
+      - name: Acquire Intel UndertaleModCli for the x64 package
+        run: node scripts/acquire-undertale-mod-tool.js darwin-x64
+      - name: Verify complete Intel UndertaleModCli package tree
+        run: node scripts/verify-undertale-mod-tool.js darwin-x64 --tree-only
       - run: npm run build-macos
+      - run: node scripts/verify-packaged-undertale-mod-tool.js "dist/mac/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64 --tree-only
+      - run: node scripts/verify-packaged-undertale-mod-tool.js "dist/mac-arm64/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64 --tree-only
       - uses: actions/upload-artifact@v4
         with:
           name: macos
@@ -124,10 +139,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run archive:g3mtool-source -- "G3MTool-1.2.5-source.zip"
+      - run: npm run archive:undertale-mod-tool-source -- "UndertaleModTool-0.9.1.2-source.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: third-party-source
-          path: G3MTool-1.2.5-source.zip
+          path: |
+            G3MTool-1.2.5-source.zip
+            UndertaleModTool-0.9.1.2-source.zip
 
   publish:
     needs: [package-windows, package-linux, package-macos, third-party-source]
