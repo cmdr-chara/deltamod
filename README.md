@@ -17,6 +17,32 @@
   <a href="https://github.com/cmdr-chara/deltamod/issues">Issues</a>
 </p>
 
+## Download and install
+
+### Windows
+
+**[Download Deltamod Community for Windows](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-win-x64.exe)**
+
+1. Open the downloaded `.exe` file.
+2. If Windows displays **Windows protected your PC**, select **More info** and
+   then **Run anyway**. This warning appears because the beta is not yet signed.
+3. Follow the installer, then open **Deltamod Community** from the desktop or
+   Start menu.
+
+### macOS and Linux
+
+- [Apple Silicon Mac download](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-mac-arm64.dmg)
+- [Intel Mac download](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-mac-x64.dmg)
+- [Linux x64 download](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-linux-x86_64.AppImage)
+
+Not sure which Mac you have? Open the Apple menu, select **About This Mac**, and
+check whether the chip says **Apple** or **Intel**. Because the macOS beta is
+unsigned, you may need to approve it under **System Settings > Privacy &
+Security**. On Linux, mark the AppImage as executable before opening it.
+
+Files ending in `.blockmap` or `.yml`, the G3MTool source archive, and GitHub's
+automatic **Source code** downloads are not the application installer.
+
 Deltamod Community manages multiple game installations, imports local mods, browses GameBanana, Nexus Mods, and ModDB catalogues, and applies selected patches transactionally before launch. It installs beside official Deltamod and uses a separate profile.
 
 Supported games: **DELTARUNE**, **DELTARUNE Demo**, **DELTARUNE Demo (LTS)**, **UNDERTALE**, **Undertale Yellow**, and **Pizza Tower**. Compatibility still depends on the game version and how each mod is packaged.
