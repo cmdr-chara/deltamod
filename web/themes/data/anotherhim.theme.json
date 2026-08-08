@@ -3,6 +3,8 @@
     "background": "HIM.webp",
     "description": "A theme based on the starting screen from Chapter 1.",
     "mainSong": "anotherhim.mp3",
+    "musicPlaybackRate": 1.25,
+    "musicPreservesPitch": false,
     "id": "anotherhim",
     "musicTrack": "ANOTHER HIM - Toby Fox",
     "color": "rgb(35, 29, 70)",

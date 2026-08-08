@@ -58,8 +58,8 @@ test('launches securely and keeps Options categories inside their column', async
         const packagedExecutable = process.env.DELTAMOD_E2E_EXECUTABLE;
         application = await electron.launch({
             ...(packagedExecutable
-                ? { executablePath: packagedExecutable, args: [] }
-                : { args: ['.'] }),
+                ? { executablePath: packagedExecutable, args: ['--mute-audio'] }
+                : { args: ['--mute-audio', '.'] }),
             env: {
                 ...process.env,
                 DELTAMOD_TEST: '1',
@@ -162,6 +162,7 @@ test('launches securely and keeps Options categories inside their column', async
         });
 
         await window.evaluate(() => window.Localization.setLanguage('en'));
+        await window.waitForFunction(() => document.getElementById('deltamod-boot-root')?.hidden === true);
         const languageToggle = window.locator('#language-wheel-toggle');
         await expect(languageToggle).toBeVisible();
         const toggleLayout = await languageToggle.boundingBox();
@@ -248,7 +249,10 @@ test('launches securely and keeps Options categories inside their column', async
         const spanishSector = sectorPoint(languageOrder.indexOf('es'));
         await window.mouse.click(spanishSector.x, spanishSector.y);
         await expect.poll(() => window.evaluate(() => document.documentElement.lang)).toBe('es');
-        await expect(window.locator('#language-wheel-toggle-flag')).toHaveAttribute('src', /langs\/es\/flag\.svg$/);
+        await expect(window.locator('#language-wheel-toggle-flag')).toHaveAttribute(
+            'src',
+            /language-flags\/es\.svg$/
+        );
         await window.waitForTimeout(300);
         const previewSources = await window.evaluate(() => {
             window.__languagePreviewObserver.disconnect();
@@ -262,7 +266,7 @@ test('launches securely and keeps Options categories inside their column', async
         await expect.poll(() => window.evaluate(() => document.documentElement.lang)).toBe('en');
         await expect(window.locator('#language-wheel-toggle-flag')).toHaveAttribute(
             'src',
-            /langs\/en\/flag\.svg$/
+            /language-flags\/en\.svg$/
         );
 
         await window.evaluate(() => page('options'));
@@ -709,6 +713,46 @@ test('launches securely and keeps Options categories inside their column', async
                 });
             }
         }
+
+        const navigationSpam = await window.evaluate(async () => {
+            const routes = [
+                'main',
+                'allmods',
+                'options',
+                'installmanager',
+                'gamebanana-browse',
+                'credits'
+            ];
+            const results = await Promise.all(routes.map(route => page(route)));
+            const viewport = document.querySelector('.viewport');
+            const settledMarkup = viewport.innerHTML;
+            let mutations = 0;
+            const observer = new MutationObserver(records => {
+                mutations += records.length;
+            });
+            observer.observe(viewport, { childList: true, subtree: true });
+            const activeButton = document.querySelector('.sidebar-button[data-page="credits"]');
+            for (let index = 0; index < 12; index += 1) {
+                activeButton.click();
+            }
+            observer.disconnect();
+
+            return {
+                results,
+                page: window.pageN,
+                activePage: document.querySelector('.sidebar-button.active')?.dataset.page,
+                script: document.querySelector('script[data-page-script]')?.dataset.pageScript,
+                markupUnchanged: viewport.innerHTML === settledMarkup,
+                mutations
+            };
+        });
+        expect(navigationSpam.page).toBe('credits');
+        expect(navigationSpam.activePage).toBe('credits');
+        expect(navigationSpam.script).toBe('credits');
+        expect(navigationSpam.results.filter(Boolean)).toHaveLength(2);
+        expect(navigationSpam.markupUnchanged).toBe(true);
+        expect(navigationSpam.mutations).toBe(0);
+        await expect(window.locator('#credits')).toBeVisible();
 
         await window.evaluate(() => page('gamebanana-browse'));
         await window.waitForFunction(() => window.pageN === 'gamebanana-browse');

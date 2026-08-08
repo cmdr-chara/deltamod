@@ -8,11 +8,18 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
     <link rel="stylesheet" href="commons/base.css">
     <link rel="stylesheet" href="index.css">
+    <link rel="stylesheet" href="boot/deltamod-boot.css">
 
     <script src="./modules/tippy/popper.min.js"></script>
     <script src="./modules/tippy/tippy-bundle.umd.js"></script>
 </head>
 <body>
+    <div
+        id="deltamod-boot-root"
+        role="status"
+        aria-live="polite"
+        aria-label="Starting Deltamod"
+    ></div>
     <div class="bg"></div>
     <video
         id="theme-background-video"
@@ -93,7 +100,7 @@
         aria-expanded="false"
         aria-controls="language-wheel"
     >
-        <img id="language-wheel-toggle-flag" src="langs/en/flag.png" alt="">
+        <img id="language-wheel-toggle-flag" src="assets/language-flags/en.svg" alt="">
     </button>
     <div id="language-wheel-backdrop" class="language-wheel-backdrop" hidden></div>
     <div
@@ -137,5 +144,6 @@
   <style id="dynamic-theme-styles"></style>
   <script src="./modules/localization.js"></script>
   <script src="./modules/theme-sprites.js"></script>
+  <script src="./boot/deltamod-boot.js"></script>
   <script src="index.js"></script>
 </html>

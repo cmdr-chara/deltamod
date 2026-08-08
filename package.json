@@ -10,7 +10,10 @@
     "GB-OneClick"
   ],
   "scripts": {
+    "build:boot": "vite build --config vite.boot.config.js",
     "dev": "electron . --developer",
+    "predev": "npm run build:boot",
+    "preview:heart": "vite --host 127.0.0.1 --open /preview-heart/",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
@@ -21,8 +24,11 @@
     "verify:g3mtool-manifest": "node scripts/verify-g3mtool.js --manifest-only",
     "archive:g3mtool-source": "node scripts/archive-g3mtool-source.js",
     "build-windows": "electron-builder --win --publish never",
+    "prebuild-windows": "npm run build:boot",
     "build-linux": "electron-builder --linux --publish never",
+    "prebuild-linux": "npm run build:boot",
     "build-macos": "electron-builder --mac --publish never",
+    "prebuild-macos": "npm run build:boot",
     "erase-data": "Erase.bat"
   },
   "build": {
@@ -124,6 +130,8 @@
   "devDependencies": {
     "@playwright/test": "^1.62.0",
     "@types/node": "^26.1.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "electron": "^40.10.6",
     "electron-builder": "^26.15.3",
     "typescript": "^7.0.2",
@@ -141,6 +149,8 @@
     "electron-updater": "^6.8.9",
     "js-toml": "^1.2.1",
     "mime-types": "^3.0.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "semver": "^7.8.5",
     "windows-elevate": "^1.0.1",
     "ws": "8.21.1",

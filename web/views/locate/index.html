@@ -14,10 +14,10 @@
         <span class="material-symbols-outlined">folder</span>
         $$locate_selectfolder$$
         </p>
-        <div class="fileInput" style="display: flex; justify-content: left; align-items: center; gap: 5px;">
+        <div class="fileInput" style="display: flex; justify-content: left; align-items: stretch; gap: 5px;">
             <input type="text" name="" id="dpath" placeholder="$$locate_path_placeholder$$" style="width: 100%;">
-            <button onclick="window.currentPageStack.locateDelta()">
-                <span class="material-symbols-outlined" style="font-size: 17px;">folder_open</span>
+            <button class="folder-picker-button" onclick="window.currentPageStack.locateDelta()" aria-label="Select game folder">
+                <span class="material-symbols-outlined">folder_open</span>
             </button>
         </div>
         <p class="smaller">$$locate_other_methods$$</p>
@@ -91,6 +91,23 @@
         justify-content: center;
         align-items: center;
         gap: 5px;
+    }
+    .folder-picker-button {
+        flex: 0 0 40px;
+        width: 40px;
+        min-height: 36px;
+        padding: 0;
+        display: grid;
+        place-items: center;
+        line-height: 0;
+    }
+    .folder-picker-button > .material-symbols-outlined {
+        display: block;
+        width: 20px;
+        height: 20px;
+        font-size: 20px;
+        line-height: 20px;
+        text-align: center;
     }
     .smaller {
         font-size: 14px;
