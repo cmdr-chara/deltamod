@@ -7,10 +7,10 @@ const setInterval = (handler, delay, ...args) => {
 };
 (async () => {
     try {
-        const installs = await window.electronAPI.invoke('getInstallations', []).catch(e => {
+        const installs = await window.deltamodBackend.invoke('getInstallations', []).catch(e => {
             throw new Error(`Error fetching installations: ${e.message}`);
         });
-        const index = await window.electronAPI.invoke('getSystemIndex', []).catch(e => {
+        const index = await window.deltamodBackend.invoke('getSystemIndex', []).catch(e => {
             throw new Error(`Error fetching current installation index: ${e.message}`);
         });
         const tbody = document.querySelector('#installations-list');
@@ -66,7 +66,7 @@ const setInterval = (handler, delay, ...args) => {
 
                     install.name = editablespan.value.trim();
 
-                    window.electronAPI.invoke('setInstallationCName', [
+                    window.deltamodBackend.invoke('setInstallationCName', [
                         install.index.toString(),
                         install.name,
                     ]);
@@ -117,7 +117,7 @@ const setInterval = (handler, delay, ...args) => {
                 goBtn.onclick = () => {
                     console.log('Switching to installation index:', install.index);
 
-                    window.electronAPI.invoke('changeSystemIndex', [
+                    window.deltamodBackend.invoke('changeSystemIndex', [
                         install.index.toString(),
                     ]);
                 };
@@ -176,7 +176,7 @@ const setInterval = (handler, delay, ...args) => {
                     }
 
                     if (resp === 'Y') {
-                        window.electronAPI.invoke('deleteSystemIndex', [
+                        window.deltamodBackend.invoke('deleteSystemIndex', [
                             install.index.toString(),
                         ]);
                     }
@@ -197,7 +197,7 @@ const setInterval = (handler, delay, ...args) => {
                     repairBtn.innerHTML = icon('build', '18px');
                     repairBtn.setAttribute('aria-label', 'Attempt safe repair');
                     repairBtn.onclick = async () => {
-                        const result = await window.electronAPI.invoke('repairInstallation', [
+                        const result = await window.deltamodBackend.invoke('repairInstallation', [
                             install.index.toString()
                         ]);
                         if (result.repaired) {
@@ -222,7 +222,7 @@ const setInterval = (handler, delay, ...args) => {
                     reimportBtn.innerHTML = icon('drive_folder_upload', '18px');
                     reimportBtn.setAttribute('aria-label', 'Re-import game files');
                     reimportBtn.onclick = async () => {
-                        const result = await window.electronAPI.invoke('reimportInstallation', [
+                        const result = await window.deltamodBackend.invoke('reimportInstallation', [
                             install.index.toString()
                         ]);
                         if (result?.repaired) page('installmanager');
@@ -239,7 +239,7 @@ const setInterval = (handler, delay, ...args) => {
                 openBtn.setAttribute('aria-label', 'Open installation folder');
 
                 openBtn.onclick = () => {
-                    window.electronAPI.invoke('openInstallationFolder', [
+                    window.deltamodBackend.invoke('openInstallationFolder', [
                         install.index.toString(),
                     ]);
                 };
@@ -256,7 +256,12 @@ const setInterval = (handler, delay, ...args) => {
                 editBtn = adaptForIcons(editBtn);
                 editBtn.innerHTML = icon('terminal', '18px');
                 editBtn.setAttribute('aria-label', 'Edit a safe game-data copy in UndertaleModTool');
-                editBtn.disabled = !install.canOpenInUndertaleModTool;
+                const canLaunchUndertaleModTool = window.deltamodBackend
+                    .isCommandAvailable('undertaleModTool:openInstallation');
+                editBtn.disabled = !install.canOpenInUndertaleModTool || !canLaunchUndertaleModTool;
+                if (!canLaunchUndertaleModTool) {
+                    editBtn.title = 'UndertaleModTool launch is unavailable in this app build';
+                }
                 editBtn.onclick = async () => {
                     try {
                         const result = await window.communityAPI.tools
@@ -274,7 +279,9 @@ const setInterval = (handler, delay, ...args) => {
                 };
                 tippy(editBtn, {
                     content: install.canOpenInUndertaleModTool
-                        ? 'Create a safe copy for UndertaleModTool; export changes back as a Community mod'
+                        ? (canLaunchUndertaleModTool
+                            ? 'Create a safe copy for UndertaleModTool; export changes back as a Community mod'
+                            : 'UndertaleModTool launch is unavailable in this app build')
                         : 'Repair this installation before creating an UndertaleModTool workspace',
                     placement: 'top',
                     delay: [500, 0],
@@ -287,9 +294,14 @@ const setInterval = (handler, delay, ...args) => {
                 shortcutBtn.innerHTML = icon('forward', '18px');
                 shortcutBtn.title = 'Create shortcut on desktop';
                 shortcutBtn.setAttribute('aria-label', 'Create shortcut on desktop');
+                const canCreateShortcut = window.deltamodBackend.isCommandAvailable('createInstallLink');
+                shortcutBtn.disabled = !canCreateShortcut;
+                if (!canCreateShortcut) {
+                    shortcutBtn.title = 'Desktop shortcut creation is unavailable in this app build';
+                }
 
                 shortcutBtn.onclick = async () => {
-                    if (!(await window.electronAPI.invoke('isPackaged', []))) {
+                    if (!(await window.deltamodBackend.invoke('isPackaged', []))) {
                         await htmlAlert(
                             'Error',
                             'This feature is only available when Deltamod is packaged.',
@@ -298,14 +310,16 @@ const setInterval = (handler, delay, ...args) => {
                         return;
                     }
 
-                    window.electronAPI.invoke('createInstallLink', [
+                    await window.deltamodBackend.invoke('createInstallLink', [
                         install.index.toString(),
                         install.name || `Install #${install.index + 1}`,
                     ]);
                 };
 
                 tippy(shortcutBtn, {
-                    content: 'Create shortcut on desktop',
+                    content: canCreateShortcut
+                        ? 'Create shortcut on desktop'
+                        : 'Desktop shortcut creation is unavailable in this app build',
                     placement: 'top',
                     delay: [500, 0],
                 });

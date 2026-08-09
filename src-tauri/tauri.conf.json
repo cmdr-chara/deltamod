@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Deltamod Community",
+  "version": "2.0.3-beta.3",
+  "identifier": "io.github.cmdr-chara.deltamod-community",
+  "build": {
+    "beforeBuildCommand": "npm run build:boot",
+    "frontendDist": "../web"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Deltamod Community",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 800,
+        "minHeight": 560,
+        "decorations": false,
+        "visible": true
+      }
+    ],
+    "security": {
+      "capabilities": ["default"],
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self' 'unsafe-inline'",
+        "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "style-src-attr": "'unsafe-inline'",
+        "img-src": "'self' data: themeprot: packet: https://gamebanana.com https://images.gamebanana.com https://avatars.githubusercontent.com https://media.moddb.com https://static.moddb.com https://images.nexusmods.com https://staticdelivery.nexusmods.com",
+        "media-src": "'self' themeprot: packet:",
+        "connect-src": "'self' ipc: http://ipc.localhost https://gamebanana.com",
+        "font-src": "'self' data: https://fonts.gstatic.com",
+        "object-src": "'none'",
+        "frame-src": "https://gamebanana.com",
+        "base-uri": "'none'",
+        "form-action": "'none'"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": false,
+    "license": "EUPL-1.2",
+    "externalBin": [
+      "binaries/deltamod-hash-worker",
+      "binaries/deltamod-security-worker",
+      "binaries/deltamod-copy-worker",
+      "binaries/deltamod-patch-plan-worker",
+      "binaries/deltamod-patch-transaction-worker"
+    ],
+    "resources": {
+      "../games/": "games/",
+      "../web/themes/": "themes/",
+      "resources/third-party/": "third-party/",
+      "resources/NOTICE.md": "NOTICE.md",
+      "resources/THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+    }
+  }
+}

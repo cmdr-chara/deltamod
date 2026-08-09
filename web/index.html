@@ -4,12 +4,13 @@
     <title>Deltamod Community</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' deltapack: themeprot: packet:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://gamebanana.com https://images.gamebanana.com https://avatars.githubusercontent.com https://media.moddb.com https://static.moddb.com https://images.nexusmods.com https://staticdelivery.nexusmods.com deltapack: themeprot: packet:; media-src 'self' deltapack: themeprot:; connect-src 'self' https://gamebanana.com deltapack: themeprot: packet:; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; frame-src https://gamebanana.com; base-uri 'none'; form-action 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' deltapack: themeprot: packet:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; img-src 'self' data: https://gamebanana.com https://images.gamebanana.com https://avatars.githubusercontent.com https://media.moddb.com https://static.moddb.com https://images.nexusmods.com https://staticdelivery.nexusmods.com deltapack: themeprot: packet:; media-src 'self' deltapack: themeprot: packet:; connect-src 'self' ipc: http://ipc.localhost https://gamebanana.com deltapack: themeprot: packet:; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; frame-src https://gamebanana.com; base-uri 'none'; form-action 'none'">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
     <link rel="stylesheet" href="commons/base.css">
     <link rel="stylesheet" href="index.css">
     <link rel="stylesheet" href="boot/deltamod-boot.css">
 
+    <script src="./tauri-adapter.js"></script>
     <script src="./modules/tippy/popper.min.js"></script>
     <script src="./modules/tippy/tippy-bundle.umd.js"></script>
 </head>
@@ -125,14 +126,8 @@
         </div>
     </div>
     <div class="gamebanana-account" role="button" tabindex="0" aria-label="GameBanana account" title="GameBanana account" style="opacity: 0;"></div>
-    <div class="alertMain" style="display: none;">
-        <div class="alertMsg">
-            <h1>Example Alert</h1>
-            <p>This alert is an <b>example</b>.</p>
-            <div style="text-align: right;">
-                <button>OK</button>
-            </div>
-        </div>
+    <div class="alertMain" hidden>
+        <div class="alertMsg"></div>
     </div>
 </body>
 <div class="winb">

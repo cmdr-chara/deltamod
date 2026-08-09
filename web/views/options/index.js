@@ -56,9 +56,9 @@ async function addCheckboxOption(name, description, flagid, requiresRestart = fa
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.id = 'FLAG-' + flagid.toUpperCase();
-    input.checked = await window.electronAPI.invoke('getUniqueFlag', [flagid]);
+    input.checked = await window.deltamodBackend.invoke('getUniqueFlag', [flagid]);
     input.addEventListener('change', async (e) => {
-        await window.electronAPI.invoke('setUniqueFlag', [flagid, e.target.checked]);
+        await window.deltamodBackend.invoke('setUniqueFlag', [flagid, e.target.checked]);
         await changeHandler(e.target.checked);
     });
     control.appendChild(input);
@@ -69,7 +69,7 @@ async function addCheckboxOption(name, description, flagid, requiresRestart = fa
     table.appendChild(tr);
 }
 
-window.electronAPI.invoke('isDevMode', []).then((devmode) => {
+window.deltamodBackend.invoke('isDevMode', []).then((devmode) => {
     if (devmode) {
         document.getElementById('b_dev').style.display = 'inline-block';
     }
@@ -357,7 +357,7 @@ async function runOfficialProfileImport(summary) {
                 { text: 'Restart later', resolveWith: 'later' }
             ]
         );
-        if (choice === 'restart') await window.electronAPI.invoke('restartCommunity', []);
+        if (choice === 'restart') await window.deltamodBackend.invoke('restartCommunity', []);
     } catch (error) {
         current.innerText = error.code === 'IMPORT_CANCELLED'
             ? 'Import cancelled. Community staging data was removed.'
@@ -405,7 +405,7 @@ window.currentPageStack.cat = async function(cat) {
     switch (cat) {
         case 'gen':            
             await addButton("Open mod folder", "Open the folder where your mods are stored.", async () => {
-                await window.electronAPI.invoke('openSysFolder', ['mods']);
+                await window.deltamodBackend.invoke('openSysFolder', ['mods']);
             }, "Open");
             await addButton(
                 localize('community_delete_data_title', "Delete all Community data"),
@@ -512,11 +512,14 @@ window.currentPageStack.cat = async function(cat) {
 
             break;
         case 'inst':
-            var isSteam = await window.electronAPI.invoke('isCurrentIndexSteam', []);
+            var isSteam = await window.deltamodBackend.invoke('isCurrentIndexSteam', []);
+            const canDisconnectSteam = window.deltamodBackend.isCommandAvailable('removeSteamIntegration');
 
             await addButton("Disconnect Steam", "Stops launching the current Community installation through Steam.", async () => {
-                await window.electronAPI.invoke('removeSteamIntegration', []);
-            }, "Disconnect", isSteam, "Only available for games imported from Steam.");
+                await window.deltamodBackend.invoke('removeSteamIntegration', []);
+            }, "Disconnect", isSteam && canDisconnectSteam, canDisconnectSteam
+                ? "Only available for games imported from Steam."
+                : "Steam disconnection is unavailable in this app build.");
 
             await addButton("Open the Install Manager", "Opens the install manager menu, which allows you to delete/create installations and create shortcuts for them.", async () => {
                 page('installmanager');
@@ -559,6 +562,7 @@ window.currentPageStack.cat = async function(cat) {
         }
         case 'adv':
             await addRowHeader(icon('warning', '20px') + ' ' + "Please only change these settings if you know what they do.");
+            const canRebootDev = window.deltamodBackend.isCommandAvailable('rebootDev');
 
             await addButton("Reboot in Developer Mode", "Reboots in developer mode, a mode which allows you to use the DevTools.", async () => {
                 var goOn = await htmlAlert(
@@ -566,8 +570,10 @@ window.currentPageStack.cat = async function(cat) {
                         "Warning: this is only for users who know what they're doing. Are you sure you want to reboot in developer mode?", 
                         [{text:"Yes",resolveWith:'ok'}, {text:"No",rejectWith:'cancel'}]
                     );
-                await window.electronAPI.invoke('rebootDev', [])
-            }, "Open", !await window.electronAPI.invoke('isDevMode', []), "You are already in developer mode.");
+                await window.deltamodBackend.invoke('rebootDev', [])
+            }, "Open", canRebootDev && !await window.deltamodBackend.invoke('isDevMode', []), canRebootDev
+                ? "You are already in developer mode."
+                : "Developer-mode reboot is unavailable in this app build.");
 
             let hashButton;
             hashButton = await addButton("Precalculate game hashes", "Builds the Community-owned cache used by advanced mod checks. Game files are not modified.", async () => {
@@ -581,7 +587,7 @@ window.currentPageStack.cat = async function(cat) {
                         : 'Hashing…';
                 };
                 try {
-                    const result = await window.electronAPI.invoke('precalcGameHashes', []);
+                    const result = await window.deltamodBackend.invoke('precalcGameHashes', []);
                     await htmlAlert("Hash cache ready", `Cached ${result.fileCount} game file(s).`, [{text: "OK", resolveWith:''}]);
                 } catch (error) {
                     await htmlAlert("Hashing failed", error?.message || 'The game hash cache could not be built.', [{text: "OK", resolveWith:''}]);
@@ -595,8 +601,10 @@ window.currentPageStack.cat = async function(cat) {
             await addButton(
                 "DeltamodCLI releases",
                 "Opens the separate DeltamodCLI project. Community does not automatically execute downloaded installer scripts.",
-                async () => window.electronAPI.invoke('installDeltamodCLI', []),
-                "View releases"
+                async () => window.deltamodBackend.invoke('installDeltamodCLI', []),
+                "View releases",
+                window.deltamodBackend.isCommandAvailable('installDeltamodCLI'),
+                "DeltamodCLI release launching is unavailable in this app build."
             );
 
             break;
@@ -604,11 +612,13 @@ window.currentPageStack.cat = async function(cat) {
         case "dev":
             await addRowHeader(icon('warning', '20px') + ' ' + "These options are for developers only.");
             await addButton('Open flag database (DEV-ONLY)', 'Opens the database holding flags.', async () => {
-                await window.electronAPI.invoke('openFlagDatabase', []);
-            }, "Open");
+                await window.deltamodBackend.invoke('openFlagDatabase', []);
+            }, "Open", window.deltamodBackend.isCommandAvailable('openFlagDatabase'),
+                'Flag database launching is unavailable in this app build.');
             await addButton('Force controller mode (DEV-ONLY)', 'Forces Controller Mode on, regardless of controller detection status', async () => {
-                await window.electronAPI.invoke('cmode-on', []);
-            }, "Open");
+                await window.deltamodBackend.invoke('cmode-on', []);
+            }, "Open", window.deltamodBackend.isCommandAvailable('cmode-on'),
+                'Controller mode is unavailable in this app build.');
             break;
         case 'gb':
             await invoke('eraseGamebananaCache', []);
@@ -625,7 +635,11 @@ window.currentPageStack.cat = async function(cat) {
             td.innerHTML = "Loading...";
 
             var gamebananaUserinfo = await Promise.race([
-                window.electronAPI.invoke('getGamebananaUserinfo', []),
+                window.deltamodBackend.invokeOptional(
+                    'getGamebananaUserinfo',
+                    [],
+                    { loggedIn: false }
+                ),
                 new Promise(resolve => setTimeout(() => resolve({ loggedIn: false }), 5000))
             ]);
             
@@ -662,7 +676,7 @@ window.currentPageStack.cat = async function(cat) {
 
             if (gamebananaUserinfo.loggedIn && gamebananaUserinfo._sName != undefined) {
                 await addButton("Logout", "Removes your GameBanana account from Deltamod.", async () => {
-                    await window.electronAPI.invoke('logoutGamebanana', []);
+                    await window.deltamodBackend.invoke('logoutGamebanana', []);
                     window._pageArguments = {cat: 'gb'};
                     page('options');
                 }, "Logout", gamebananaUserinfo.loggedIn, "You aren't logged in to GameBanana.", '');
@@ -670,7 +684,7 @@ window.currentPageStack.cat = async function(cat) {
             else {
                 await addButton("Login", "Adds a GameBanana account to Deltamod.", async () => {
                     try {
-                        const loggedIn = await window.electronAPI.invoke('loginGamebanana', []);
+                        const loggedIn = await window.deltamodBackend.invoke('loginGamebanana', []);
                         if (loggedIn) {
                             window._pageArguments = {cat: 'gb'};
                             page('options');
@@ -683,7 +697,11 @@ window.currentPageStack.cat = async function(cat) {
                             'error'
                         );
                     }
-                }, "Login", !gamebananaUserinfo.loggedIn, "You are already logged in to GameBanana.", '');
+                }, "Login", !gamebananaUserinfo.loggedIn
+                    && window.deltamodBackend.isCommandAvailable('loginGamebanana'),
+                window.deltamodBackend.isCommandAvailable('loginGamebanana')
+                    ? "You are already logged in to GameBanana."
+                    : "GameBanana login is unavailable in this app build.", '');
             }
             break;
         case 'nexus': {

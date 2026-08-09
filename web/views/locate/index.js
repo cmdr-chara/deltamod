@@ -10,7 +10,7 @@ async function locateDelta() {
         htmlAlert("Warning","Please select a game.",[{text:"Ok",resolveWith:'ok'}]);
         return;
     }
-    var path = await window.electronAPI.invoke('locateDelta',[window.gid]);
+    var path = await window.deltamodBackend.invoke('locateDelta',[window.gid]);
     if (path != null && path != "Invalid") {
         document.querySelector('input[type="text"]').value = path;
     }
@@ -26,7 +26,7 @@ async function id() {
         return;
     }
     setImportControlsDisabled(true);
-    const result = await window.electronAPI.invoke("createNewInstallation", ["", "locate", (window.currentPageStack.pathOV ? window.currentPageStack.pathOV : document.getElementById('dpath').value).replaceAll('\\', '/'), (window.fromIM == undefined ? false : window.fromIM), window.gid, document.getElementById('copyAnyways').checked ? 'copy' : 'ncopy']);
+    const result = await window.deltamodBackend.invoke("createNewInstallation", ["", "locate", (window.currentPageStack.pathOV ? window.currentPageStack.pathOV : document.getElementById('dpath').value).replaceAll('\\', '/'), (window.fromIM == undefined ? false : window.fromIM), window.gid, document.getElementById('copyAnyways').checked ? 'copy' : 'ncopy']);
     if (!result) setImportControlsDisabled(false);
 }
 
@@ -35,13 +35,13 @@ async function steam() {
         htmlAlert("Warning","Please select a game.",[{text:"Ok",resolveWith:'ok'}]);
         return;
     }
-    await window.electronAPI.invoke("createNewInstallation", ["steam", "", "", window.fromIM, window.gid, document.getElementById('copyAnyways').checked ? 'copy' : 'ncopy']);
+    await window.deltamodBackend.invoke("createNewInstallation", ["steam", "", "", window.fromIM, window.gid, document.getElementById('copyAnyways').checked ? 'copy' : 'ncopy']);
 }
 
 window.currentPageStack.id = id;
 
 window.currentPageStack.back = function() {
-    window.electronAPI.invoke('changeSystemIndex', ["0"]);
+    window.deltamodBackend.invoke('changeSystemIndex', ["0"]);
 };
 
 window.currentPageStack.locateDelta = locateDelta;
@@ -53,7 +53,7 @@ window.currentPageStack.downloadDelta = async function() {
         htmlAlert("Warning","Please select a game.",[{text:"Ok",resolveWith:'ok'}]);
         return;
     }
-    var path = await window.electronAPI.invoke("downloadGame", [window.gid]);
+    var path = await window.deltamodBackend.invoke("downloadGame", [window.gid]);
     if (path) {
         document.querySelector('input[type="text"]').value = path;
     }
@@ -100,7 +100,7 @@ window._onClosePage.push(removeGameImportListener);
 
 document.getElementById('cancelGameImport').onclick = async () => {
     if (!currentGameImportOperation) return;
-    await window.electronAPI.invoke('cancelGameImport', [currentGameImportOperation]);
+    await window.deltamodBackend.invoke('cancelGameImport', [currentGameImportOperation]);
     document.getElementById('gameImportPhase').textContent = 'Cancelling…';
 };
 
@@ -112,7 +112,7 @@ document.getElementById('cancelGameImport').onclick = async () => {
     });
     window.gid = "noid";
 
-    var games = await window.electronAPI.invoke('getAvailableGames',[]);
+    var games = await window.deltamodBackend.invoke('getAvailableGames',[]);
     var gOptions = document.querySelector('.gOptions');
 
     var ems = [];

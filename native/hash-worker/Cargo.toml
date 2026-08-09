@@ -1,0 +1,17 @@
+[package]
+name = "deltamod-hash-worker"
+version = "0.1.0"
+edition = "2021"
+license = "EUPL-1.2"
+
+[dependencies]
+deltamod-native-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+fence-windows = "0.1.0-alpha.2"
+
+[dev-dependencies]
+tempfile = "3"

@@ -113,7 +113,7 @@
     function safeThemeBackground(value) {
         const fileName = String(value || '');
         return /^[a-z0-9._-]+$/i.test(fileName)
-            ? `url("themeprot://img/${fileName}")`
+            ? `url("${window.deltamodBackend.assetUrl('theme', `img/${fileName}`)}")`
             : '';
     }
 
@@ -127,7 +127,7 @@
     }
 
     (async () => {
-        const themes = (await window.electronAPI.invoke('getThemes', [])).sort((a, b) => {
+        const themes = (await window.deltamodBackend.invoke('getThemes', [])).sort((a, b) => {
             if (a.builtIn && !b.builtIn) return -1;
             if (!a.builtIn && b.builtIn) return 1;
             if (a.timed && !b.timed) return -1;
@@ -138,7 +138,7 @@
             if (aExpired && !bExpired) return 1;
             return a.name.localeCompare(b.name);
         });
-        const currentTheme = await window.electronAPI.invoke('getTheme', []);
+        const currentTheme = await window.deltamodBackend.invoke('getTheme', []);
         const themeGrid = document.getElementById('themes');
         const filterInput = document.getElementById('theme-filter');
         const countLabel = document.getElementById('theme-count');
@@ -246,7 +246,7 @@
                     if (!description.textContent.trim()) {
                         description.textContent = theme.description;
                     }
-                    await window.electronAPI.invoke('renameCustomTheme', [
+                    await window.deltamodBackend.invoke('renameCustomTheme', [
                         theme.id,
                         name.textContent.trim(),
                         description.textContent.trim()
@@ -267,7 +267,7 @@
             selectButton.disabled = theme.id === currentTheme;
             selectButton.setAttribute('aria-pressed', String(theme.id === currentTheme));
             selectButton.addEventListener('click', async () => {
-                await window.electronAPI.invoke('setTheme', [theme.id]);
+                await window.deltamodBackend.invoke('setTheme', [theme.id]);
                 await themeRefresh(true);
             });
             actions.appendChild(selectButton);
@@ -283,10 +283,10 @@
                 deleteButton.addEventListener('click', async () => {
                     if (!window.confirm(`Delete "${theme.name}"? This cannot be undone.`)) return;
                     if (theme.id === currentTheme) {
-                        await window.electronAPI.invoke('setTheme', ['base']);
+                        await window.deltamodBackend.invoke('setTheme', ['base']);
                         await themeRefresh(true);
                     }
-                    await window.electronAPI.invoke('deleteCustomTheme', [theme.id]);
+                    await window.deltamodBackend.invoke('deleteCustomTheme', [theme.id]);
                     await page('themesel');
                 });
                 actions.appendChild(deleteButton);
@@ -349,7 +349,7 @@
                 : 'Choose a background image.';
 
             try {
-                const result = await window.electronAPI.invoke('importTheme', [{
+                const result = await window.deltamodBackend.invoke('importTheme', [{
                     name,
                     description: importDescription.value.trim(),
                     includeMusic: includeMusic.checked
@@ -384,8 +384,8 @@
         if (charaDetected) return;
         charaDetected = true;
         const [musicEnabled, sfxEnabled] = await Promise.all([
-            window.electronAPI.invoke('getUniqueFlag', ['AUDIO']),
-            window.electronAPI.invoke('getUniqueFlag', ['SFX'])
+            window.deltamodBackend.invoke('getUniqueFlag', ['AUDIO']),
+            window.deltamodBackend.invoke('getUniqueFlag', ['SFX'])
         ]).catch(() => [true, true]);
 
         const themeFilter = document.getElementById('theme-filter');

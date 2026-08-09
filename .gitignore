@@ -25,3 +25,13 @@ tools/G3MTool
 /test-results
 /playwright-report
 /.codex-run/
+/native/target/
+/native/**/target/
+/native/hash-worker/bin/
+/native/security-worker/bin/
+/native/copy-worker/bin/
+/native/patch-plan-worker/bin/
+/native/patch-transaction-worker/bin/
+/src-tauri/**/target/
+/src-tauri/binaries/
+/src-tauri/resources/third-party/

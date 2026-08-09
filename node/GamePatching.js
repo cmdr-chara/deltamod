@@ -7,6 +7,8 @@ const TOML = require('js-toml');
 const XML = require('xml-js');
 const console = require('./Console');
 const { resolveWithin } = require('./security/PathSecurity');
+const { validatePatchPlanNative } = require('./security/NativePatchPlanValidation');
+const { invoke: invokePatchTransaction, invokeSync: invokePatchTransactionSync } = require('./security/NativePatchTransaction');
 const { writeJsonAtomicSync, readJsonSync } = require('./storage/AtomicStore');
 
 const PATCHER_LAYOUTS = Object.freeze({
@@ -19,6 +21,8 @@ const JOURNAL_NAME = '.deltamod-community-patch-journal.json';
 const BACKUP_DIRECTORY_NAME = '.deltamod-community-patch-backups';
 const SUPPORTED_PATCH_TYPES = new Set(['override', 'copy', 'xdelta', 'g3mpatch', 'csx']);
 const GAME_DATA_FILE_NAMES = new Set(['data.win', 'game.ios', 'game.unx', 'game.droid']);
+const MAX_PLAN_PATCHES = 10_000;
+const MAX_PLAN_STRING_BYTES = 32_768;
 const UNDERTALE_MOD_CLI_LAYOUTS = Object.freeze({
     'win32-x64': ['win-x64', 'UndertaleModCli.exe'],
     'linux-x64': ['linux-x64', 'UndertaleModCli'],
@@ -144,12 +148,28 @@ function buildPatchPlan(gamePath, modFolder, selectedIds, options = {}) {
     const merged = new Map();
     const scripts = new Map();
     const targetOwners = new Map();
+    const candidates = [];
 
     for (const mod of mods) {
         for (const patch of mod.patches) {
             const source = resolveWithin(mod.root, patch.patch, { mustExist: true });
             const mappedTarget = mapTarget(patch.to);
             const target = resolveWithin(gameRoot, mappedTarget);
+            const candidate = {
+                type: patch.type,
+                patch: patch.patch,
+                to: patch.to,
+                mappedTarget,
+                modName: mod.name,
+                modId: mod.uuid,
+                modRoot: mod.root
+            };
+            if (candidates.length >= MAX_PLAN_PATCHES || Object.values(candidate).some(value => (
+                typeof value !== 'string' || !value || Buffer.byteLength(value) > MAX_PLAN_STRING_BYTES || value.includes('\0')
+            ))) {
+                throw new Error('Patch plan exceeds the supported protocol limits.');
+            }
+            candidates.push(candidate);
             const targetKey = process.platform === 'win32' ? target.toLowerCase() : target;
             assertPatchFile(source, `Patch source "${patch.patch}"`);
             if (fs.existsSync(target)) assertPatchFile(target, `Patch target "${patch.to}"`);
@@ -207,13 +227,59 @@ function buildPatchPlan(gamePath, modFolder, selectedIds, options = {}) {
         }
     }
 
-    return {
+    const plan = {
         mods,
         direct,
         merged: [...merged.values()],
         scripts: [...scripts.values()],
         operationCount: direct.length + merged.size + scripts.size
     };
+    Object.defineProperty(plan, '_nativeValidationRequest', {
+        value: {
+            schemaVersion: 1,
+            gameRoot,
+            platform: process.platform === 'win32' ? 'win32' : process.platform === 'darwin' ? 'darwin' : 'linux',
+            patches: candidates
+        },
+        enumerable: false
+    });
+    return plan;
+}
+
+function validatePatchPlanFallback(plan) {
+    if (!plan || !Array.isArray(plan.direct) || !Array.isArray(plan.merged)
+        || !Array.isArray(plan.scripts) || !Number.isSafeInteger(plan.operationCount)
+        || plan.operationCount < 0) {
+        throw new Error('Patch plan is invalid.');
+    }
+    return { operationCount: plan.operationCount };
+}
+
+async function approvePatchPlan(plan, options = {}) {
+    const request = plan?._nativeValidationRequest;
+    if (!request) return validatePatchPlanFallback(plan);
+    const validation = (options.validatePatchPlanNative || validatePatchPlanNative)(request, {
+        sidecarPath: options.patchPlanWorkerPath
+    });
+    if (validation === null) return validatePatchPlanFallback(plan);
+    const approval = await validation;
+    if (approval.operationCount !== plan.operationCount || approval.patchCount !== request.patches.length) {
+        const error = new Error('Native patch-plan validation returned counts that do not match the candidate plan.');
+        error.code = 'PATCH_PLAN_NATIVE_FAILED';
+        throw error;
+    }
+    return approval;
+}
+
+function recheckPlanFiles(plan) {
+    for (const patch of plan.direct) {
+        assertPatchFile(patch.source, `Patch source "${patch.patch}"`);
+        if (fs.existsSync(patch.target)) assertPatchFile(patch.target, `Patch target "${patch.to}"`);
+    }
+    for (const group of [...plan.merged, ...plan.scripts]) {
+        assertPatchFile(group.target, `Patch target "${group.relativeTarget}"`);
+        for (const patch of group.patches) assertPatchFile(patch.source, `Patch source "${patch.patch}"`);
+    }
 }
 
 function treeSha256(directory) {
@@ -254,7 +320,7 @@ function writeJournal(gamePath, journal) {
     writeJsonAtomicSync(path.join(gamePath, JOURNAL_NAME), journal, { backup: false });
 }
 
-function backupTarget(target, journal, gamePath) {
+function backupTargetFallback(target, journal, gamePath) {
     const gameRoot = path.resolve(gamePath);
     const targetRelative = path.relative(gameRoot, target);
     const backupRoot = resolveWithin(gameRoot, path.join(BACKUP_DIRECTORY_NAME, journal.transactionId));
@@ -324,6 +390,18 @@ async function g3mtool(callback, args, gamePath, options = {}) {
             }
         }));
     });
+}
+
+async function backupTarget(target, journal, gamePath, options = {}) {
+    const relativeTarget = path.relative(path.resolve(gamePath), target).split(path.sep).join('/');
+    const native = await invokePatchTransaction('backup', gamePath, journal, { sidecarPath: options.patchTransactionWorkerPath }, relativeTarget);
+    if (native) {
+        const updated = readJsonSync(path.join(gamePath, JOURNAL_NAME), null);
+        if (!updated) throw new Error('Native patch transaction did not produce a journal.');
+        Object.assign(journal, updated);
+        return;
+    }
+    backupTargetFallback(target, journal, gamePath);
 }
 
 function childEnvironment() {
@@ -443,6 +521,8 @@ async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCa
     let plan;
     try {
         plan = options.approvedPlan || buildPatchPlan(gamePath, modFolder, mods, options);
+        await approvePatchPlan(plan, options);
+        recheckPlanFiles(plan);
         assertCsxRuntimeAvailable(plan, options);
     } catch (error) {
         return { patched: false, log: error.message, fullLog };
@@ -486,16 +566,20 @@ async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCa
 
     try {
         for (const patch of plan.direct) {
+            assertPatchFile(patch.source, `Patch source "${patch.patch}"`);
+            if (fs.existsSync(patch.target)) assertPatchFile(patch.target, `Patch target "${patch.to}"`);
             log(`Applying ${patch.type} patch from "${patch.modName}" to ${patch.to}.`);
-            backupTarget(patch.target, journal, gamePath);
+            await backupTarget(patch.target, journal, gamePath, options);
             fs.copyFileSync(patch.source, patch.target);
             completed += 1;
             progress();
         }
 
         for (const group of plan.merged) {
+            assertPatchFile(group.target, `Patch target "${group.relativeTarget}"`);
+            for (const patch of group.patches) assertPatchFile(patch.source, `Patch source "${patch.patch}"`);
             log(`Applying ${group.patches.length} merge patch(es) to ${group.relativeTarget}.`);
-            backupTarget(group.target, journal, gamePath);
+            await backupTarget(group.target, journal, gamePath, options);
             const backup = resolveWithin(
                 gamePath,
                 path.join(BACKUP_DIRECTORY_NAME, journal.transactionId, group.relativeTarget),
@@ -524,8 +608,10 @@ async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCa
         }
 
         for (const staged of stagedScripts) {
+            assertPatchFile(staged.group.target, `Patch target "${staged.group.relativeTarget}"`);
+            assertPatchFile(staged.output, 'UndertaleModCli output');
             log(`Committing ${staged.group.patches.length} CSX script patch(es) to ${staged.group.relativeTarget}.`);
-            backupTarget(staged.group.target, journal, gamePath);
+            await backupTarget(staged.group.target, journal, gamePath, options);
             fs.copyFileSync(staged.output, staged.group.target);
             completed += 1;
             progress();
@@ -544,7 +630,7 @@ async function startGamePatch(gamePath, modFolder, mods, logCallback, progressCa
     }
 }
 
-function restore(gamePath) {
+function restoreFallback(gamePath) {
     if (!gamePath || !fs.existsSync(gamePath)) return;
     const gameRoot = path.resolve(gamePath);
     const journalPath = path.join(gameRoot, JOURNAL_NAME);
@@ -561,10 +647,28 @@ function restore(gamePath) {
     }
 
     const backupRoot = resolveWithin(gameRoot, path.join(BACKUP_DIRECTORY_NAME, journal.transactionId));
-    for (const operation of [...journal.operations].reverse()) {
-        if (!operation || !['restore', 'remove'].includes(operation.type)) {
+    const targets = new Set();
+    const backups = new Set();
+    for (const operation of journal.operations) {
+        if (!operation || !['restore', 'remove'].includes(operation.type)
+            || (operation.state !== undefined && !['pending', 'applied'].includes(operation.state))
+            || typeof operation.target !== 'string' || !operation.target
+            || (operation.type === 'restore' && typeof operation.backup !== 'string')
+            || (operation.type === 'remove' && operation.backup !== undefined)) {
             throw new Error('The patch recovery journal contains an unknown operation.');
         }
+        const target = resolveWithin(gameRoot, operation.target);
+        const targetKey = process.platform === 'win32' ? target.toLowerCase() : target;
+        if (targets.has(targetKey)) throw new Error('The patch recovery journal contains conflicting operations.');
+        targets.add(targetKey);
+        if (operation.type === 'restore') {
+            const backup = resolveWithin(backupRoot, operation.backup);
+            const backupKey = process.platform === 'win32' ? backup.toLowerCase() : backup;
+            if (backups.has(backupKey)) throw new Error('The patch recovery journal contains conflicting backups.');
+            backups.add(backupKey);
+        }
+    }
+    for (const operation of [...journal.operations].reverse()) {
         const target = resolveWithin(gameRoot, operation.target);
         if (operation.type === 'restore') {
             const backup = resolveWithin(backupRoot, operation.backup);
@@ -591,6 +695,16 @@ function restore(gamePath) {
     fs.rmSync(journalPath, { force: true });
 }
 
+function restore(gamePath) {
+    if (!gamePath || !fs.existsSync(gamePath)) return;
+    const journalPath = path.join(path.resolve(gamePath), JOURNAL_NAME);
+    if (!fs.existsSync(journalPath)) return;
+    const journal = readJsonSync(journalPath, null);
+    const native = invokePatchTransactionSync('restore', gamePath, journal || {}, {});
+    if (native) return;
+    restoreFallback(gamePath);
+}
+
 function stopOwnedPatchers() {
     for (const child of activePatchers) {
         terminateProcessTree(child);
@@ -600,6 +714,8 @@ function stopOwnedPatchers() {
 
 module.exports = {
     buildPatchPlan,
+    approvePatchPlan,
+    validatePatchPlanFallback,
     patcherPathFor,
     undertaleModCliPathFor,
     assertCsxPlatformSupported,
@@ -607,6 +723,7 @@ module.exports = {
     terminateProcessTree,
     startGamePatch,
     restore,
+    restoreFallback,
     restoreOriginalsIfAny: restore,
     stopOwnedPatchers
 };

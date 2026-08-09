@@ -38,6 +38,7 @@ describe('resolveWithin', () => {
         'mods/../../outside.txt',
         '%2e%2e%2foutside.txt',
         'C:\\Windows\\system.ini',
+        '\\rooted',
         '\\\\server\\share\\file',
         '//server/share/file'
     ])('rejects unsafe path %s', candidate => {

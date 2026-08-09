@@ -40,7 +40,7 @@ async function send() {
     sendButton.textContent = 'Sending...';
 
     try {
-        const posted = await window.electronAPI.invoke(
+        const posted = await window.deltamodBackend.invoke(
             'leaveCommentGamebanana',
             [gbModID, comment, gbModel]
         );
@@ -159,8 +159,9 @@ async function crawlComment(comment, div, depth = 0) {
 }
 
 (async () => {
-    var gbPic = await window.electronAPI.invoke('getGamebananaPic',[]);
-    document.getElementById('gbPic').src = gbPic || 'deltapack://web/img/mod-placeholder.png';
+    var gbPic = await window.deltamodBackend.invokeOptional('getGamebananaPic', [], null);
+    document.getElementById('gbPic').src = gbPic
+        || window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png');
     if (gbPic) {
         document.getElementById('myCommentBox').style.display = 'flex';
     }

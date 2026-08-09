@@ -677,6 +677,10 @@ body {
     -webkit-app-region: no-drag;
 }
 
+.alertMain[hidden] {
+    display: none !important;
+}
+
 .language-wheel-toggle:hover,
 .language-wheel-toggle[aria-expanded="true"] {
     background: transparent !important;

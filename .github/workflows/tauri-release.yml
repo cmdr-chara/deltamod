@@ -1,0 +1,104 @@
+name: Tauri Unsigned Beta
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the experimental Tauri artifacts after all gates pass
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: cargo fmt --all --check --manifest-path native/Cargo.toml
+      - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
+      - run: cargo test --workspace --locked --manifest-path native/Cargo.toml
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run security:audit
+      - run: npm run parity:report
+      - run: node -e "const p=require('./package.json');if(!/^\d+\.\d+\.\d+/.test(p.version))throw new Error('Invalid package version')"
+      - run: node -e "const c=require('./src-tauri/tauri.conf.json');if(c.bundle?.active!==true)throw new Error('Tauri bundle is disabled; merge and review src-tauri configuration before packaging')"
+
+  package:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: windows
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            artifact: linux
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact: macos-x64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            artifact: macos-arm64
+    runs-on: ${{ matrix.os }}
+    env:
+      RUST_TARGET: ${{ matrix.target }}
+      TAURI_BUILD_TARGET: ${{ matrix.target }}
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: npm ci
+      - run: npm run acquire:g3mtool -- --all
+      - run: npm run verify:g3mtool-manifest
+      - run: npm run acquire:undertale-mod-tool -- --all
+        if: matrix.target != 'aarch64-apple-darwin'
+      - run: npm run verify:undertale-mod-tool-manifest
+        if: matrix.target != 'aarch64-apple-darwin'
+      - run: npm run build:boot
+      - run: npm run build:native-sidecars:target -- ${{ matrix.target }}
+      - run: npm run build:tauri:resources -- ${{ matrix.target }}
+      - run: npm run verify:tauri-staging -- ${{ matrix.target }}
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .
+          configPath: src-tauri/tauri.conf.json
+          args: --target ${{ matrix.target }}
+      - run: node scripts/verify-tauri-package.js "src-tauri/target/${{ matrix.target }}/release/bundle"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: src-tauri/target/**/bundle/**
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    if: inputs.publish == true && needs.package.result == 'success'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "community-tauri-v${{ github.run_number }}" release-artifacts/**/* --prerelease --title "Deltamod Community ${{ github.run_number }} (Unsigned Tauri Beta)" --notes-file RELEASE-GATE.md

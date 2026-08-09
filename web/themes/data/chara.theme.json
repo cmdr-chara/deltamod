@@ -5,7 +5,7 @@
     "videoHasAudio": true,
     "bootSyncTime": 5.6,
     "description": "A hidden animated theme featuring Clara Kraft's Chara response.",
-    "mainSong": "mainTheme1.mp3",
+    "mainSong": "chara-theme.mp3",
     "musicTrack": "Stronger than You - Chara response",
     "id": "chara",
     "color": "rgb(219, 34, 24)",

@@ -25,6 +25,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all --check --manifest-path native/Cargo.toml
+      - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
+      - run: cargo test --workspace --locked --manifest-path native/Cargo.toml
+      - run: cargo build --workspace --locked --manifest-path native/Cargo.toml
       - run: npm ci
       - run: npm test
       - run: npm run typecheck
@@ -48,7 +55,12 @@ jobs:
             npm run smoke:game-patching-csx
           fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
+            npm run build:native-sidecars
             npx electron-builder --win --dir --publish never
+            node scripts/verify-packaged-hash-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
+            node scripts/verify-packaged-security-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
+            node scripts/verify-packaged-copy-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
+            node scripts/verify-packaged-patch-plan-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
             node scripts/verify-packaged-undertale-mod-tool.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             npx electron-builder --mac --arm64 --dir --publish never

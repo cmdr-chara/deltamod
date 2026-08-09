@@ -13,6 +13,8 @@ var currentAudioSource = "";
 const menuAudioPositions = new Map();
 var themeVideoSuspendTimer = null;
 var suspendedThemeVideo = null;
+var themeVideoLoadTimer = null;
+var themeVideoFallbackActive = false;
 var theme = null;
 var pageN = null;
 var addedStyle = null;
@@ -49,7 +51,7 @@ function rememberMenuAudioPosition() {
 
 function configureMenuAudioPlayback(source) {
     const themeSource = theme?.mainSong
-        ? `themeprot://mus/${theme.mainSong}`
+        ? window.deltamodBackend.assetUrl('theme', `mus/${theme.mainSong}`)
         : '';
     const isThemeTrack = source === themeSource;
     const configuredRate = isThemeTrack ? Number(theme?.musicPlaybackRate) : 1;
@@ -103,11 +105,22 @@ function loopMenuAudio() {
 audio.addEventListener('timeupdate', loopMenuAudio);
 
 function themeUsesIntegratedVideoAudio(themeConfig = theme) {
-    return Boolean(themeConfig?.backgroundVideo && themeConfig?.videoHasAudio);
+    return Boolean(
+        themeConfig?.backgroundVideo
+        && themeConfig?.videoHasAudio
+        && !themeVideoFallbackActive
+    );
 }
 
 function getThemeBackgroundVideo() {
     return document.getElementById('theme-background-video');
+}
+
+function themeVideoUrl(themeConfig = theme) {
+    if (!themeConfig?.backgroundVideo) return '';
+    return themeConfig.backgroundVideoBundled
+        ? window.deltamodBackend.assetUrl('app', `web/themes/video/${themeConfig.backgroundVideo}`)
+        : window.deltamodBackend.assetUrl('theme', `video/${themeConfig.backgroundVideo}`);
 }
 
 function setThemeVideoAudioEnabled(enabled) {
@@ -136,15 +149,13 @@ function suspendThemeBackgroundVideo() {
 
     const background = document.querySelector('.bg');
     if (background) {
-        background.style.backgroundImage = `url(themeprot://img/${theme.background})`;
+        background.style.backgroundImage = `url("${window.deltamodBackend.assetUrl('theme', `img/${theme.background}`)}")`;
     }
 }
 
 function resumeThemeBackgroundVideo(audioEnabled) {
     const video = getThemeBackgroundVideo();
-    const expectedSource = theme?.backgroundVideo
-        ? `themeprot://video/${theme.backgroundVideo}`
-        : '';
+    const expectedSource = themeVideoUrl();
     if (!video || !suspendedThemeVideo || suspendedThemeVideo.source !== expectedSource) {
         return false;
     }
@@ -152,7 +163,7 @@ function resumeThemeBackgroundVideo(audioEnabled) {
     const resumeAt = suspendedThemeVideo.currentTime;
     suspendedThemeVideo = null;
     const background = document.querySelector('.bg');
-    video.poster = `themeprot://img/${theme.background}`;
+    video.poster = window.deltamodBackend.assetUrl('theme', `img/${theme.background}`);
     video.hidden = true;
     video.loop = true;
     video.muted = !audioEnabled;
@@ -160,15 +171,16 @@ function resumeThemeBackgroundVideo(audioEnabled) {
     video.dataset.source = expectedSource;
     video.src = expectedSource;
     if (background) {
-        background.style.backgroundImage = `url(themeprot://img/${theme.background})`;
+        background.style.backgroundImage = `url("${window.deltamodBackend.assetUrl('theme', `img/${theme.background}`)}")`;
     }
 
     const revealAndPlay = () => {
-        video.hidden = false;
-        if (background) {
-            background.style.backgroundImage = 'none';
-        }
-        video.play().catch(() => {});
+        video.play().then(() => {
+            video.hidden = false;
+            if (background) {
+                background.style.backgroundImage = 'none';
+            }
+        }).catch(() => {});
     };
 
     const resumePlayback = () => {
@@ -205,10 +217,12 @@ function applyThemeBackground() {
     const video = getThemeBackgroundVideo();
     if (!background || !video) return;
 
-    background.style.backgroundImage = `url(themeprot://img/${theme.background})`;
+    background.style.backgroundImage = `url("${window.deltamodBackend.assetUrl('theme', `img/${theme.background}`)}")`;
     if (!theme.backgroundVideo) {
         clearTimeout(themeVideoSuspendTimer);
+        clearTimeout(themeVideoLoadTimer);
         suspendedThemeVideo = null;
+        themeVideoFallbackActive = false;
         video.pause();
         video.hidden = true;
         video.removeAttribute('src');
@@ -218,11 +232,20 @@ function applyThemeBackground() {
         return;
     }
 
-    const source = `themeprot://video/${theme.backgroundVideo}`;
-    video.poster = `themeprot://img/${theme.background}`;
-    background.style.backgroundImage = 'none';
-    video.hidden = false;
+    const source = themeVideoUrl();
+    clearTimeout(themeVideoLoadTimer);
+    themeVideoFallbackActive = false;
+    video.poster = window.deltamodBackend.assetUrl('theme', `img/${theme.background}`);
+    video.hidden = true;
     video.loop = true;
+    video.onplaying = () => {
+        clearTimeout(themeVideoLoadTimer);
+        video.hidden = false;
+        background.style.backgroundImage = 'none';
+    };
+    video.onerror = () => {
+        void fallBackFromThemeVideo(video, background, `media error ${video.error?.code || 'unknown'}`);
+    };
     if (video.dataset.source !== source) {
         suspendedThemeVideo = null;
         video.muted = true;
@@ -230,7 +253,35 @@ function applyThemeBackground() {
         video.dataset.source = source;
         video.src = source;
     }
-    video.play().catch(() => {});
+    video.play().catch(error => {
+        void fallBackFromThemeVideo(video, background, error?.name || 'playback rejected');
+    });
+    themeVideoLoadTimer = setTimeout(() => {
+        if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+            void fallBackFromThemeVideo(video, background, 'load timeout');
+        }
+    }, 5000);
+}
+
+async function fallBackFromThemeVideo(video, background, reason) {
+    if (themeVideoFallbackActive || video.dataset.source !== themeVideoUrl()) return;
+    themeVideoFallbackActive = true;
+    clearTimeout(themeVideoLoadTimer);
+    video.pause();
+    video.hidden = true;
+    video.removeAttribute('src');
+    video.removeAttribute('data-source');
+    video.load();
+    background.style.backgroundImage = `url("${window.deltamodBackend.assetUrl('theme', `img/${theme.background}`)}")`;
+    console.warn(`Theme video unavailable (${reason}); using poster and audio fallback.`);
+
+    if (await window.deltamodBackend.invoke('getUniqueFlag', ["AUDIO"])) {
+        currentAudio = 'mainTheme.mp3';
+        switchMenuAudioSource(window.deltamodBackend.assetUrl('theme', `mus/${theme.mainSong}`));
+        audio.loop = true;
+        audio.volume = TARGET_MUSIC_VOLUME;
+        await audio.play().catch(() => {});
+    }
 }
 
 window._onClosePage = window._onClosePage || [];
@@ -316,7 +367,7 @@ function loadPageScript(pageDefinition) {
  * Wrapper for invoking Electron IPC calls.
  */
 async function invoke(...params) {
-    return window.electronAPI.invoke(...params);
+    return window.deltamodBackend.invoke(...params);
 }
 
 /**
@@ -368,7 +419,7 @@ async function promptLeaveCMode() {
         'stadia_controller'
     ).then((result) => {
         if (result) {
-            window.electronAPI.invoke('cmode-off', []);
+            window.deltamodBackend.invokeOptional('cmode-off', [], false);
         }
     });
 }
@@ -377,7 +428,7 @@ async function promptLeaveCMode() {
  * Plays the "rew" SFX.
  */
 async function rew() {
-    if (await window.electronAPI.invoke('getUniqueFlag', ["SFX"]) === false) {
+    if (await window.deltamodBackend.invoke('getUniqueFlag', ["SFX"]) === false) {
         return;
     }
     var a = new Audio();
@@ -396,8 +447,8 @@ function brightenColor(r, g, b, amount) {
 }
 
 // Window Management
-function toggleFullscreen() { window.electronAPI.invoke('toggleFullscreen', []); }
-function toggleMinimize() { window.electronAPI.invoke('minimizeMe', []); }
+function toggleFullscreen() { window.deltamodBackend.invoke('toggleFullscreen', []); }
+function toggleMinimize() { window.deltamodBackend.invoke('minimizeMe', []); }
 function genbtnstyles() { /* deprecated */ }
 
 // Play rewind SFX on specific preload trigger
@@ -446,8 +497,11 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
     return new Promise(async (resolve, reject) => {
         isAlertShowing = true;
 
-        if (localStorage.getItem('alertAlignment') == "Separate") {
-            var index = await window.electronAPI.invoke('htmlAlert_outwin', [title, message, buttons]);
+        if (
+            localStorage.getItem('alertAlignment') == "Separate"
+            && window.deltamodBackend.isCommandAvailable('htmlAlert_outwin')
+        ) {
+            var index = await window.deltamodBackend.invoke('htmlAlert_outwin', [title, message, buttons]);
             isAlertShowing = false;
             var button = buttons[index];
 
@@ -514,6 +568,7 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
                 setTimeout(() => {
                     alertMain.style.animation = '';
                     alertMain.style.display = 'none';
+                    alertMain.hidden = true;
                     alertMsgR.style.animation = 'none';
                     alertMsgR.innerHTML = '';
                 }, animationDuration);
@@ -523,7 +578,7 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
                 // Play dismiss SFX
                 var a = new Audio();
                 a.src = 'audio/booow.mp3';
-                if (await window.electronAPI.invoke('getUniqueFlag', ["SFX"]) === true) {
+                if (await window.deltamodBackend.invoke('getUniqueFlag', ["SFX"]) === true) {
                     a.play().catch(() => {});
                 }
 
@@ -551,6 +606,7 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
             buttonsHTML.appendChild(btn);
         });
 
+        alertMain.hidden = false;
         alertMain.style.display = 'flex';
         alertMsg.appendChild(buttonsHTML);
         alertMsgR.style.animation = 'none';
@@ -576,7 +632,7 @@ async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
         var a = new Audio();
         a.src = 'audio/htmlalert.mp3';
         a.playbackRate = 0.9;
-        if (await window.electronAPI.invoke('getUniqueFlag', ["SFX"]) === true) {
+        if (await window.deltamodBackend.invoke('getUniqueFlag', ["SFX"]) === true) {
             a.play();
         }
     });
@@ -606,9 +662,9 @@ window.preloadAPI.onUpdateAvailable((info) => {
         ], 
         'update'
     ).then(async () => {
-        await window.electronAPI.invoke('start-update', []);
+        await window.deltamodBackend.invokeOptional('start-update', [], false);
     }).catch(async () => {
-        await window.electronAPI.invoke('ignore-update', []);
+        await window.deltamodBackend.invokeOptional('ignore-update', [], false);
     });
 });
 
@@ -674,10 +730,10 @@ async function offerOfficialProfileImport() {
 }
 
 // Override console methods to tunnel logs through Electron IPC
-console.log = function(...args) { window.electronAPI.invoke('log', [args.join(' '), 'LOG', pageN]); };
-console.warn = function(...args) { window.electronAPI.invoke('log', [args.join(' '), 'WARN', pageN]); };
-console.error = function(...args) { window.electronAPI.invoke('log', [args.join(' '), 'ERROR', pageN]); };
-console.info = function(...args) { window.electronAPI.invoke('log', [args.join(' '), 'INFO', pageN]); };
+console.log = function(...args) { window.deltamodBackend.invoke('log', [args.join(' '), 'LOG', pageN]); };
+console.warn = function(...args) { window.deltamodBackend.invoke('log', [args.join(' '), 'WARN', pageN]); };
+console.error = function(...args) { window.deltamodBackend.invoke('log', [args.join(' '), 'ERROR', pageN]); };
+console.info = function(...args) { window.deltamodBackend.invoke('log', [args.join(' '), 'INFO', pageN]); };
 
 function uppercaseFirst(string) {
     return string.charAt(0).toUpperCase() + string.slice(1);
@@ -695,6 +751,10 @@ function icon(name, fontSize) {
     return `<span class="material-symbols-outlined" style="font-size: ${fontSize}">${name}</span>`;
 }
 
+async function invokeOptional(channel, data, fallback) {
+    return window.deltamodBackend.invokeOptional(channel, data, fallback);
+}
+
 // The React boot overlay is optional so the vanilla renderer remains usable if
 // a development build is missing the generated bundle. These helpers also keep
 // loading milestones in one place instead of coupling page code to React.
@@ -708,11 +768,9 @@ function bootTheme(themeConfig) {
         themeColor: themeConfig.color,
         soulColor: themeConfig.soulColor || themeConfig.color,
         backgroundImage: themeConfig.background
-            ? `themeprot://img/${themeConfig.background}`
+            ? window.deltamodBackend.assetUrl('theme', `img/${themeConfig.background}`)
             : undefined,
-        backgroundVideo: themeConfig.backgroundVideo
-            ? `themeprot://video/${themeConfig.backgroundVideo}`
-            : undefined,
+        backgroundVideo: themeConfig.backgroundVideo ? themeVideoUrl(themeConfig) : undefined,
         readyAtVideoTime: Number.isFinite(themeConfig.bootSyncTime)
             ? themeConfig.bootSyncTime
             : undefined,
@@ -734,7 +792,17 @@ function finishBoot() {
  * @param {boolean} refreshAudio - Whether to also reload and play the main theme song.
  */
 async function themeRefresh(refreshAudio = true) {
-    theme = await fetch('themeprot://data/' + (await window.electronAPI.invoke('getTheme', [])) + '.theme.json').then(response => response.json());
+    const themeName = await window.deltamodBackend.invoke('getTheme', []);
+    const themePath = `data/${themeName}.theme.json`;
+    let response;
+    try {
+        response = await fetch(window.deltamodBackend.assetUrl('theme', themePath));
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    } catch (error) {
+        response = await fetch(window.deltamodBackend.assetUrl('app', `web/themes/${themePath}`));
+        if (!response.ok) throw error;
+    }
+    theme = await response.json();
     bootTheme(theme);
     applyThemeBackground();
     window.ThemeSprites?.apply(theme.soulColor || theme.color, document).catch(error => {
@@ -742,7 +810,7 @@ async function themeRefresh(refreshAudio = true) {
     });
     
     if (refreshAudio) {
-        const shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
+        const shouldPlayAudio = await window.deltamodBackend.invoke('getUniqueFlag', ["AUDIO"]);
         if (themeUsesIntegratedVideoAudio()) {
             releaseAudioBuffer();
             setThemeVideoAudioEnabled(shouldPlayAudio);
@@ -750,7 +818,7 @@ async function themeRefresh(refreshAudio = true) {
             audio.loop = true;
             audio.volume = TARGET_MUSIC_VOLUME;
             currentAudio = 'mainTheme.mp3';
-            switchMenuAudioSource('themeprot://mus/' + theme.mainSong);
+            switchMenuAudioSource(window.deltamodBackend.assetUrl('theme', `mus/${theme.mainSong}`));
             await audio.play().catch(() => {});
         } else {
             releaseAudioBuffer();
@@ -869,7 +937,7 @@ async function renderPage(name) {
     }
 
     // Prevents escaping to home if game is baked
-    if (name === 'main' && PAGE_REGISTRY.bakedhome && await window.electronAPI.invoke('isBaked', [])) {
+    if (name === 'main' && PAGE_REGISTRY.bakedhome && await window.deltamodBackend.invoke('isBaked', [])) {
         name = 'bakedhome';
     }
     const pageDefinition = PAGE_REGISTRY[name];
@@ -882,7 +950,7 @@ async function renderPage(name) {
     // memory after each page change.
     const viewport = document.querySelector('.viewport');
     viewport.style.animation = 'none';
-    window.electronAPI.invoke('showWindow', []);
+    window.deltamodBackend.invoke('showWindow', []);
 
     // Load theme if not yet initialized
     if (!theme) {
@@ -964,8 +1032,8 @@ async function renderPage(name) {
             audioSrc = ['AUDIO[mainTheme.mp3]', 'mainTheme.mp3'];
         }
         const [dynamicMusic, shouldPlayAudio] = await Promise.all([
-            window.electronAPI.invoke('getUniqueFlag', ["DYNAMUSIC"]),
-            window.electronAPI.invoke('getUniqueFlag', ["AUDIO"])
+            window.deltamodBackend.invoke('getUniqueFlag', ["DYNAMUSIC"]),
+            window.deltamodBackend.invoke('getUniqueFlag', ["AUDIO"])
         ]);
         if (dynamicMusic == false) {
             audioSrc = ['AUDIO[mainTheme.mp3]', 'mainTheme.mp3'];
@@ -979,7 +1047,7 @@ async function renderPage(name) {
         } else if (audioSrc && audioSrc[1] && (audioSrc[1] !== currentAudio || !audio.src)) {
             currentAudio = audioSrc[1];
             const nextAudioSource = audioSrc[1] == 'mainTheme.mp3'
-                ? 'themeprot://mus/' + theme.mainSong
+                ? window.deltamodBackend.assetUrl('theme', `mus/${theme.mainSong}`)
                 : './' + audioSrc[1];
             switchMenuAudioSource(nextAudioSource);
 
@@ -1099,7 +1167,7 @@ window.addEventListener('blur', () => {
 window.addEventListener('focus', async () => {
     clearTimeout(themeVideoSuspendTimer);
     document.documentElement.classList.remove('window-inactive');
-    let shouldPlayAudio = await window.electronAPI.invoke('getUniqueFlag', ["AUDIO"]);
+    let shouldPlayAudio = await window.deltamodBackend.invoke('getUniqueFlag', ["AUDIO"]);
     if (audio && shouldPlayAudio) {
         audio.volume = TARGET_MUSIC_VOLUME;
     }
@@ -1117,11 +1185,15 @@ if (!window.electronAPI) {
 
 var renderedUser = false;
 async function renderuser() {
-    if (!(await window.electronAPI.invoke('validateGamebananaToken')) || !navigator.onLine) {
+    if (!(await window.deltamodBackend.invoke('validateGamebananaToken')) || !navigator.onLine) {
         renderedUser = true;
         return;
     }
-    var gbuser = await window.electronAPI.invoke('getGamebananaUserinfo', []);
+    var gbuser = await window.deltamodBackend.invokeOptional(
+        'getGamebananaUserinfo',
+        [],
+        { loggedIn: false }
+    );
 
     var gbaccount = document.querySelector('.gamebanana-account');
     gbaccount.replaceChildren();
@@ -1438,7 +1510,7 @@ async function setupLanguageWheel() {
     await reapplyHAStyles();
     bootProgress(0.09, 'Loading interface styles');
 
-    cmode = await window.electronAPI.invoke('isCMode', []);
+    cmode = await invokeOptional('isCMode', [], false);
     bootProgress(0.15, 'Checking controller mode');
 
     var ribbon = document.querySelectorAll('.sidebar-button');
@@ -1490,9 +1562,9 @@ async function setupLanguageWheel() {
         }
     } else {
         document.querySelector('.glyph').style.display = 'none';
-        if ((await window.electronAPI.invoke('getOS', [])).platform != 'linux') {
+        if ((await window.deltamodBackend.invoke('getOS', [])).platform != 'linux') {
             window.addEventListener("gamepadconnected", async (event) => {
-                if (await window.electronAPI.invoke('getUniqueFlag', ["CONTROLLER"]) === false) {
+                if (await window.deltamodBackend.invoke('getUniqueFlag', ["CONTROLLER"]) === false) {
                     return;
                 }
                 if (!event.gamepad.id.toLowerCase().includes('dualshock') && !event.gamepad.id.toLowerCase().includes('dualsense')) {
@@ -1508,7 +1580,7 @@ async function setupLanguageWheel() {
                 );
 
                 if (res) {
-                    invoke('cmode-on', []);
+                    invokeOptional('cmode-on', [], false);
                 }
             });
         }
@@ -1520,10 +1592,10 @@ async function setupLanguageWheel() {
         return;
     }
 
-    var loaded = await window.electronAPI.invoke('loadedDeltarune',[]);
+    var loaded = await window.deltamodBackend.invoke('loadedDeltarune',[]);
     bootProgress(0.56, 'Finding installed games');
 
-    if (await window.electronAPI.invoke('fetchSharedVariable',["gb1click"]) === true) {
+    if (await window.deltamodBackend.invoke('fetchSharedVariable',["gb1click"]) === true) {
         await page('goc-dl');
         finishBoot();
         return;
@@ -1541,11 +1613,11 @@ async function setupLanguageWheel() {
 
     // Main App Branching Route
     if (loaded.loaded) {
-        var available = await window.electronAPI.invoke('fireUpdate', []);
+        var available = await window.deltamodBackend.invoke('fireUpdate', []);
         console.log('Update check complete. Update available:', available);
         bootProgress(0.84, 'Checking patch tools');
 
-        var im = await window.electronAPI.invoke('shouldGoIM', []);
+        var im = await invokeOptional('shouldGoIM', [], false);
         bootProgress(0.9, 'Preparing file overlay');
         if (im) {
             await page('installmanager');
@@ -1555,13 +1627,13 @@ async function setupLanguageWheel() {
         finishBoot();
         (window.requestIdleCallback || (callback => setTimeout(callback, 0)))(warmPageMarkupCache);
 
-        window.electronAPI.invoke('executeArgumentCmd',[]);
+        invokeOptional('executeArgumentCmd', [], null);
     } else {
         await page('locate');
         finishBoot();
         (window.requestIdleCallback || (callback => setTimeout(callback, 0)))(warmPageMarkupCache);
         document.querySelectorAll('.sidebar-button').forEach(button => button.setAttribute('data-disabled', 'true'));
-        window.electronAPI.invoke('executeArgumentCmd',[]);
+        invokeOptional('executeArgumentCmd', [], null);
     }
 })().catch(error => {
     console.error('Deltamod initialization failed:', error);
@@ -1598,7 +1670,7 @@ function openAudio() {
 (async () => {
     renderuser();
 
-    if ((await window.electronAPI.invoke('validateGamebananaToken'))) {
+    if ((await window.deltamodBackend.invoke('validateGamebananaToken'))) {
         document.getElementById('collectionsRibbon').style.display = 'inline-flex';
     }
 })();

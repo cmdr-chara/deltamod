@@ -1,0 +1,13 @@
+{
+  "name": "Undertale Yellow",
+  "id": "fans.utyellow",
+  "exeName": "Undertale Yellow.exe",
+  "availableFeatures": [{
+    "feat": "autodownload",
+    "data": {
+      "pluginName": "GameJolt",
+      "buildId": "1857285",
+      "gameId": "136925"
+    }
+  }]
+}

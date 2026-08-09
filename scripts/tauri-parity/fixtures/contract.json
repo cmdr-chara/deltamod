@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    { "id": "version", "channel": "version", "data": [], "legacy": { "ok": true, "value": "fixture-version" }, "rust": { "ok": true, "value": "fixture-version" }, "expectEquivalent": true },
+    { "id": "start-game", "channel": "startGame", "data": [], "legacy": { "ok": true, "value": "legacy-started" }, "rust": { "ok": false, "error": "TAURI_COMMAND_UNAVAILABLE:startGame" }, "expectEquivalent": false },
+    { "id": "unknown", "channel": "shell:open", "data": [], "legacy": { "ok": false, "error": "Blocked unknown IPC channel" }, "rust": { "ok": false, "error": "TAURI_COMMAND_UNAVAILABLE:unknown" }, "expectEquivalent": false }
+  ]
+}

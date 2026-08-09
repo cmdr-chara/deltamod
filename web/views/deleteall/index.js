@@ -21,11 +21,15 @@ window.currentPageStack.init = function() {
     audSFX.play();
 
     setTimeout(function() {
-        window.electronAPI.invoke('initialize',[])
+        window.deltamodBackend.invokeOptional('initialize', [], false)
     }, 6000);
 };
 
 var btn = document.getElementById('initbtn');
+if (!window.deltamodBackend.isCommandAvailable('initialize')) {
+    btn.disabled = true;
+    btn.title = 'Data reset is unavailable in this app build';
+}
 let holdTimer = 0;
 let holding = false;
 btn.addEventListener('mousedown', () => {

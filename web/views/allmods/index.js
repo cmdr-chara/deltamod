@@ -37,9 +37,9 @@ function setIconText(element, iconName, text, size = 'small') {
 async function createMod(mod, compatible, loggedIn, modListElement) {
     const modRow = document.createElement('tr');
 
-    let imeta = await window.electronAPI.invoke('getModImage', [mod.uid]);
+    let imeta = await window.deltamodBackend.invoke('getModImage', [mod.uid]);
     if (!imeta.path) {
-        imeta.path = 'deltapack://web/img/mod-placeholder.png';
+        imeta.path = window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png');
     }
 
     // Column 1 (Mod)
@@ -54,7 +54,7 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
     modImage.style.objectFit = 'cover';
     modImage.onerror = () => {
         modImage.onerror = null;
-        modImage.src = 'deltapack://web/img/mod-placeholder.png';
+        modImage.src = window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png');
     };
     const modTitle = document.createElement('span');
     modTitle.textContent = String(mod.name || 'Unnamed mod');
@@ -125,7 +125,7 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
     gameSpan.className = 'calibri';
     gameSpan.style.fontSize = 'smaller';
     gameSpan.style.color = '#888';
-    setIconText(gameSpan, 'stadia_controller', await window.electronAPI.invoke('getGameInfo', [mod.game]).then(g => g.name));
+    setIconText(gameSpan, 'stadia_controller', await window.deltamodBackend.invoke('getGameInfo', [mod.game]).then(g => g.name));
     gameSpan.id = `modgame-${mod.uid}`;
     modNameContainer.appendChild(gameSpan);
 
@@ -196,13 +196,13 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
         actionContainer.appendChild(bdiv);
 
         const exploreModButton = document.createElement('button');
-        exploreModButton.onclick = () => window.electronAPI.invoke('openModFolder', [mod.folder]);
+        exploreModButton.onclick = () => window.deltamodBackend.invoke('openModFolder', [mod.folder]);
         exploreModButton.innerHTML = icon('folder_eye', '20px');
         bdiv.appendChild(exploreModButton);
 
         const deleteModButton = document.createElement('button');
         deleteModButton.onclick = () => {
-            window.electronAPI.invoke('removeMod', [mod.folder]);
+            window.deltamodBackend.invoke('removeMod', [mod.folder]);
         };
         deleteModButton.innerHTML = icon('delete_forever', '20px');
         bdiv.appendChild(deleteModButton);
@@ -220,7 +220,7 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
 
             const likeBtn = document.createElement('button');
             likeBtn.onclick = async () => {
-                let res = await window.electronAPI.invoke('gbLikeMod',[mod.gamebanana.model, mod.gamebanana.id]);
+                let res = await window.deltamodBackend.invoke('gbLikeMod',[mod.gamebanana.model, mod.gamebanana.id]);
                     if (res.status == 200) {
                         likeBtn.innerHTML = icon('sentiment_very_satisfied', '20px') + '';
                         likeBtn.disabled = true;
@@ -292,12 +292,12 @@ async function createErroringMods(errors) {
             // Action Row
             const exploreBtn = document.createElement("button");
             exploreBtn.innerText = t('open_mod_folder', "Open mod folder");
-            exploreBtn.onclick = () => window.electronAPI.invoke("openModFolder", [err.mod]);
+            exploreBtn.onclick = () => window.deltamodBackend.invoke("openModFolder", [err.mod]);
             actionRow.appendChild(exploreBtn);
 
             const deleteBtn = document.createElement("button");
             deleteBtn.innerText = t('delete_mod', "Delete mod");
-            deleteBtn.onclick = () => window.electronAPI.invoke("removeMod", [err.mod]);
+            deleteBtn.onclick = () => window.deltamodBackend.invoke("removeMod", [err.mod]);
             actionRow.appendChild(deleteBtn);
         }
 
@@ -322,7 +322,7 @@ async function createErroringMods(errors) {
         gamesShowSelect.isConnected &&
         modListElement.isConnected;
 
-    var loggedIn = await window.electronAPI.invoke('validateGamebananaToken', []);
+    var loggedIn = await window.deltamodBackend.invoke('validateGamebananaToken', []);
     if (!isPageActive()) return;
     const pageArguments = window._pageArguments || {};
     const selectedSpecID = pageArguments.specID;
@@ -332,7 +332,7 @@ async function createErroringMods(errors) {
         filterFunc = (mod) => mod.game === selectedSpecID;
     }
 
-    var enumerateGames = await window.electronAPI.invoke('getAvailableGames', []);
+    var enumerateGames = await window.deltamodBackend.invoke('getAvailableGames', []);
     if (!isPageActive()) return;
     for (const game of enumerateGames) {
         const option = document.createElement('option');
@@ -352,7 +352,7 @@ async function createErroringMods(errors) {
     }
     
 
-    var { modList, errors } = await window.electronAPI.invoke('getModList', []);
+    var { modList, errors } = await window.deltamodBackend.invoke('getModList', []);
     if (!isPageActive()) return;
 
     var list = modList.filter(filterFunc);
@@ -413,7 +413,7 @@ async function createErroringMods(errors) {
             const importButton = document.createElement('button');
             importButton.className = 'secondary-action';
             importButton.innerText = t('import_mod_package', 'Import mod package');
-            importButton.onclick = () => window.electronAPI.invoke('importMod', []);
+            importButton.onclick = () => window.deltamodBackend.invoke('importMod', []);
             actions.append(shopButton, importButton);
             copy.appendChild(actions);
         }

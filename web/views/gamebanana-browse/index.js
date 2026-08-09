@@ -340,7 +340,7 @@ var isGBLoggedIn = false;
 
 async function gameBananaLogin() {
     var loggedin = await Promise.race([
-        window.electronAPI.invoke('validateGamebananaToken', []),
+        window.deltamodBackend.invoke('validateGamebananaToken', []),
         new Promise(resolve => setTimeout(() => resolve(false), 5000))
     ]);
 
@@ -355,7 +355,7 @@ async function gameBananaLogin() {
     };
 
     if (loggedin) {
-        var pic = await window.electronAPI.invoke('getGamebananaPic',[]);
+        var pic = await window.deltamodBackend.invokeOptional('getGamebananaPic', [], null);
         if (typeof pic === 'string' && pic.trim()) {
             accountPicture.src = pic;
             accountPicture.hidden = false;
@@ -515,7 +515,7 @@ async function search(searchQuery = null) {
         return;
     }
 
-    let gameID = (await window.electronAPI.invoke('getCurrentGameInfo',[])).gamebanana.id;
+    let gameID = (await window.deltamodBackend.invoke('getCurrentGameInfo',[])).gamebanana.id;
 
     {
         // Search names, descriptions, owners, credits, and studios in one
@@ -530,7 +530,7 @@ async function search(searchQuery = null) {
 }
 
 async function featured() {
-    let gameID = (await window.electronAPI.invoke('getCurrentGameInfo',[])).gamebanana.id;
+    let gameID = (await window.deltamodBackend.invoke('getCurrentGameInfo',[])).gamebanana.id;
     // Why doesn't GB have a standard endpoint format for subs SMH
     window._pageArguments.gbAPI = 'https://gamebanana.com/apiv11/Game/' + gameID + '/TopSubs';
     window._pageArguments.gbAPIFilter = async function(data) {
@@ -579,7 +579,7 @@ async function dlmod(dlurl, buttonElem=null, modid, modmodel, currentItem = `Gam
     };
 
     try {
-        await window.electronAPI.invoke('dlmodURL',[dlurl, queryme, modid, modmodel]);
+        await window.deltamodBackend.invoke('dlmodURL',[dlurl, queryme, modid, modmodel]);
         setDownloadButtonIcon(buttonElem, 'done_outline');
         updateModDownloadStatus({ phase: 'complete', currentItem });
     } catch (error) {
@@ -973,7 +973,7 @@ async function renderMods(table, GB_API, filter, gameID) {
                     likeBtn.setAttribute('aria-label', `Like ${mod._sName}`);
                     likeBtn.disabled = !isGBLoggedIn;
                     likeBtn.onclick = async () => {
-                        let res = await window.electronAPI.invoke('gbLikeMod',[mod._sModelName, mod._idRow]);
+                        let res = await window.deltamodBackend.invoke('gbLikeMod',[mod._sModelName, mod._idRow]);
                         if (res.status == 200) {
                             setDownloadButtonIcon(likeBtn, 'sentiment_very_satisfied');
                             likeBtn.disabled = true;
@@ -1393,6 +1393,13 @@ function renderExternalMods(table, result) {
         primary.title = item.actionLabel;
         primary.setAttribute('aria-label', `${item.actionLabel}: ${item.title}`);
         primary.innerHTML = shopIcon(item.provider === 'nexus' ? 'download' : 'open');
+        const canDownload = item.provider !== 'nexus'
+            || window.deltamodBackend.isCommandAvailable('modSources:downloadNexus');
+        primary.disabled = !canDownload;
+        if (!canDownload) {
+            primary.title = 'Direct Nexus downloads are unavailable in this app build';
+            primary.setAttribute('aria-label', `Direct Nexus download unavailable: ${item.title}`);
+        }
         primary.onclick = () => item.provider === 'nexus'
             ? downloadNexusSource(item, primary)
             : window.communityAPI.modSources.open({ provider: item.provider, url: item.sourceUrl });
@@ -1559,7 +1566,7 @@ async function plusPage(amt) {
         return;
     }
 
-    let gameID = (await window.electronAPI.invoke('getCurrentGameInfo',[])).gamebanana.id;
+    let gameID = (await window.deltamodBackend.invoke('getCurrentGameInfo',[])).gamebanana.id;
     let GB_API = 'https://gamebanana.com/apiv11/Game/' + gameID + '/Subfeed?_sSort=default&_nPage=$PAGE';
     const contentRatingFilter = document.getElementById('contentRatingFilter');
     contentRatingFilter.value = currentContentFilter();

@@ -25,6 +25,17 @@ describe('Deltamod boot screen integration', () => {
         expect(css).toContain('body.deltamod-ui-entering > .language-wheel-toggle');
     });
 
+    test('keeps the alert overlay empty and hidden until renderer-owned content exists', () => {
+        const html = fs.readFileSync(path.join(projectRoot, 'web', 'index.html'), 'utf8');
+        const css = fs.readFileSync(path.join(projectRoot, 'web', 'index.css'), 'utf8');
+        const renderer = fs.readFileSync(path.join(projectRoot, 'web', 'index.js'), 'utf8');
+        expect(html).toContain('<div class="alertMain" hidden>');
+        expect(html).not.toContain('Example Alert');
+        expect(css).toContain('.alertMain[hidden]');
+        expect(renderer).toContain('alertMain.hidden = false;');
+        expect(renderer).toContain('alertMain.hidden = true;');
+    });
+
     test('connects theme and real initialization milestones to the boot API', () => {
         const renderer = fs.readFileSync(path.join(projectRoot, 'web', 'index.js'), 'utf8');
         const bootEntry = fs.readFileSync(path.join(projectRoot, 'web', 'boot-entry.tsx'), 'utf8');
@@ -34,6 +45,10 @@ describe('Deltamod boot screen integration', () => {
         expect(renderer).toContain("bootProgress(0.9, 'Preparing file overlay')");
         expect(renderer).toContain('finishBoot();');
         expect(renderer).toContain("window.DeltamodBoot?.fail('Continuing')");
+        expect(renderer).toContain("invokeOptional('isCMode', [], false)");
+        expect(renderer).toContain("invokeOptional('shouldGoIM', [], false)");
+        expect(renderer).toContain("invokeOptional('executeArgumentCmd', [], null)");
+        expect(renderer).toContain("assetUrl('app', `web/themes/${themePath}`)");
         expect(bootEntry).toContain('document.body.classList.add("deltamod-ui-entering")');
         expect(bootEntry).toContain('if (!state.themeReady)');
         expect(bootEntry).toContain('const accentColor = theme.soulColor || theme.themeColor;');

@@ -21,6 +21,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --workspace --locked --manifest-path native/Cargo.toml
       - run: npm ci
       - name: Require tag and package versions to match
         run: node -e "const p=require('./package.json'); const t=process.env.GITHUB_REF_NAME.replace(/^community-v/,''); if(t!==p.version) throw new Error(`Tag ${t} does not match package ${p.version}`)"
@@ -41,6 +43,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
       - run: npm run acquire:g3mtool
       - run: npm run verify:g3mtool
@@ -48,6 +51,10 @@ jobs:
       - run: npm run verify:undertale-mod-tool
       - run: npm run smoke:game-patching-csx
       - run: npm run build-windows
+      - run: node scripts/verify-packaged-hash-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
+      - run: node scripts/verify-packaged-security-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
+      - run: node scripts/verify-packaged-copy-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
+      - run: node scripts/verify-packaged-patch-plan-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
       - run: node scripts/verify-packaged-undertale-mod-tool.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
       - name: Verify unsigned beta installer
         shell: pwsh

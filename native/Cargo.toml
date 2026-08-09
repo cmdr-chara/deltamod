@@ -1,0 +1,3 @@
+[workspace]
+members = ["core", "copy-worker", "hash-worker", "patch-plan-worker", "patch-transaction-worker", "security-worker"]
+resolver = "2"

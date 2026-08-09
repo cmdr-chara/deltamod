@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { runNativeStagedCopy } = require('./NativeStagedCopy');
 
 class StagedCopyError extends Error {
     constructor(code, message, details = {}) {
@@ -19,6 +20,20 @@ function checkCancelled(signal) {
     if (signal?.aborted) {
         throw new StagedCopyError('COPY_CANCELLED', 'The import was cancelled.');
     }
+}
+
+async function lstatOrNull(target) {
+    try {
+        return await fs.promises.lstat(target);
+    } catch (error) {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+    }
+}
+
+function sameDirectorySnapshot(left, right) {
+    return left.isDirectory() && right.isDirectory() && !left.isSymbolicLink() && !right.isSymbolicLink()
+        && left.dev === right.dev && left.ino === right.ino && left.birthtimeMs === right.birthtimeMs;
 }
 
 async function inspectSourceTree(sourceRoot, signal) {
@@ -148,7 +163,7 @@ async function copyFileWithProgress(source, destination, context) {
 
 async function copyDirectoryAtomic(options) {
     const destination = path.resolve(options.destination);
-    if (fs.existsSync(destination)) {
+    if (await lstatOrNull(destination)) {
         throw new StagedCopyError(
             'DESTINATION_EXISTS',
             `The destination already exists: ${destination}`,
@@ -172,8 +187,15 @@ async function copyDirectoryAtomic(options) {
         path.dirname(destination),
         `.${path.basename(destination)}.importing-${operationId}`
     );
-    await fs.promises.rm(staging, { recursive: true, force: true });
-    await fs.promises.mkdir(staging, { recursive: true });
+    const destinationParent = path.dirname(destination);
+    const parentSnapshot = await fs.promises.lstat(destinationParent);
+    if (!parentSnapshot.isDirectory() || parentSnapshot.isSymbolicLink()) {
+        throw new StagedCopyError('DESTINATION_PARENT_CHANGED', 'The destination parent is not a safe directory.', { destination });
+    }
+    if (await lstatOrNull(staging)) {
+        throw new StagedCopyError('STAGING_COLLISION', `The staging path already exists: ${staging}`, { destination: staging });
+    }
+    await fs.promises.mkdir(staging);
     let completedBytes = 0;
 
     try {
@@ -203,17 +225,43 @@ async function copyDirectoryAtomic(options) {
             total: inventory.totalBytes,
             currentItem: path.basename(destination)
         });
+        const currentParent = await fs.promises.lstat(destinationParent);
+        if (!sameDirectorySnapshot(parentSnapshot, currentParent)) {
+            throw new StagedCopyError('DESTINATION_PARENT_CHANGED', 'The destination parent changed during copying.', { destination });
+        }
+        if (await lstatOrNull(destination)) {
+            throw new StagedCopyError('DESTINATION_EXISTS', `The destination already exists: ${destination}`, { destination });
+        }
         await fs.promises.rename(staging, destination);
         return { operationId, destination, ...inventory, availableBytes, requiredBytes };
     } catch (error) {
-        await fs.promises.rm(staging, { recursive: true, force: true });
+        try {
+            const currentParent = await fs.promises.lstat(destinationParent);
+            if (sameDirectorySnapshot(parentSnapshot, currentParent)) {
+                await fs.promises.rm(staging, { recursive: true, force: true });
+            }
+        } catch {}
         throw error;
     }
+}
+
+const copyDirectoryAtomicFallback = copyDirectoryAtomic;
+
+async function copyDirectoryAtomicNativeFirst(options) {
+    const destination = path.resolve(options.destination);
+    const operationId = options.operationId || crypto.randomUUID();
+    const availableBytes = options.availableBytes ?? await availableBytesFor(path.dirname(destination));
+    const native = runNativeStagedCopy({ ...options, operationId, availableBytes });
+    if (native === null) return copyDirectoryAtomicFallback({ ...options, operationId, availableBytes });
+    const inventory = await native;
+    const requiredBytes = inventory.totalBytes + Math.min(256 * 1024 * 1024, Math.ceil(inventory.totalBytes * 0.05));
+    return { operationId, destination, ...inventory, availableBytes, requiredBytes };
 }
 
 module.exports = {
     StagedCopyError,
     inspectSourceTree,
     availableBytesFor,
-    copyDirectoryAtomic
+    copyDirectoryAtomic: copyDirectoryAtomicNativeFirst,
+    copyDirectoryAtomicFallback
 };
