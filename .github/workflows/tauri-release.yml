@@ -75,6 +75,7 @@ jobs:
       - run: npm run build:boot
       - run: npm run build:native-sidecars:target -- ${{ matrix.target }}
       - run: npm run build:tauri:resources -- ${{ matrix.target }}
+      - run: npm run build:tauri:butler -- ${{ matrix.target }}
       - run: npm run verify:tauri-staging -- ${{ matrix.target }}
       - uses: tauri-apps/tauri-action@v0
         env:
