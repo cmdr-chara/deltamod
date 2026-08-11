@@ -368,6 +368,11 @@ impl ProcessRegistry {
         } else {
             command.stdout(Stdio::null()).stderr(Stdio::null());
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
         let child = Arc::new(Mutex::new(command.spawn().map_err(|source| {
             RuntimeError::Start {
                 kind: spec.kind.name(),
@@ -387,11 +392,6 @@ impl ProcessRegistry {
         #[cfg(not(windows))]
         let job = ();
         let id = u64::from(child.lock().map_err(|_| RuntimeError::Registry)?.id());
-        #[cfg(unix)]
-        {
-            let pid = rustix::process::Pid::from_raw(id as i32);
-            rustix::process::setpgid(Some(pid), Some(pid)).map_err(|_| RuntimeError::Registry)?;
-        }
         self.inner
             .lock()
             .map_err(|_| RuntimeError::Registry)?
@@ -500,8 +500,9 @@ fn join_output(
 fn terminate_child(child: &mut Child) {
     #[cfg(unix)]
     {
-        let pid = rustix::process::Pid::from_raw(child.id() as i32);
-        let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+        if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
+            let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+        }
     }
     let _ = child.kill();
 }
