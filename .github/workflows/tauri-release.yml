@@ -1,37 +1,65 @@
-name: Tauri Unsigned Beta
+name: Community Stable Tauri Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      publish:
-        description: Publish the experimental Tauri artifacts after all gates pass
-        required: true
-        default: false
-        type: boolean
+  push:
+    tags:
+      - community-v*
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: community-stable-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          components: rustfmt, clippy
       - run: npm ci
+      - name: Validate stable 2.0.3 tag and manifests
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const tag = process.env.GITHUB_REF_NAME;
+          const match = /^community-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(tag);
+          if (!match) throw new Error(`Stable tags must use community-v<stable semver>; received ${tag}`);
+          const tagVersion = match.slice(1).join('.');
+          const packageVersion = require('./package.json').version;
+          const tauriVersion = require('./src-tauri/tauri.conf.json').version;
+          const cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
+          const cargoVersion = /^version\s*=\s*"([^"]+)"/m.exec(cargo)?.[1];
+          const versions = { tag: tagVersion, package: packageVersion, cargo: cargoVersion, tauri: tauriVersion };
+          if (tagVersion !== '2.0.3' || Object.values(versions).some(version => version !== tagVersion)) {
+            throw new Error(`Release requires every manifest and tag to be 2.0.3: ${JSON.stringify(versions)}`);
+          }
+          const config = require('./src-tauri/tauri.conf.json');
+          if (config.bundle?.active !== true || config.bundle?.createUpdaterArtifacts !== false) {
+            throw new Error('Bundling must be active and updater artifacts must remain disabled.');
+          }
+          NODE
       - run: cargo fmt --all --check --manifest-path native/Cargo.toml
       - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
       - run: cargo test --workspace --locked --manifest-path native/Cargo.toml
+      - run: cargo build --workspace --locked --manifest-path native/Cargo.toml
+      - run: cargo fmt --all --check --manifest-path src-tauri/Cargo.toml
+      - run: cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml -- -D warnings
+      - run: cargo test --workspace --locked --manifest-path src-tauri/Cargo.toml
       - run: npm test
       - run: npm run typecheck
       - run: npm run security:audit
+      - run: npm run verify:g3mtool-manifest
+      - run: npm run verify:undertale-mod-tool-manifest
       - run: npm run parity:report
-      - run: node -e "const p=require('./package.json');if(!/^\d+\.\d+\.\d+/.test(p.version))throw new Error('Invalid package version')"
-      - run: node -e "const c=require('./src-tauri/tauri.conf.json');if(c.bundle?.active!==true)throw new Error('Tauri bundle is disabled; merge and review src-tauri configuration before packaging')"
 
   package:
     needs: validate
@@ -41,30 +69,36 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: windows
+            artifact: windows-nsis
+            bundles: nsis
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-            artifact: linux
+            artifact: linux-appimage-deb
+            bundles: appimage,deb
           - os: macos-15-intel
             target: x86_64-apple-darwin
-            artifact: macos-x64
+            artifact: macos-x64-dmg
+            bundles: dmg
           - os: macos-14
             target: aarch64-apple-darwin
-            artifact: macos-arm64
+            artifact: macos-arm64-dmg
+            bundles: dmg
     runs-on: ${{ matrix.os }}
     env:
       RUST_TARGET: ${{ matrix.target }}
       TAURI_BUILD_TARGET: ${{ matrix.target }}
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
         with:
           targets: ${{ matrix.target }}
+      - name: Install Linux bundle dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
       - run: npm run acquire:g3mtool -- --all
       - run: npm run verify:g3mtool-manifest
@@ -77,29 +111,161 @@ jobs:
       - run: npm run build:tauri:resources -- ${{ matrix.target }}
       - run: npm run build:tauri:butler -- ${{ matrix.target }}
       - run: npm run verify:tauri-staging -- ${{ matrix.target }}
-      - uses: tauri-apps/tauri-action@v0
+      - name: Require and import Windows signing certificate
+        if: runner.os == 'Windows'
+        id: windows_signing
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PFX_BASE64) -or [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            throw "WINDOWS_CERTIFICATE_PFX_BASE64 and WINDOWS_CERTIFICATE_PASSWORD are required."
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "deltamod-release.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_PFX_BASE64))
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = @(Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password) |
+            Where-Object HasPrivateKey | Select-Object -First 1
+          if (-not $certificate) { throw "Imported Windows certificate has no private key." }
+          $config = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
+          $config.bundle.targets = @("nsis")
+          $config.bundle.createUpdaterArtifacts = $false
+          $config.bundle | Add-Member -Force -NotePropertyName windows -NotePropertyValue @{
+            certificateThumbprint = $certificate.Thumbprint
+            digestAlgorithm = "sha256"
+            timestampUrl = "https://timestamp.digicert.com"
+          }
+          $config | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 "src-tauri/tauri.release.generated.json"
+          "thumbprint=$($certificate.Thumbprint)" >> $env:GITHUB_OUTPUT
+      - name: Require Apple signing and notarization credentials
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            test -n "${!name}" || { echo "::error::$name is required"; exit 1; }
+          done
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/deltamod-release.p12"
+          openssl pkcs12 -in "$RUNNER_TEMP/deltamod-release.p12" -passin env:APPLE_CERTIFICATE_PASSWORD -noout
+      - name: Build signed Windows NSIS bundle
+        if: runner.os == 'Windows'
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: .
-          configPath: src-tauri/tauri.conf.json
-          args: --target ${{ matrix.target }}
-      - run: node scripts/verify-tauri-package.js "src-tauri/target/${{ matrix.target }}/release/bundle"
-      - uses: actions/upload-artifact@v4
+          args: --config src-tauri/tauri.release.generated.json --target ${{ matrix.target }} --bundles nsis
+      - name: Build Linux AppImage and deb bundles
+        if: runner.os == 'Linux'
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .
+          args: --target ${{ matrix.target }} --bundles appimage,deb
+      - name: Build signed and notarized macOS DMG
+        if: runner.os == 'macOS'
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: .
+          args: --target ${{ matrix.target }} --bundles dmg
+      - run: node scripts/verify-tauri-package.js "src-tauri/target/${{ matrix.target }}/release/bundle" "${{ matrix.target }}"
+      - name: Verify Windows Authenticode signature
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installers = Get-ChildItem "src-tauri/target/${{ matrix.target }}/release/bundle/nsis" -Filter *.exe -File
+          if (-not $installers) { throw "No NSIS installer was produced." }
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature $installer.FullName
+            if ($signature.Status -ne "Valid" -or $signature.SignerCertificate.Thumbprint -ne "${{ steps.windows_signing.outputs.thumbprint }}") {
+              throw "Invalid Authenticode signature on $($installer.Name): $($signature.Status)"
+            }
+          }
+      - name: Verify macOS signing and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          app=$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -print -quit)
+          dmg=$(find "src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -name '*.dmg' -print -quit)
+          test -n "$app" && test -n "$dmg"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv --verbose=4 "$app" 2>&1 | grep -F "Authority=$APPLE_SIGNING_IDENTITY"
+          xcrun stapler validate "$dmg"
+      - name: Remove temporary Apple certificate
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/deltamod-release.p12"
+      - name: Remove imported Windows certificate
+        if: always() && runner.os == 'Windows' && steps.windows_signing.outputs.thumbprint != ''
+        shell: pwsh
+        run: |
+          Remove-Item "Cert:\CurrentUser\My\${{ steps.windows_signing.outputs.thumbprint }}" -Force
+          Remove-Item (Join-Path $env:RUNNER_TEMP "deltamod-release.pfx"), "src-tauri/tauri.release.generated.json" -Force -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact }}
-          path: src-tauri/target/**/bundle/**
+          if-no-files-found: error
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+            src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+
+  third-party-source:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run archive:g3mtool-source -- "G3MTool-1.2.5-source.zip"
+      - run: npm run archive:undertale-mod-tool-source -- "UndertaleModTool-0.9.1.2-source.zip"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: third-party-source
+          if-no-files-found: error
+          path: |
+            G3MTool-1.2.5-source.zip
+            UndertaleModTool-0.9.1.2-source.zip
 
   publish:
-    needs: package
+    needs: [package, third-party-source]
     runs-on: ubuntu-latest
-    if: inputs.publish == true && needs.package.result == 'success'
+    environment: stable-release
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-artifacts
           merge-multiple: true
-      - env:
+      - name: Publish stable manual-download release
+        env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "community-tauri-v${{ github.run_number }}" release-artifacts/**/* --prerelease --title "Deltamod Community ${{ github.run_number }} (Unsigned Tauri Beta)" --notes-file RELEASE-GATE.md
+        shell: bash
+        run: |
+          mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
+          test "${#artifacts[@]}" -eq 7
+          gh release create "$GITHUB_REF_NAME" "${artifacts[@]}" --verify-tag --latest --notes-file CHANGELOG.txt --title "Deltamod Community ${GITHUB_REF_NAME#community-v}"

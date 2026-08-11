@@ -7,7 +7,7 @@
 <p align="center">Install and manage mods for DELTARUNE, UNDERTALE, and other supported GameMaker games.</p>
 
 <p align="center">
-  <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?include_prereleases&amp;sort=semver&amp;style=flat-square&amp;cacheSeconds=300"></a>
+  <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?sort=semver&amp;style=flat-square&amp;cacheSeconds=300"></a>
   <a href="./LICENSE.txt"><img alt="License: EUPL 1.2" src="https://img.shields.io/badge/license-EUPL--1.2-4c8bf5?style=flat-square"></a>
 </p>
 
@@ -19,27 +19,31 @@
 
 ## Download
 
-| System | Download |
-| --- | --- |
-| Windows 64-bit | **[Download installer](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-win-x64.exe)** |
-| Mac with Apple chip | [Download DMG](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-mac-arm64.dmg) |
-| Mac with Intel chip | [Download DMG](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-mac-x64.dmg) |
-| Linux 64-bit | [Download AppImage](https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.3-beta.3/deltamod-community-2.0.3-beta.3-linux-x86_64.AppImage) |
+The stable 2.0.3 release uses the Tauri desktop shell. Download it from the
+[official GitHub release page](https://github.com/cmdr-chara/deltamod/releases/tag/community-v2.0.3).
+Choose the asset for your operating system and architecture. Stable Windows and
+macOS artifacts are published only when they have the required platform
+signature; verify the publisher or signature before installing them.
 
-This is a beta. Windows and macOS builds are not signed yet.
+Deltamod Community does not currently update itself. Check the release page and
+download future versions manually until a signed updater is configured.
 
 ### Install on Windows
 
 1. Open the downloaded installer.
-2. If Windows shows **Windows protected your PC**, click **More info**.
-3. Click **Run anyway**.
-4. Finish the installer and open **Deltamod Community**.
+2. Confirm that Windows reports the expected verified publisher.
+3. Finish the installer and open **Deltamod Community**.
+
+Do not bypass a Windows security warning. If the signature or publisher cannot
+be verified, delete the installer and report the release asset.
 
 ### Install on macOS
 
 1. Open the downloaded DMG and move Deltamod Community to Applications.
-2. If macOS blocks it, open **System Settings > Privacy & Security**.
-3. Click **Open Anyway**.
+2. Open Deltamod Community from Applications.
+
+Do not override macOS security checks. If macOS cannot verify the app, delete it
+and report the release asset.
 
 To check your Mac type, open **Apple menu > About This Mac** and look for
 **Chip: Apple** or **Processor: Intel**.
@@ -86,7 +90,7 @@ Individual mods may only work with specific game versions.
 
 | Platform | Status |
 | --- | --- |
-| Windows 64-bit | Beta |
+| Windows 64-bit | Stable |
 | Linux 64-bit | Experimental |
 | macOS Apple and Intel | Experimental |
 | Wine or CrossOver | Unofficial |
