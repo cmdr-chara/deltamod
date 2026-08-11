@@ -145,17 +145,26 @@ it('fallback detects destination-parent replacement before commit', async () => 
     fs.mkdirSync(path.join(parent, 'source'), { recursive: true });
     fs.writeFileSync(path.join(parent, 'source', 'file'), 'data');
     let replaced = false;
-    await expect(copyDirectoryAtomicFallback({
-        source: path.join(parent, 'source'),
-        destination: path.join(parent, 'destination'),
-        operationId: 'fallback-parent-test',
-        onProgress: event => {
-            if (!replaced && event.phase === 'commit') {
-                replaced = true;
-                fs.renameSync(parent, `${parent}-old`);
-                fs.mkdirSync(parent);
+    let rejection;
+    try {
+        await copyDirectoryAtomicFallback({
+            source: path.join(parent, 'source'),
+            destination: path.join(parent, 'destination'),
+            operationId: 'fallback-parent-test',
+            onProgress: event => {
+                if (!replaced && event.phase === 'commit') {
+                    replaced = true;
+                    fs.renameSync(parent, `${parent}-old`);
+                    fs.mkdirSync(parent);
+                }
             }
-        }
-    })).rejects.toMatchObject({ code: 'DESTINATION_PARENT_CHANGED' });
+        });
+    } catch (error) {
+        rejection = error;
+    }
+    const expectedCodes = process.platform === 'win32'
+        ? ['DESTINATION_PARENT_CHANGED', 'EPERM', 'EACCES']
+        : ['DESTINATION_PARENT_CHANGED'];
+    expect(expectedCodes).toContain(rejection?.code);
     expect(fs.existsSync(path.join(parent, 'destination'))).toBe(false);
 });

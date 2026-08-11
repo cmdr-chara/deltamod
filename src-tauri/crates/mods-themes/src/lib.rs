@@ -183,6 +183,7 @@ pub fn validate_relative_asset(value: &str) -> Result<()> {
         || path.is_absolute()
         || value.starts_with("//")
         || value.contains('%')
+        || value.contains(':')
     {
         return Err(DomainError("insecure asset reference".into()));
     }
@@ -518,6 +519,7 @@ mod tests {
     fn secure_references_and_names() {
         assert!(AssetRef::new("../x.png").is_err());
         assert!(AssetRef::new("C:/x.png").is_err());
+        assert!(AssetRef::new("folder/name:x.png").is_err());
         let used = HashSet::from(["t-asset.png".into()]);
         assert_eq!(
             generated_asset_basename(&tid("t"), "x.PNG", &used).unwrap(),
