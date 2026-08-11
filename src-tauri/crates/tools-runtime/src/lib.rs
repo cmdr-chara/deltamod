@@ -389,8 +389,6 @@ impl ProcessRegistry {
             }
             Some(job)
         };
-        #[cfg(not(windows))]
-        let job = ();
         let id = u64::from(child.lock().map_err(|_| RuntimeError::Registry)?.id());
         self.inner
             .lock()

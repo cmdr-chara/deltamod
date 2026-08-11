@@ -17,8 +17,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-26]
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-26
+            target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
+    env:
+      TAURI_BUILD_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -31,6 +39,12 @@ jobs:
       - name: Install Linux Tauri dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - run: npm run acquire:g3mtool
+      - run: npm run acquire:undertale-mod-tool
+        if: matrix.target != 'aarch64-apple-darwin'
+      - run: npm run build:native-sidecars:target -- ${{ matrix.target }}
+      - run: npm run build:tauri:resources -- ${{ matrix.target }}
       - run: cargo fmt --all --check --manifest-path native/Cargo.toml
       - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
       - run: cargo test --workspace --locked --manifest-path native/Cargo.toml
@@ -38,7 +52,6 @@ jobs:
       - run: cargo fmt --all --check --manifest-path src-tauri/Cargo.toml
       - run: cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml -- -D warnings
       - run: cargo test --workspace --locked --manifest-path src-tauri/Cargo.toml
-      - run: npm ci
       - run: npm test
       - run: npm run typecheck
       - run: npm run security:audit
