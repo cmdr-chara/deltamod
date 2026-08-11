@@ -57,6 +57,9 @@ jobs:
       - run: npm run security:audit
       - run: npm run verify:g3mtool-manifest
       - run: npm run verify:undertale-mod-tool-manifest
+      - name: Install Playwright Chromium
+        if: runner.os == 'macOS'
+        run: npx playwright install chromium
       - name: Electron workflow smoke test
         if: runner.os == 'macOS'
         run: npm run test:e2e
