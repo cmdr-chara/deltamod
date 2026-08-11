@@ -464,11 +464,14 @@ mod tests {
     }
     #[test]
     fn shortcut_is_data_only_and_rejects_relative_executable() {
+        let executable = if cfg!(windows) {
+            PathBuf::from("C:\\Deltamod\\Deltamod.exe")
+        } else {
+            PathBuf::from("/opt/deltamod/Deltamod")
+        };
         assert!(ShortcutPlan::new("Deltamod", "run.exe").is_err());
-        assert!(
-            ShortcutPlan::new("../Deltamod", PathBuf::from("C:\\Deltamod\\Deltamod.exe")).is_err()
-        );
-        let plan = ShortcutPlan::new("Deltamod", PathBuf::from("C:\\Deltamod\\Deltamod.exe"))
+        assert!(ShortcutPlan::new("../Deltamod", &executable).is_err());
+        let plan = ShortcutPlan::new("Deltamod", executable)
             .unwrap()
             .argument("--controller")
             .unwrap();
