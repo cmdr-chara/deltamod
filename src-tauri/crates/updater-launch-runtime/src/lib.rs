@@ -880,7 +880,7 @@ mod tests {
             atomic::{AtomicUsize, Ordering},
             Arc,
         },
-        time::{Duration, SystemTime, UNIX_EPOCH},
+        time::Duration,
     };
     struct FakeChild {
         waited: bool,
@@ -964,6 +964,8 @@ mod tests {
     }
 
     struct TestRoot(PathBuf);
+    static NEXT_GAME_FIXTURE: AtomicUsize = AtomicUsize::new(0);
+
     impl Drop for TestRoot {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
@@ -972,11 +974,9 @@ mod tests {
 
     fn game_fixture() -> (TestRoot, GameRuntimeConfig) {
         let root = env::temp_dir().join(format!(
-            "deltamod-game-runtime-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            "deltamod-game-runtime-{}-{}",
+            std::process::id(),
+            NEXT_GAME_FIXTURE.fetch_add(1, Ordering::Relaxed)
         ));
         let games = root.join("games");
         let install = root.join("install");
