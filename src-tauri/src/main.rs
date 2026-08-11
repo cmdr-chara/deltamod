@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
 mod channels;
+mod controller;
 mod error;
 mod state;
 
+use base64::Engine;
 use deltamod_asset_runtime::{headers, plan_range, Body, Error as AssetError, Range};
 use http::{Request, Response, StatusCode};
 use serde_json::{json, Value};
@@ -123,9 +125,14 @@ enum BackendChannel {
     IsDevMode,
     IsPackaged,
     Log,
+    LoginGamebanana,
     Minimize,
     Quit,
     Restart,
+    IsControllerMode,
+    ControllerModeOn,
+    ControllerModeOff,
+    SetAppIcon,
     ShowWindow,
     ToggleFullscreen,
     Version,
@@ -142,9 +149,14 @@ impl FromStr for BackendChannel {
             "isDevMode" => Self::IsDevMode,
             "isPackaged" => Self::IsPackaged,
             "log" => Self::Log,
+            "loginGamebanana" => Self::LoginGamebanana,
             "minimizeMe" => Self::Minimize,
             "quitCommunityForEasterEgg" => Self::Quit,
             "restartCommunity" => Self::Restart,
+            "isCMode" => Self::IsControllerMode,
+            "cmode-on" => Self::ControllerModeOn,
+            "cmode-off" => Self::ControllerModeOff,
+            "setAppIcon" => Self::SetAppIcon,
             "showWindow" => Self::ShowWindow,
             "toggleFullscreen" => Self::ToggleFullscreen,
             "version" => Self::Version,
@@ -162,6 +174,7 @@ impl FromStr for BackendChannel {
             | "getSystemIndex"
             | "getMaxExistingIndex"
             | "isCurrentIndexSteam"
+            | "removeSteamIntegration"
             | "protocol:parseDeepLink"
             | "protocol:planRange"
             | "protocol:queueDeepLink"
@@ -189,6 +202,9 @@ impl FromStr for BackendChannel {
             | "openSysFolder"
             | "openModFolder"
             | "validateGamebananaToken"
+            | "getGamebananaPic"
+            | "getGamebananaID"
+            | "getGamebananaUserinfo"
             | "startGame"
             | "getCurrentGameInfo"
             | "getGameInfo"
@@ -221,18 +237,11 @@ impl FromStr for BackendChannel {
             | "dlmodURL" => Self::Implemented(channel.to_owned()),
             "undertaleModTool:status" | "fireUpdate" => Self::Implemented(channel.to_owned()),
             "htmlAlert_outwin"
-            | "isCMode"
             | "shouldGoIM"
             | "sampleError"
-            | "cmode-on"
-            | "cmode-off"
             | "rebootDev"
             | "setSponsor"
-            | "loginGamebanana"
             | "modSources:cancelNexusSso"
-            | "getGamebananaPic"
-            | "getGamebananaID"
-            | "getGamebananaUserinfo"
             | "shakeCommunityWindowForEasterEgg"
             | "modSources:downloadNexus"
             | "createInstallLink"
@@ -241,7 +250,6 @@ impl FromStr for BackendChannel {
             | "start-update"
             | "ignore-update"
             | "getEditionByIndex"
-            | "removeSteamIntegration"
             | "openFlagDatabase"
             | "deltamoddersDiscord"
             | "canReportError"
@@ -279,6 +287,33 @@ fn schedule_exit(app: AppHandle, restart: bool) {
             app.exit(0);
         }
     });
+}
+
+fn set_app_icon(window: &WebviewWindow, data: &[Value]) -> Result<Value, String> {
+    const PREFIX: &str = "data:image/png;base64,";
+    const MAX_ENCODED_BYTES: usize = 96 * 1024;
+    let encoded = data
+        .first()
+        .and_then(Value::as_str)
+        .and_then(|value| value.strip_prefix(PREFIX))
+        .filter(|value| !value.is_empty() && value.len() <= MAX_ENCODED_BYTES)
+        .ok_or_else(|| error::invalid("setAppIcon"))?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| error::invalid("setAppIcon"))?;
+    if bytes.len() < 24 || bytes[..8] != *b"\x89PNG\r\n\x1a\n" {
+        return Err(error::invalid("setAppIcon"));
+    }
+    let width = u32::from_be_bytes(bytes[16..20].try_into().map_err(|_| error::internal())?);
+    let height = u32::from_be_bytes(bytes[20..24].try_into().map_err(|_| error::internal())?);
+    if !(16..=512).contains(&width) || !(16..=512).contains(&height) {
+        return Err(error::invalid("setAppIcon"));
+    }
+    let icon = tauri::image::Image::from_bytes(&bytes).map_err(|_| error::invalid("setAppIcon"))?;
+    window
+        .set_icon(icon)
+        .map(|_| Value::Null)
+        .map_err(|_| error::internal())
 }
 
 fn dispatch(
@@ -322,6 +357,18 @@ fn dispatch(
             schedule_exit(app.clone(), true);
             Ok(Value::Null)
         }
+        BackendChannel::IsControllerMode => {
+            Ok(json!(app.state::<controller::ControllerMode>().enabled()))
+        }
+        BackendChannel::ControllerModeOn => {
+            controller::relaunch(app, true)?;
+            Ok(Value::Null)
+        }
+        BackendChannel::ControllerModeOff => {
+            controller::relaunch(app, false)?;
+            Ok(Value::Null)
+        }
+        BackendChannel::SetAppIcon => set_app_icon(window, data),
         BackendChannel::Quit => {
             schedule_exit(app.clone(), false);
             Ok(json!({"closing":true}))
@@ -344,6 +391,7 @@ fn dispatch(
             eprintln!("[{level}] [renderer] {message}");
             Ok(Value::Null)
         }
+        BackendChannel::LoginGamebanana => Err(error::internal()),
         BackendChannel::Implemented(name) => {
             let value = dispatch_domain(app, &state, &name, data)?;
             emit_runtime_events(app, &state);
@@ -399,21 +447,27 @@ fn dispatch_domain(
     Err(error::unavailable(name))
 }
 
-fn emit_runtime_events(app: &AppHandle, state: &state::AppState) {
+fn renderer_event(
+    event: deltamod_mods_themes_runtime::EventIntent,
+) -> Option<(&'static str, Value)> {
     use deltamod_mods_themes_runtime::EventIntent;
+    match event {
+        EventIntent::ModsChanged => Some(("refresh", Value::Null)),
+        EventIntent::ModStateChanged { .. } => None,
+        EventIntent::ThemesChanged | EventIntent::ActiveThemeChanged { .. } => {
+            Some(("themeChange", Value::Null))
+        }
+        EventIntent::PreferencesChanged
+        | EventIntent::SharedChanged
+        | EventIntent::SponsorsChanged => Some(("refresh", Value::Null)),
+    }
+}
+
+fn emit_runtime_events(app: &AppHandle, state: &state::AppState) {
     for event in state.mods_themes.drain_events() {
-        let (name, payload) = match event {
-            EventIntent::ModsChanged | EventIntent::ModStateChanged { .. } => {
-                ("refresh", Value::Null)
-            }
-            EventIntent::ThemesChanged | EventIntent::ActiveThemeChanged { .. } => {
-                ("themeChange", Value::Null)
-            }
-            EventIntent::PreferencesChanged
-            | EventIntent::SharedChanged
-            | EventIntent::SponsorsChanged => ("refresh", Value::Null),
-        };
-        let _ = app.emit(name, payload);
+        if let Some((name, payload)) = renderer_event(event) {
+            let _ = app.emit(name, payload);
+        }
     }
     use deltamod_updater_launch_runtime::UpdateEvent;
     let events = state
@@ -441,7 +495,7 @@ fn emit_runtime_events(app: &AppHandle, state: &state::AppState) {
 }
 
 #[tauri::command]
-fn backend_invoke(
+async fn backend_invoke(
     app: AppHandle,
     window: WebviewWindow,
     channel: String,
@@ -459,7 +513,14 @@ fn backend_invoke(
         return Err(error::invalid("backend"));
     }
     let parsed = BackendChannel::from_str(&channel).map_err(|()| error::unavailable("unknown"))?;
-    dispatch(&app, &window, parsed, data)
+    if parsed == BackendChannel::LoginGamebanana {
+        channels::auth::login(app).await
+    } else {
+        let data = data.clone();
+        tauri::async_runtime::spawn_blocking(move || dispatch(&app, &window, parsed, &data))
+            .await
+            .map_err(|_| error::internal())?
+    }
 }
 
 fn main() {
@@ -486,10 +547,43 @@ fn main() {
                 .resource_dir()
                 .map_err(|_| "state root unavailable")?;
             app.manage(
-                state::AppState::initialize_with_app(data_dir, resource_dir, app.handle().clone())
-                    .map_err(|_| "state root unavailable")?,
+                state::AppState::initialize_with_app(
+                    data_dir,
+                    resource_dir.clone(),
+                    app.handle().clone(),
+                )
+                .map_err(|_| "state root unavailable")?,
             );
+            let controller = controller::ControllerMode::new(&resource_dir);
+            if controller.enabled() {
+                if let Some(window) = app.get_webview_window("main") {
+                    window
+                        .set_fullscreen(true)
+                        .map_err(|_| "controller mode unavailable")?;
+                    if window
+                        .is_focused()
+                        .map_err(|_| "controller mode unavailable")?
+                    {
+                        controller
+                            .start()
+                            .map_err(|_| "controller mode unavailable")?;
+                    }
+                }
+            }
+            app.manage(controller);
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            let controller = window.app_handle().state::<controller::ControllerMode>();
+            match event {
+                tauri::WindowEvent::Focused(true) => {
+                    let _ = controller.start();
+                }
+                tauri::WindowEvent::Focused(false) | tauri::WindowEvent::Destroyed => {
+                    controller.stop()
+                }
+                _ => {}
+            }
         })
         .invoke_handler(tauri::generate_handler![backend_invoke])
         .run(tauri::generate_context!())
@@ -511,6 +605,9 @@ mod tests {
         ));
         for channel in [
             "validateGamebananaToken",
+            "getGamebananaPic",
+            "getGamebananaID",
+            "getGamebananaUserinfo",
             "leaveCommentGamebanana",
             "gamebanana_getCollections",
             "fireUpdate",
@@ -520,7 +617,17 @@ mod tests {
                 Ok(BackendChannel::Implemented(name)) if name == channel
             ));
         }
-        for channel in ["executeArgumentCmd", "loginGamebanana", "start-update"] {
+        for channel in ["isCMode", "cmode-on", "cmode-off", "setAppIcon"] {
+            assert!(!matches!(
+                BackendChannel::from_str(channel),
+                Ok(BackendChannel::Unsupported(_))
+            ));
+        }
+        assert_eq!(
+            BackendChannel::from_str("loginGamebanana"),
+            Ok(BackendChannel::LoginGamebanana)
+        );
+        for channel in ["executeArgumentCmd", "start-update"] {
             assert!(matches!(
                 BackendChannel::from_str(channel),
                 Ok(BackendChannel::Unsupported(name)) if name == channel
@@ -533,6 +640,21 @@ mod tests {
         assert_eq!(
             error::unavailable(&"x".repeat(500)),
             "TAURI_COMMAND_UNAVAILABLE:unknown"
+        );
+    }
+
+    #[test]
+    fn mod_state_changes_do_not_refresh_the_page() {
+        use deltamod_mods_themes_runtime::EventIntent;
+
+        assert!(renderer_event(EventIntent::ModStateChanged { uid: "mod".into() }).is_none());
+        assert_eq!(
+            renderer_event(EventIntent::ModsChanged).map(|event| event.0),
+            Some("refresh")
+        );
+        assert_eq!(
+            renderer_event(EventIntent::ThemesChanged).map(|event| event.0),
+            Some("themeChange")
         );
     }
 

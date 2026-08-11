@@ -29,10 +29,13 @@ fn flag_name(value: &str) -> Option<String> {
     if (1..=64).contains(&value.len())
         && value
             .bytes()
-            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
-        && value.as_bytes().first().is_some_and(u8::is_ascii_uppercase)
+            .all(|b| b.is_ascii_alphabetic() || b.is_ascii_digit() || b == b'_')
+        && value
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphabetic)
     {
-        Some(value.to_owned())
+        Some(value.to_ascii_uppercase())
     } else {
         None
     }
@@ -80,10 +83,34 @@ pub fn dispatch(
         "openSysFolder" => open_folder(app, &state.data_root.root, &state.data_root.root).map(Some),
         "openModFolder" => open_folder(
             app,
-            &state.data_root.root.join("mods"),
+            &data
+                .first()
+                .and_then(Value::as_str)
+                .filter(|folder| {
+                    !folder.is_empty()
+                        && folder.len() <= 128
+                        && folder.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_')
+                        })
+                })
+                .map(|folder| state.data_root.root.join("packets").join(folder))
+                .unwrap_or_else(|| state.data_root.root.join("packets")),
             &state.data_root.root,
         )
         .map(Some),
         _ => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::flag_name;
+
+    #[test]
+    fn legacy_flag_names_are_case_insensitive() {
+        assert_eq!(flag_name("audio").as_deref(), Some("AUDIO"));
+        assert_eq!(flag_name("hashchecks").as_deref(), Some("HASHCHECKS"));
+        assert_eq!(flag_name("CONTROLLER").as_deref(), Some("CONTROLLER"));
+        assert_eq!(flag_name("1invalid"), None);
     }
 }

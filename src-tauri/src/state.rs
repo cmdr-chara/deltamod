@@ -110,6 +110,7 @@ pub struct AppState {
     pub game_download_cancellations: Mutex<HashMap<String, GameDownloadCancellation>>,
     /// None means the platform secure store could not be initialized. Never fall back to files.
     pub credentials: Option<CredentialStore<KeyringBackend>>,
+    pub gamebanana_login_active: AtomicBool,
     pub assets: AssetRuntime,
     pub mod_images: HashMap<String, String>,
     pub game: GameRuntime,
@@ -243,6 +244,7 @@ impl AppState {
             butlerd,
             game_download_cancellations: Mutex::new(HashMap::new()),
             credentials,
+            gamebanana_login_active: AtomicBool::new(false),
             assets,
             mod_images,
             game,

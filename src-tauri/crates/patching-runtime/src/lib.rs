@@ -11,7 +11,7 @@ use deltamod_tools_runtime::{
 };
 use deltamod_updater_launch_runtime::GameRuntime;
 use roxmltree::Document;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -60,6 +60,8 @@ pub enum Error {
     Transaction(String),
     #[error("Game hashing failed: {0}")]
     Hash(String),
+    #[error("Selected mod \"{mod_name}\" is incompatible: {reason}")]
+    IncompatibleMod { mod_name: String, reason: String },
     #[error("The patched game could not be started: {0}")]
     Launch(String),
     #[error("Patching failed: {0}")]
@@ -153,6 +155,20 @@ pub struct HashResult {
     pub file_count: usize,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct RequiredFile {
+    pub file: Option<String>,
+    pub checksum: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Compatibility {
+    pub is_incompatible: bool,
+    pub incompatibility_reason: String,
+    pub hash_different_files: Vec<String>,
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchResult {
@@ -173,6 +189,113 @@ pub struct Runtime {
 }
 
 impl Runtime {
+    pub fn check_required_files(
+        &self,
+        mods: &[(String, Vec<RequiredFile>)],
+    ) -> Result<BTreeMap<String, Compatibility>, Error> {
+        require_directory(&self.game_root, Error::GameUnavailable)?;
+        let mut cache = load_hash_cache(&self.hash_cache_path);
+        let mut dirty = false;
+        let mut results = BTreeMap::new();
+        for (id, required) in mods {
+            let mut different = Vec::new();
+            let mut invalid_reason = None;
+            for item in required {
+                let Some(relative) = item.file.as_deref() else {
+                    invalid_reason = Some("Invalid neededFiles entry.".to_owned());
+                    break;
+                };
+                let Some(expected) = item.checksum.as_deref() else {
+                    invalid_reason = Some("Invalid neededFiles entry.".to_owned());
+                    break;
+                };
+                if !valid_sha256(expected) {
+                    invalid_reason = Some("Invalid neededFiles checksum.".to_owned());
+                    break;
+                }
+                let relative_path = match checked_relative(&relative.replace('\\', "/")) {
+                    Ok(path) => path,
+                    Err(_) => {
+                        invalid_reason = Some(format!("Unsafe required game file: {relative}"));
+                        break;
+                    }
+                };
+                let key = normalized_hash_key(&relative_path, self.platform);
+                let hashed = match deltamod_hash_worker::relative_file_signature(
+                    &self.game_root,
+                    &relative_path,
+                ) {
+                    Ok(signature) => {
+                        if let Some(entry) = cache.entries.get(&key).filter(|entry| {
+                            entry.signature == signature && valid_sha256(&entry.sha256)
+                        }) {
+                            entry.sha256.clone()
+                        } else {
+                            match deltamod_hash_worker::hash_relative_file(
+                                &self.game_root,
+                                &relative_path,
+                            ) {
+                                Ok((hashed_signature, sha256)) => {
+                                    cache.entries.insert(
+                                        key,
+                                        HashEntry {
+                                            signature: hashed_signature,
+                                            sha256: sha256.clone(),
+                                        },
+                                    );
+                                    dirty = true;
+                                    sha256
+                                }
+                                Err(_) => {
+                                    invalid_reason = Some(format!(
+                                        "Required game file is missing or unsafe: {relative}"
+                                    ));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        invalid_reason = Some(format!(
+                            "Required game file is missing or unsafe: {relative}"
+                        ));
+                        break;
+                    }
+                };
+                if !hashed.eq_ignore_ascii_case(expected) {
+                    different.push(relative.to_owned());
+                }
+            }
+            let reason = invalid_reason.unwrap_or_else(|| {
+                if different.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "Mismatching hashes for files: {}",
+                        different
+                            .iter()
+                            .map(|file| format!("\"{file}\""))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+            });
+            results.insert(
+                id.clone(),
+                Compatibility {
+                    is_incompatible: !reason.is_empty(),
+                    incompatibility_reason: reason,
+                    hash_different_files: different,
+                },
+            );
+        }
+        if dirty {
+            atomic_json(&self.hash_cache_path, &cache)
+                .map_err(|error| Error::Hash(error.to_string()))?;
+        }
+        Ok(results)
+    }
+
     /// Returns legacy `__deltaID.json` objects and clears their `new` marker only
     /// after a successful commit, matching the Electron `finishedPatch` payload.
     pub fn mark_selected_patched(&self, selected: &[String]) -> Result<Vec<Value>, Error> {
@@ -224,8 +347,14 @@ impl Runtime {
                 return Err(Error::MissingManifest(name));
             }
             let xml = fs::read_to_string(&manifest)?;
-            let document =
-                Document::parse(&xml).map_err(|_| Error::InvalidManifest(name.clone()))?;
+            let wrapped;
+            let document = match Document::parse(&xml) {
+                Ok(document) => document,
+                Err(_) => {
+                    wrapped = format!("<deltamod>{xml}</deltamod>");
+                    Document::parse(&wrapped).map_err(|_| Error::InvalidManifest(name.clone()))?
+                }
+            };
             for node in document
                 .descendants()
                 .filter(|node| node.has_tag_name("patch"))
@@ -282,6 +411,44 @@ impl Runtime {
             patches,
             operation_count: approval.operation_count,
         })
+    }
+
+    pub fn check_selected_legacy_mods(&self, selected: &[String]) -> Result<(), Error> {
+        validate_selection(selected)?;
+        let selected = selected.iter().map(String::as_str).collect::<HashSet<_>>();
+        let mut requirements = Vec::new();
+        let mut names = BTreeMap::new();
+        for entry in fs::read_dir(&self.mod_root)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let root = entry.path();
+            let identity = read_bounded_json(&root.join("__deltaID.json"))?;
+            let Some(id) = identity.get("uniqueId").and_then(Value::as_str) else {
+                continue;
+            };
+            if !selected.contains(id) {
+                continue;
+            }
+            let name = read_mod_name(&root).unwrap_or_else(|| id.to_owned());
+            let required =
+                read_legacy_required_files(&root).map_err(|reason| Error::IncompatibleMod {
+                    mod_name: name.clone(),
+                    reason,
+                })?;
+            names.insert(id.to_owned(), name);
+            requirements.push((id.to_owned(), required));
+        }
+        for (id, compatibility) in self.check_required_files(&requirements)? {
+            if compatibility.is_incompatible {
+                return Err(Error::IncompatibleMod {
+                    mod_name: names.remove(&id).unwrap_or(id),
+                    reason: compatibility.incompatibility_reason,
+                });
+            }
+        }
+        Ok(())
     }
 
     pub fn restore(&self) -> Result<(), Error> {
@@ -647,16 +814,85 @@ impl Runtime {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HashCache {
     schema_version: u8,
     entries: BTreeMap<String, HashEntry>,
 }
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct HashEntry {
     signature: String,
     sha256: String,
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn normalized_hash_key(relative: &Path, platform: PatchPlatform) -> String {
+    let value = relative.to_string_lossy().replace('\\', "/");
+    if platform == PatchPlatform::Win32 {
+        value.to_ascii_lowercase()
+    } else {
+        value
+    }
+}
+
+fn load_hash_cache(path: &Path) -> HashCache {
+    let empty = || HashCache {
+        schema_version: 1,
+        entries: BTreeMap::new(),
+    };
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return empty();
+    };
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 64 * 1024 * 1024
+    {
+        return empty();
+    }
+    serde_json::from_slice::<HashCache>(&fs::read(path).unwrap_or_default())
+        .ok()
+        .filter(|cache| cache.schema_version == 1)
+        .unwrap_or_else(empty)
+}
+
+fn read_legacy_required_files(root: &Path) -> Result<Vec<RequiredFile>, String> {
+    let path = root.join("meta.toml");
+    let metadata = fs::symlink_metadata(&path).map_err(|_| "Missing meta.toml.".to_owned())?;
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.len() > MAX_METADATA_BYTES
+    {
+        return Err("Unsafe meta.toml.".into());
+    }
+    let value: toml::Value =
+        toml::from_str(&fs::read_to_string(path).map_err(|_| "Unreadable meta.toml.".to_owned())?)
+            .map_err(|_| "Malformed meta.toml.".to_owned())?;
+    let Some(required) = value.get("neededFiles") else {
+        return Ok(Vec::new());
+    };
+    let values = required
+        .as_array()
+        .ok_or_else(|| "Invalid neededFiles list.".to_owned())?;
+    values
+        .iter()
+        .map(|item| {
+            let table = item
+                .as_table()
+                .ok_or_else(|| "Invalid neededFiles entry.".to_owned())?;
+            Ok(RequiredFile {
+                file: table
+                    .get("file")
+                    .and_then(toml::Value::as_str)
+                    .map(str::to_owned),
+                checksum: table
+                    .get("checksum")
+                    .and_then(toml::Value::as_str)
+                    .map(str::to_owned),
+            })
+        })
+        .collect()
 }
 
 fn validate_selection(selected: &[String]) -> Result<(), Error> {
@@ -1034,6 +1270,154 @@ mod tests {
         );
         assert_eq!(events[0].phase, "hashing");
         assert_eq!(events[0].percent, Some(100.0));
+    }
+
+    #[test]
+    fn required_files_reuse_valid_cache_and_rehash_only_stale_entries() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("game");
+        fs::create_dir(&game).unwrap();
+        fs::write(game.join("Data.WIN"), b"data").unwrap();
+        let runtime = Runtime {
+            game_root: game,
+            mod_root: root.path().join("mods"),
+            tools_root: root.path().join("tools"),
+            hash_cache_path: root.path().join("hash.json"),
+            platform: PatchPlatform::Win32,
+            platform_name: "win32".into(),
+            arch: "x64".into(),
+            definition: PlatformDefinition {
+                data_files: vec!["data.win".into()],
+                patch_layout: "windows-root".into(),
+                content_root: None,
+            },
+        };
+        let digest = sha2_digest(b"data");
+        let required = vec![(
+            "mod".into(),
+            vec![RequiredFile {
+                file: Some("Data.WIN".into()),
+                checksum: Some(digest.clone()),
+            }],
+        )];
+        assert!(!runtime.check_required_files(&required).unwrap()["mod"].is_incompatible);
+        let mut cache: Value =
+            serde_json::from_slice(&fs::read(&runtime.hash_cache_path).unwrap()).unwrap();
+        assert!(cache["entries"].get("data.win").is_some());
+        cache["entries"]["data.win"]["sha256"] = Value::String("0".repeat(64));
+        atomic_json(&runtime.hash_cache_path, &cache).unwrap();
+        let cached_required = vec![(
+            "mod".into(),
+            vec![RequiredFile {
+                file: Some("Data.WIN".into()),
+                checksum: Some("0".repeat(64)),
+            }],
+        )];
+        assert!(!runtime.check_required_files(&cached_required).unwrap()["mod"].is_incompatible);
+        cache["entries"]["data.win"]["signature"] = Value::String("stale".into());
+        atomic_json(&runtime.hash_cache_path, &cache).unwrap();
+        assert!(runtime.check_required_files(&cached_required).unwrap()["mod"].is_incompatible);
+    }
+
+    #[test]
+    fn unsafe_required_file_only_marks_its_mod_incompatible() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("game");
+        fs::create_dir(&game).unwrap();
+        fs::write(game.join("data.win"), b"data").unwrap();
+        let runtime = Runtime {
+            game_root: game,
+            mod_root: root.path().join("mods"),
+            tools_root: root.path().join("tools"),
+            hash_cache_path: root.path().join("hash.json"),
+            platform: PatchPlatform::Linux,
+            platform_name: "linux".into(),
+            arch: "x64".into(),
+            definition: PlatformDefinition {
+                data_files: vec!["data.win".into()],
+                patch_layout: "windows-root".into(),
+                content_root: None,
+            },
+        };
+        let checks = vec![
+            (
+                "good".into(),
+                vec![RequiredFile {
+                    file: Some("data.win".into()),
+                    checksum: Some(sha2_digest(b"data")),
+                }],
+            ),
+            (
+                "bad".into(),
+                vec![RequiredFile {
+                    file: Some("../outside".into()),
+                    checksum: Some("0".repeat(64)),
+                }],
+            ),
+        ];
+        let result = runtime.check_required_files(&checks).unwrap();
+        assert!(!result["good"].is_incompatible);
+        assert!(result["bad"].is_incompatible);
+        assert!(result["bad"].incompatibility_reason.contains("Unsafe"));
+    }
+
+    #[test]
+    fn legacy_requirements_are_read_from_the_toml_top_level() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(
+            root.path().join("meta.toml"),
+            r#"
+[[neededFiles]]
+file = "data.win"
+checksum = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[metadata]
+name = "Test"
+"#,
+        )
+        .unwrap();
+        let required = read_legacy_required_files(root.path()).unwrap();
+        assert_eq!(required.len(), 1);
+        assert_eq!(required[0].file.as_deref(), Some("data.win"));
+    }
+
+    #[test]
+    fn patch_plan_accepts_legacy_xml_fragments() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("game");
+        let mods = root.path().join("mods");
+        let packet = mods.join("one");
+        fs::create_dir_all(&game).unwrap();
+        fs::create_dir_all(&packet).unwrap();
+        fs::write(game.join("data.win"), b"original").unwrap();
+        fs::write(game.join("other.win"), b"original").unwrap();
+        fs::write(packet.join("one.bin"), b"one").unwrap();
+        fs::write(packet.join("two.bin"), b"two").unwrap();
+        fs::write(packet.join("__deltaID.json"), r#"{"uniqueId":"id"}"#).unwrap();
+        fs::write(packet.join("meta.toml"), "[metadata]\nname='Test'\n").unwrap();
+        fs::write(
+            packet.join("modding.xml"),
+            concat!(
+                r#"<patch type="override" patch="one.bin" to="data.win" />"#,
+                r#"<patch type="override" patch="two.bin" to="other.win" />"#
+            ),
+        )
+        .unwrap();
+        let runtime = Runtime {
+            game_root: game,
+            mod_root: mods,
+            tools_root: root.path().join("tools"),
+            hash_cache_path: root.path().join("hash.json"),
+            platform: PatchPlatform::Linux,
+            platform_name: "linux".into(),
+            arch: "x64".into(),
+            definition: PlatformDefinition {
+                data_files: vec!["data.win".into()],
+                patch_layout: "windows-root".into(),
+                content_root: None,
+            },
+        };
+        assert_eq!(runtime.build_plan(&["id".into()]).unwrap().patches.len(), 2);
     }
 
     #[test]

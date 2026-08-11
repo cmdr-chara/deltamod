@@ -91,7 +91,7 @@ describe('Tauri browser adapter', () => {
         expect(root.deltamodBackend.assetUrl('app', 'web/img/Dark Theme.png'))
             .toBe('tauri://localhost/img/Dark%20Theme.png');
         expect(root.deltamodBackend.assetUrl('theme', 'img/theme.png'))
-            .toBe('themeprot://img/theme.png');
+            .toBe('themeprot://asset/img/theme.png');
         expect(root.deltamodBackend.assetUrl('packet', 'pack-1/image/icon.png'))
             .toBe('packet://pack-1/image/icon.png');
         for (const unsafe of ['../secret', '%252e%252e/secret', '/absolute', 'C:/secret', 'a\\b']) {
@@ -112,7 +112,11 @@ describe('Tauri browser adapter', () => {
         installTauriAdapter(root);
 
         expect(root.deltamodBackend.isCommandAvailable('version')).toBe(true);
-        expect(root.deltamodBackend.isCommandAvailable('loginGamebanana')).toBe(false);
+        expect(root.deltamodBackend.isCommandAvailable('loginGamebanana')).toBe(true);
+        expect(root.deltamodBackend.isCommandAvailable('getGamebananaUserinfo')).toBe(true);
+        expect(root.deltamodBackend.isCommandAvailable('isCMode')).toBe(true);
+        expect(root.deltamodBackend.isCommandAvailable('cmode-on')).toBe(true);
+        expect(root.deltamodBackend.isCommandAvailable('cmode-off')).toBe(true);
         expect(root.deltamodBackend.isCommandAvailable('modSources:downloadNexus')).toBe(false);
         expect(root.deltamodBackend.isCommandAvailable('undertaleModTool:openInstallation')).toBe(false);
 

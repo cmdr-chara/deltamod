@@ -421,6 +421,8 @@ where
     }
     check_cancelled(&cancelled)?;
 
+    write_identity(&content_root, &destination)?;
+
     let commit_source = if content_root == staging.path() {
         staging.keep()
     } else {
@@ -441,6 +443,32 @@ where
         expanded_bytes: inventory.expanded,
         replaced_existing,
     })
+}
+
+fn write_identity(root: &Path, destination: &Path) -> Result<(), ImportError> {
+    let existing = destination.join("__deltaID.json");
+    let identity = fs::read(&existing)
+        .ok()
+        .filter(|bytes| bytes.len() <= 64 * 1024)
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .filter(|value| {
+            value
+                .get("uniqueId")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|id| {
+                    !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)
+                })
+        })
+        .unwrap_or_else(|| {
+            serde_json::json!({
+                "uniqueId": uuid::Uuid::new_v4().to_string(),
+                "new": true
+            })
+        });
+    let bytes = serde_json::to_vec_pretty(&identity)
+        .map_err(|_| ImportError::Manifest("mod identity could not be serialized"))?;
+    fs::write(root.join("__deltaID.json"), bytes)?;
+    Ok(())
 }
 
 fn write_source_metadata(
@@ -1086,6 +1114,12 @@ mod tests {
         .unwrap();
         assert_eq!(result.format, ArchiveFormat::Zip);
         assert!(result.destination.join("meta.toml").is_file());
+        let identity: serde_json::Value =
+            serde_json::from_slice(&fs::read(result.destination.join("__deltaID.json")).unwrap())
+                .unwrap();
+        assert!(identity["uniqueId"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty()));
         assert!(!result.destination.join("mod").exists());
     }
 
@@ -1241,6 +1275,34 @@ mod tests {
         );
         assert!(matches!(kept, Err(ImportError::KeptExisting)));
         assert!(packets.path().join("example.safe/meta.toml").is_file());
+    }
+
+    #[test]
+    fn replacing_a_mod_preserves_its_identity() {
+        let packets = tempfile::tempdir().unwrap();
+        let first = zip_fixture(&valid_entries());
+        let first = import_archive(
+            first.path(),
+            packets.path(),
+            Limits::default(),
+            || false,
+            |_| DuplicateDecision::Cancel,
+        )
+        .unwrap();
+        let original = fs::read(first.destination.join("__deltaID.json")).unwrap();
+        let second = zip_fixture(&valid_entries());
+        let second = import_archive(
+            second.path(),
+            packets.path(),
+            Limits::default(),
+            || false,
+            |_| DuplicateDecision::Replace,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(second.destination.join("__deltaID.json")).unwrap(),
+            original
+        );
     }
 
     #[test]

@@ -303,8 +303,13 @@ test('launches securely and keeps Options categories inside their column', async
                     .filter(animation => animation.transforms.length > 0)
             );
             expect(transformedAnimations.length).toBeGreaterThanOrEqual(1);
-            expect(transformedAnimations.every(animation =>
+            expect(transformedAnimations.some(animation =>
                 String(animation.targetClass).includes('ingranaggio')
+            )).toBe(true);
+            expect(transformedAnimations.every(animation =>
+                ['ingranaggio', 'dmodicon-ring'].some(className =>
+                    String(animation.targetClass).includes(className)
+                )
             )).toBe(true);
             await window.evaluate(() => window.currentPageStack.cat('ui'));
             const layout = await window.evaluate(() => {
@@ -366,7 +371,7 @@ test('launches securely and keeps Options categories inside their column', async
             await expect(window.locator('#theme-import-name')).toBeFocused();
             await expect(window.locator('#theme-import-include-music')).not.toBeChecked();
             await expect(window.locator('.theme-import-copy')).toContainText(
-                'Choose the background first'
+                'Set its identity here'
             );
             await window.locator('#cancel-theme-import').click();
             await expect(window.locator('#theme-import-form')).toBeHidden();
@@ -460,8 +465,12 @@ test('launches securely and keeps Options categories inside their column', async
                 const positionBeforeBlur = await charaThemeVideo.evaluate(video => video.currentTime);
                 await window.evaluate(() => window.dispatchEvent(new Event('blur')));
                 await window.waitForTimeout(1400);
-                await expect(charaThemeVideo).not.toHaveAttribute('src');
-                await expect(charaThemeVideo).toBeHidden();
+                await expect(charaThemeVideo).toHaveAttribute(
+                    'src',
+                    'themeprot://video/chara-theme.mp4'
+                );
+                await expect(charaThemeVideo).toBeVisible();
+                expect(await charaThemeVideo.evaluate(video => video.paused)).toBe(true);
                 await window.evaluate(() => window.dispatchEvent(new Event('focus')));
                 await expect(charaThemeVideo).toHaveAttribute(
                     'src',
@@ -603,10 +612,37 @@ test('launches securely and keeps Options categories inside their column', async
                     }), { status: 200, headers: { 'content-type': 'application/json' } });
                 }
                 if (url.includes('/TopSubs')) {
-                    return new Response(JSON.stringify([
-                        { _idRow: 42, _sPeriod: 'week' },
-                        { _idRow: 42, _sPeriod: 'alltime' }
-                    ]), {
+                    return new Response(JSON.stringify([{
+                        _idRow: 42,
+                        _sModelName: 'Mod',
+                        _sName: 'Gallery test mod',
+                        _sDescription: 'A GameBanana card using the shared shop layout.',
+                        _sProfileUrl: 'https://gamebanana.com/mods/42',
+                        _sPeriod: 'alltime',
+                        _bHasFiles: true,
+                        _bHasContentRatings: false,
+                        _aSubmitter: {
+                            _idRow: 7,
+                            _sName: 'Test author',
+                            _sProfileUrl: 'https://gamebanana.com/members/7',
+                            _sAvatarUrl: './img/mod-placeholder.png'
+                        },
+                        _aPreviewMedia: {
+                            _aImages: [{
+                                _sBaseUrl: './img',
+                                _sFile: 'mod-placeholder.png',
+                                _sFile100: 'mod-placeholder.png',
+                                _sFile220: 'mod-placeholder.png',
+                                _sFile530: 'mod-placeholder.png'
+                            }, {
+                                _sBaseUrl: './img',
+                                _sFile: 'mod-placeholder.png',
+                                _sFile100: 'mod-placeholder.png',
+                                _sFile220: 'mod-placeholder.png',
+                                _sFile530: 'mod-placeholder.png'
+                            }]
+                        }
+                    }]), {
                         status: 200,
                         headers: { 'content-type': 'application/json' }
                     });
@@ -658,9 +694,11 @@ test('launches securely and keeps Options categories inside their column', async
                 expect(filterWidth).toBeLessThanOrEqual(320);
             }
             if (route === 'gamebanana-browse') {
-                await expect(window.locator('#modsBody tr').first()).toContainText('Regular test mod');
+                await expect(window.locator('#modsBody tr').first()).toContainText('Gallery test mod');
+                await expect(window.locator('#modsBody')).toContainText('Regular test mod');
                 await window.evaluate(() => window.currentPageStack.plusPage(1));
                 await expect(window.locator('#modsBody')).toContainText('Gallery test mod');
+                await expect(window.locator('#modsBody tr').filter({ hasText: 'Gallery test mod' })).toHaveCount(1);
                 const firstMod = window.locator('#modsBody tr').first();
                 await expect(firstMod).toContainText('Gallery test mod');
                 await expect(firstMod).toContainText('GameBanana');
@@ -797,7 +835,7 @@ test('launches securely and keeps Options categories inside their column', async
         });
         await window.waitForFunction(() =>
             theme?.id === 'church' &&
-            document.querySelector('.dmodicon')?.src.startsWith('data:image/png')
+            document.querySelector('.dmodicon-ring')?.src.startsWith('data:image/png')
         );
         const themedSpriteColors = await window.evaluate(() => {
             const readColors = image => {
@@ -816,7 +854,7 @@ test('launches securely and keeps Options categories inside their column', async
                 return [...colors];
             };
             return {
-                gear: readColors(document.querySelector('.dmodicon')),
+                gear: readColors(document.querySelector('.dmodicon-ring')),
                 options: readColors(document.querySelector('[data-page="options"] img'))
             };
         });
@@ -860,10 +898,10 @@ test('launches securely and keeps Options categories inside their column', async
             await page('gamebanana-browse');
         });
         await expect(window.locator('#modSourceSelect')).toHaveValue('moddb');
-        await expect(window.locator('#modSourceSelect option:checked')).toHaveText('ModDB (recent)');
+        await expect(window.locator('#modSourceSelect option:checked')).toHaveText('ModDB (10 recent)');
         await expect(window.locator('#modsBody')).toContainText('Gendered Kris');
-        await expect(window.locator('#contentFilterStatus')).toContainText('recent ModDB');
-        await expect(window.locator('#sourceAttribution')).toContainText('not the complete ModDB catalogue');
+        await expect(window.locator('#contentFilterStatus')).toContainText('exposed by ModDB');
+        await expect(window.locator('#sourceAttribution')).toContainText('10 most recent downloads');
         await expect(window.getByRole('link', { name: 'Browse the full ModDB catalogue' })).toBeVisible();
         const providerSelectLayout = await window.locator('#modSourceSelect').evaluate(select => ({
             clientWidth: select.clientWidth,

@@ -57,7 +57,7 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
         modImage.src = window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png');
     };
     const modTitle = document.createElement('span');
-    modTitle.textContent = String(mod.name || 'Unnamed mod');
+    modTitle.textContent = String(mod.name || t('allmods_unnamed', 'Unnamed mod'));
     titleSpan.append(modImage, modTitle);
     titleSpan.style.display = 'flex';
     titleSpan.style.alignItems = 'center';
@@ -103,7 +103,7 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
     sizeSpan.className = 'calibri';
     sizeSpan.style.fontSize = 'smaller';
     sizeSpan.style.color = '#888';
-    setIconText(sizeSpan, 'hard_disk', `${mod.size} MB`);
+    setIconText(sizeSpan, 'hard_disk', t('allmods_size', '{0} MB', mod.size));
     sizeSpan.id = `modsize-${mod.uid}`;
     modNameContainer.appendChild(sizeSpan);
 
@@ -114,7 +114,9 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
     idSpan.className = 'calibri';
     idSpan.style.fontSize = 'smaller';
     idSpan.style.color = '#888';
-    setIconText(idSpan, 'sell', mod.packageID == 'und.und.und' ? "No ID was specified." : mod.packageID);
+    setIconText(idSpan, 'sell', mod.packageID == 'und.und.und'
+        ? t('allmods_no_id', 'No ID was specified.')
+        : mod.packageID);
     idSpan.id = `modid-${mod.uid}`;
     modNameContainer.appendChild(idSpan);
 
@@ -148,7 +150,7 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
         variantSpan.className = 'calibri';
         variantSpan.style.fontSize = 'smaller';
         variantSpan.style.color = '#888';
-        setIconText(variantSpan, 'stack', `Mod has ${mod.variants.length} variants`);
+        setIconText(variantSpan, 'stack', t('allmods_variants', 'Mod has {0} variants', mod.variants.length));
         variantSpan.id = `modvariant-${mod.uid}`;
         modNameContainer.appendChild(variantSpan);
     }
@@ -164,7 +166,9 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
     setIconText(
         compatSpan,
         comp ? 'check' : 'error',
-        comp ? "Compatible with current version" : `Incompatible: ${mod.incompatibilityReason}`
+        comp
+            ? t('allmods_compatible', 'Compatible with current version')
+            : t('allmods_incompatible', 'Incompatible: {0}', mod.incompatibilityReason)
     );
     compatSpan.id = `modcompat-${mod.uid}`;
     modNameContainer.appendChild(compatSpan);
@@ -182,7 +186,7 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
         banana.alt = '';
         banana.width = 15;
         banana.height = 15;
-        gbSpan.append(banana, document.createTextNode(' Installed through GameBanana'));
+        gbSpan.append(banana, document.createTextNode(` ${t('allmods_gamebanana', 'Installed through GameBanana')}`));
         gbSpan.id = `modgb-${mod.uid}`;
         modNameContainer.appendChild(gbSpan);
     }
@@ -226,21 +230,33 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
                         likeBtn.disabled = true;
                     }
                     else if (res.data._sErrorCode.toLowerCase() == 'already_liked') {
-                        await htmlAlert("Can't like mod","You've already liked this mod. Can't get any more likes than that!",[{text:"Ok",resolveWith:'ok'}], 'sentiment_very_satisfied');
+                        await htmlAlert(
+                            t('allmods_cant_like', "Can't like mod"),
+                            t('allmods_already_liked', "You've already liked this mod. Can't get any more likes than that!"),
+                            [{text: t('allmods_ok', 'OK'), resolveWith: 'ok'}],
+                            'sentiment_very_satisfied'
+                        );
                         likeBtn.innerHTML = icon('sentiment_very_satisfied', '20px') + '';
                         likeBtn.disabled = true;
                     } else {
-                        await htmlAlert("Can't like mod",res.data._sErrorCode,[{text:"Ok",resolveWith:'ok'}], 'error');
+                        await htmlAlert(
+                            t('allmods_cant_like', "Can't like mod"),
+                            res.data._sErrorCode,
+                            [{text: t('allmods_ok', 'OK'), resolveWith: 'ok'}],
+                            'error'
+                        );
                     }
             };
             likeBtn.innerHTML = icon('mood_heart', '20px');
             bdiv.appendChild(likeBtn);
 
             tippy(likeBtn, {
-                content: "Like this mod on GameBanana",
+                content: t('allmods_like_tooltip', 'Like this mod on GameBanana'),
             });
             tippy(gbModButton, {
-                content: loggedIn ? "Leave a comment on GameBanana" : "View the GameBanana comments for this mod",
+                content: loggedIn
+                    ? t('allmods_comment_leave', 'Leave a comment on GameBanana')
+                    : t('allmods_comment_view', 'View the GameBanana comments for this mod'),
             });
 
             likeBtn.disabled = !mod.gamebanana.supports || !loggedIn;
@@ -267,7 +283,7 @@ async function createErroringMods(errors) {
         element.className = "error-holder";
 
         const modId = document.createElement("span");
-        modId.textContent = `Mod ID '${String(err.mod || '')}'`;
+        modId.textContent = t('allmods_mod_id', "Mod ID '{0}'", String(err.mod || ''));
         modId.style.fontSize = '20px';
         modId.style.color = '#888';
 
@@ -394,14 +410,17 @@ async function createErroringMods(errors) {
         const heading = document.createElement('h2');
         heading.innerText = modList.length === 0
             ? t('allmods_empty_title', 'No installed mods yet')
-            : 'No mods match this installation';
+            : t('allmods_no_installation_match', 'No mods match this installation');
         const description = document.createElement('p');
         description.innerText = modList.length === 0
             ? t(
                 'allmods_empty_desc',
                 'Packages you download or import will stay visible here, even when they are not enabled in the current patch list.'
             )
-            : 'Choose another installation above or return to All installations.';
+            : t(
+                'allmods_choose_installation',
+                'Choose another installation above or return to All installations.'
+            );
         copy.append(heading, description);
 
         if (modList.length === 0) {

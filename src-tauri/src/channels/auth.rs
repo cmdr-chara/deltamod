@@ -1,7 +1,208 @@
 use crate::{error, state::AppState};
-use deltamod_credentials_adapter::CredentialKind;
+use deltamod_credentials_adapter::{CredentialKind, Secret};
 use deltamod_network_runtime::GameBanana;
 use serde_json::{json, Value};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
+use tauri::{
+    webview::{Cookie, NewWindowResponse, PageLoadEvent},
+    AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+};
+
+const GAMEBANANA_LOGIN_URL: &str = "https://gamebanana.com/members/account/login";
+const GAMEBANANA_ORIGIN: &str = "https://gamebanana.com/";
+const LOGIN_WINDOW_LABEL: &str = "gamebanana-login";
+
+type LoginResult = Result<Value, String>;
+type LoginSender = Arc<Mutex<Option<tokio::sync::oneshot::Sender<LoginResult>>>>;
+
+fn gamebanana_url_allowed(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.host_str().is_some_and(gamebanana_domain_allowed)
+}
+
+fn gamebanana_domain_allowed(domain: &str) -> bool {
+    let domain = domain.trim_start_matches('.').to_ascii_lowercase();
+    domain == "gamebanana.com" || domain.ends_with(".gamebanana.com")
+}
+
+fn serialize_gamebanana_cookies(cookies: &[Cookie<'_>]) -> String {
+    cookies
+        .iter()
+        .filter(|cookie| {
+            !cookie.name().is_empty() && cookie.domain().is_none_or(gamebanana_domain_allowed)
+        })
+        .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn complete_login(app: &AppHandle, sender: &LoginSender, result: LoginResult) {
+    if let Ok(mut sender) = sender.lock() {
+        if let Some(sender) = sender.take() {
+            let _ = sender.send(result);
+        }
+    }
+    if let Some(window) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
+        let _ = window.close();
+    }
+}
+
+fn validated_ui_config(state: &AppState, token: String) -> Result<Value, String> {
+    let api = GameBanana {
+        client: &state.network,
+        token: Some(token),
+    };
+    let config: Value = with_gamebanana(state, api.validate())?;
+    if config
+        .get("_idMemberRow")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        == 0
+    {
+        return Err("GAMEBANANA_LOGIN_VALIDATION_FAILED".to_owned());
+    }
+    Ok(config)
+}
+
+fn stored_ui_config(state: &AppState) -> Result<Value, String> {
+    validated_ui_config(state, token(state)?)
+}
+
+pub async fn login(app: AppHandle) -> Result<Value, String> {
+    let state = app.state::<AppState>();
+    credentials(&state)?;
+    if state
+        .gamebanana_login_active
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return Err("GAMEBANANA_LOGIN_IN_PROGRESS".to_owned());
+    }
+
+    let result = start_login(&app).await;
+    state
+        .gamebanana_login_active
+        .store(false, Ordering::Release);
+    result
+}
+
+async fn start_login(app: &AppHandle) -> Result<Value, String> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let sender = Arc::new(Mutex::new(Some(sender)));
+    let page_sender = Arc::clone(&sender);
+    let page_app = app.clone();
+    let navigation_sender = Arc::clone(&sender);
+    let navigation_app = app.clone();
+    let login_check_started = Arc::new(AtomicBool::new(false));
+    let page_login_check_started = Arc::clone(&login_check_started);
+    let data_directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| error::internal())?
+        .join("gamebanana-login-webview");
+    let blank = Url::parse("about:blank").map_err(|_| error::internal())?;
+
+    let window = WebviewWindowBuilder::new(app, LOGIN_WINDOW_LABEL, WebviewUrl::External(blank))
+        .title("Sign in to GameBanana")
+        .inner_size(800.0, 600.0)
+        .resizable(false)
+        .minimizable(false)
+        .maximizable(false)
+        .data_directory(data_directory)
+        .on_navigation(move |url| {
+            let allowed = url.as_str() == "about:blank" || gamebanana_url_allowed(url);
+            if !allowed {
+                let app = navigation_app.clone();
+                let sender = Arc::clone(&navigation_sender);
+                std::thread::spawn(move || {
+                    complete_login(
+                        &app,
+                        &sender,
+                        Err("GAMEBANANA_LOGIN_NAVIGATION_BLOCKED".to_owned()),
+                    );
+                });
+            }
+            allowed
+        })
+        .on_new_window(|_, _| NewWindowResponse::Deny)
+        .on_page_load(move |window, payload| {
+            if payload.event() != PageLoadEvent::Finished
+                || !gamebanana_url_allowed(payload.url())
+                || payload.url().path().starts_with("/members/account")
+                || page_login_check_started.swap(true, Ordering::AcqRel)
+            {
+                return;
+            }
+            let sender = Arc::clone(&page_sender);
+            let app = page_app.clone();
+            std::thread::spawn(move || {
+                let result = (|| {
+                    let origin = Url::parse(GAMEBANANA_ORIGIN).map_err(|_| error::internal())?;
+                    let cookies = window
+                        .cookies_for_url(origin)
+                        .map_err(|_| "GAMEBANANA_LOGIN_COOKIE_READ_FAILED".to_owned())?;
+                    let cookie_header = serialize_gamebanana_cookies(&cookies);
+                    window
+                        .clear_all_browsing_data()
+                        .map_err(|_| "GAMEBANANA_LOGIN_CLEAR_FAILED".to_owned())?;
+                    let secret = Secret::new(cookie_header)
+                        .map_err(|_| "GAMEBANANA_LOGIN_COOKIE_INVALID".to_owned())?;
+                    let state = app.state::<AppState>();
+                    validated_ui_config(&state, secret.expose().to_owned())?;
+                    credentials(&state)?
+                        .store(CredentialKind::GameBananaCookies, secret)
+                        .map_err(|_| "CREDENTIALS_UNAVAILABLE".to_owned())?;
+                    Ok(json!(true))
+                })();
+                complete_login(&app, &sender, result);
+            });
+        })
+        .build()
+        .map_err(|_| error::internal())?;
+
+    let closed_sender = Arc::clone(&sender);
+    let closing_window = window.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let sender = Arc::clone(&closed_sender);
+            let window = closing_window.clone();
+            std::thread::spawn(move || {
+                let _ = window.clear_all_browsing_data();
+                if let Ok(mut sender) = sender.lock() {
+                    if let Some(sender) = sender.take() {
+                        let _ = sender.send(Ok(json!(false)));
+                    }
+                }
+                let _ = window.destroy();
+            });
+        } else if matches!(event, WindowEvent::Destroyed) {
+            if let Ok(mut sender) = closed_sender.lock() {
+                if let Some(sender) = sender.take() {
+                    let _ = sender.send(Ok(json!(false)));
+                }
+            }
+        }
+    });
+    if window.clear_all_browsing_data().is_err() {
+        let _ = window.close();
+        return Err("GAMEBANANA_LOGIN_CLEAR_FAILED".to_owned());
+    }
+    let login_url = Url::parse(GAMEBANANA_LOGIN_URL).map_err(|_| error::internal())?;
+    if window.navigate(login_url).is_err() {
+        let _ = window.close();
+        return Err("GAMEBANANA_LOGIN_NAVIGATION_FAILED".to_owned());
+    }
+
+    receiver
+        .await
+        .map_err(|_| "GAMEBANANA_LOGIN_CANCELLED".to_owned())?
+}
 
 fn credentials(
     state: &AppState,
@@ -80,11 +281,7 @@ pub fn dispatch(state: &AppState, channel: &str, data: &[Value]) -> Result<Optio
             let Ok(token) = token(state) else {
                 return Ok(Some(json!(false)));
             };
-            let api = GameBanana {
-                client: &state.network,
-                token: Some(token),
-            };
-            let result: Value = match with_gamebanana(state, api.validate()) {
+            let result = match validated_ui_config(state, token) {
                 Ok(result) => result,
                 Err(_) => return Ok(Some(json!(false))),
             };
@@ -95,6 +292,47 @@ pub fn dispatch(state: &AppState, channel: &str, data: &[Value]) -> Result<Optio
                     .unwrap_or(0)
                     > 0
             )))
+        }
+        "getGamebananaPic" => {
+            let Ok(config) = stored_ui_config(state) else {
+                return Ok(Some(Value::Null));
+            };
+            Ok(Some(
+                config.get("_sAvatarUrl").cloned().unwrap_or(Value::Null),
+            ))
+        }
+        "getGamebananaID" => {
+            let Ok(config) = stored_ui_config(state) else {
+                return Ok(Some(json!(0)));
+            };
+            Ok(Some(
+                config.get("_idMemberRow").cloned().unwrap_or(Value::Null),
+            ))
+        }
+        "getGamebananaUserinfo" => {
+            let Ok(config) = stored_ui_config(state) else {
+                return Ok(Some(json!({"loggedIn": false})));
+            };
+            let member_id = config
+                .get("_idMemberRow")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let api = GameBanana {
+                client: &state.network,
+                token: None,
+            };
+            let profile: Value = match with_gamebanana(
+                state,
+                api.user(&format!(
+                    "https://gamebanana.com/apiv11/Member/{member_id}/ProfilePage"
+                )),
+            ) {
+                Ok(profile) => profile,
+                Err(_) => return Ok(Some(json!({"loggedIn": false}))),
+            };
+            let mut profile = profile.as_object().cloned().unwrap_or_default();
+            profile.insert("loggedIn".to_owned(), json!(true));
+            Ok(Some(Value::Object(profile)))
         }
         "leaveCommentGamebanana" => {
             let target = id(data.first(), "leaveCommentGamebanana")?;
@@ -207,5 +445,41 @@ mod tests {
     fn comments_are_bounded_and_html_escaped() {
         assert_eq!(escape_comment("a<&\nb").unwrap(), "a&lt;&amp;<br>b");
         assert!(escape_comment("").is_err());
+    }
+
+    #[test]
+    fn login_urls_and_cookie_domains_are_strict() {
+        assert!(gamebanana_url_allowed(
+            &Url::parse("https://gamebanana.com/members/account/login").unwrap()
+        ));
+        assert!(gamebanana_url_allowed(
+            &Url::parse("https://api.gamebanana.com/path").unwrap()
+        ));
+        assert!(!gamebanana_url_allowed(
+            &Url::parse("http://gamebanana.com/path").unwrap()
+        ));
+        assert!(!gamebanana_url_allowed(
+            &Url::parse("https://gamebanana.com.example.invalid/path").unwrap()
+        ));
+        assert!(!gamebanana_url_allowed(
+            &Url::parse("https://user@gamebanana.com/path").unwrap()
+        ));
+    }
+
+    #[test]
+    fn cookie_serialization_accepts_host_only_and_filters_foreign_domains() {
+        let mut accepted = Cookie::new("session", "secret");
+        accepted.set_domain(".GameBanana.com");
+        let mut subdomain = Cookie::new("prefs", "dark");
+        subdomain.set_domain("www.gamebanana.com");
+        let host_only = Cookie::new("host", "value");
+        let mut foreign = Cookie::new("foreign", "secret");
+        foreign.set_domain("gamebanana.com.example.invalid");
+        let mut empty = Cookie::new("empty", "");
+        empty.set_domain("gamebanana.com");
+        assert_eq!(
+            serialize_gamebanana_cookies(&[accepted, subdomain, host_only, foreign, empty]),
+            "session=secret; prefs=dark; host=value; empty="
+        );
     }
 }

@@ -10,12 +10,16 @@ async function locateDelta() {
         htmlAlert("Warning","Please select a game.",[{text:"Ok",resolveWith:'ok'}]);
         return;
     }
-    var path = await window.deltamodBackend.invoke('locateDelta',[window.gid]);
-    if (path != null && path != "Invalid") {
-        document.querySelector('input[type="text"]').value = path;
-    }
-    else {
-        htmlAlert("Warning","The selected folder is not a valid installation for " + window.gidName + ".", [{text:"Ok",resolveWith:'ok'}]);
+    try {
+        var path = await window.deltamodBackend.invoke('locateDelta',[window.gid]);
+        if (path != null && path != "Invalid") {
+            document.querySelector('input[type="text"]').value = path;
+        }
+        else if (path === "Invalid") {
+            htmlAlert("Warning","The selected folder is not a valid installation for " + window.gidName + ".", [{text:"Ok",resolveWith:'ok'}]);
+        }
+    } catch (error) {
+        htmlAlert("Error", "Could not open the folder picker: " + String(error?.message || error), [{text:"Ok",resolveWith:'ok'}]);
     }
 }
 
@@ -35,7 +39,23 @@ async function steam() {
         htmlAlert("Warning","Please select a game.",[{text:"Ok",resolveWith:'ok'}]);
         return;
     }
-    await window.deltamodBackend.invoke("createNewInstallation", ["steam", "", "", window.fromIM, window.gid, document.getElementById('copyAnyways').checked ? 'copy' : 'ncopy']);
+    try {
+        const imported = await window.deltamodBackend.invoke("createNewInstallation", ["steam", "", "", window.fromIM, window.gid, document.getElementById('copyAnyways').checked ? 'copy' : 'ncopy']);
+        if (!imported) {
+            const installations = await window.deltamodBackend.invoke('getInstallations', []);
+            const existing = installations.find(installation => (
+                installation.pid === window.gid && installation.steam === true
+            ));
+            if (existing?.index != null) {
+                await window.deltamodBackend.invoke('changeSystemIndex', [String(existing.index)]);
+                page(window.fromIM ? 'installmanager' : 'main');
+                return;
+            }
+            htmlAlert("Warning", "Steam could not find a valid installation for " + window.gidName + ".", [{text:"Ok",resolveWith:'ok'}]);
+        }
+    } catch (error) {
+        htmlAlert("Error", "Could not import from Steam: " + String(error?.message || error), [{text:"Ok",resolveWith:'ok'}]);
+    }
 }
 
 window.currentPageStack.id = id;

@@ -35,6 +35,23 @@ describe('theme sprite recoloring', () => {
         expect([...output.slice(4, 8)]).toEqual([116, 122, 160, 255]);
     });
 
+    it('coordinates the taskbar gear and SOUL with the active theme', () => {
+        const source = new Uint8ClampedArray([
+            116, 122, 160, 255,
+            15, 183, 214, 255,
+            255, 255, 255, 255
+        ]);
+        const output = ThemeSprites.recolorAppIconPixels(
+            source,
+            [20, 62, 128],
+            [0, 60, 255]
+        );
+
+        expect([...output.slice(0, 3)]).toEqual([20, 62, 128]);
+        expect([...output.slice(4, 7)]).toEqual([0, 60, 255]);
+        expect([...output.slice(8, 11)]).toEqual([255, 255, 255]);
+    });
+
     it('snaps theme colors to the exact Undertale SOUL palette', () => {
         expect(ThemeSprites.canonicalSoulColor([205, 68, 81])).toEqual([255, 0, 0]);
         expect(ThemeSprites.canonicalSoulColor([145, 75, 0])).toEqual([252, 166, 0]);

@@ -631,6 +631,20 @@ impl Runtime {
         Ok(true)
     }
 
+    pub fn legacy_remove_steam_integration(&self, index: u32) -> Result<bool, RuntimeError> {
+        let profile = self.existing_legacy_profile(index)?;
+        let mut store = self.legacy_store(index)?;
+        if store.get("isSteam").and_then(Value::as_bool) != Some(true) {
+            return Ok(false);
+        }
+        remove_legacy_steam_link(&store);
+        store.insert("isSteam".into(), Value::Bool(false));
+        store.insert("steamAppId".into(), Value::String(String::new()));
+        atomic_write_json(&profile.join("store.json"), &store, true)?;
+        self.upsert_legacy_record(index, &store)?;
+        Ok(true)
+    }
+
     pub fn legacy_change_system_index(&self, index: u32) -> Result<(), RuntimeError> {
         self.existing_legacy_profile(index)?;
         let path = self.legacy_profile_store_path();
@@ -692,6 +706,9 @@ impl Runtime {
 
     pub fn legacy_delete_installation(&self, index: u32) -> Result<bool, RuntimeError> {
         let profile = self.existing_legacy_profile(index)?;
+        if let Ok(store) = self.legacy_store(index) {
+            remove_legacy_steam_link(&store);
+        }
         let operation_id = self.start("legacy-installation-delete")?;
         let trash = self
             .root
@@ -1238,6 +1255,48 @@ fn safe_directory(path: &Path) -> Result<PathBuf, RuntimeError> {
     Ok(fs::canonicalize(path)?)
 }
 
+fn remove_legacy_steam_link(store: &serde_json::Map<String, Value>) {
+    if store.get("isSteam").and_then(Value::as_bool) != Some(true)
+        || !store
+            .get("gamePath")
+            .and_then(Value::as_str)
+            .is_some_and(|path| path.ends_with("deltaruneInstall"))
+    {
+        return;
+    }
+    let Some(path) = store
+        .get("originalSteamPath")
+        .and_then(Value::as_str)
+        .map(Path::new)
+    else {
+        return;
+    };
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return;
+    };
+
+    #[cfg(windows)]
+    let (is_link, is_directory_link) = {
+        use std::os::windows::fs::MetadataExt;
+        let attributes = metadata.file_attributes();
+        (attributes & 0x400 != 0, attributes & 0x10 != 0)
+    };
+    #[cfg(not(windows))]
+    let is_link = metadata.file_type().is_symlink();
+
+    if !is_link {
+        return;
+    }
+    #[cfg(windows)]
+    if is_directory_link {
+        let _ = fs::remove_dir(path);
+    } else {
+        let _ = fs::remove_file(path);
+    }
+    #[cfg(not(windows))]
+    let _ = fs::remove_file(path);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1473,6 +1532,92 @@ mod tests {
 
         assert_eq!(fs::read(source.join("data.win")).unwrap(), b"external");
         assert!(!runtime.root.join("deltamod_system-4").exists());
+    }
+
+    #[test]
+    fn legacy_steam_integration_can_be_removed() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("deltaruneInstall");
+        fs::create_dir(&source).unwrap();
+        let runtime = Runtime::open(directory.path().join("runtime")).unwrap();
+        let mut store = legacy_store_fields();
+        store.insert("isSteam".into(), json!(true));
+        store.insert("steamAppId".into(), json!(1671210));
+        runtime
+            .legacy_create_installation(0, &source, "Steam".into(), false, store)
+            .unwrap();
+
+        assert!(runtime.legacy_remove_steam_integration(0).unwrap());
+        let store = runtime.legacy_store(0).unwrap();
+        assert_eq!(store.get("isSteam"), Some(&json!(false)));
+        assert_eq!(store.get("steamAppId"), Some(&json!("")));
+        assert!(!runtime.legacy_remove_steam_integration(0).unwrap());
+    }
+
+    fn create_directory_link(target: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+
+        #[cfg(windows)]
+        {
+            use std::process::{Command, Stdio};
+
+            let status = Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "failed to create test junction");
+        }
+    }
+
+    fn steam_link_fixture() -> (tempfile::TempDir, Runtime, PathBuf, PathBuf) {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("source");
+        let target = directory.path().join("junction-target");
+        let link = directory.path().join("steam-install");
+        fs::create_dir(&source).unwrap();
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("preserved.txt"), b"preserved").unwrap();
+        create_directory_link(&target, &link);
+
+        let runtime = Runtime::open(directory.path().join("runtime")).unwrap();
+        let mut store = legacy_store_fields();
+        store.insert("isSteam".into(), json!(true));
+        store.insert("originalSteamPath".into(), json!(link));
+        runtime
+            .legacy_create_installation(0, &source, "Steam".into(), true, store)
+            .unwrap();
+        (directory, runtime, link, target)
+    }
+
+    #[test]
+    fn removing_steam_integration_removes_only_original_link() {
+        let (_directory, runtime, link, target) = steam_link_fixture();
+
+        assert!(runtime.legacy_remove_steam_integration(0).unwrap());
+
+        assert!(fs::symlink_metadata(link).is_err());
+        assert_eq!(
+            fs::read(target.join("preserved.txt")).unwrap(),
+            b"preserved"
+        );
+    }
+
+    #[test]
+    fn deleting_steam_profile_removes_only_original_link() {
+        let (_directory, runtime, link, target) = steam_link_fixture();
+
+        assert!(runtime.legacy_delete_installation(0).unwrap());
+
+        assert!(fs::symlink_metadata(link).is_err());
+        assert_eq!(
+            fs::read(target.join("preserved.txt")).unwrap(),
+            b"preserved"
+        );
     }
 
     #[test]

@@ -284,6 +284,10 @@ pub fn recovery_plan(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
+
     struct TestDir(PathBuf);
     impl Drop for TestDir {
         fn drop(&mut self) {
@@ -292,11 +296,9 @@ mod tests {
     }
     fn tempdir() -> TestDir {
         let path = std::env::temp_dir().join(format!(
-            "deltamod-storage-test-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            "deltamod-storage-test-{}-{}",
+            std::process::id(),
+            NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&path).unwrap();
         TestDir(path)

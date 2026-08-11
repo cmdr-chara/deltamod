@@ -1,6 +1,8 @@
 <div class="content-page options-page">
     <div class="ingranaggio" aria-hidden="true">
-        <span class="material-symbols-outlined">settings</span>
+        <span class="material-symbols-outlined ingranaggio-wheel ingranaggio-main">settings</span>
+        <span class="material-symbols-outlined ingranaggio-wheel ingranaggio-secondary">settings</span>
+        <span class="material-symbols-outlined ingranaggio-wheel ingranaggio-tertiary">settings</span>
     </div>
     <div class="page-heading">
         <h1>$$options$$</h1>
@@ -8,15 +10,15 @@
     </div>
     <div class="options-layout">
         <nav class="cat" aria-label="Settings categories">
-            <button onclick="window.currentPageStack.cat('gen')" id="b_gen" class="noScaleBTN">$$optcat_general$$</button>
-            <button onclick="window.currentPageStack.cat('lang')" id="b_lang" class="noScaleBTN">$$optcat_lang$$</button>
-            <button onclick="window.currentPageStack.cat('ui')" id="b_ui" class="noScaleBTN">$$optcat_ui$$</button>
-            <button onclick="window.currentPageStack.cat('inst')" id="b_inst" class="noScaleBTN">$$optcat_installation$$</button>
-            <button onclick="window.currentPageStack.cat('data')" id="b_data" class="noScaleBTN">$$optcat_data$$</button>
-            <button onclick="window.currentPageStack.cat('adv')" id="b_adv" class="noScaleBTN">$$optcat_advanced$$</button>
-            <button onclick="window.currentPageStack.cat('gb')" id="b_gb" class="noScaleBTN">$$optcat_gamebanana$$</button>
-            <button onclick="window.currentPageStack.cat('nexus')" id="b_nexus" class="noScaleBTN">$$optcat_nexus$$</button>
-            <button onclick="window.currentPageStack.cat('dev')" id="b_dev" style="display: none;" class="noScaleBTN">$$optcat_developer$$</button>
+            <button onclick="window.currentPageStack.cat('gen')" id="b_gen" class="noScaleBTN" data-icon="tune">$$optcat_general$$</button>
+            <button onclick="window.currentPageStack.cat('lang')" id="b_lang" class="noScaleBTN" data-icon="language">$$optcat_lang$$</button>
+            <button onclick="window.currentPageStack.cat('ui')" id="b_ui" class="noScaleBTN" data-icon="palette">$$optcat_ui$$</button>
+            <button onclick="window.currentPageStack.cat('inst')" id="b_inst" class="noScaleBTN" data-icon="folder_open">$$optcat_installation$$</button>
+            <button onclick="window.currentPageStack.cat('data')" id="b_data" class="noScaleBTN" data-icon="database">$$optcat_data$$</button>
+            <button onclick="window.currentPageStack.cat('adv')" id="b_adv" class="noScaleBTN" data-icon="terminal">$$optcat_advanced$$</button>
+            <button onclick="window.currentPageStack.cat('gb')" id="b_gb" class="noScaleBTN" data-icon="public">$$optcat_gamebanana$$</button>
+            <button onclick="window.currentPageStack.cat('nexus')" id="b_nexus" class="noScaleBTN" data-icon="hub">$$optcat_nexus$$</button>
+            <button onclick="window.currentPageStack.cat('dev')" id="b_dev" style="display: none;" class="noScaleBTN" data-icon="code">$$optcat_developer$$</button>
         </nav>
         <div class="opt">
             <table id="modtable">

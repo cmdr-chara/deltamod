@@ -159,6 +159,22 @@ struct ThemeImportRequest {
     description: String,
     #[serde(default)]
     include_music: bool,
+    #[serde(default)]
+    color: String,
+    #[serde(default)]
+    soul_color: String,
+}
+
+fn validated_theme_color(value: &str, fallback: &str) -> Result<String, String> {
+    let value = if value.is_empty() { fallback } else { value };
+    if value.len() == 7
+        && value.starts_with('#')
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        Ok(value.to_ascii_uppercase())
+    } else {
+        Err(invalid("importTheme"))
+    }
 }
 
 struct ThemeValidator;
@@ -214,6 +230,8 @@ fn import_theme<D: DialogBackend>(
     if request.name.is_empty() {
         return Err(invalid("importTheme"));
     }
+    request.color = validated_theme_color(&request.color, "#CD4451")?;
+    request.soul_color = validated_theme_color(&request.soul_color, "#FF0000")?;
 
     let image_request = DialogRequest::file("Choose the theme background").filter(
         DialogFilter::new("Image files", ["png", "jpg", "jpeg", "webp", "gif"])
@@ -265,9 +283,12 @@ fn import_theme<D: DialogBackend>(
             ThemeJson {
                 id: theme_id.clone(),
                 name: request.name,
+                description: Some(request.description),
                 built_in: false,
                 icon: Some(background),
                 music: music_name,
+                color: Some(request.color),
+                soul_color: Some(request.soul_color),
             },
             assets,
             &ThemeValidator,

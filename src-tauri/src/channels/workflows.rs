@@ -114,6 +114,87 @@ fn resolve_game_folder(folder: &Path, game: &Value) -> Option<String> {
     })
 }
 
+fn push_unique(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if !paths.iter().any(|existing| existing == &path) {
+        paths.push(path);
+    }
+}
+
+fn steam_library_roots(contents: &str) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    for line in contents.lines() {
+        let quoted = line.split('"').skip(1).step_by(2).collect::<Vec<_>>();
+        for pair in quoted.windows(2) {
+            if !pair[0].eq_ignore_ascii_case("path") {
+                continue;
+            }
+            let value = pair[1].replace("\\\\", "\\");
+            if !value.is_empty() {
+                push_unique(&mut roots, PathBuf::from(value));
+            }
+        }
+    }
+    roots
+}
+
+fn steam_common_folders() -> Vec<PathBuf> {
+    let mut steam_roots = Vec::new();
+    #[cfg(target_os = "windows")]
+    {
+        for variable in ["ProgramFiles(x86)", "ProgramFiles"] {
+            if let Some(root) = std::env::var_os(variable) {
+                push_unique(&mut steam_roots, PathBuf::from(root).join("Steam"));
+            }
+        }
+        for letter in b'A'..=b'Z' {
+            let drive = PathBuf::from(format!("{}:\\", char::from(letter)));
+            if !drive.is_dir() {
+                continue;
+            }
+            for relative in ["Steam", "SteamLibrary", "Program Files (x86)\\Steam"] {
+                push_unique(&mut steam_roots, drive.join(relative));
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(home) = std::env::var_os("HOME") {
+        push_unique(
+            &mut steam_roots,
+            PathBuf::from(home).join(".local/share/Steam"),
+        );
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME") {
+        push_unique(
+            &mut steam_roots,
+            PathBuf::from(home).join("Library/Application Support/Steam"),
+        );
+    }
+
+    let mut library_roots = steam_roots.clone();
+    for root in steam_roots {
+        let manifest = root.join("steamapps/libraryfolders.vdf");
+        let Ok(metadata) = fs::symlink_metadata(&manifest) else {
+            continue;
+        };
+        if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 1024 * 1024
+        {
+            continue;
+        }
+        if let Ok(contents) = fs::read_to_string(manifest) {
+            for library in steam_library_roots(&contents) {
+                push_unique(&mut library_roots, library);
+            }
+        }
+    }
+
+    let mut common = Vec::new();
+    for root in library_roots {
+        push_unique(&mut common, root.join("steamapps/common"));
+    }
+    common
+}
+
 fn steam_source(game: &Value) -> Option<(PathBuf, String)> {
     let data = game
         .get("availableFeatures")?
@@ -126,35 +207,16 @@ fn steam_source(game: &Value) -> Option<(PathBuf, String)> {
     if !safe_relative(folder) || !app_id.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
-    let home = || std::env::var_os("HOME").map(PathBuf::from);
-    let common = match std::env::consts::OS {
-        "windows" => {
-            let relative = PathBuf::from("Program Files (x86)")
-                .join("Steam")
-                .join("steamapps")
-                .join("common");
-            let primary = PathBuf::from("C:\\").join(&relative);
-            if primary.is_dir() {
-                primary
-            } else {
-                PathBuf::from("D:\\").join(relative)
-            }
-        }
-        "linux" => home()?
-            .join(".local")
-            .join("share")
-            .join("Steam")
-            .join("steamapps")
-            .join("common"),
-        "macos" => home()?
-            .join("Library")
-            .join("Application Support")
-            .join("Steam")
-            .join("steamapps")
-            .join("common"),
-        _ => return None,
-    };
-    Some((common.join(folder), app_id))
+    let candidates = steam_common_folders()
+        .into_iter()
+        .map(|common| common.join(folder))
+        .collect::<Vec<_>>();
+    let source = candidates
+        .iter()
+        .find(|candidate| candidate.is_dir())
+        .cloned()
+        .or_else(|| candidates.into_iter().next())?;
+    Some((source, app_id))
 }
 
 fn schedule_restart(app: AppHandle) {
@@ -299,7 +361,7 @@ pub fn dispatch(
             let (source, steam_app_id) = if steam {
                 let (mut source, app_id) = steam_source(&game)
                     .ok_or_else(|| error::unavailable("createNewInstallation"))?;
-                if !source.parent().is_some_and(Path::is_dir) {
+                if !source.is_dir() {
                     let dialogs =
                         deltamod_tauri_os_adapters::tauri_adapter::TauriDialogBackend::new(app);
                     let Some(common) = dialogs
@@ -312,7 +374,11 @@ pub fn dispatch(
                         .file_name()
                         .ok_or_else(|| error::invalid("createNewInstallation"))?
                         .to_owned();
-                    source = common.join(folder);
+                    source = if common.file_name() == Some(folder.as_os_str()) {
+                        common
+                    } else {
+                        common.join(folder)
+                    };
                 }
                 if state.profile()?.installations.iter().any(|record| {
                     record.extra.get("steamAppId").and_then(Value::as_str) == Some(&app_id)
@@ -575,17 +641,28 @@ pub fn dispatch(
         )?,
         "removeMod" => {
             let folder = string_arg(data, 0, "removeMod")?;
-            match state.mods_themes.mods().remove_legacy_folder(&folder) {
-                Ok(removed) => json!(removed),
-                Err(_) => {
-                    state
-                        .mods_themes
-                        .mods()
-                        .remove(&folder)
-                        .map_err(|_| error::internal())?;
-                    json!(true)
-                }
+            if folder.is_empty()
+                || folder.len() > 128
+                || !folder
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+            {
+                return Err(error::invalid("removeMod"));
             }
+            let root = state.data_root.root.join("packets");
+            let path = root.join(&folder);
+            let directory = fs::symlink_metadata(&path).map_err(|_| error::internal())?;
+            let marker =
+                fs::symlink_metadata(path.join("__deltaID.json")).map_err(|_| error::internal())?;
+            if !directory.is_dir()
+                || directory.file_type().is_symlink()
+                || !marker.is_file()
+                || marker.file_type().is_symlink()
+            {
+                return Err(error::invalid("removeMod"));
+            }
+            fs::remove_dir_all(path).map_err(|_| error::internal())?;
+            json!(true)
         }
         "preparePatchPlan" => {
             let input: PatchPlanInput = serde_json::from_value(
@@ -616,4 +693,41 @@ pub fn dispatch(
     };
     emit_copy_events(app, &state.profile_runtime);
     Ok(Some(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_modern_steam_library_paths() {
+        let roots = steam_library_roots(
+            r#"
+            "libraryfolders"
+            {
+                "0" { "path" "C:\\Program Files (x86)\\Steam" }
+                "1" { "path" "E:\\SteamLibrary" }
+            }
+            "#,
+        );
+        assert_eq!(
+            roots,
+            vec![
+                PathBuf::from(r"C:\Program Files (x86)\Steam"),
+                PathBuf::from(r"E:\SteamLibrary")
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_unrelated_vdf_fields_and_duplicate_paths() {
+        let roots = steam_library_roots(
+            r#"
+            "path" "E:\\SteamLibrary"
+            "apps" "391540"
+            "path" "E:\\SteamLibrary"
+            "#,
+        );
+        assert_eq!(roots, vec![PathBuf::from(r"E:\SteamLibrary")]);
+    }
 }

@@ -3,9 +3,11 @@ use serde_json::{json, Value};
 
 pub fn dispatch(state: &AppState, channel: &str, _data: &[Value]) -> Result<Option<Value>, String> {
     let profile = match channel {
-        "getInstallations" | "getSystemIndex" | "getMaxExistingIndex" | "isCurrentIndexSteam" => {
-            state.profile()?
-        }
+        "getInstallations"
+        | "getSystemIndex"
+        | "getMaxExistingIndex"
+        | "isCurrentIndexSteam"
+        | "removeSteamIntegration" => state.profile()?,
         _ => return Ok(None),
     };
     match channel {
@@ -32,6 +34,14 @@ pub fn dispatch(state: &AppState, channel: &str, _data: &[Value]) -> Result<Opti
                 .installations
                 .iter()
                 .any(|x| x.index == current && x.steam == Some(true)))))
+        }
+        "removeSteamIntegration" => {
+            let index = profile.current_index.unwrap_or(0);
+            let removed = state
+                .profile_runtime
+                .legacy_remove_steam_integration(index)
+                .map_err(|_| error::internal())?;
+            Ok(Some(json!(removed)))
         }
         _ => unreachable!(),
     }

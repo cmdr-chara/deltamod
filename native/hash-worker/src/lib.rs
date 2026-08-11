@@ -56,6 +56,69 @@ pub fn run(root: &Path, mut emit: impl FnMut(&Event) -> io::Result<()>) -> io::R
     emit(&Event::Done { file_count: total })
 }
 
+/// Hashes one root-relative regular file using the same link, identity, and
+/// mutation checks as the full-tree worker.
+pub fn hash_relative_file(root: &Path, relative: &Path) -> io::Result<(String, String)> {
+    hash_file(&safe_relative_file(root, relative)?)
+}
+
+/// Returns the cache signature only after validating every path component and
+/// rejecting linked or non-regular files.
+pub fn relative_file_signature(root: &Path, relative: &Path) -> io::Result<String> {
+    let path = safe_relative_file(root, relative)?;
+    let metadata = fs::symlink_metadata(&path)?;
+    if link_count_at(&path, &metadata)? != 1 {
+        return Err(invalid_data("Game file cannot be hashed safely."));
+    }
+    file_signature(&metadata)
+}
+
+fn safe_relative_file(root: &Path, relative: &Path) -> io::Result<PathBuf> {
+    let root_metadata = fs::symlink_metadata(root)?;
+    if !root_metadata.is_dir() || root_metadata.file_type().is_symlink() {
+        return Err(invalid_data(
+            "The game hash source is not a safe directory.",
+        ));
+    }
+    if relative.as_os_str().is_empty()
+        || relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(invalid_data("The required game file path is unsafe."));
+    }
+
+    let mut current = root.to_path_buf();
+    let component_count = relative.components().count();
+    for (index, component) in relative.components().enumerate() {
+        current.push(component.as_os_str());
+        let metadata = fs::symlink_metadata(&current)?;
+        if metadata.file_type().is_symlink()
+            || (index + 1 < component_count && !metadata.is_dir())
+            || (index + 1 == component_count && !metadata.is_file())
+        {
+            return Err(invalid_data("Game file cannot be hashed safely."));
+        }
+    }
+    Ok(current)
+}
+
+#[cfg(not(windows))]
+fn file_signature(metadata: &Metadata) -> io::Result<String> {
+    Ok(format!("{}:{}", metadata.len(), modified_millis(metadata)?))
+}
+
+#[cfg(windows)]
+fn file_signature(metadata: &Metadata) -> io::Result<String> {
+    use std::os::windows::fs::MetadataExt;
+    Ok(format!(
+        "{}:{}",
+        metadata.file_size(),
+        windows_mtime_millis(metadata.last_write_time() as i64)?
+    ))
+}
+
 fn list_files(root: &Path) -> io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     let mut directories = vec![root.to_path_buf()];
@@ -291,6 +354,20 @@ mod tests {
             "f0b21bf007b642ee3fcfaaa207ceeec9e5d57f74d6cc7d1d63c2d7d200994048"
         );
         assert_eq!(events[1]["fileCount"], 1);
+    }
+
+    #[test]
+    fn hashes_only_a_safe_required_file() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir(directory.path().join("chapter1")).unwrap();
+        fs::write(directory.path().join("chapter1/data.win"), b"game data").unwrap();
+        let (_, digest) =
+            hash_relative_file(directory.path(), Path::new("chapter1/data.win")).unwrap();
+        assert_eq!(
+            digest,
+            "f0b21bf007b642ee3fcfaaa207ceeec9e5d57f74d6cc7d1d63c2d7d200994048"
+        );
+        assert!(hash_relative_file(directory.path(), Path::new("../outside")).is_err());
     }
 
     #[test]

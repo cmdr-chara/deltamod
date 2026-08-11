@@ -233,6 +233,8 @@ struct ModManifest {
     name: String,
     #[serde(default)]
     variants: Vec<ManifestVariant>,
+    #[serde(default, rename = "neededFiles")]
+    needed_files: Option<Value>,
 }
 #[derive(Clone, Debug, Deserialize)]
 struct ManifestVariant {
@@ -259,9 +261,12 @@ impl ModService {
     }
     pub fn list_json(&self) -> Result<Value> {
         let records = self.list()?;
+        let root = self.runtime.inner.config.mods_root.clone();
         Ok(Value::Array(records.into_iter().map(|m| json!({
             "uid": m.uid.to_string(), "folder": m.folder.to_string(), "name": m.name,
-            "variants": m.variants.into_iter().map(|v| json!({"id": v.id.to_string(), "label": v.label})).collect::<Vec<_>>()
+            "variants": m.variants.into_iter().map(|v| json!({"id": v.id.to_string(), "label": v.label})).collect::<Vec<_>>(),
+            "_neededFiles": read_json::<ModManifest>(&root.join(m.folder.as_str()).join("manifest.json"))
+                .ok().and_then(|manifest| manifest.needed_files)
         })).collect()))
     }
     pub fn list(&self) -> Result<Vec<domain::ModRecord>> {
@@ -469,9 +474,15 @@ pub struct ThemeJson {
     pub id: String,
     pub name: String,
     #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
     pub built_in: bool,
     pub icon: Option<String>,
     pub music: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub soul_color: Option<String>,
 }
 #[derive(Clone)]
 pub struct ThemeService {
@@ -525,7 +536,10 @@ impl ThemeService {
                 .ok_or_else(|| RuntimeError::Invalid("active theme state".into()))?,
         )
     }
-    pub fn rename(&self, id: &str, name: &str) -> Result<ThemeJson> {
+    pub fn rename(&self, id: &str, name: &str, description: &str) -> Result<ThemeJson> {
+        if description.chars().count() > 500 || description.chars().any(|value| value == '\0') {
+            return Err(RuntimeError::Invalid("theme description".into()));
+        }
         let mut t = self.get(id)?;
         let tid = domain::ThemeId::new(id)?;
         let tr = domain::ThemeRecord {
@@ -543,6 +557,7 @@ impl ThemeService {
         };
         domain::validate_theme_import(&import)?;
         t.name = name.to_string();
+        t.description = Some(description.to_string());
         let p = safe_entry(&self.runtime.inner.config.themes_root, id)?.join("theme.json");
         atomic_json(&p, &t)?;
         self.runtime.emit(EventIntent::ThemesChanged);

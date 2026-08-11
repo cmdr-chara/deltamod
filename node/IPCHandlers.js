@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Notification, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification, safeStorage, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -740,6 +740,19 @@ module.exports = function registerIPCHandlers(context) {
         writeFileAtomicSync(System.getSystemFile('_theme', true), themeId);
         return true;
     });
+    handle('setAppIcon', (event, args) => {
+        const source = String(args[0] || '');
+        if (!source.startsWith('data:image/png;base64,') || source.length > 96 * 1024) {
+            throw new Error('Invalid application icon.');
+        }
+        const icon = nativeImage.createFromDataURL(source);
+        const size = icon.getSize();
+        if (icon.isEmpty() || size.width < 16 || size.height < 16 || size.width > 512 || size.height > 512) {
+            throw new Error('Invalid application icon.');
+        }
+        getWindow()?.setIcon(icon);
+        return true;
+    });
     handle('getThemes', () => obtainThemes());
     handle('getTheme', async () => {
         const themeHost = System.getSystemFile('_theme', true);
@@ -761,7 +774,15 @@ module.exports = function registerIPCHandlers(context) {
         const requestedName = String(request.name || '').trim().slice(0, 100);
         const requestedDescription = String(request.description || '').trim().slice(0, 500);
         const includeMusic = request.includeMusic === true;
+        const requestedColor = String(request.color || '').toUpperCase();
+        const requestedSoulColor = String(request.soulColor || '').toUpperCase();
         if (!requestedName) throw new Error('A theme name is required.');
+        if (requestedColor && !/^#[0-9A-F]{6}$/.test(requestedColor)) {
+            throw new Error('Invalid theme color.');
+        }
+        if (requestedSoulColor && !/^#[0-9A-F]{6}$/.test(requestedSoulColor)) {
+            throw new Error('Invalid SOUL color.');
+        }
 
         const backgroundSelection = await dialog.showOpenDialog(win, {
             title: 'Choose the theme background',
@@ -817,7 +838,8 @@ module.exports = function registerIPCHandlers(context) {
             mainSong: musicPath ? `${themeId}${musicExtension}` : 'ch5.mp3',
             id: themeId,
             musicTrack: musicPath ? 'Custom music' : 'Base Theme music',
-            color: await dominantColor(bgPath)
+            color: requestedColor || await dominantColor(bgPath),
+            soulColor: requestedSoulColor || '#FF0000'
         };
 
         writeJsonAtomicSync(path.join(customThemesDir, 'data', `${themeId}.theme.json`), config);
@@ -1201,10 +1223,9 @@ module.exports = function registerIPCHandlers(context) {
         const { modList, errors } = Modstore.modList();
         const edition = KeyValue.readKVS('gamePid');
         const processedList = modList.map(mod => {
-            mod.isIncompatible = false;
             if (mod._incompatibleHASH) {
                 mod.isIncompatible = true;
-                mod.incompatibilityReason = 'Mismatching hashes for files: ' + mod._hashDifferentFiles.map(file => '"' + file + '"').join(', ');
+                mod.incompatibilityReason ||= 'Mismatching hashes for files: ' + mod._hashDifferentFiles.map(file => '"' + file + '"').join(', ');
                 delete mod._incompatibleHASH;
             }
             if (mod.game !== edition) {
@@ -1457,6 +1478,16 @@ module.exports = function registerIPCHandlers(context) {
             );
             if (!gameResolution) {
                 return dialog.showErrorBox('Error', 'The selected game installation is incomplete or unsupported on this platform.');
+            }
+
+            if (KeyValue.readUniqueFlag('HASHCHECKS')) {
+                const checked = Modstore.modList().modList;
+                const incompatible = checked.find(mod => selectedMods.includes(String(mod.uniqueId)) && mod.isIncompatible);
+                if (incompatible) {
+                    const message = `Refusing to launch incompatible mod "${incompatible.name}": ${incompatible.incompatibilityReason}`;
+                    console.error(message);
+                    throw new Error(message);
+                }
             }
 
             GamePatching.restore(pathname);

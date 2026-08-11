@@ -61,21 +61,52 @@ pub fn dispatch(
             let selected = selected_mods(data)?;
             state.patch_cancelled.store(false, Ordering::Release);
             let id = operation_id(state, "patch");
-            let result = state.patching.patch_and_run(
-                &selected,
-                &id,
-                &state.game,
-                |progress| {
-                    let _ = app.emit(
-                        "gplog",
-                        json!({
-                            "log": progress.log.unwrap_or_default(),
-                            "percent": progress.percent.unwrap_or(-1.0)
-                        }),
-                    );
-                },
-                || state.patch_cancelled.load(Ordering::Acquire),
-            );
+            let hash_checks = state
+                .preferences
+                .lock()
+                .map_err(|_| error::internal())?
+                .unique_flags
+                .get("HASHCHECKS")
+                .copied()
+                .unwrap_or(false);
+            let result = if hash_checks {
+                state
+                    .patching
+                    .check_selected_legacy_mods(&selected)
+                    .and_then(|_| {
+                        state.patching.patch_and_run(
+                            &selected,
+                            &id,
+                            &state.game,
+                            |progress| {
+                                let _ = app.emit(
+                                    "gplog",
+                                    json!({
+                                        "log": progress.log.unwrap_or_default(),
+                                        "percent": progress.percent.unwrap_or(-1.0)
+                                    }),
+                                );
+                            },
+                            || state.patch_cancelled.load(Ordering::Acquire),
+                        )
+                    })
+            } else {
+                state.patching.patch_and_run(
+                    &selected,
+                    &id,
+                    &state.game,
+                    |progress| {
+                        let _ = app.emit(
+                            "gplog",
+                            json!({
+                                "log": progress.log.unwrap_or_default(),
+                                "percent": progress.percent.unwrap_or(-1.0)
+                            }),
+                        );
+                    },
+                    || state.patch_cancelled.load(Ordering::Acquire),
+                )
+            };
             match result {
                 Ok(result) if result.patched => {
                     let mods = state
@@ -85,7 +116,14 @@ pub fn dispatch(
                     let _ = app.emit("finishedPatch", mods);
                     Ok(Some(Value::Null))
                 }
-                Ok(_) | Err(_) => {
+                Ok(_) => {
+                    let _ = state.patching.restore();
+                    let _ = app.emit("audio", true);
+                    let _ = app.emit("page", "main");
+                    Ok(Some(json!(false)))
+                }
+                Err(error) => {
+                    let _ = app.emit("gplog", json!({"log": error.to_string(), "percent": -1.0}));
                     let _ = state.patching.restore();
                     let _ = app.emit("audio", true);
                     let _ = app.emit("page", "main");

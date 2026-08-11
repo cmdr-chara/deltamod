@@ -429,6 +429,7 @@ pub struct ModEntry {
     pub link: String,
     pub published: Option<String>,
     pub summary: Option<String>,
+    pub image_url: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GameBananaComment {
@@ -617,9 +618,115 @@ fn safe_remote_filename(value: Option<&str>, fallback: &str) -> String {
         value.to_owned()
     }
 }
+
+fn strip_markup(value: &str) -> String {
+    let mut text = String::new();
+    let mut inside_tag = false;
+    for character in value.chars() {
+        match character {
+            '<' => inside_tag = true,
+            '>' => {
+                inside_tag = false;
+                text.push(' ');
+            }
+            _ if !inside_tag => text.push(character),
+            _ => {}
+        }
+    }
+    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    quick_xml::escape::unescape(&compact)
+        .map(|value| value.into_owned())
+        .unwrap_or(compact)
+}
+
+fn decode_xml_text(value: &[u8]) -> String {
+    let value = String::from_utf8_lossy(value);
+    quick_xml::escape::unescape(&value)
+        .map(|value| value.into_owned())
+        .unwrap_or_else(|_| value.into_owned())
+}
+
 pub struct ModDb<'a> {
     pub client: &'a Client,
 }
+fn parse_moddb_feed(text: &str) -> Result<Vec<ModEntry>, RuntimeError> {
+    let mut reader = quick_xml::Reader::from_str(text);
+    reader.config_mut().trim_text(true);
+    let mut out = Vec::new();
+    let mut title = None;
+    let mut link = None;
+    let mut pubd = None;
+    let mut summary = None;
+    let mut image_url = None;
+    let mut tag = String::new();
+    let mut inside_item = false;
+    loop {
+        match reader.read_event() {
+            Ok(quick_xml::events::Event::Start(e)) => {
+                tag = String::from_utf8_lossy(e.name().as_ref()).into();
+                if e.name().as_ref() == b"item" {
+                    inside_item = true;
+                    title = None;
+                    link = None;
+                    pubd = None;
+                    summary = None;
+                    image_url = None;
+                } else if inside_item
+                    && matches!(e.name().as_ref(), b"enclosure" | b"media:content")
+                {
+                    image_url = e
+                        .attributes()
+                        .flatten()
+                        .find(|attribute| attribute.key.as_ref() == b"url")
+                        .map(|attribute| {
+                            String::from_utf8_lossy(attribute.value.as_ref()).into_owned()
+                        });
+                }
+            }
+            Ok(quick_xml::events::Event::Empty(e))
+                if inside_item && matches!(e.name().as_ref(), b"enclosure" | b"media:content") =>
+            {
+                image_url = e
+                    .attributes()
+                    .flatten()
+                    .find(|attribute| attribute.key.as_ref() == b"url")
+                    .map(|attribute| {
+                        String::from_utf8_lossy(attribute.value.as_ref()).into_owned()
+                    });
+            }
+            Ok(quick_xml::events::Event::Text(e)) if inside_item => {
+                let v = decode_xml_text(e.as_ref());
+                match tag.as_str() {
+                    "title" => title = Some(v),
+                    "link" => link = Some(v),
+                    "pubDate" => pubd = Some(v),
+                    "description" => summary = Some(v),
+                    _ => {}
+                }
+            }
+            Ok(quick_xml::events::Event::CData(e)) if inside_item && tag == "description" => {
+                summary = Some(strip_markup(&String::from_utf8_lossy(e.as_ref())));
+            }
+            Ok(quick_xml::events::Event::End(e)) if e.name().as_ref() == b"item" => {
+                if let (Some(t), Some(l)) = (title.take(), link.take()) {
+                    out.push(ModEntry {
+                        title: t,
+                        link: l,
+                        published: pubd.take(),
+                        summary: summary.take(),
+                        image_url: image_url.take(),
+                    })
+                }
+                inside_item = false;
+            }
+            Ok(quick_xml::events::Event::Eof) => break,
+            Err(e) => return Err(RuntimeError::Xml(e.to_string())),
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
 impl<'a> ModDb<'a> {
     pub async fn browse(&self, url: &str) -> Result<CurrentEnvelope<Vec<ModEntry>>, RuntimeError> {
         let text = self
@@ -628,47 +735,9 @@ impl<'a> ModDb<'a> {
             .await?
             .text()
             .await?;
-        let mut reader = quick_xml::Reader::from_str(&text);
-        reader.config_mut().trim_text(true);
-        let mut out = Vec::new();
-        let mut title = None;
-        let mut link = None;
-        let mut pubd = None;
-        let mut summary = None;
-        let mut tag = String::new();
-        loop {
-            match reader.read_event() {
-                Ok(quick_xml::events::Event::Start(e)) => {
-                    tag = String::from_utf8_lossy(e.name().as_ref()).into()
-                }
-                Ok(quick_xml::events::Event::Text(e)) => {
-                    let v = String::from_utf8_lossy(e.as_ref()).into_owned();
-                    match tag.as_str() {
-                        "title" => title = Some(v),
-                        "link" => link = Some(v),
-                        "pubDate" => pubd = Some(v),
-                        "description" => summary = Some(v),
-                        _ => {}
-                    }
-                }
-                Ok(quick_xml::events::Event::End(e)) if e.name().as_ref() == b"item" => {
-                    if let (Some(t), Some(l)) = (title.take(), link.take()) {
-                        out.push(ModEntry {
-                            title: t,
-                            link: l,
-                            published: pubd.take(),
-                            summary: summary.take(),
-                        })
-                    }
-                }
-                Ok(quick_xml::events::Event::Eof) => break,
-                Err(e) => return Err(RuntimeError::Xml(e.to_string())),
-                _ => {}
-            }
-        }
         Ok(CurrentEnvelope {
             operation_id: "moddb-browse".into(),
-            value: out,
+            value: parse_moddb_feed(&text)?,
         })
     }
 }
@@ -751,6 +820,21 @@ mod tests {
             "Wed, 21 Oct 2015 07:28:00 GMT".parse().unwrap(),
         );
         assert_eq!(retry_after(&h), None);
+    }
+
+    #[test]
+    fn moddb_feed_reads_self_closing_media_thumbnails() {
+        let feed = r#"<rss xmlns:media="http://search.yahoo.com/mrss/"><channel><item>
+            <title>Example mod</title><link>https://www.moddb.com/mods/example</link>
+            <media:content url="https://media.moddb.com/images/example.png" />
+        </item></channel></rss>"#;
+
+        let entries = parse_moddb_feed(feed).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].image_url.as_deref(),
+            Some("https://media.moddb.com/images/example.png")
+        );
     }
 }
 impl<'a> GameBanana<'a> {

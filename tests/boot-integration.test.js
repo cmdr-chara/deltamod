@@ -45,7 +45,7 @@ describe('Deltamod boot screen integration', () => {
         expect(renderer).toContain("bootProgress(0.9, 'Preparing file overlay')");
         expect(renderer).toContain('finishBoot();');
         expect(renderer).toContain("window.DeltamodBoot?.fail('Continuing')");
-        expect(renderer).toContain("invokeOptional('isCMode', [], false)");
+        expect(renderer).toContain("window.deltamodBackend.invoke('isCMode', [])");
         expect(renderer).toContain("invokeOptional('shouldGoIM', [], false)");
         expect(renderer).toContain("invokeOptional('executeArgumentCmd', [], null)");
         expect(renderer).toContain("assetUrl('app', `web/themes/${themePath}`)");

@@ -59,6 +59,7 @@ pub enum ToolKind {
     G3mTool,
     UndertaleModCli,
     WinUi,
+    ControllerMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -162,6 +163,7 @@ impl ToolKind {
             Self::G3mTool => "G3MTool",
             Self::UndertaleModCli => "UndertaleModCli",
             Self::WinUi => "WinUI",
+            Self::ControllerMode => "ControllerMode",
         }
     }
     pub fn packaged_path(
@@ -185,6 +187,7 @@ impl ToolKind {
                 ["undertale-mod-tool", "mac-x64", "UndertaleModCli"].as_slice()
             }
             (Self::WinUi, "win32", "x64") => ["winui", "win-x64", "Deltamod.WinUI.exe"].as_slice(),
+            (Self::ControllerMode, "win32", _) => ["tools", "cmodeutil.exe"].as_slice(),
             _ => {
                 return Err(RuntimeError::Unsupported {
                     kind: self.name(),
@@ -270,6 +273,16 @@ pub fn winui_launch(tool: &ToolPath, data_file: &Path) -> CommandSpec {
     }
 }
 
+pub fn controller_mode_launch(tool: &ToolPath) -> CommandSpec {
+    CommandSpec {
+        kind: ToolKind::ControllerMode,
+        executable: tool.path.clone(),
+        argv: Vec::new(),
+        cwd: tool.path.parent().unwrap_or(Path::new(".")).to_owned(),
+        env: scrubbed_env(),
+    }
+}
+
 pub fn scrubbed_env() -> BTreeMap<OsString, OsString> {
     let mut env = BTreeMap::new();
     for key in [
@@ -332,15 +345,29 @@ pub struct ProcessRegistry {
 }
 impl ProcessRegistry {
     pub fn spawn(&self, spec: &CommandSpec) -> Result<OwnedProcess, RuntimeError> {
+        self.spawn_with_output(spec, true)
+    }
+
+    pub fn spawn_silent(&self, spec: &CommandSpec) -> Result<OwnedProcess, RuntimeError> {
+        self.spawn_with_output(spec, false)
+    }
+
+    fn spawn_with_output(
+        &self,
+        spec: &CommandSpec,
+        capture_output: bool,
+    ) -> Result<OwnedProcess, RuntimeError> {
         let mut command = Command::new(&spec.executable);
         command.args(&spec.argv).current_dir(&spec.cwd).env_clear();
         for (k, v) in &spec.env {
             command.env(k, v);
         }
-        command
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        command.stdin(Stdio::null());
+        if capture_output {
+            command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        } else {
+            command.stdout(Stdio::null()).stderr(Stdio::null());
+        }
         let child = Arc::new(Mutex::new(command.spawn().map_err(|source| {
             RuntimeError::Start {
                 kind: spec.kind.name(),
@@ -613,5 +640,22 @@ mod tests {
     fn environment_is_scrubbed() {
         let e = scrubbed_env();
         assert!(!e.contains_key(std::ffi::OsStr::new("SECRET")));
+    }
+
+    #[test]
+    fn controller_mode_is_windows_only_and_has_no_arguments() {
+        let path = ToolKind::ControllerMode
+            .packaged_path(Path::new("resources"), "win32", "x64")
+            .unwrap();
+        assert_eq!(path, PathBuf::from("resources/tools/cmodeutil.exe"));
+        assert!(ToolKind::ControllerMode
+            .packaged_path(Path::new("resources"), "linux", "x64")
+            .is_err());
+        let tool = ToolPath {
+            kind: ToolKind::ControllerMode,
+            path,
+            sha256: None,
+        };
+        assert!(controller_mode_launch(&tool).argv.is_empty());
     }
 }

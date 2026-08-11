@@ -13,12 +13,11 @@
     const tauriInvoke = root.__TAURI__.core.invoke;
     const listen = root.__TAURI__.event.listen;
     const unsupportedCommands = new Set([
-        'htmlAlert_outwin', 'isCMode', 'shouldGoIM', 'sampleError', 'cmode-on', 'cmode-off',
-        'rebootDev', 'setSponsor', 'loginGamebanana', 'modSources:cancelNexusSso',
-        'getGamebananaPic', 'getGamebananaID', 'getGamebananaUserinfo',
+        'htmlAlert_outwin', 'shouldGoIM', 'sampleError',
+        'rebootDev', 'setSponsor', 'modSources:cancelNexusSso',
         'shakeCommunityWindowForEasterEgg', 'modSources:downloadNexus', 'createInstallLink',
         'undertaleModTool:openInstallation', 'gamebanana_downloadAllInCollection', 'start-update',
-        'ignore-update', 'getEditionByIndex', 'removeSteamIntegration', 'openFlagDatabase',
+        'ignore-update', 'getEditionByIndex', 'openFlagDatabase',
         'deltamoddersDiscord', 'canReportError', 'npsCallback', 'executeArgumentCmd', 'initialize',
         'modalTest', 'openElectronTracer', 'installDeltamodCLI'
     ]);
@@ -104,7 +103,7 @@
             throw new TypeError(`Unknown asset kind: ${kind}`);
         }
         const path = validateAssetPath(assetPath);
-        if (kind === 'theme') return `themeprot://${path}`;
+        if (kind === 'theme') return `themeprot://asset/${path}`;
         if (kind === 'packet') return `packet://${path}`;
         const relative = path.startsWith('web/') ? path.slice(4) : path;
         return new URL(relative, root.location.href).href;

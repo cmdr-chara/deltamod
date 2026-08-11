@@ -29,10 +29,13 @@ describe('Tauri renderer capability gates', () => {
         const patching = read('web/views/patching/index.js');
 
         for (const channel of [
-            'isCMode', 'shouldGoIM', 'executeArgumentCmd', 'start-update', 'ignore-update',
-            'getGamebananaUserinfo', 'cmode-on', 'cmode-off'
+            'shouldGoIM', 'executeArgumentCmd', 'start-update', 'ignore-update',
+            'getGamebananaUserinfo'
         ]) {
             expect(app).toMatch(new RegExp(`invokeOptional\\(\\s*['\"]${channel}`));
+        }
+        for (const channel of ['isCMode', 'cmode-on', 'cmode-off']) {
+            expect(app).toContain(`.invoke('${channel}'`);
         }
         expect(deleteAll).toContain("invokeOptional('initialize'");
         expect(deleteAll).toContain("isCommandAvailable('initialize')");

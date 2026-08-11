@@ -173,15 +173,11 @@ async function addButton(name, description, click, buttonText, enabled = true, d
     button.addEventListener('click', click);
     control.appendChild(button);
     if (!enabled) {
+        tr.classList.add('setting-row-disabled');
         button.disabled = true;
-        button.style.opacity = 0.5;
-        button.style.cursor = 'not-allowed';
-        span.style.opacity = 0.5;
-        small.style.opacity = 0.5;
-        span.style.fontStyle = 'italic';
-        small.style.fontStyle = 'italic';
         if (disabledReason != '') {
             small.innerText = '(' + disabledReason + ')';
+            button.title = disabledReason;
         }
     }
 
@@ -286,7 +282,32 @@ async function addLanguageOption(language, selected) {
         : localize('select', 'Select');
     button.addEventListener('click', async () => {
         window._pageArguments = { cat: 'lang' };
-        await window.Localization.setLanguage(language.code);
+        await window.Localization.setLanguage(language.code, { refreshPage: false });
+        document.querySelector('.page-heading h1').textContent = localize('options', 'Options');
+        document.querySelector('.page-heading p').textContent = localize(
+            'community_options_subtitle',
+            'Configure Community without changing the official Deltamod profile.'
+        );
+        const categoryLabels = {
+            b_gen: ['optcat_general', 'General'],
+            b_lang: ['optcat_lang', 'Language'],
+            b_ui: ['optcat_ui', 'Interface'],
+            b_inst: ['optcat_installation', 'Installation'],
+            b_data: ['optcat_data', 'Data'],
+            b_adv: ['optcat_advanced', 'Advanced'],
+            b_gb: ['optcat_gamebanana', 'GameBanana'],
+            b_nexus: ['optcat_nexus', 'Nexus Mods'],
+            b_dev: ['optcat_developer', 'Developer']
+        };
+        for (const [id, [key, fallback]] of Object.entries(categoryLabels)) {
+            const category = document.getElementById(id);
+            if (category) category.textContent = localize(key, fallback);
+        }
+        const headers = document.querySelectorAll('#modtable thead th');
+        if (headers[0]) headers[0].textContent = localize('option', 'Option');
+        if (headers[1]) headers[1].textContent = localize('status', 'Status');
+        document.getElementById('pageTitle').textContent = localize('options', 'Options');
+        await window.currentPageStack.cat('lang');
     });
     control.appendChild(button);
 
@@ -367,9 +388,13 @@ async function runOfficialProfileImport(summary) {
 }
 
 var tempLock = false;
+var pendingCategory = null;
 
 window.currentPageStack.cat = async function(cat) {
-    if (tempLock) return;
+    if (tempLock) {
+        pendingCategory = cat;
+        return;
+    }
     tempLock = true;
     let tbody = document.querySelector('tbody');
     tbody.innerHTML = '';
@@ -395,6 +420,7 @@ window.currentPageStack.cat = async function(cat) {
     }
     document.getElementById('b_' + cat).classList.add('selected');
     document.querySelectorAll('[id^="b_"]').forEach(btn => {
+        btn.setAttribute('aria-current', btn.id === 'b_' + cat ? 'page' : 'false');
         if (btn.id != 'b_' + cat) {
             btn.classList.add('blur');
         }
@@ -402,6 +428,7 @@ window.currentPageStack.cat = async function(cat) {
             btn.classList.remove('blur');
         }
     });
+    try {
     switch (cat) {
         case 'gen':            
             await addButton("Open mod folder", "Open the folder where your mods are stored.", async () => {
@@ -423,7 +450,7 @@ window.currentPageStack.cat = async function(cat) {
                 localize('community_hash_title', "Enable hash checks"),
                 localize('community_hash_desc', "Checks mod hashes for compatibility. This may make scans slower."),
                 'hashchecks',
-                true
+                false
             );
             break;
         case 'lang': {
@@ -516,7 +543,8 @@ window.currentPageStack.cat = async function(cat) {
             const canDisconnectSteam = window.deltamodBackend.isCommandAvailable('removeSteamIntegration');
 
             await addButton("Disconnect Steam", "Stops launching the current Community installation through Steam.", async () => {
-                await window.deltamodBackend.invoke('removeSteamIntegration', []);
+                const removed = await window.deltamodBackend.invoke('removeSteamIntegration', []);
+                if (removed) await window.currentPageStack.cat('inst');
             }, "Disconnect", isSteam && canDisconnectSteam, canDisconnectSteam
                 ? "Only available for games imported from Steam."
                 : "Steam disconnection is unavailable in this app build.");
@@ -788,17 +816,33 @@ window.currentPageStack.cat = async function(cat) {
             break;
         }
     }
-    // theme adjustments
-    // as far as i know this page is the only page that needs ts
-    genbtnstyles();
-    rew();
-
-    tempLock = false;
+    } catch (error) {
+        console.error(`Unable to render options category ${cat}:`, error);
+        tbody.replaceChildren();
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 2;
+        cell.innerText = `This options category could not be loaded: ${String(error?.message || error)}`;
+        row.appendChild(cell);
+        tbody.appendChild(row);
+    } finally {
+        // as far as i know this page is the only page that needs ts
+        genbtnstyles();
+        rew();
+        tempLock = false;
+        if (pendingCategory) {
+            const nextCategory = pendingCategory;
+            pendingCategory = null;
+            if (nextCategory !== cat) window.currentPageStack.cat(nextCategory);
+        }
+    }
 }
 
 if (window._pageArguments?.cat != undefined && typeof window.currentPageStack?.cat === 'function') {
     const selectedCategory = window._pageArguments.cat;
     window._pageArguments = {};
     window.currentPageStack.cat(selectedCategory);
+} else {
+    window.currentPageStack.cat('gen');
 }
 })();

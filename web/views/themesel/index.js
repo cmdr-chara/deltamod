@@ -11,7 +11,10 @@
         'AND NOW...\nIT HAS NOTICED YOU.',
         'SHALL WE MAKE\nTHIS THEME OURS?'
     ]);
-    const DEFAULT_THEME_FILTER_PLACEHOLDER = 'Name, description, or music';
+    const t = (key, fallback, ...args) => window.Localization?.t(key, fallback, ...args)
+        ?? String(fallback).replace(/{(\d+)}/g, (match, index) => (
+            args[index] === undefined ? match : String(args[index])
+        ));
 
     function createCrossfadedAudioLoop(url, volume, crossfadeSeconds = 0.15) {
         let audioContext = null;
@@ -110,11 +113,16 @@
         return glyph;
     }
 
-    function safeThemeBackground(value) {
-        const fileName = String(value || '');
-        return /^[a-z0-9._-]+$/i.test(fileName)
-            ? `url("${window.deltamodBackend.assetUrl('theme', `img/${fileName}`)}")`
-            : '';
+    function safeThemeBackground(theme) {
+        const fileName = String(theme?.background || '');
+        if (!/^[a-z0-9._-]+$/i.test(fileName)) return '';
+        const url = theme?.builtIn
+            ? window.deltamodBackend.assetUrl('app', `web/themes/img/${fileName}`)
+            : window.deltamodBackend.assetUrl(
+                'theme',
+                theme?.runtimeLayout ? `${theme.id}/${fileName}` : `img/${fileName}`
+            );
+        return `url("${url}")`;
     }
 
     function safeCreditUrl(value) {
@@ -138,7 +146,7 @@
             if (aExpired && !bExpired) return 1;
             return a.name.localeCompare(b.name);
         });
-        const currentTheme = await window.deltamodBackend.invoke('getTheme', []);
+        let currentTheme = await window.deltamodBackend.invoke('getTheme', []);
         const themeGrid = document.getElementById('themes');
         const filterInput = document.getElementById('theme-filter');
         const countLabel = document.getElementById('theme-count');
@@ -150,6 +158,7 @@
 
             const card = document.createElement('article');
             card.className = 'theme-card';
+            card.dataset.themeId = theme.id;
             card.dataset.search = [
                 theme.name,
                 theme.description,
@@ -163,9 +172,12 @@
 
             const preview = document.createElement('div');
             preview.className = 'theme-card-preview';
-            preview.style.backgroundImage = safeThemeBackground(theme.background);
+            preview.style.backgroundImage = safeThemeBackground(theme);
             preview.setAttribute('role', 'img');
-            preview.setAttribute('aria-label', `${theme.name} background preview`);
+            preview.setAttribute(
+                'aria-label',
+                t('theme_background_preview', '{0} background preview', theme.name)
+            );
             card.appendChild(preview);
 
             const content = document.createElement('div');
@@ -177,15 +189,17 @@
             accent.className = 'theme-accent';
             accent.style.backgroundColor = theme.color;
             accent.title = theme.soulColor
-                ? `UI accent: ${theme.color}; SOUL color: ${theme.soulColor}`
-                : `Theme accent: ${theme.color}`;
+                ? t('theme_accent_colors', 'UI accent: {0}; SOUL color: {1}', theme.color, theme.soulColor)
+                : t('theme_accent_only', 'Theme accent: {0}', theme.color);
             const name = document.createElement('h2');
             name.textContent = theme.name;
             heading.append(accent, name);
 
             const source = document.createElement('span');
             source.className = 'theme-source';
-            source.textContent = theme.builtIn ? 'Built-in' : 'Custom';
+            source.textContent = theme.builtIn
+                ? t('theme_built_in', 'Built-in')
+                : t('theme_custom', 'Custom');
             heading.appendChild(source);
             content.appendChild(heading);
 
@@ -206,7 +220,7 @@
                 const credits = document.createElement('details');
                 credits.className = 'theme-credits';
                 const summary = document.createElement('summary');
-                summary.textContent = 'Credits';
+                summary.textContent = t('theme_credits', 'Credits');
                 const list = document.createElement('ul');
 
                 for (const credit of theme.credits) {
@@ -238,8 +252,8 @@
                 description.contentEditable = true;
                 name.classList.add('is-editable');
                 description.classList.add('is-editable');
-                name.title = 'Click to edit the theme name';
-                description.title = 'Click to edit the description';
+                name.title = t('theme_edit_name', 'Click to edit the theme name');
+                description.title = t('theme_edit_description', 'Click to edit the description');
 
                 const saveDetails = async () => {
                     if (!name.textContent.trim()) name.textContent = theme.name;
@@ -263,11 +277,24 @@
             const selectButton = document.createElement('button');
             selectButton.type = 'button';
             selectButton.className = 'theme-select-button';
-            selectButton.textContent = theme.id === currentTheme ? 'In use' : 'Use theme';
+            selectButton.textContent = theme.id === currentTheme
+                ? t('theme_in_use', 'In use')
+                : t('theme_use', 'Use theme');
             selectButton.disabled = theme.id === currentTheme;
             selectButton.setAttribute('aria-pressed', String(theme.id === currentTheme));
             selectButton.addEventListener('click', async () => {
                 await window.deltamodBackend.invoke('setTheme', [theme.id]);
+                currentTheme = theme.id;
+                for (const candidate of themeCards) {
+                    const active = candidate.dataset.themeId === theme.id;
+                    candidate.classList.toggle('is-current', active);
+                    const candidateButton = candidate.querySelector('.theme-select-button');
+                    candidateButton.disabled = active;
+                    candidateButton.textContent = active
+                        ? t('theme_in_use', 'In use')
+                        : t('theme_use', 'Use theme');
+                    candidateButton.setAttribute('aria-pressed', String(active));
+                }
                 await themeRefresh(true);
             });
             actions.appendChild(selectButton);
@@ -278,10 +305,14 @@
                 deleteButton.className = 'theme-delete-button';
                 deleteButton.appendChild(staticIcon('delete', '19px'));
                 const deleteLabel = document.createElement('span');
-                deleteLabel.textContent = 'Delete';
+                deleteLabel.textContent = t('theme_delete', 'Delete');
                 deleteButton.appendChild(deleteLabel);
                 deleteButton.addEventListener('click', async () => {
-                    if (!window.confirm(`Delete "${theme.name}"? This cannot be undone.`)) return;
+                    if (!window.confirm(t(
+                        'theme_delete_confirm',
+                        'Delete "{0}"? This cannot be undone.',
+                        theme.name
+                    ))) return;
                     if (theme.id === currentTheme) {
                         await window.deltamodBackend.invoke('setTheme', ['base']);
                         await themeRefresh(true);
@@ -305,20 +336,89 @@
                 card.hidden = !matches;
                 if (matches) visible += 1;
             }
-            countLabel.textContent = `${visible} of ${themeCards.length} themes`;
+            countLabel.textContent = t(
+                'theme_count',
+                '{0} of {1} themes',
+                visible,
+                themeCards.length
+            );
             emptyState.hidden = visible !== 0;
         };
         filterInput.addEventListener('input', updateFilter);
-        updateFilter();
-
+        const updateDynamicTranslations = () => {
+            filterInput.placeholder = t(
+                'theme_filter_placeholder',
+                'Name, description, or music'
+            );
+            importName.placeholder = t('theme_name_placeholder', 'My theme');
+            importDescription.placeholder = t(
+                'theme_description_placeholder',
+                'What is this theme based on?'
+            );
+            for (const card of themeCards) {
+                const theme = themes.find(candidate => candidate.id === card.dataset.themeId);
+                card.querySelector('.theme-card-preview').setAttribute(
+                    'aria-label',
+                    t('theme_background_preview', '{0} background preview', theme.name)
+                );
+                const accent = card.querySelector('.theme-accent');
+                accent.title = theme.soulColor
+                    ? t('theme_accent_colors', 'UI accent: {0}; SOUL color: {1}', theme.color, theme.soulColor)
+                    : t('theme_accent_only', 'Theme accent: {0}', theme.color);
+                card.querySelector('.theme-source').textContent = theme.builtIn
+                    ? t('theme_built_in', 'Built-in')
+                    : t('theme_custom', 'Custom');
+                const summary = card.querySelector('.theme-credits summary');
+                if (summary) summary.textContent = t('theme_credits', 'Credits');
+                const editableName = card.querySelector('h2.is-editable');
+                const editableDescription = card.querySelector('.theme-description.is-editable');
+                if (editableName) editableName.title = t('theme_edit_name', 'Click to edit the theme name');
+                if (editableDescription) {
+                    editableDescription.title = t(
+                        'theme_edit_description',
+                        'Click to edit the description'
+                    );
+                }
+                const selectButton = card.querySelector('.theme-select-button');
+                selectButton.textContent = selectButton.disabled
+                    ? t('theme_in_use', 'In use')
+                    : t('theme_use', 'Use theme');
+                const deleteLabel = card.querySelector('.theme-delete-button span:last-child');
+                if (deleteLabel) deleteLabel.textContent = t('theme_delete', 'Delete');
+            }
+            updateFilter();
+        };
         const openImportButton = document.getElementById('open-theme-import');
         const importForm = document.getElementById('theme-import-form');
         const importName = document.getElementById('theme-import-name');
         const importDescription = document.getElementById('theme-import-description');
+        const importColor = document.getElementById('theme-import-color');
+        const importColorValue = document.getElementById('theme-import-color-value');
+        const importSoulValue = document.getElementById('theme-import-soul-value');
+        const importIconPreview = document.getElementById('theme-import-icon-preview');
         const includeMusic = document.getElementById('theme-import-include-music');
         const cancelImportButton = document.getElementById('cancel-theme-import');
         const createThemeButton = document.getElementById('create-theme');
         const importStatus = document.getElementById('theme-import-status');
+        let iconPreviewRequest = 0;
+
+        elisten(window, 'deltamod-language-change', updateDynamicTranslations);
+        updateDynamicTranslations();
+
+        const colorToHex = color => `#${color
+            .map(channel => channel.toString(16).padStart(2, '0'))
+            .join('')}`.toUpperCase();
+
+        const updateIconPreview = async () => {
+            const request = ++iconPreviewRequest;
+            const accent = window.ThemeSprites.parseThemeColor(importColor.value) || [205, 68, 81];
+            const soul = window.ThemeSprites.canonicalSoulColor(accent);
+            const soulHex = colorToHex(soul);
+            importColorValue.textContent = importColor.value.toUpperCase();
+            importSoulValue.textContent = soulHex;
+            const icon = await window.ThemeSprites.renderAppIcon(importColor.value, soulHex);
+            if (request === iconPreviewRequest) importIconPreview.src = icon;
+        };
 
         const closeImportForm = () => {
             importForm.hidden = true;
@@ -330,14 +430,16 @@
             openImportButton.hidden = true;
             importForm.hidden = false;
             importName.focus();
+            updateIconPreview().catch(() => {});
         });
         cancelImportButton.addEventListener('click', closeImportForm);
+        importColor.addEventListener('input', () => updateIconPreview().catch(() => {}));
 
         importForm.addEventListener('submit', async event => {
             event.preventDefault();
             const name = importName.value.trim();
             if (!name) {
-                importStatus.textContent = 'Enter a name for the theme.';
+                importStatus.textContent = t('theme_name_required', 'Enter a name for the theme.');
                 importName.focus();
                 return;
             }
@@ -345,22 +447,35 @@
             createThemeButton.disabled = true;
             cancelImportButton.disabled = true;
             importStatus.textContent = includeMusic.checked
-                ? 'Choose a background image, then choose the music file.'
-                : 'Choose a background image.';
+                ? t(
+                    'theme_choose_background_music',
+                    'Choose a background image, then choose the music file.'
+                )
+                : t('theme_choose_background', 'Choose a background image.');
 
             try {
+                const accent = window.ThemeSprites.parseThemeColor(importColor.value) || [205, 68, 81];
                 const result = await window.deltamodBackend.invoke('importTheme', [{
                     name,
                     description: importDescription.value.trim(),
-                    includeMusic: includeMusic.checked
+                    includeMusic: includeMusic.checked,
+                    color: importColor.value.toUpperCase(),
+                    soulColor: colorToHex(window.ThemeSprites.canonicalSoulColor(accent))
                 }]);
                 if (!result?.created) {
-                    importStatus.textContent = 'Import canceled. No theme files were copied.';
+                    importStatus.textContent = t(
+                        'theme_import_canceled',
+                        'Import canceled. No theme files were copied.'
+                    );
                     return;
                 }
                 await page('themesel');
             } catch (error) {
-                importStatus.textContent = `Theme import failed: ${error.message || 'Unknown error'}`;
+                importStatus.textContent = t(
+                    'theme_import_failed',
+                    'Theme import failed: {0}',
+                    error.message || t('theme_unknown_error', 'Unknown error')
+                );
             } finally {
                 createThemeButton.disabled = false;
                 cancelImportButton.disabled = false;
@@ -391,6 +506,7 @@
         const themeFilter = document.getElementById('theme-filter');
         if (themeFilter) {
             themeFilter.value = '';
+            themeFilter.placeholder = 'THE TRUE NAME';
             themeFilter.dispatchEvent(new Event('input', { bubbles: true }));
         }
 
@@ -509,7 +625,10 @@
             overlay.remove();
             document.body.classList.remove('chara-sequence-active');
             if (themeFilter) {
-                themeFilter.placeholder = DEFAULT_THEME_FILTER_PLACEHOLDER;
+                themeFilter.placeholder = t(
+                    'theme_filter_placeholder',
+                    'Name, description, or music'
+                );
             }
             if (restoreMenuAudio && menuAudioWasPlaying && typeof audio !== 'undefined' && audio?.src) {
                 audio.play().catch(() => {});

@@ -26,6 +26,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'rebootDev',
     'chooseTheme',
     'setTheme',
+    'setAppIcon',
     'getThemes',
     'getTheme',
     'importTheme',
