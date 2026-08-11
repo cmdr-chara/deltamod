@@ -1,0 +1,12 @@
+[package]
+name = "deltamod-asset-runtime"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+tauri-adapter = []
+
+[dev-dependencies]
+tempfile = "3"

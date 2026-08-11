@@ -13,8 +13,9 @@
     z-index: 99;
     margin-bottom: 14px;
     border: 0;
-    border-radius: 22px;
-    background: rgba(8, 8, 8, 0.72);
+    border: 1px solid var(--panel-border);
+    border-radius: 16px;
+    background: rgba(9, 9, 11, 0.82);
     backdrop-filter: blur(var(--panel-blur)) brightness(0.76);
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
 }
@@ -95,7 +96,8 @@
 .content-filter-status {
     min-height: 1.25rem;
     margin: 0 0 12px;
-    color: #ddd;
+    color: var(--muted-text);
+    font-family: "Calibri", sans-serif;
 }
 
 .content-filter-status:empty,
@@ -232,7 +234,17 @@
 
 .shop-page table {
     overflow: hidden;
-    background: rgba(8, 8, 8, 0.58);
+    border: 1px solid var(--panel-border);
+    background: rgba(9, 9, 11, 0.76);
+}
+
+.shop-page th:last-child,
+.shop-page td:last-child {
+    width: 132px;
+}
+
+.shop-page tbody tr[data-featured-rank]:not([data-featured-rank="0"]) > td {
+    background: linear-gradient(90deg, rgba(255, 196, 0, 0.055), transparent 72%);
 }
 
 .shop-page table.is-state thead {
@@ -311,7 +323,7 @@
 }
 
 .shop-page tbody tr:hover > td {
-    background: rgba(255, 255, 255, 0.045);
+    background-color: rgba(255, 255, 255, 0.055);
 }
 
 .shop-page .modTitleSpan {
@@ -391,8 +403,27 @@ input {
     box-sizing: border-box;
     width: 100%;
     padding-right: 42px;
-    border: 0;
-    border-radius: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    background: rgba(3, 3, 5, 0.7);
+}
+
+@media (max-width: 760px) {
+    .shop-page th:last-child,
+    .shop-page td:last-child {
+        width: 108px;
+    }
+
+    .shop-page td:first-child {
+        align-items: flex-start !important;
+        flex-direction: column;
+    }
+
+    .modThumbDiv,
+    .modThumbImg {
+        width: 100% !important;
+        max-width: 260px;
+    }
 }
 
 .autocomplete {

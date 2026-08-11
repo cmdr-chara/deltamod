@@ -2,9 +2,13 @@
 
 ## Supported versions
 
-Deltamod Community is currently distributed as a public beta. Security fixes
-are applied to the newest published beta and to the current `DeltaMaster`
-branch.
+Deltamod Community 2.0.3 is the current stable release. Security fixes are
+applied to the newest stable release and to the current `DeltaMaster` branch.
+
+Stable Windows and macOS artifacts must carry the expected platform signature.
+Do not bypass operating-system security checks or install an artifact whose
+publisher or signature cannot be verified. Automatic updates are not currently
+enabled; obtain updates manually from the official GitHub release page.
 
 Official Deltamod and Deltamod Community are separate applications. Reports
 about the upstream project should be sent to its maintainers unless the same

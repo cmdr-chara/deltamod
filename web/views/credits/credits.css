@@ -1,5 +1,5 @@
 .credits-page {
-    width: min(1420px, 100%);
+    width: min(1240px, 100%);
     margin: 0 auto;
     padding-bottom: 40px;
 }
@@ -8,8 +8,8 @@
     display: flex;
     align-items: end;
     justify-content: space-between;
-    gap: 30px;
-    padding-bottom: 8px;
+    gap: 24px;
+    padding-bottom: 4px;
 }
 
 .credits-intro h1,
@@ -44,9 +44,9 @@
 
 .credits-lead-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.9fr);
-    gap: 18px;
-    margin-top: 18px;
+    grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.9fr);
+    gap: 14px;
+    margin-top: 14px;
 }
 
 .maintainer-feature {
@@ -56,10 +56,11 @@
     align-items: center;
     gap: 20px;
     overflow: visible;
-    padding: 20px;
+    padding: 18px;
     border: 0;
     border-radius: var(--panel-radius);
-    background: rgba(0, 0, 0, 0.46);
+    border: 1px solid var(--panel-border);
+    background: var(--panel-bg);
     backdrop-filter: blur(var(--panel-blur)) brightness(0.74);
 }
 
@@ -104,9 +105,9 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-content: stretch;
     overflow: hidden;
-    border: 0;
+    border: 1px solid var(--panel-border);
     border-radius: var(--panel-radius);
-    background: rgba(0, 0, 0, 0.46);
+    background: var(--panel-bg);
     backdrop-filter: blur(var(--panel-blur)) brightness(0.74);
 }
 
@@ -155,7 +156,7 @@
 }
 
 .upstream-credits {
-    margin-top: 28px;
+    margin-top: 22px;
 }
 
 .credits-section-heading {
@@ -177,15 +178,15 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
-    gap: 10px;
+    gap: 12px;
 }
 
 .credit-group {
     min-width: 0;
     padding: 14px;
-    border: 0;
+    border: 1px solid var(--panel-border);
     border-radius: 14px;
-    background: rgba(0, 0, 0, 0.42);
+    background: var(--panel-bg);
     backdrop-filter: blur(var(--panel-blur)) brightness(0.74);
 }
 
@@ -206,9 +207,15 @@
     align-items: center;
     min-width: 0;
     gap: 9px;
-    padding: 6px;
+    min-height: 42px;
+    padding: 6px 8px;
     border-radius: 9px;
-    background: rgba(255, 255, 255, 0.045);
+    background: rgba(255, 255, 255, 0.05);
+    transition: background-color var(--motion-fast) var(--motion-ease-out);
+}
+
+.credit-person:hover {
+    background: rgba(255, 255, 255, 0.09);
 }
 
 .credit-person span {

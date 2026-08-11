@@ -6,6 +6,11 @@ const setInterval = (handler, delay, ...args) => {
     return interval;
 };
 window.currentPageStack = {};
+const nextButton = document.getElementById('next');
+if (nextButton && !window.deltamodBackend.isCommandAvailable('npsCallback')) {
+    nextButton.disabled = true;
+    nextButton.title = 'Continuing from this legacy patch flow is unavailable in this app build';
+}
 window.currentPageStack.gpl = function (obj) {
     var message = obj.log;
     var percent = obj.percent;
@@ -22,7 +27,7 @@ window.currentPageStack.gpl = function (obj) {
 }
 
 window.currentPageStack.next = function () {
-    window.electronAPI.invoke('npsCallback', []);
+    window.deltamodBackend.invokeOptional('npsCallback', [], false);
 }
 
 window.currentPageStack.fp = async function () {

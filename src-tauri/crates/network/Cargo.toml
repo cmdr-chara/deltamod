@@ -1,0 +1,12 @@
+[package]
+name = "deltamod-network-domain"
+version = "0.1.0"
+edition = "2021"
+description = "Pure security and protocol domain types for Deltamod network integrations"
+license = "EUPL-1.2"
+
+[lib]
+path = "src/lib.rs"
+
+[lints.rust]
+unsafe_code = "forbid"

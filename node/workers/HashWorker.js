@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { parentPort, workerData } = require('worker_threads');
 const { emptyCache, hashGameFile, saveHashCache } = require('../storage/GameHashCache');
+const { runNativeHashWorker } = require('./NativeHashWorker');
 
 function listFiles(root) {
     const files = [];
@@ -23,7 +24,7 @@ function listFiles(root) {
     return files;
 }
 
-try {
+function runNodeFallback() {
     const root = path.resolve(workerData.root);
     const rootStats = fs.lstatSync(root);
     if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) {
@@ -45,12 +46,22 @@ try {
     });
     saveHashCache(workerData.cachePath, cache);
     parentPort.postMessage({ done: true, fileCount: files.length });
-} catch (error) {
-    parentPort.postMessage({
-        error: {
-            code: error.code || 'HASH_CACHE_FAILED',
-            message: error.message,
-            stack: error.stack
-        }
-    });
 }
+
+async function main() {
+    try {
+        const nativeRun = runNativeHashWorker(workerData, message => parentPort.postMessage(message));
+        if (nativeRun) await nativeRun;
+        else runNodeFallback();
+    } catch (error) {
+        parentPort.postMessage({
+            error: {
+                code: error.code || 'HASH_CACHE_FAILED',
+                message: error.message,
+                stack: error.stack
+            }
+        });
+    }
+}
+
+main();

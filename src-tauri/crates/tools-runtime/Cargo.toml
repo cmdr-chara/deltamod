@@ -1,0 +1,19 @@
+[package]
+name = "deltamod-tools-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "EUPL-1.2"
+description = "Verified, bounded runtime for Deltamod external tools"
+
+[dependencies]
+sha2 = "0.10"
+thiserror = "2"
+
+[target.'cfg(windows)'.dependencies]
+fence-windows = "0.1.0-alpha.2"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["process"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -78,6 +78,12 @@ const setInterval = (handler, delay, ...args) => {
 
         var download = document.createElement("button");
         download.innerHTML = icon('bottom_panel_close', '1em');
+        const canRestoreCollection = window.deltamodBackend
+            .isCommandAvailable('gamebanana_downloadAllInCollection');
+        download.disabled = !canRestoreCollection;
+        download.title = canRestoreCollection
+            ? 'Restore collection'
+            : 'Collection restore is unavailable in this app build';
         download.addEventListener('click', async () => {
             download.disabled = true;
             var resp = await invoke('gamebanana_downloadAllInCollection', [collection.id]);

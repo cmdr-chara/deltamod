@@ -82,6 +82,35 @@ describe('patch planning', () => {
         expect(plan.direct[0].target).toBe(path.join(data.game, 'assets', 'game.unx'));
     });
 
+    it('preserves patch type order and groups merge operations', () => {
+        const data = fixture();
+        fs.writeFileSync(path.join(data.game, 'data', 'second.txt'), 'original');
+        fs.writeFileSync(path.join(data.mod, 'files', 'second.bin'), 'patch');
+        fs.writeFileSync(path.join(data.mod, 'modding.xml'), [
+            '<root>',
+            '<patch type="override" patch="files/replacement.txt" to="new.txt"/>',
+            '<patch type="xdelta" patch="files/replacement.txt" to="data/target.txt"/>',
+            '<patch type="g3mpatch" patch="files/second.bin" to="data/target.txt"/>',
+            '<patch type="copy" patch="files/second.bin" to="second-new.txt"/>',
+            '</root>'
+        ].join(''));
+        const plan = buildPatchPlan(data.game, data.mods, ['example-id']);
+        expect(plan.direct.map(patch => patch.type)).toEqual(['override', 'copy']);
+        expect(plan.merged).toHaveLength(1);
+        expect(plan.merged[0].patches.map(patch => patch.type)).toEqual(['xdelta', 'g3mpatch']);
+        expect(plan.operationCount).toBe(3);
+    });
+
+    it('rejects conflicts between direct, merge, and CSX patch groups', () => {
+        const data = fixture();
+        fs.writeFileSync(path.join(data.mod, 'files', 'patch.csx'), 'script');
+        fs.writeFileSync(path.join(data.game, 'data.win'), 'game');
+        fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="override" patch="files/replacement.txt" to="data/target.txt"/><patch type="xdelta" patch="files/replacement.txt" to="data/target.txt"/></root>');
+        expect(() => buildPatchPlan(data.game, data.mods, ['example-id'])).toThrow(/direct and merge/i);
+        fs.writeFileSync(path.join(data.mod, 'modding.xml'), '<root><patch type="csx" patch="files/patch.csx" to="data.win"/><patch type="override" patch="files/replacement.txt" to="data.win"/></root>');
+        expect(() => buildPatchPlan(data.game, data.mods, ['example-id'])).toThrow(/CSX|non-direct/i);
+    });
+
     it('plans CSX scripts for a GameMaker data file', () => {
         const data = fixture();
         const gameData = path.join(data.game, 'data.win');

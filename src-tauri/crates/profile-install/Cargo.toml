@@ -1,0 +1,20 @@
+[package]
+name = "deltamod-profile-install-runtime"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.97"
+publish = false
+
+[dependencies]
+deltamod-installations-domain = { path = "../installations" }
+deltamod-native-core = { path = "../../../native/core" }
+deltamod-storage-domain = { path = "../storage" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"

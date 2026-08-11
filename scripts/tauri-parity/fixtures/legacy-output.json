@@ -1,0 +1,5 @@
+{
+  "version": { "ok": true, "value": "fixture-version" },
+  "start-game": { "ok": true, "value": "legacy-started" },
+  "unknown": { "ok": false, "error": "Blocked unknown IPC channel" }
+}

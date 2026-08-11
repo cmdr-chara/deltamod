@@ -20,9 +20,9 @@ const setInterval = (handler, delay, ...args) => {
         containerDiv.style.gap = '10px';
         modTD.appendChild(containerDiv);
 
-        let imeta = await window.electronAPI.invoke('getModImage', [mod.uid]);
+        let imeta = await window.deltamodBackend.invoke('getModImage', [mod.uid]);
         if (!imeta.path) {
-            imeta.path = 'deltapack://web/img/mod-placeholder.png';
+            imeta.path = window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png');
         }
 
         var modIcon = document.createElement('img');

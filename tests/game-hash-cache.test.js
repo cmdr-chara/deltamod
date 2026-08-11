@@ -56,4 +56,21 @@ describe('Community game hash cache', () => {
         expect(first.sha256).not.toBe(second.sha256);
         expect(second.updated).toBe(true);
     });
+
+    it('reuses only a valid digest with a matching safe file signature', () => {
+        const data = fixture();
+        const cache = emptyCache();
+        hashGameFile(data.game, 'data.win', cache);
+        cache.entries['data.win'].sha256 = '0'.repeat(64);
+
+        expect(hashGameFile(data.game, 'data.win', cache)).toEqual({
+            sha256: '0'.repeat(64),
+            updated: false
+        });
+
+        cache.entries['data.win'].sha256 = 'malformed';
+        const refreshed = hashGameFile(data.game, 'data.win', cache);
+        expect(refreshed.updated).toBe(true);
+        expect(refreshed.sha256).toMatch(/^[a-f0-9]{64}$/);
+    });
 });

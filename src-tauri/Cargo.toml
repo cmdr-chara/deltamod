@@ -1,0 +1,66 @@
+[package]
+name = "deltamod-tauri-shell"
+version = "2.0.3"
+edition = "2021"
+publish = false
+
+[workspace]
+members = [
+    ".",
+    "crates/installations",
+    "crates/mods-themes",
+    "crates/mods-themes-runtime",
+    "crates/network",
+    "crates/network-runtime",
+    "crates/profile-install",
+    "crates/protocol",
+    "crates/storage",
+    "crates/asset-runtime",
+    "crates/tools-runtime",
+    "crates/updater-launch-runtime",
+    "crates/credentials",
+    "crates/os-adapters",
+    "crates/archive-import-runtime",
+    "crates/patching-runtime",
+    "crates/tauri-protocol-adapter",
+    "crates/game-download-runtime",
+]
+resolver = "2"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+os_info = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8.23"
+http = "1"
+tauri = { version = "2", features = ["image-png"] }
+base64 = "0.22"
+tauri-plugin-opener = "2.5.4"
+tauri-plugin-dialog = "2.7.2"
+tokio = { version = "1", features = ["rt", "sync"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+deltamod-installations-domain = { path = "crates/installations" }
+deltamod-mods-themes-domain = { path = "crates/mods-themes" }
+deltamod-mods-themes-runtime = { path = "crates/mods-themes-runtime" }
+deltamod-native-core = { path = "../native/core" }
+deltamod-archive-import-runtime = { path = "crates/archive-import-runtime" }
+deltamod-game-download-runtime = { path = "crates/game-download-runtime" }
+deltamod-patching-runtime = { path = "crates/patching-runtime" }
+deltamod-network-domain = { path = "crates/network" }
+deltamod-network-runtime = { path = "crates/network-runtime" }
+deltamod-profile-install-runtime = { path = "crates/profile-install" }
+deltamod-protocol-domain = { path = "crates/protocol" }
+deltamod-storage-domain = { path = "crates/storage" }
+deltamod-asset-runtime = { path = "crates/asset-runtime" }
+deltamod-tools-runtime = { path = "crates/tools-runtime" }
+deltamod-updater-launch-runtime = { path = "crates/updater-launch-runtime" }
+deltamod-credentials-adapter = { path = "crates/credentials" }
+deltamod-tauri-os-adapters = { path = "crates/os-adapters", features = ["tauri-adapter"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true

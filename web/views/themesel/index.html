@@ -1,55 +1,94 @@
 <div class="theme-page-heading">
     <div>
-        <button class="theme-back-button" type="button" onclick="page('options')">$$back$$</button>
-        <h1>$$themesel_title$$</h1>
-        <p>Change the background, accent color, and menu music together.</p>
+        <button class="theme-back-button" type="button" onclick="page('options')" data-i18n="back">$$back$$</button>
+        <h1 data-i18n="themesel_title">$$themesel_title$$</h1>
+        <p data-i18n="theme_intro">$$theme_intro$$</p>
     </div>
-    <button id="open-theme-import" type="button">Create theme</button>
+    <button id="open-theme-import" type="button" data-i18n="theme_create">$$theme_create$$</button>
 </div>
 
 <div class="theme-toolbar">
     <label class="theme-search">
-        <span>Search themes</span>
-        <input id="theme-filter" type="search" placeholder="THE TRUE NAME">
+        <span data-i18n="theme_search">$$theme_search$$</span>
+        <input id="theme-filter" type="search" placeholder="$$theme_filter_placeholder$$"
+            data-i18n-placeholder="theme_filter_placeholder">
     </label>
     <span id="theme-count" aria-live="polite"></span>
 </div>
 
 <section class="theme-import">
     <form id="theme-import-form" hidden>
-        <div class="theme-import-copy">
-            <h2>Create a custom theme</h2>
-            <p>
-                Choose the background first. Music is optional and, when enabled,
-                will be requested afterwards.
-            </p>
+        <div class="theme-import-head">
+            <div class="theme-import-copy">
+                <span class="theme-import-kicker" data-i18n="theme_workshop">$$theme_workshop$$</span>
+                <h2 data-i18n="theme_custom_title">$$theme_custom_title$$</h2>
+                <p data-i18n="theme_custom_description">$$theme_custom_description$$</p>
+            </div>
+            <ol class="theme-import-steps" aria-label="$$theme_creation_steps$$"
+                data-i18n-aria-label="theme_creation_steps">
+                <li class="is-active"><b>01</b> <span data-i18n="theme_step_identity">$$theme_step_identity$$</span></li>
+                <li><b>02</b> <span data-i18n="theme_step_background">$$theme_step_background$$</span></li>
+                <li><b>03</b> <span data-i18n="theme_step_music">$$theme_step_music$$</span></li>
+            </ol>
         </div>
-        <label>
-            <span>$$themesel_name$$</span>
-            <input id="theme-import-name" type="text" maxlength="100"
-                placeholder="My theme" required>
-        </label>
-        <label>
-            <span>Description</span>
-            <textarea id="theme-import-description" maxlength="500"
-                rows="2" placeholder="What is this theme based on?"></textarea>
-        </label>
-        <label class="theme-import-music">
-            <input id="theme-import-include-music" type="checkbox">
-            <span>Add custom music (.mp3 or .ogg)</span>
-        </label>
-        <div class="theme-import-actions">
-            <button id="create-theme" type="submit">Choose background</button>
-            <button id="cancel-theme-import" type="button" class="secondary-button">Cancel</button>
+
+        <div class="theme-import-layout">
+            <div class="theme-import-fields">
+                <label class="theme-import-field">
+                    <span data-i18n="themesel_name">$$themesel_name$$</span>
+                    <input id="theme-import-name" type="text" maxlength="100"
+                        placeholder="$$theme_name_placeholder$$" data-i18n-placeholder="theme_name_placeholder" required>
+                </label>
+                <label class="theme-import-field">
+                    <span><span data-i18n="theme_description_label">$$theme_description_label$$</span> <small data-i18n="theme_optional">$$theme_optional$$</small></span>
+                    <textarea id="theme-import-description" maxlength="500"
+                        rows="3" placeholder="$$theme_description_placeholder$$"
+                        data-i18n-placeholder="theme_description_placeholder"></textarea>
+                </label>
+                <label class="theme-import-field theme-color-field">
+                    <span data-i18n="theme_main_color">$$theme_main_color$$</span>
+                    <span class="theme-color-control">
+                        <input id="theme-import-color" type="color" value="#cd4451"
+                            aria-label="$$theme_color_aria$$" data-i18n-aria-label="theme_color_aria">
+                        <output id="theme-import-color-value" for="theme-import-color">#CD4451</output>
+                        <small data-i18n="theme_color_help">$$theme_color_help$$</small>
+                    </span>
+                </label>
+                <label class="theme-import-music">
+                    <input id="theme-import-include-music" type="checkbox">
+                    <span>
+                        <b data-i18n="theme_soundtrack_title">$$theme_soundtrack_title$$</b>
+                        <small data-i18n="theme_soundtrack_help">$$theme_soundtrack_help$$</small>
+                    </span>
+                </label>
+            </div>
+
+            <aside class="theme-icon-preview" aria-label="$$theme_icon_preview$$"
+                data-i18n-aria-label="theme_icon_preview">
+                <span data-i18n="theme_taskbar_preview">$$theme_taskbar_preview$$</span>
+                <div class="theme-icon-preview-stage">
+                    <img id="theme-import-icon-preview" src="./img/packIcon.png" alt="">
+                </div>
+                <p data-i18n="theme_soul_color">$$theme_soul_color$$</p>
+                <output id="theme-import-soul-value">#FF0000</output>
+            </aside>
         </div>
-        <p id="theme-import-status" role="status" aria-live="polite"></p>
+
+        <div class="theme-import-footer">
+            <p id="theme-import-status" role="status" aria-live="polite"></p>
+            <div class="theme-import-actions">
+                <button id="cancel-theme-import" type="button" class="secondary-button" data-i18n="theme_cancel">$$theme_cancel$$</button>
+                <button id="create-theme" type="submit" data-i18n="theme_continue_background">$$theme_continue_background$$</button>
+            </div>
+        </div>
     </form>
 </section>
 
-<section id="themes" class="theme-grid" aria-label="Available themes"></section>
+<section id="themes" class="theme-grid" aria-label="$$theme_available$$"
+    data-i18n-aria-label="theme_available"></section>
 <div id="theme-empty" hidden>
-    <h2>No matching themes</h2>
-    <p>Try a different name, description, or music track.</p>
+    <h2 data-i18n="theme_no_matches">$$theme_no_matches$$</h2>
+    <p data-i18n="theme_no_matches_hint">$$theme_no_matches_hint$$</p>
 </div>
 
 JSL
