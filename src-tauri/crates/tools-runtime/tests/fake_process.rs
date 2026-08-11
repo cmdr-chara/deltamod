@@ -47,9 +47,15 @@ fn fake_process_observes_exact_launch_context() {
     assert!(result.status.success());
     assert!(result.stdout.contains("args=[\"one\", \"two words\"]"));
     assert!(result.stdout.contains("marker=present"));
-    assert!(result
+    let reported_cwd = result
         .stdout
-        .contains(&format!("cwd={}", dir.path().display())));
+        .lines()
+        .find_map(|line| line.strip_prefix("cwd="))
+        .expect("fake process must report its working directory");
+    assert_eq!(
+        fs::canonicalize(reported_cwd).unwrap(),
+        fs::canonicalize(dir.path()).unwrap()
+    );
 }
 
 #[test]
