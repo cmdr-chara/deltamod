@@ -30,6 +30,7 @@
     "build:tauri:resources": "node scripts/stage-tauri-resources.js",
     "build:tauri:butler": "node scripts/stage-butler.js",
     "build:tauri:prepare": "npm run build:boot && npm run build:native-sidecars:target && npm run build:tauri:resources && npm run build:tauri:butler",
+    "tauri": "tauri",
     "tauri:dev": "tauri dev --config src-tauri/tauri.conf.json",
     "tauri:check": "tauri info",
     "build:tauri": "npm run build:tauri:prepare && tauri build --config src-tauri/tauri.conf.json",

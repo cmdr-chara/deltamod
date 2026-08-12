@@ -106,9 +106,9 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
-      - run: npm run acquire:g3mtool -- --all
+      - run: npm run acquire:g3mtool
       - run: npm run verify:g3mtool-manifest
-      - run: npm run acquire:undertale-mod-tool -- --all
+      - run: npm run acquire:undertale-mod-tool
         if: matrix.target != 'aarch64-apple-darwin'
       - run: npm run verify:undertale-mod-tool-manifest
         if: matrix.target != 'aarch64-apple-darwin'
