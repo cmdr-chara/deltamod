@@ -39,7 +39,22 @@ jobs:
       - name: Install Linux Tauri dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - run: npm ci
+      - name: Install npm dependencies
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if npm ci; then
+              exit 0
+            fi
+
+            if (( attempt >= 3 )); then
+              echo "::error::npm ci failed after 3 attempts."
+              exit 1
+            fi
+
+            echo "::warning::npm ci attempt ${attempt}/3 failed; retrying."
+            sleep $(((attempt + 1) * 5))
+          done
       - run: npm run acquire:g3mtool
       - run: npm run acquire:undertale-mod-tool
         if: matrix.target != 'aarch64-apple-darwin'
@@ -117,7 +132,22 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - name: Install npm dependencies
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if npm ci; then
+              exit 0
+            fi
+
+            if (( attempt >= 3 )); then
+              echo "::error::npm ci failed after 3 attempts."
+              exit 1
+            fi
+
+            echo "::warning::npm ci attempt ${attempt}/3 failed; retrying."
+            sleep $(((attempt + 1) * 5))
+          done
       - run: npm run acquire:undertale-mod-tool
       - run: npm run verify:undertale-mod-tool
       - run: npm run acquire:g3mtool
