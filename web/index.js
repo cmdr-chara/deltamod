@@ -834,6 +834,9 @@ async function themeRefresh(refreshAudio = true) {
     bootTheme(theme);
     applyThemeBackground();
     applyThemeStyles(theme);
+    // The seasonal layer stays hidden until these CSS variables contain the
+    // active theme, preventing a default-color flash during startup or swaps.
+    window.SeasonalEvents?.setThemeReady(true);
     window.ThemeSprites?.apply(theme.soulColor || theme.color, document).catch(error => {
         console.warn('Unable to recolor theme sprites:', error);
     });

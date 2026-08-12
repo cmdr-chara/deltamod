@@ -118,6 +118,13 @@ describe('renderer page smoke contracts', () => {
         expect(localization).toContain("theme_count: '{0} di {1} temi'");
         expect(localization).toContain("theme_count: '{0} z {1} motywów'");
     });
+
+    it('does not render a text caret inside Options category buttons', () => {
+        const optionsStyles = read(path.join(viewsRoot, 'options', 'options.css'));
+        expect(optionsStyles).toMatch(
+            /\.viewport \.cat > button:not\(\.back\)\s*\{[^}]*caret-color:\s*transparent;/s
+        );
+    });
 });
 
 describe('built-in theme smoke contracts', () => {

@@ -92,6 +92,104 @@ test('launches securely and keeps Options categories inside their column', async
         }
         await window.waitForFunction(() => window.pageN === 'main');
         await expect.poll(() => window.evaluate(() => window.electronAPI.invoke('getTheme', []))).toBe('home');
+        const seasonalLayer = window.locator('#deltamod-seasonal-layer');
+        await window.evaluate(() => window.SeasonalEvents.setMode('christmas'));
+        await expect(seasonalLayer).toBeVisible();
+        await expect(seasonalLayer).toHaveAttribute('data-event', 'christmas');
+        await expect(window.locator('.dmodicon')).toHaveClass(/dmodicon-seasonal-active/);
+        await expect(window.locator('.seasonal-dmodicon-glyph')).toHaveAttribute('data-event', 'christmas');
+        const seasonalThemeColors = await seasonalLayer.evaluate(layer => {
+            const probe = document.createElement('span');
+            probe.style.color = 'var(--theme-color)';
+            document.body.appendChild(probe);
+            const theme = getComputedStyle(probe).color;
+            probe.style.color = 'var(--theme-soul-color)';
+            const themeSoul = getComputedStyle(probe).color;
+            probe.remove();
+            return {
+                accent: getComputedStyle(layer.querySelector('.seasonal-corner-primary')).color,
+                soul: getComputedStyle(layer.querySelector('.seasonal-corner-secondary')).color,
+                shell: getComputedStyle(document.querySelector('.seasonal-dmodicon-glyph')).color,
+                theme,
+                themeSoul
+            };
+        });
+        expect(seasonalThemeColors.accent).toBe(seasonalThemeColors.theme);
+        expect(seasonalThemeColors.soul).toBe(seasonalThemeColors.themeSoul);
+        expect(seasonalThemeColors.shell).toBe(seasonalThemeColors.themeSoul);
+
+        const shellAlignment = await window.evaluate(() => {
+            const icon = document.querySelector('.dmodicon').getBoundingClientRect();
+            const glyph = document.querySelector('.seasonal-dmodicon-glyph').getBoundingClientRect();
+            return {
+                x: Math.abs((icon.left + icon.width / 2) - (glyph.left + glyph.width / 2)),
+                y: Math.abs((icon.top + icon.height / 2) - (glyph.top + glyph.height / 2))
+            };
+        });
+        expect(shellAlignment.x).toBeLessThanOrEqual(2);
+        expect(shellAlignment.y).toBeLessThanOrEqual(2);
+
+        const liveSeasonalColors = await window.evaluate(() => {
+            const root = document.documentElement;
+            root.style.setProperty('--theme-color', 'rgb(7, 111, 213)');
+            root.style.setProperty('--theme-soul-color', 'rgb(214, 63, 147)');
+            const result = {
+                accent: getComputedStyle(document.querySelector('.seasonal-corner-primary')).color,
+                soul: getComputedStyle(document.querySelector('.seasonal-corner-secondary')).color,
+                shell: getComputedStyle(document.querySelector('.seasonal-dmodicon-glyph')).color
+            };
+            root.style.removeProperty('--theme-color');
+            root.style.removeProperty('--theme-soul-color');
+            return result;
+        });
+        expect(liveSeasonalColors).toEqual({
+            accent: 'rgb(7, 111, 213)',
+            soul: 'rgb(214, 63, 147)',
+            shell: 'rgb(214, 63, 147)'
+        });
+        if (process.env.DELTAMOD_SCREENSHOT_DIR) {
+            fs.mkdirSync(process.env.DELTAMOD_SCREENSHOT_DIR, { recursive: true });
+            await window.screenshot({
+                path: path.join(process.env.DELTAMOD_SCREENSHOT_DIR, '00-seasonal-christmas-boot.png')
+            });
+        }
+        await expect(window.locator('#deltamod-boot-root')).toBeHidden({ timeout: 12000 });
+        if (process.env.DELTAMOD_SCREENSHOT_DIR) {
+            await window.screenshot({
+                path: path.join(process.env.DELTAMOD_SCREENSHOT_DIR, '00-seasonal-christmas-ui.png')
+            });
+        }
+
+        await window.evaluate(async () => page('options'));
+        await window.waitForFunction(() => window.pageN === 'options');
+        await window.evaluate(async () => window.currentPageStack.cat('ui'));
+        const seasonalMode = window.locator('#SELECT-SEASONAL-MODE');
+        await expect(seasonalMode).toHaveValue('christmas');
+        await seasonalMode.selectOption('womens-health');
+        await expect(window.locator('.seasonal-dmodicon-glyph')).toHaveAttribute('data-event', 'womens-health');
+        const womensHealthShadow = await window.locator('.seasonal-corner-primary .seasonal-pixel-mark')
+            .evaluate(mark => getComputedStyle(mark).boxShadow);
+        if (process.env.DELTAMOD_SCREENSHOT_DIR) {
+            await window.screenshot({
+                path: path.join(process.env.DELTAMOD_SCREENSHOT_DIR, '01-seasonal-womens-health.png')
+            });
+        }
+        await seasonalMode.selectOption('mens-health');
+        await expect(window.locator('.seasonal-dmodicon-glyph')).toHaveAttribute('data-event', 'mens-health');
+        const mensHealthShadow = await window.locator('.seasonal-corner-primary .seasonal-pixel-mark')
+            .evaluate(mark => getComputedStyle(mark).boxShadow);
+        expect(mensHealthShadow).not.toBe(womensHealthShadow);
+        if (process.env.DELTAMOD_SCREENSHOT_DIR) {
+            await window.screenshot({
+                path: path.join(process.env.DELTAMOD_SCREENSHOT_DIR, '02-seasonal-mens-health.png')
+            });
+        }
+        await seasonalMode.selectOption('off');
+        await expect(seasonalLayer).toBeHidden();
+        await expect(window.locator('.dmodicon')).not.toHaveClass(/dmodicon-seasonal-active/);
+        await seasonalMode.selectOption('auto');
+        await expect(seasonalMode).toHaveValue('auto');
+        await window.evaluate(async () => page('main'));
         await expect.poll(() => window.evaluate(async () => ({
             music: await window.electronAPI.invoke('getUniqueFlag', ['AUDIO']),
             sfx: await window.electronAPI.invoke('getUniqueFlag', ['SFX'])

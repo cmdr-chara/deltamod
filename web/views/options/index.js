@@ -139,6 +139,7 @@ async function addSelectOption(name, description, options, requiresRestart = fal
     tr.appendChild(tdLabel);
     tr.appendChild(tdInput);
     table.appendChild(tr);
+    return select;
 }
 
 async function addButton(name, description, click, buttonText, enabled = true, disabledReason = '', colour = '') {
@@ -536,6 +537,28 @@ window.currentPageStack.cat = async function(cat) {
             await addButton("Select a theme", "Opens the theme selection menu.", async () => {
                 page('themesel');
             }, "Open");
+
+            const seasonalModeSelect = await addSelectOption(
+                localize('community_seasonal_title', 'Seasonal details'),
+                localize(
+                    'community_seasonal_desc',
+                    'Adds calendar-based pixel details without replacing the active theme. Choose an event to preview it.'
+                ),
+                [
+                    { value: 'auto', label: localize('seasonal_auto', 'Automatic') },
+                    { value: 'off', label: localize('seasonal_off', 'Off') },
+                    { value: 'womens-health', label: localize('seasonal_womens_health', "Women's Health") },
+                    { value: 'mens-health', label: localize('seasonal_mens_health', "Men's Health") },
+                    { value: 'easter', label: localize('seasonal_easter', 'Easter') },
+                    { value: 'halloween', label: localize('seasonal_halloween', 'Halloween') },
+                    { value: 'christmas', label: localize('seasonal_christmas', 'Christmas') },
+                    { value: 'new-year', label: localize('seasonal_new_year', 'New Year') }
+                ],
+                false,
+                value => window.SeasonalEvents?.setMode(value),
+                window.SeasonalEvents?.getMode() || 'auto'
+            );
+            seasonalModeSelect.id = 'SELECT-SEASONAL-MODE';
 
             break;
         case 'inst':
