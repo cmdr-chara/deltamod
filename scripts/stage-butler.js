@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const sevenZip = require('7zip-min');
 
 const root = path.resolve(__dirname, '..');
 const rustTarget = process.argv[2] || process.env.TAURI_BUILD_TARGET || process.env.RUST_TARGET;
@@ -28,8 +28,14 @@ if (!targets[rustTarget]) throw new Error('A supported Rust target is required f
     const extracted = path.join(temporary, 'extracted');
     fs.writeFileSync(archive, bytes, { flag: 'wx' });
     fs.mkdirSync(extracted);
-    const result = spawnSync('tar', ['-xf', archive, '-C', extracted], { stdio: 'inherit', shell: false });
-    if (result.status !== 0) throw new Error('butler archive extraction failed.');
+    const entries = await sevenZip.list(archive);
+    for (const entry of entries) {
+      const name = String(entry.name || '').replaceAll('\\', '/');
+      if (!name || name.startsWith('/') || /^[A-Za-z]:/.test(name) || name.split('/').includes('..') || /L/i.test(String(entry.attr || '').slice(0, 1))) {
+        throw new Error(`Unsafe butler archive entry: ${name || '<empty>'}`);
+      }
+    }
+    await sevenZip.unpack(archive, extracted);
     const source = path.join(extracted, executable);
     if (crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex') !== executableHash) throw new Error('butler executable checksum mismatch.');
     const destination = path.join(root, 'src-tauri', 'resources', 'third-party', 'butler');
