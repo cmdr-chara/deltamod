@@ -414,7 +414,7 @@ pub fn dispatch(
             }
             match nexus_oauth::access_token(state).and_then(|token| {
                 token
-                    .ok_or_else(|| nexus_oauth::OAuthFailure {
+                    .ok_or(nexus_oauth::OAuthFailure {
                         code: "NEXUS_AUTH_REQUIRED",
                         message: "Nexus Mods authorization is required.",
                         status: None,
