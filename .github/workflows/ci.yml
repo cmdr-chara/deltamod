@@ -66,6 +66,22 @@ jobs:
       - name: Package smoke build
         shell: bash
         run: |
+          retry_package_build() {
+            local attempt=1
+            local max_attempts=3
+
+            until "$@"; do
+              if (( attempt >= max_attempts )); then
+                echo "::error::Package build failed after ${max_attempts} attempts."
+                return 1
+              fi
+
+              echo "::warning::Package build attempt ${attempt}/${max_attempts} failed; retrying."
+              attempt=$((attempt + 1))
+              sleep $((attempt * 5))
+            done
+          }
+
           npm run acquire:g3mtool
           npm run verify:g3mtool
           if [[ "$RUNNER_OS" == "macOS" && "$RUNNER_ARCH" == "ARM64" ]]; then
@@ -78,7 +94,7 @@ jobs:
           fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             npm run build:native-sidecars
-            npx electron-builder --win --dir --publish never
+            retry_package_build npx electron-builder --win --dir --publish never
             node scripts/verify-packaged-hash-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
             node scripts/verify-packaged-security-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
             node scripts/verify-packaged-copy-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
@@ -86,10 +102,10 @@ jobs:
             node scripts/verify-packaged-patch-transaction-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
             node scripts/verify-packaged-undertale-mod-tool.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            npx electron-builder --mac --arm64 --dir --publish never
+            retry_package_build npx electron-builder --mac --arm64 --dir --publish never
             node scripts/verify-packaged-undertale-mod-tool.js "dist/mac-arm64/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64 --tree-only
           else
-            npx electron-builder --linux --dir --publish never
+            retry_package_build npx electron-builder --linux --dir --publish never
             node scripts/verify-packaged-undertale-mod-tool.js "dist/linux-unpacked/resources/app.asar.unpacked" linux-x64
           fi
 
