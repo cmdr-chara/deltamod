@@ -160,19 +160,30 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-artifacts
           merge-multiple: true
+      - name: Prepare SHA-256 manifest
+        shell: bash
+        run: |
+          mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
+          test "${#artifacts[@]}" -eq 7
+          (cd release-artifacts && sha256sum * > SHA256SUMS.txt)
+      - name: Attest release artifacts
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: release-artifacts/*
       - name: Publish stable manual-download release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
-          test "${#artifacts[@]}" -eq 7
-          (cd release-artifacts && sha256sum * > SHA256SUMS.txt)
-          artifacts+=("release-artifacts/SHA256SUMS.txt")
+          test "${#artifacts[@]}" -eq 8
           gh release create "$GITHUB_REF_NAME" "${artifacts[@]}" --verify-tag --latest --notes-file CHANGELOG.txt --title "Deltamod Community ${GITHUB_REF_NAME#community-v} (unsigned)"
