@@ -454,9 +454,11 @@ async function browseModDb({ slug, query = '' }) {
     }
     return {
         provider: 'moddb',
-        catalogScope: 'recent',
+        catalogScope: 'recent-rss',
+        feedLimit: 10,
+        hasMore: false,
         catalogUrl,
-        attribution: 'Recent downloads supplied by the ModDB RSS feed. This is not the complete ModDB catalogue.',
+        attribution: 'ModDB RSS exposes only its 10 most recent downloads. This is not the complete ModDB catalogue.',
         items: normalizeModDbFeed(await readLimitedText(response), query)
     };
 }
@@ -627,9 +629,9 @@ function getAvailableProviders(game) {
         { id: 'nexus', name: 'Nexus Mods', available: Boolean(sources.nexus?.domain), requiresAuthentication: true },
         {
             id: 'moddb',
-            name: 'ModDB (recent)',
+            name: 'ModDB (10 recent)',
             available: Boolean(sources.moddb?.slug),
-            catalogScope: 'recent',
+            catalogScope: 'recent-rss',
             installMode: 'manual'
         }
     ];

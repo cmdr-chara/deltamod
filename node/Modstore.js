@@ -349,6 +349,8 @@ function modList() {
             }
             var meta = modInfo.metadata || {};
             meta.isIncompatible = false;
+            meta.incompatibilityReason = '';
+            meta._hashDifferentFiles = [];
 
             var moddingXMLPath = path.join(modPath, 'modding.xml');
             console.log("Checking for modding.xml at:", moddingXMLPath);
@@ -395,7 +397,12 @@ function modList() {
             const pid = meta.packageID;
 
             if (require('./KeyValue').readUniqueFlag('HASHCHECKS')) {
-                modInfo.neededFiles?.forEach(file => {
+                const neededFiles = modInfo.neededFiles;
+                if (neededFiles !== undefined && !Array.isArray(neededFiles)) {
+                    meta._incompatibleHASH = true;
+                    meta.incompatibilityReason = 'Invalid neededFiles list.';
+                }
+                (Array.isArray(neededFiles) ? neededFiles : []).forEach(file => {
                     try {
                         if (!file || typeof file.file !== 'string' || !/^[a-f0-9]{64}$/i.test(String(file.checksum || ''))) {
                             throw new Error('Invalid neededFiles entry.');
@@ -411,10 +418,14 @@ function modList() {
                             meta._hashDifferentFiles.push(file.file);
                         }
                     }
-                    catch {
+                    catch (error) {
                         meta._incompatibleHASH = true;
+                        meta.incompatibilityReason = error?.message || `Required game file is missing or unsafe: ${file?.file || 'unknown'}`;
                     }
                 }); // future use
+                if (meta._incompatibleHASH && !meta.incompatibilityReason) {
+                    meta.incompatibilityReason = 'Mismatching hashes for files: ' + meta._hashDifferentFiles.map(file => `"${file}"`).join(', ');
+                }
             }
 
             const idPath = findFirstByName(modPath, '__deltaID.json') || path.join(modPath, '__deltaID.json');
@@ -573,6 +584,7 @@ function modList() {
                 } : null,
                 _incompatibleHASH: meta._incompatibleHASH || false,
                 _hashDifferentFiles: meta._hashDifferentFiles || [],
+                hashDifferentFiles: meta._hashDifferentFiles || [],
                 _selectedVariant: variant || null,
                 // NEW: give the renderer stable identifiers
                 new: deltamodExclusive.new || false, // Used in UI
@@ -587,8 +599,8 @@ function modList() {
                 // GHINORHINO NOTE:
                 // These are dynamically set one level above this function, before sending them off to the renderer,
                 // compatibility checks are performed in Runner.js
-                isIncompatible: false,
-                incompatibilityReason: "",
+                isIncompatible: meta._incompatibleHASH || false,
+                incompatibilityReason: meta.incompatibilityReason || "",
             });
         }
         catch (e) {

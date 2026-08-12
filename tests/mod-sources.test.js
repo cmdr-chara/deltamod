@@ -34,8 +34,8 @@ describe('mod source request validation', () => {
         expect(providers.filter(provider => provider.available).map(provider => provider.id))
             .toEqual(['gamebanana', 'nexus', 'moddb']);
         expect(providers.find(provider => provider.id === 'moddb')).toMatchObject({
-            name: 'ModDB (recent)',
-            catalogScope: 'recent',
+            name: 'ModDB (10 recent)',
+            catalogScope: 'recent-rss',
             installMode: 'manual'
         });
         expect(getAvailableProviders({ gamebanana: { id: 1 } }).find(provider => provider.id === 'nexus').available)

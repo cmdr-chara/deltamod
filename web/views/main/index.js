@@ -126,9 +126,9 @@ async function createMod(mod, modListElement) {
         }
     });
 
-    let imeta = await window.electronAPI.invoke('getModImage', [mod.uid]);
+    let imeta = await window.deltamodBackend.invoke('getModImage', [mod.uid]);
     if (!imeta.path) {
-        imeta.path = 'deltapack://web/img/mod-placeholder.png';
+        imeta.path = window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png');
     }
 
     let img = document.createElement('img');
@@ -137,7 +137,7 @@ async function createMod(mod, modListElement) {
     img.alt = `${mod.name} cover`;
     img.onerror = () => {
         img.onerror = null;
-        img.src = 'deltapack://web/img/mod-placeholder.png';
+        img.src = window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png');
     };
     imageContainer.appendChild(img);
 
@@ -220,11 +220,11 @@ async function createMod(mod, modListElement) {
         if (variantSelect.children.length != 0) {
             variantSelect.onchange = e => {
                 const selectedVariant = variantSelect.value;
-                window.electronAPI.invoke('setModVariant', [selectedVariant, mod.folder]);
+                window.deltamodBackend.invoke('setModVariant', [selectedVariant, mod.folder]);
             };
             variantSelect.value = mod._selectedVariant || mod.variants[0].filename;
             if (mod._selectedVariant == null || !mod.variants.some(v => v.filename === mod._selectedVariant)) {
-                window.electronAPI.invoke('setModVariant', [mod.variants[0].filename, mod.folder]);
+                window.deltamodBackend.invoke('setModVariant', [mod.variants[0].filename, mod.folder]);
             }
             infoContainer.appendChild(variantSelect);
         }
@@ -246,7 +246,7 @@ async function createMod(mod, modListElement) {
         enabled.type = 'checkbox';
         enabled.id = `modcheck-${mod.uid}`;
         enabled.setAttribute('aria-label', `Enable ${mod.name}`);
-        enabled.checked = await window.electronAPI.invoke('getModState', [mod.uid]);
+        enabled.checked = await window.deltamodBackend.invoke('getModState', [mod.uid]);
         modRow.classList.toggle('is-enabled', enabled.checked);
         enabled.onchange = e => {
             const c = e.target;
@@ -254,7 +254,7 @@ async function createMod(mod, modListElement) {
             const forMod = mod.uid;
 
             modRow.classList.toggle('is-enabled', isEnabled);
-            window.electronAPI.invoke("toggleModState", [forMod, isEnabled]);
+            window.deltamodBackend.invoke("toggleModState", [forMod, isEnabled]);
         };
 
         let toggleTrack = document.createElement('span');
@@ -310,12 +310,12 @@ async function createErroringMods(errors) {
             // Action Row
             const exploreBtn = document.createElement("button");
             exploreBtn.innerText = t('open_mod_folder', "Open mod folder");
-            exploreBtn.onclick = () => window.electronAPI.invoke("openModFolder", [err.mod]);
+            exploreBtn.onclick = () => window.deltamodBackend.invoke("openModFolder", [err.mod]);
             actionRow.appendChild(exploreBtn);
 
             const deleteBtn = document.createElement("button");
             deleteBtn.innerText = t('delete_mod', "Delete mod");
-            deleteBtn.onclick = () => window.electronAPI.invoke("removeMod", [err.mod]);
+            deleteBtn.onclick = () => window.deltamodBackend.invoke("removeMod", [err.mod]);
             actionRow.appendChild(deleteBtn);
         }
 
@@ -331,13 +331,13 @@ async function createErroringMods(errors) {
 }
 
 function loadInst(index) {
-    window.electronAPI.invoke('changeSystemIndex', ["" + index])
+    window.deltamodBackend.invoke('changeSystemIndex', ["" + index])
 }
 
 (async () => {
     const errorBanner = document.getElementById("error-banner");
 
-    var { modList, errors } = (await window.electronAPI.invoke('getModList', []));
+    var { modList, errors } = (await window.deltamodBackend.invoke('getModList', []));
     const modListElement = document.getElementById('modlist');
     const sortWay = document.getElementById('sortWay');
     const pageIsActive = () => (
@@ -453,7 +453,7 @@ function loadInst(index) {
             copy.appendChild(detail);
         }
 
-        const installedModCount = await window.electronAPI.invoke('howManyMods', []);
+        const installedModCount = await window.deltamodBackend.invoke('howManyMods', []);
         if (!pageIsActive()) return;
         if (installedModCount == 0) {
             const actions = document.createElement('div');
@@ -465,7 +465,7 @@ function loadInst(index) {
             const importButton = document.createElement('button');
             importButton.className = 'secondary-action';
             importButton.innerText = t('import_mod_package', 'Import mod package');
-            importButton.onclick = () => window.electronAPI.invoke('importMod', []);
+            importButton.onclick = () => window.deltamodBackend.invoke('importMod', []);
             actions.appendChild(importButton);
             copy.appendChild(actions);
         }
@@ -505,12 +505,12 @@ async function patchAndRun() {
     if (!goOn) return;
 
     if (selectedMods.length === 0) {
-        window.electronAPI.invoke('startGame', []);
+        window.deltamodBackend.invoke('startGame', []);
     }
     else {
         page('patching');
         setTimeout(() => {
-            window.electronAPI.invoke('patchAndRun', [selectedMods]);
+            window.deltamodBackend.invoke('patchAndRun', [selectedMods]);
         }, 1000);
     }
 }

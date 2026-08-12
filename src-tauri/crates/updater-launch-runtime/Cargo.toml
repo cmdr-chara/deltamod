@@ -1,0 +1,19 @@
+[package]
+name = "deltamod-updater-launch-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "EUPL-1.2"
+description = "Owned cross-platform game launch and verified updater runtime"
+
+[features]
+default = []
+tauri-adapter = []
+
+[dependencies]
+serde_json = "1"
+
+[lib]
+path = "src/lib.rs"
+
+[lints.rust]
+unsafe_code = "forbid"

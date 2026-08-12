@@ -39,16 +39,11 @@ describe('localization catalogs', () => {
         }
     });
 
-    it('keeps the established Italian and Polish catalogs complete', () => {
+    it('keeps every supported catalog complete', () => {
         const expected = Object.keys(english).sort();
-        expect(Object.keys(loadDictionary('it')).sort()).toEqual(expected);
-        expect(Object.keys(loadDictionary('pl')).sort()).toEqual(expected);
-    });
-
-    it('provides substantial core translations for each new locale', () => {
         expect(Object.keys(english).length).toBeGreaterThan(200);
-        for (const code of ['es', 'fr', 'de', 'pt-br', 'ja']) {
-            expect(Object.keys(loadDictionary(code)).length).toBeGreaterThanOrEqual(130);
+        for (const code of languages.filter(code => code !== 'en')) {
+            expect(Object.keys(loadDictionary(code)).sort(), code).toEqual(expected);
         }
     });
 

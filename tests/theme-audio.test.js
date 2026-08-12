@@ -24,4 +24,23 @@ describe('theme audio playback', () => {
         expect(renderer).toContain("const configuredRate = isThemeTrack ? Number(theme?.musicPlaybackRate) : 1;");
         expect(renderer).toContain("theme?.musicPreservesPitch !== false");
     });
+
+    it('preserves the loaded background video and playback position during standby', () => {
+        const renderer = fs.readFileSync(path.join(projectRoot, 'web', 'index.js'), 'utf8');
+        const suspend = renderer.slice(
+            renderer.indexOf('function suspendThemeBackgroundVideo()'),
+            renderer.indexOf('function resumeThemeBackgroundVideo')
+        );
+        const resume = renderer.slice(
+            renderer.indexOf('function resumeThemeBackgroundVideo'),
+            renderer.indexOf('function scheduleThemeVideoSuspension')
+        );
+
+        expect(suspend).toContain('currentTime: Number.isFinite(video.currentTime)');
+        expect(suspend).not.toContain("removeAttribute('src')");
+        expect(suspend).not.toContain('video.load()');
+        expect(resume).toContain('video.currentTime = targetTime');
+        expect(resume).not.toContain('video.src = expectedSource');
+        expect(resume).not.toContain('video.load()');
+    });
 });

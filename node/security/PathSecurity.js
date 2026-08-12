@@ -47,9 +47,9 @@ function validateRelativePath(candidate) {
 
     if (
         path.isAbsolute(decoded)
+        || decoded.startsWith('/')
+        || decoded.startsWith('\\')
         || /^[a-zA-Z]:/.test(decoded)
-        || decoded.startsWith('\\\\')
-        || decoded.startsWith('//')
         || decoded.startsWith('\\\\?\\')
         || decoded.startsWith('\\\\.\\')
     ) {

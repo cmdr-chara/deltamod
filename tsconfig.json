@@ -6,6 +6,7 @@
     "moduleResolution": "NodeNext",
     "target": "ES2022",
     "lib": ["ES2022", "DOM"],
+    "jsx": "react-jsx",
     "types": ["node"],
     "strict": true,
     "noEmit": true,
@@ -14,6 +15,8 @@
   "include": [
     "node/**/*.js",
     "web/**/*.js",
+    "web/**/*.ts",
+    "web/**/*.tsx",
     "web/types/**/*.d.ts",
     "tests/**/*.js"
   ],

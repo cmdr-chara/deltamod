@@ -1,0 +1,14 @@
+{
+  "name": "DELTARUNE Demo (LTS)",
+  "id": "toby.deltarune.demolts",
+  "exeName": "DELTARUNE.exe",
+  "availableFeatures": [{
+    "feat": "autodownload",
+    "data": {
+      "pluginName": "Itch",
+      "homepage": "https://tobyfox.itch.io/deltarune",
+      "gameId": "1193828",
+      "fileID": "12206581"
+    }
+  }]
+}

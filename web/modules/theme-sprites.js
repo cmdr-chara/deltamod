@@ -238,6 +238,43 @@
         return output;
     }
 
+    function paletteTone(palette, luminance) {
+        if (luminance < 65) return palette.deep;
+        if (luminance < 105) return palette.shadow;
+        if (luminance < 155) return palette.base;
+        if (luminance < 205) return palette.light;
+        return palette.highlight;
+    }
+
+    function recolorAppIconPixels(source, accentColor, soulColor) {
+        const output = new Uint8ClampedArray(source);
+        const accent = paletteForColor(accentColor);
+        const soul = paletteForColor(canonicalSoulColor(soulColor));
+
+        for (let index = 0; index < output.length; index += 4) {
+            const red = source[index];
+            const green = source[index + 1];
+            const blue = source[index + 2];
+            if (source[index + 3] === 0) continue;
+
+            const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+            const isSoulPixel = blue >= 100
+                && green >= 70
+                && blue > red * 1.7
+                && green > red * 1.7;
+            const isGearPixel = red >= 20
+                && blue >= red + 18
+                && blue >= green + 8;
+            if (!isSoulPixel && !isGearPixel) continue;
+
+            const target = paletteTone(isSoulPixel ? soul : accent, luminance);
+            output[index] = target[0];
+            output[index + 1] = target[1];
+            output[index + 2] = target[2];
+        }
+        return output;
+    }
+
     function loadSource(source) {
         const absoluteSource = new URL(source, document.baseURI).href;
         if (!sourceCache.has(absoluteSource)) {
@@ -285,6 +322,38 @@
         const result = canvas.toDataURL('image/png');
         resultCache.set(cacheKey, result);
         return result;
+    }
+
+    async function renderAppIcon(accentColor, soulColor) {
+        const accent = parseThemeColor(accentColor) || [205, 68, 81];
+        const soul = parseThemeColor(soulColor) || [255, 0, 0];
+        const cacheKey = `app-icon|${accent.join(',')}|${soul.join(',')}`;
+        if (resultCache.has(cacheKey)) return resultCache.get(cacheKey);
+
+        const original = await loadSource('./img/packIcon.png');
+        const canvas = document.createElement('canvas');
+        canvas.width = original.width;
+        canvas.height = original.height;
+        const context = canvas.getContext('2d');
+        context.imageSmoothingEnabled = false;
+        context.putImageData(new ImageData(
+            recolorAppIconPixels(original.pixels, accent, soul),
+            original.width,
+            original.height
+        ), 0, 0);
+        const result = canvas.toDataURL('image/png');
+        resultCache.set(cacheKey, result);
+        return result;
+    }
+
+    async function applyAppIcon(theme, backend) {
+        if (!backend?.invokeOptional) return false;
+        const icon = await renderAppIcon(
+            theme?.color || 'rgb(205, 68, 81)',
+            theme?.soulColor || '#FF0000'
+        );
+        await backend.invokeOptional('setAppIcon', [icon], false);
+        return true;
     }
 
     function identifySprite(image) {
@@ -373,7 +442,10 @@
         canonicalSoulColor,
         observe,
         parseThemeColor,
-        recolorPixels
+        recolorPixels,
+        recolorAppIconPixels,
+        renderAppIcon,
+        applyAppIcon
     });
 
     if (typeof module === 'object' && module.exports) {

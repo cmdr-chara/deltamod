@@ -1,0 +1,5 @@
+{
+  "version": { "ok": true, "value": "fixture-version" },
+  "start-game": { "ok": false, "error": "TAURI_COMMAND_UNAVAILABLE:startGame" },
+  "unknown": { "ok": false, "error": "TAURI_COMMAND_UNAVAILABLE:unknown" }
+}

@@ -55,8 +55,8 @@ describe('Chara theme-selector encounter', () => {
             'utf8'
         );
 
-        expect(rendererSource).toContain("window.electronAPI.invoke('getUniqueFlag', ['AUDIO'])");
-        expect(rendererSource).toContain("window.electronAPI.invoke('getUniqueFlag', ['SFX'])");
+        expect(rendererSource).toContain("window.deltamodBackend.invoke('getUniqueFlag', ['AUDIO'])");
+        expect(rendererSource).toContain("window.deltamodBackend.invoke('getUniqueFlag', ['SFX'])");
         expect(rendererSource).toContain('if (musicEnabled) fallenLoop.play()');
         expect(rendererSource.match(/if \(sfxEnabled\)/g)).toHaveLength(3);
     });

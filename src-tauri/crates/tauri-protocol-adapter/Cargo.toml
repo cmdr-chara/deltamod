@@ -1,0 +1,20 @@
+[package]
+name = "deltamod-tauri-protocol-adapter"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = ["plugins"]
+plugins = ["dep:tauri-plugin-deep-link", "dep:tauri-plugin-single-instance"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+deltamod-asset-runtime = { path = "../asset-runtime" }
+http = "1"
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-deep-link = { version = "2", optional = true }
+tauri-plugin-single-instance = { version = "2", optional = true }

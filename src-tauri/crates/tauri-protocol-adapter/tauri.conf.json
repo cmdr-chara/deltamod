@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Deltamod Protocol Adapter",
+  "version": "0.1.0",
+  "identifier": "io.github.cmdr-chara.deltamod.protocol-adapter",
+  "build": {
+    "frontendDist": "../../../web"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "visible": false,
+        "width": 1,
+        "height": 1
+      }
+    ]
+  },
+  "bundle": {
+    "active": false
+  }
+}

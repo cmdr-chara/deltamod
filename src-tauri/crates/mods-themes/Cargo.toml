@@ -1,0 +1,9 @@
+[package]
+name = "deltamod-mods-themes-domain"
+version = "0.1.0"
+edition = "2021"
+description = "Pure domain foundation for Deltamod mods, themes, preferences, and secure assets"
+license = "EUPL-1.2"
+
+[lib]
+path = "src/lib.rs"

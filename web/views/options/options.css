@@ -2,12 +2,29 @@
     display: grid;
     grid-template-columns: minmax(240px, 290px) minmax(0, 1fr);
     align-items: start;
-    gap: 22px;
+    gap: 18px;
 }
 
 .options-page {
     position: relative;
     isolation: isolate;
+}
+
+.options-page .page-heading {
+    position: relative;
+    padding: 2px 0 4px 18px;
+}
+
+.options-page .page-heading::before {
+    position: absolute;
+    top: 2px;
+    bottom: 4px;
+    left: 0;
+    width: 4px;
+    border-radius: 4px;
+    background: var(--theme-color);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--theme-color) 55%, transparent);
+    content: "";
 }
 
 .options-page > *:not(.ingranaggio) {
@@ -17,18 +34,45 @@
 
 .ingranaggio {
     position: absolute;
-    top: 34px;
-    left: -175px;
+    top: 94px;
+    left: -142px;
     z-index: 0;
-    color: rgba(255, 255, 255, 0.12);
+    width: 500px;
+    height: 500px;
+    color: color-mix(in srgb, var(--theme-color) 65%, white);
     line-height: 0;
     pointer-events: none;
     user-select: none;
+}
+
+.ingranaggio-wheel {
+    position: absolute;
+    display: block;
+    transform-origin: center;
+}
+
+.ingranaggio-main {
+    top: 70px;
+    left: 0;
+    font-size: 410px;
+    opacity: 0.14;
     animation: ingranaggioRotate 22s linear infinite;
 }
 
-.ingranaggio > span {
-    font-size: 520px;
+.ingranaggio-secondary {
+    top: 0;
+    left: 304px;
+    font-size: 162px;
+    opacity: 0.12;
+    animation: ingranaggioRotateReverse 16s linear infinite;
+}
+
+.ingranaggio-tertiary {
+    top: 370px;
+    left: 322px;
+    font-size: 104px;
+    opacity: 0.09;
+    animation: ingranaggioRotateReverse 12s linear infinite;
 }
 
 @keyframes ingranaggioRotate {
@@ -36,12 +80,23 @@
     to { transform: rotate(360deg); }
 }
 
-.window-inactive .ingranaggio {
+@keyframes ingranaggioRotateReverse {
+    from { transform: rotate(360deg); }
+    to { transform: rotate(0deg); }
+}
+
+.window-inactive .ingranaggio-wheel {
     animation-play-state: paused;
 }
 
 .options-page .opt {
     min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--panel-border);
+    border-radius: var(--panel-radius);
+    background: var(--panel-bg-strong);
+    box-shadow: 0 18px 46px rgba(0, 0, 0, 0.24);
+    backdrop-filter: blur(var(--panel-blur)) brightness(0.76);
 }
 
 .options-page .setting-title {
@@ -55,6 +110,9 @@
 
 .options-page #modtable {
     table-layout: fixed;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
 }
 
 .viewport #modtable tr {
@@ -62,7 +120,7 @@
 }
 
 .viewport #modtable tr:hover {
-    background-color: rgba(124, 124, 124, 0.2);
+    background-color: transparent;
 }
 
 .viewport #modtable td,
@@ -108,9 +166,44 @@
 }
 
 .viewport input[type="checkbox"] {
-    width: 20px;
-    height: 20px;
+    position: relative;
+    width: 42px;
+    height: 24px;
+    margin: 0;
+    padding: 0;
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
     cursor: pointer;
+    transition: background-color var(--motion-fast) var(--motion-ease-out),
+        border-color var(--motion-fast) var(--motion-ease-out);
+}
+
+.viewport input[type="checkbox"]::before {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.86);
+    content: "";
+    transition: transform var(--motion-fast) var(--motion-ease-out);
+}
+
+.viewport input[type="checkbox"]:checked {
+    border-color: color-mix(in srgb, var(--theme-color) 74%, white);
+    background: var(--theme-color);
+}
+
+.viewport input[type="checkbox"]:checked::before {
+    transform: translateX(18px);
+}
+
+.viewport input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    filter: grayscale(0.65);
 }
 
 .viewport .cat > button:not(.back) {
@@ -129,11 +222,12 @@
 .viewport .cat {
     background: var(--panel-bg);
     width: auto;
-    padding: 12px;
+    padding: 10px;
     margin-top: 0px;
-    border: 0;
+    border: 1px solid var(--panel-border);
     border-radius: var(--panel-radius);
     backdrop-filter: blur(var(--panel-blur)) brightness(0.76);
+    box-shadow: 0 18px 46px rgba(0, 0, 0, 0.2);
 }
 
 .viewport .cat > button.selected {
@@ -142,14 +236,46 @@
     opacity: 1;
     filter: none;
     background: var(--theme-color) !important;
-    box-shadow: none;
+    box-shadow: inset 3px 0 0 rgba(255, 255, 255, 0.82),
+        0 8px 18px color-mix(in srgb, var(--theme-color) 24%, transparent);
 }
 
-.viewport .cat > button {
-    padding: 9px 12px;
+.viewport .cat > button::before {
+    flex: 0 0 auto;
+    width: 22px;
+    content: attr(data-icon);
+    font-family: "Material Symbols Outlined";
+    font-size: 19px;
+    font-weight: normal;
+    line-height: 1;
+    text-align: center;
+}
+
+.viewport .cat > button::after {
+    width: 6px;
+    height: 6px;
+    margin-left: auto;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    content: "";
+    transform: rotate(45deg);
+    transition: background-color var(--motion-fast) linear,
+        border-color var(--motion-fast) linear;
+}
+
+.viewport .cat > button.selected::after {
+    border-color: white;
+    background: white;
+}
+
+body .viewport .options-page .cat > button:not(.selected) {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 12px;
     padding-left: 12px;
     text-align: left;
-    border-radius: 13px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.055) !important;
     transition:
         background-color var(--motion-fast) var(--motion-ease-out),
         color var(--motion-fast) var(--motion-ease-out),
@@ -157,7 +283,43 @@
 }
 
 .viewport .cat > button:not(:last-child) {
-    margin-bottom: 10px;
+    margin-bottom: 7px;
+}
+
+body .viewport .options-page .cat > button:not(.selected):hover {
+    background: rgba(255, 255, 255, 0.12) !important;
+    color: white;
+}
+
+.viewport .cat > button {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    text-align: left;
+}
+
+.options-page #modtable tbody tr:hover td {
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.options-page #modtable tbody tr.setting-row-disabled:hover td {
+    background: transparent;
+}
+
+.options-page .setting-row-disabled .setting-title {
+    color: rgba(255, 255, 255, 0.54);
+}
+
+.options-page .setting-row-disabled small {
+    color: rgba(255, 255, 255, 0.42);
+    font-style: normal;
+}
+
+.options-page .setting-row-disabled button:disabled {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.07) !important;
+    color: rgba(255, 255, 255, 0.38);
 }
 
 .profile-import-progress {
@@ -236,6 +398,29 @@
     .viewport .cat > button:not(:last-child) {
         margin-bottom: 0;
     }
+
+    .ingranaggio {
+        top: 100px;
+        left: -96px;
+        width: 390px;
+        height: 380px;
+    }
+
+    .ingranaggio-main {
+        top: 58px;
+        font-size: 310px;
+    }
+
+    .ingranaggio-secondary {
+        left: 230px;
+        font-size: 126px;
+    }
+
+    .ingranaggio-tertiary {
+        top: 282px;
+        left: 245px;
+        font-size: 82px;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -244,8 +429,16 @@
         transition: none;
     }
 
-    .ingranaggio {
+    .ingranaggio-wheel {
         animation: none;
+    }
+
+    .ingranaggio-main {
         transform: rotate(18deg);
+    }
+
+    .ingranaggio-secondary,
+    .ingranaggio-tertiary {
+        transform: rotate(-12deg);
     }
 }

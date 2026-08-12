@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "verified": true,
+  "sourceUrl": "https://github.com/UnderminersTeam/UndertaleModTool",
+  "sourceRevision": "3eba065fdf70712fba0a33b6fafa7539588d0906",
+  "releaseRevision": "3eba065fdf70712fba0a33b6fafa7539588d0906",
+  "releaseTag": "0.9.1.2",
+  "releaseUrl": "https://github.com/UnderminersTeam/UndertaleModTool/releases/tag/0.9.1.2",
+  "license": "GPL-3.0-only",
+  "redistributionAllowed": true,
+  "artifacts": {
+    "win32-x64": {
+      "archiveUrl": "https://github.com/UnderminersTeam/UndertaleModTool/releases/download/0.9.1.2/UTMT_CLI_v0.9.1.2-Windows.zip",
+      "archiveSize": 62492858,
+      "archiveSha256": "e17637750c9c5bd074e799de99e69e1aa58c19cbbd9cbaa8868bbc387da04345",
+      "installDirectory": "win-x64",
+      "executable": "UndertaleModCli.exe",
+      "executableSha256": "6baf2ac5a3916b72f9c1db0d98e7e3b88a69dea15198e87e893074d3d9b8f276",
+      "treeFileCount": 359,
+      "treeSha256": "f63cb318bb9d006739627343dfc4b4cce3b9560413d3aa4483dcec667196cbab",
+      "packageTreeFileCount": 358,
+      "packageTreeSha256": "43bc26663d790269ceb2cb3c81bdea67f4b74362d9531826802e5094126374e2"
+    },
+    "linux-x64": {
+      "archiveUrl": "https://github.com/UnderminersTeam/UndertaleModTool/releases/download/0.9.1.2/UTMT_CLI_v0.9.1.2-Ubuntu.zip",
+      "archiveSize": 67481443,
+      "archiveSha256": "dabc8c16f49c06dc523de74c68c69c83012da6bf0a14c3205876bf65d1fa7300",
+      "installDirectory": "linux-x64",
+      "executable": "UndertaleModCli",
+      "executableSha256": "255b38e95c74c9136a00bcf1f4c470ef1898eadcdfc340d092b682e58b0d22b1",
+      "treeFileCount": 359,
+      "treeSha256": "a15bf070f3abee36f674bed0b4a3403dbf1df010da2571429a04e47cc538cbf2",
+      "packageTreeFileCount": 358,
+      "packageTreeSha256": "d3fa0d5a259b4ea39029171e4c41f1ea540742f4ded3f93d477b5b1afca6bad4"
+    },
+    "darwin-x64": {
+      "archiveUrl": "https://github.com/UnderminersTeam/UndertaleModTool/releases/download/0.9.1.2/UTMT_CLI_v0.9.1.2-macOS.zip",
+      "archiveSize": 68279373,
+      "archiveSha256": "807ec42dea3e652a9f2547f2f4c45c6e5b3f82282c99ed1ac4bf387e733540cd",
+      "installDirectory": "mac-x64",
+      "executable": "UndertaleModCli",
+      "executableSha256": "339bc9714cca09936e27a4ea73853c520487b0f2e2da3918efd8f6aef50e2890",
+      "treeFileCount": 379,
+      "treeSha256": "e77c8af8cca9f12c43b85185c38b92b06c94976a18516af597a071aea8858adf",
+      "packageTreeFileCount": 378,
+      "packageTreeSha256": "3070e37536080fb3115d4da536f05c0a2414e05a4aadf3a116fbaffead7ac421"
+    }
+  }
+}

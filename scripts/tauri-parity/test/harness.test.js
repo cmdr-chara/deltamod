@@ -1,0 +1,25 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { buildParity, extractRustChannels } = require('../lib/parity');
+const { compare } = require('../compare-contract');
+
+if (!process.env.DELTAMOD_REPO) throw new Error('DELTAMOD_REPO is required');
+const repo = path.resolve(process.env.DELTAMOD_REPO);
+const paths = { preloadPath: path.join(repo, 'web', 'preload.js'), rustPath: path.join(repo, 'src-tauri', 'src', 'main.rs') };
+const report = buildParity(paths);
+assert.equal(report.counts.electronInvoke, 110);
+assert.equal(report.counts.electronEvents, 17);
+assert.equal(report.counts.rustKnown, 110);
+assert.equal(report.counts.rustImplemented + report.counts.rustUnsupported, 110);
+assert.equal(report.counts.rustImplemented, 78);
+assert.equal(report.counts.rustUnsupported, 32);
+assert.equal(report.excludedInternal.length, 5);
+assert.equal(report.gaps.missingFromRust.length, 0);
+assert.equal(report.gaps.rustOnly.length, 0);
+assert.ok(report.rust.channels.length > 0);
+assert.equal(extractRustChannels('impl FromStr for BackendChannel { fn from_str(x: &str) -> Result<Self, ()> { match x { "a" | "b" => Self::Unsupported(x.to_owned()), "c" => Self::Implemented(x.to_owned()), _ => return Err(()) } } }').length, 3);
+const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'contract.json')));
+const responses = Object.fromEntries(fixture.cases.map(test => [test.id, { legacy: test.legacy, rust: test.rust }]));
+assert.equal(compare(fixture, Object.fromEntries(Object.entries(responses).map(([id, x]) => [id, x.legacy])), Object.fromEntries(Object.entries(responses).map(([id, x]) => [id, x.rust]))).length, 0);
+console.log('harness tests ok');

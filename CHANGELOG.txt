@@ -1,8 +1,15 @@
-# Deltamod Community 2.0.3-beta.3
+# Deltamod Community 2.0.3
 
-Released 2026-08-08.
+Released 2026-08-12.
 
-This is an unsigned prerelease. Windows may show an unknown-publisher warning.
+This is the first stable release using the Tauri desktop shell. Download it
+manually from the GitHub release page. In-app automatic updates are not enabled;
+they will remain unavailable until a signed updater is configured.
+
+Windows and macOS packages are not code-signed because this community project
+does not currently have paid platform signing credentials. Operating systems
+may show an unknown-publisher warning. Verify downloads against the attached
+`SHA256SUMS.txt`; checksums verify file integrity, not publisher identity.
 
 ## Highlights
 
@@ -32,9 +39,9 @@ GameBanana, ModDB, and local mod imports remain available.
 
 ## Known limitations
 
-- Windows builds are intentionally unsigned during the beta period.
+- Windows and macOS artifacts are unsigned and may trigger platform warnings.
 - Linux and macOS support remains experimental.
-- macOS packages are unsigned and may require manual approval in System
-  Settings.
+- Automatic updates are not available; install future releases manually from
+  the official GitHub release page.
 - Nexus Mods browsing and downloads will remain unavailable until application
   registration is approved and a future build supplies the SSO application ID.

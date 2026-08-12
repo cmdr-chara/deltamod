@@ -20,6 +20,8 @@ const externalBrowseState = window._communityExternalBrowseState
 let externalRetryTimer = null;
 let gameBananaPageRequestActive = false;
 let gameBananaInitialLoadComplete = false;
+let gameBananaFeaturedRecordsPromise = null;
+const renderedGameBananaRecords = new Set();
 
 window.PAGE = PAGE;
 
@@ -89,11 +91,12 @@ function getAllThumbs(mod) {
         }
     });
     if (ar.length === 0) {
+        const imageUrl = mod?._sImageUrl || mod?._sThumbnailUrl;
         ar.push({
-            urlA: './img/mod-placeholder.png',
-            urlB: './img/mod-placeholder.png',
-            urlCard220: './img/mod-placeholder.png',
-            urlCard530: './img/mod-placeholder.png'
+            urlA: imageUrl || './img/mod-placeholder.png',
+            urlB: mod?._sThumbnailUrl || imageUrl || './img/mod-placeholder.png',
+            urlCard220: mod?._sThumbnailUrl || imageUrl || './img/mod-placeholder.png',
+            urlCard530: imageUrl || mod?._sThumbnailUrl || './img/mod-placeholder.png'
         });
     }
     return ar;
@@ -314,6 +317,28 @@ function featuredRankForID(featuredIDs, id) {
     }, 0);
 }
 
+function gameBananaRecordKey(record) {
+    return `${record?._sModelName || 'Submission'}:${record?._idRow || 0}`;
+}
+
+async function getGameBananaFeaturedRecords(gameID) {
+    if (!gameBananaFeaturedRecordsPromise) {
+        gameBananaFeaturedRecordsPromise = fetch(
+            `https://gamebanana.com/apiv11/Game/${gameID}/TopSubs`
+        ).then(async response => {
+            if (!response.ok) {
+                throw new Error(`GameBanana featured request failed: ${response.status}`);
+            }
+            const records = await response.json();
+            return Array.isArray(records) ? records : [];
+        }).catch(error => {
+            gameBananaFeaturedRecordsPromise = null;
+            throw error;
+        });
+    }
+    return gameBananaFeaturedRecordsPromise;
+}
+
 function insertRankedGameBananaRow(table, row, rank) {
     row.dataset.featuredRank = String(rank);
     const lowerRankRow = Array.from(table.children).find(existingRow =>
@@ -340,7 +365,7 @@ var isGBLoggedIn = false;
 
 async function gameBananaLogin() {
     var loggedin = await Promise.race([
-        window.electronAPI.invoke('validateGamebananaToken', []),
+        window.deltamodBackend.invoke('validateGamebananaToken', []),
         new Promise(resolve => setTimeout(() => resolve(false), 5000))
     ]);
 
@@ -355,7 +380,7 @@ async function gameBananaLogin() {
     };
 
     if (loggedin) {
-        var pic = await window.electronAPI.invoke('getGamebananaPic',[]);
+        var pic = await window.deltamodBackend.invokeOptional('getGamebananaPic', [], null);
         if (typeof pic === 'string' && pic.trim()) {
             accountPicture.src = pic;
             accountPicture.hidden = false;
@@ -515,7 +540,7 @@ async function search(searchQuery = null) {
         return;
     }
 
-    let gameID = (await window.electronAPI.invoke('getCurrentGameInfo',[])).gamebanana.id;
+    let gameID = (await window.deltamodBackend.invoke('getCurrentGameInfo',[])).gamebanana.id;
 
     {
         // Search names, descriptions, owners, credits, and studios in one
@@ -530,14 +555,17 @@ async function search(searchQuery = null) {
 }
 
 async function featured() {
-    let gameID = (await window.electronAPI.invoke('getCurrentGameInfo',[])).gamebanana.id;
+    let gameID = (await window.deltamodBackend.invoke('getCurrentGameInfo',[])).gamebanana.id;
     // Why doesn't GB have a standard endpoint format for subs SMH
     window._pageArguments.gbAPI = 'https://gamebanana.com/apiv11/Game/' + gameID + '/TopSubs';
     window._pageArguments.gbAPIFilter = async function(data) {
-        return {_aRecords: data.map(x => {
-            x.featuredDataset = true;
-            return x;
-        })};
+        return {
+            _aMetadata: { _bIsComplete: true },
+            _aRecords: data.map(x => {
+                x.featuredDataset = true;
+                return x;
+            })
+        };
     } 
     page('gamebanana-browse');
 }
@@ -579,7 +607,7 @@ async function dlmod(dlurl, buttonElem=null, modid, modmodel, currentItem = `Gam
     };
 
     try {
-        await window.electronAPI.invoke('dlmodURL',[dlurl, queryme, modid, modmodel]);
+        await window.deltamodBackend.invoke('dlmodURL',[dlurl, queryme, modid, modmodel]);
         setDownloadButtonIcon(buttonElem, 'done_outline');
         updateModDownloadStatus({ phase: 'complete', currentItem });
     } catch (error) {
@@ -630,14 +658,13 @@ async function renderMods(table, GB_API, filter, gameID) {
     var data = await filter(await response.json());
     if (!isCurrentShopPage()) return;
 
-    var featured = await fetch("https://gamebanana.com/apiv11/Game/" + gameID + "/TopSubs");
-    if (!isCurrentShopPage()) return;
-    var featuredData = await featured.json();
+    var featuredData = await getGameBananaFeaturedRecords(gameID);
     if (!isCurrentShopPage()) return;
     var featuredIDs = featuredData.map(x => {return {id: x._idRow, period: x._sPeriod};});
 
     if (firstgeneration) {
         table.replaceChildren();
+        renderedGameBananaRecords.clear();
     }
 
     try {
@@ -646,10 +673,18 @@ async function renderMods(table, GB_API, filter, gameID) {
             document.querySelector('.scrollBottomDetector').style.display = 'none'; // hide the loading indicator
         }
 
-        const records = prioritizeFeaturedRecords(
-            applyContentFilter(Array.isArray(data._aRecords) ? data._aRecords : []),
-            featuredIDs
-        );
+        const pageRecords = Array.isArray(data._aRecords) ? data._aRecords : [];
+        const isFeaturedDataset = pageRecords.some(record => record.featuredDataset);
+        const candidates = firstgeneration && !isFeaturedDataset && /\/Subfeed(?:\?|$)/.test(GB_API)
+            ? [...featuredData, ...pageRecords]
+            : pageRecords;
+        const records = prioritizeFeaturedRecords(applyContentFilter(candidates), featuredIDs)
+            .filter(record => {
+                const key = gameBananaRecordKey(record);
+                if (renderedGameBananaRecords.has(key)) return false;
+                renderedGameBananaRecords.add(key);
+                return true;
+            });
 
         if (records.length == 0 && firstgeneration) {
             var tr = document.createElement('tr');
@@ -790,12 +825,13 @@ async function renderMods(table, GB_API, filter, gameID) {
 
                 var addDate = mod._tsDateAdded || 0;
                 var modDate = mod._tsDateModified || 0;
+                const timestamp = Math.max(addDate, modDate);
 
-                var date = new Date(Math.max(addDate, modDate) * 1000);
-
-                var desc = document.createElement('span');
-                desc.className = 'modDescSpan iptspan';
-                const relativeDate = (() => {
+                if (timestamp > 0) {
+                    var date = new Date(timestamp * 1000);
+                    var desc = document.createElement('span');
+                    desc.className = 'modDescSpan iptspan';
+                    const relativeDate = (() => {
                     const diffSeconds = Math.round((date.getTime() - Date.now()) / 1000);
                     const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
                     /** @type {Array<{limit:number,value:number,unit:Intl.RelativeTimeFormatUnit}>} */
@@ -813,10 +849,11 @@ async function renderMods(table, GB_API, filter, gameID) {
                             return rtf.format(Math.round(diffSeconds / value), /** @type {Intl.RelativeTimeFormatUnit} */ (unit));
                         }
                     }
-                })();
+                    })();
 
-                desc.innerHTML = icon('acute', '1.1em') + ' ' + relativeDate;
-                otherInfoSpan.appendChild(desc);
+                    desc.innerHTML = icon('acute', '1.1em') + ' ' + relativeDate;
+                    otherInfoSpan.appendChild(desc);
+                }
 
                 var summary = document.createElement('div');
                 summary.className = 'external-source-summary calibri';
@@ -973,7 +1010,7 @@ async function renderMods(table, GB_API, filter, gameID) {
                     likeBtn.setAttribute('aria-label', `Like ${mod._sName}`);
                     likeBtn.disabled = !isGBLoggedIn;
                     likeBtn.onclick = async () => {
-                        let res = await window.electronAPI.invoke('gbLikeMod',[mod._sModelName, mod._idRow]);
+                        let res = await window.deltamodBackend.invoke('gbLikeMod',[mod._sModelName, mod._idRow]);
                         if (res.status == 200) {
                             setDownloadButtonIcon(likeBtn, 'sentiment_very_satisfied');
                             likeBtn.disabled = true;
@@ -1288,7 +1325,7 @@ function renderExternalMods(table, result) {
     const status = document.getElementById('contentFilterStatus');
     const attribution = document.getElementById('sourceAttribution');
     status.innerText = SHOP_PROVIDER === 'moddb'
-        ? `Showing ${items.length} recent ModDB download${items.length === 1 ? '' : 's'} from the RSS feed.`
+        ? `Showing all ${items.length} download${items.length === 1 ? '' : 's'} exposed by ModDB's recent RSS feed.`
         : `Showing ${items.length} Nexus mod${items.length === 1 ? '' : 's'}.`;
     attribution.replaceChildren(document.createTextNode(result?.attribution || ''));
     if (SHOP_PROVIDER === 'moddb' && result?.catalogUrl) {
@@ -1393,6 +1430,13 @@ function renderExternalMods(table, result) {
         primary.title = item.actionLabel;
         primary.setAttribute('aria-label', `${item.actionLabel}: ${item.title}`);
         primary.innerHTML = shopIcon(item.provider === 'nexus' ? 'download' : 'open');
+        const canDownload = item.provider !== 'nexus'
+            || window.deltamodBackend.isCommandAvailable('modSources:downloadNexus');
+        primary.disabled = !canDownload;
+        if (!canDownload) {
+            primary.title = 'Direct Nexus downloads are unavailable in this app build';
+            primary.setAttribute('aria-label', `Direct Nexus download unavailable: ${item.title}`);
+        }
         primary.onclick = () => item.provider === 'nexus'
             ? downloadNexusSource(item, primary)
             : window.communityAPI.modSources.open({ provider: item.provider, url: item.sourceUrl });
@@ -1559,7 +1603,7 @@ async function plusPage(amt) {
         return;
     }
 
-    let gameID = (await window.electronAPI.invoke('getCurrentGameInfo',[])).gamebanana.id;
+    let gameID = (await window.deltamodBackend.invoke('getCurrentGameInfo',[])).gamebanana.id;
     let GB_API = 'https://gamebanana.com/apiv11/Game/' + gameID + '/Subfeed?_sSort=default&_nPage=$PAGE';
     const contentRatingFilter = document.getElementById('contentRatingFilter');
     contentRatingFilter.value = currentContentFilter();

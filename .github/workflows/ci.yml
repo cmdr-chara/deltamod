@@ -17,19 +17,49 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-26]
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-26
+            target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
+    env:
+      TAURI_BUILD_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
+      - run: npm run acquire:g3mtool
+      - run: npm run acquire:undertale-mod-tool
+        if: matrix.target != 'aarch64-apple-darwin'
+      - run: npm run build:native-sidecars:target -- ${{ matrix.target }}
+      - run: npm run build:tauri:resources -- ${{ matrix.target }}
+      - run: cargo fmt --all --check --manifest-path native/Cargo.toml
+      - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
+      - run: cargo test --workspace --locked --manifest-path native/Cargo.toml
+      - run: cargo build --workspace --locked --manifest-path native/Cargo.toml
+      - run: cargo fmt --all --check --manifest-path src-tauri/Cargo.toml
+      - run: cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml -- -D warnings
+      - run: cargo test --workspace --locked --manifest-path src-tauri/Cargo.toml
       - run: npm test
       - run: npm run typecheck
       - run: npm run security:audit
       - run: npm run verify:g3mtool-manifest
+      - run: npm run verify:undertale-mod-tool-manifest
+      - name: Install Playwright Chromium
+        if: runner.os == 'macOS'
+        run: npx playwright install chromium
       - name: Electron workflow smoke test
         if: runner.os == 'macOS'
         run: npm run test:e2e
@@ -38,11 +68,45 @@ jobs:
         run: |
           npm run acquire:g3mtool
           npm run verify:g3mtool
+          if [[ "$RUNNER_OS" == "macOS" && "$RUNNER_ARCH" == "ARM64" ]]; then
+            node scripts/acquire-undertale-mod-tool.js darwin-x64
+            node scripts/verify-undertale-mod-tool.js darwin-x64 --tree-only
+          else
+            npm run acquire:undertale-mod-tool
+            npm run verify:undertale-mod-tool
+            npm run smoke:game-patching-csx
+          fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
+            npm run build:native-sidecars
             npx electron-builder --win --dir --publish never
+            node scripts/verify-packaged-hash-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
+            node scripts/verify-packaged-security-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
+            node scripts/verify-packaged-copy-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
+            node scripts/verify-packaged-patch-plan-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
+            node scripts/verify-packaged-patch-transaction-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
+            node scripts/verify-packaged-undertale-mod-tool.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            node scripts/acquire-g3mtool.js darwin-x64
-            npx electron-builder --mac --dir --publish never
+            npx electron-builder --mac --arm64 --dir --publish never
+            node scripts/verify-packaged-undertale-mod-tool.js "dist/mac-arm64/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64 --tree-only
           else
             npx electron-builder --linux --dir --publish never
+            node scripts/verify-packaged-undertale-mod-tool.js "dist/linux-unpacked/resources/app.asar.unpacked" linux-x64
           fi
+
+  verify-csx-macos-intel:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run acquire:undertale-mod-tool
+      - run: npm run verify:undertale-mod-tool
+      - run: npm run acquire:g3mtool
+      - run: npm run verify:g3mtool
+      - run: npm run smoke:game-patching-csx
+      - run: npm run build:boot
+      - run: npx electron-builder --mac --x64 --dir --publish never
+      - run: node scripts/verify-packaged-undertale-mod-tool.js "dist/mac/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64
