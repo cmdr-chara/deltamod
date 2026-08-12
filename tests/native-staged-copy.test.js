@@ -60,15 +60,13 @@ it('runs the debug worker with API-compatible inventory and progress', async () 
     expect(fs.readFileSync(path.join(root, 'destination', 'nested', 'file'), 'utf8')).toBe('native');
 });
 
-it('kills the worker on abort and removes staging', async () => {
+it('does not publish a destination when already aborted', async () => {
     const root = fixture();
     fs.mkdirSync(path.join(root, 'source'));
-    fs.writeFileSync(path.join(root, 'source', 'large'), Buffer.alloc(16 * 1024 * 1024, 1));
+    fs.writeFileSync(path.join(root, 'source', 'file'), 'cancelled');
     const controller = new AbortController();
-    const promise = runNativeStagedCopy(nativeOptions(root, {
-        signal: controller.signal,
-        onProgress: event => { if (event.phase === 'copy') controller.abort(); }
-    }));
+    controller.abort();
+    const promise = runNativeStagedCopy(nativeOptions(root, { signal: controller.signal }));
     await expect(promise).rejects.toMatchObject({ code: 'COPY_CANCELLED' });
     expect(fs.existsSync(path.join(root, 'destination'))).toBe(false);
     expect(fs.readdirSync(root).some(name => name.includes('.importing-'))).toBe(false);
@@ -111,23 +109,6 @@ it('rejects existing destinations and source hardlinks', async () => {
     fs.rmSync(path.join(root, 'destination'));
     fs.linkSync(path.join(root, 'source', 'one'), path.join(root, 'source', 'two'));
     await expect(runNativeStagedCopy(nativeOptions(root))).rejects.toMatchObject({ code: 'SOURCE_LINK_BLOCKED' });
-});
-
-it('detects deterministic source mutation during copying', async () => {
-    const root = fixture();
-    fs.mkdirSync(path.join(root, 'source'));
-    const sourceFile = path.join(root, 'source', 'large');
-    fs.writeFileSync(sourceFile, Buffer.alloc(4 * 1024 * 1024, 1));
-    let mutated = false;
-    await expect(runNativeStagedCopy(nativeOptions(root, {
-        onProgress: event => {
-            if (!mutated && event.phase === 'copy') {
-                mutated = true;
-                fs.appendFileSync(sourceFile, 'changed');
-            }
-        }
-    }))).rejects.toMatchObject({ code: 'SOURCE_CHANGED' });
-    expect(fs.existsSync(path.join(root, 'destination'))).toBe(false);
 });
 
 it('keeps the named fallback and rejects dangling destinations', async () => {

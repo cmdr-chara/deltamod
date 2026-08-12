@@ -22,6 +22,12 @@ function nativeFailure(message) {
     return error;
 }
 
+function cancelledFailure() {
+    const error = new Error('The import was cancelled.');
+    error.code = 'COPY_CANCELLED';
+    return error;
+}
+
 function exactKeys(value, expected) {
     return value && typeof value === 'object' && !Array.isArray(value)
         && Object.keys(value).sort().join(',') === [...expected].sort().join(',');
@@ -145,6 +151,7 @@ function runNativeStagedCopy(options) {
         || (options.availableBytes !== null && (!safeInteger(options.availableBytes)))) {
         return Promise.reject(nativeFailure('invalid arguments'));
     }
+    if (options.signal?.aborted === true) return Promise.reject(cancelledFailure());
     const staging = path.join(path.dirname(destination), `.${path.basename(destination)}.importing-${operationId}`);
     let stagingWasMissing = false;
     try { fs.lstatSync(staging); } catch (error) { if (error.code === 'ENOENT') stagingWasMissing = true; }
@@ -209,9 +216,7 @@ function runNativeStagedCopy(options) {
                 try { await fs.promises.rm(staging, { recursive: true, force: true }); } catch {}
             }
             if (aborted) {
-                const error = new Error('The import was cancelled.');
-                error.code = 'COPY_CANCELLED';
-                reject(error);
+                reject(cancelledFailure());
                 return;
             }
             if (failure) { reject(failure); return; }

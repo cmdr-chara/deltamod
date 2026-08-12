@@ -1072,6 +1072,42 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn detects_source_mutation_during_copy() {
+        let root = tempdir().unwrap();
+        let source = root.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let source_file = source.join("file");
+        fs::write(&source_file, vec![1_u8; 2 * 1024 * 1024]).unwrap();
+        let inventory = inspect_source_tree(&source).unwrap();
+        let destination = root.path().join("destination");
+        let staging = root.path().join("stage");
+        let mut mutated = false;
+        assert!(matches!(
+            copy_directory_staged(
+                &inventory,
+                &destination,
+                &staging,
+                1,
+                |_, _| {
+                    if !mutated {
+                        mutated = true;
+                        let mut file = OpenOptions::new().append(true).open(&source_file).unwrap();
+                        file.write_all(b"changed").unwrap();
+                    }
+                    Ok(())
+                },
+                || Ok(()),
+                || false
+            ),
+            Err(StagedCopyError::SourceChanged)
+        ));
+        assert!(mutated);
+        assert!(!staging.exists());
+        assert!(!destination.exists());
+    }
+
     #[test]
     fn detects_source_entry_added_after_inventory() {
         let root = tempdir().unwrap();
