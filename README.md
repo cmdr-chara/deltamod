@@ -13,6 +13,7 @@
   <a href="https://github.com/cmdr-chara/deltamod/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?sort=semver&amp;style=for-the-badge&amp;label=release&amp;color=7c5cff"></a>
   <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/cmdr-chara/deltamod/total?style=for-the-badge&amp;color=ef476f"></a>
   <a href="https://github.com/cmdr-chara/deltamod/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/cmdr-chara/deltamod?style=for-the-badge&amp;color=ffd166"></a>
+  <a href="https://github.com/cmdr-chara/deltamod/issues"><img alt="Open issues" src="https://img.shields.io/github/issues/cmdr-chara/deltamod?style=for-the-badge&amp;color=06d6a0"></a>
   <a href="./LICENSE.txt"><img alt="License: EUPL 1.2" src="https://img.shields.io/badge/license-EUPL--1.2-4c8bf5?style=for-the-badge"></a>
 </p>
 
@@ -21,7 +22,7 @@
   &nbsp;•&nbsp;
   <a href="#supported-games">Supported games</a>
   &nbsp;•&nbsp;
-  <a href="#development">Development</a>
+  <a href="https://github.com/cmdr-chara/deltamod/issues/new/choose">Get help</a>
 </p>
 
 <p align="center">
@@ -152,6 +153,7 @@ UndertaleModTool `.csx` patches require Windows x64, Linux x64, or an Intel Mac 
 
 ## Project resources
 
+- [Report a bug](https://github.com/cmdr-chara/deltamod/issues/new/choose)
 - [Browse all releases](https://github.com/cmdr-chara/deltamod/releases)
 - [Read the security policy](./SECURITY.md) for vulnerability reports
 
