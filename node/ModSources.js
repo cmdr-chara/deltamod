@@ -463,18 +463,18 @@ async function browseModDb({ slug, query = '' }) {
     };
 }
 
-async function nexusRequest(pathname, apiKey) {
-    const key = String(apiKey || '').trim();
-    if (!/^[A-Za-z0-9+/=_-]{20,200}$/.test(key)) {
-        const error = new Error('Nexus Mods single sign-on is required.');
-        error.code = 'NEXUS_SSO_REQUIRED';
+async function nexusRequest(pathname, accessToken) {
+    const token = String(accessToken || '').trim();
+    if (!/^[\x21-\x7e]{20,8192}$/.test(token)) {
+        const error = new Error('Nexus Mods authorization is required.');
+        error.code = 'NEXUS_AUTH_REQUIRED';
         throw error;
     }
     const url = new URL(pathname, `https://${NEXUS_API_HOST}/v1/`);
     const { response, quota, retryAfterMs, retryAt } = await nexusFetch(url, {
         allowedHosts: isNexusApiHost,
         headers: {
-            apikey: key,
+            authorization: `Bearer ${token}`,
             accept: 'application/json',
             'application-name': 'Deltamod Community',
             'application-version': require('../package.json').version
@@ -483,7 +483,7 @@ async function nexusRequest(pathname, apiKey) {
     if (!response.ok) {
         const error = new Error(
             response.status === 401 || response.status === 403
-                ? 'Nexus Mods rejected the API key or this operation.'
+                ? 'Nexus Mods rejected the authorization or this operation.'
                 : `Nexus Mods request failed with HTTP ${response.status}.`
         );
         error.code = response.status === 401 || response.status === 403
@@ -498,8 +498,8 @@ async function nexusRequest(pathname, apiKey) {
     return JSON.parse(await readLimitedText(response));
 }
 
-async function validateNexusApiKey(apiKey) {
-    const user = await nexusRequest('users/validate.json', apiKey);
+async function validateNexusAccessToken(accessToken) {
+    const user = await nexusRequest('users/validate.json', accessToken);
     return {
         valid: true,
         name: String(user.name || 'Nexus Mods user'),
@@ -572,7 +572,7 @@ function cloneNexusCatalog(value) {
     };
 }
 
-async function getNexusPrimaryDownload({ domain, modId, apiKey }) {
+async function getNexusPrimaryDownload({ domain, modId, accessToken }) {
     const numericModId = Number(modId);
     if (!Number.isInteger(numericModId) || numericModId <= 0) {
         const error = new Error('Invalid Nexus Mods mod identifier.');
@@ -581,7 +581,7 @@ async function getNexusPrimaryDownload({ domain, modId, apiKey }) {
     }
     const fileResult = await nexusRequest(
         `games/${encodeURIComponent(domain)}/mods/${numericModId}/files.json`,
-        apiKey
+        accessToken
     );
     const files = Array.isArray(fileResult?.files) ? fileResult.files : [];
     const eligible = files.filter(file =>
@@ -599,7 +599,7 @@ async function getNexusPrimaryDownload({ domain, modId, apiKey }) {
 
     const links = await nexusRequest(
         `games/${encodeURIComponent(domain)}/mods/${numericModId}/files/${Number(selected.file_id)}/download_link.json`,
-        apiKey
+        accessToken
     );
     const link = (Array.isArray(links) ? links : []).find(item => item?.URI)?.URI;
     const downloadUrl = safeHttpsUrl(link, isNexusDownloadHost);
@@ -657,5 +657,5 @@ module.exports = {
     parseRetryAfter,
     safeHttpsUrl,
     nexusRequest,
-    validateNexusApiKey
+    validateNexusAccessToken
 };

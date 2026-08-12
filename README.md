@@ -76,9 +76,11 @@ Deltamod Community brings compatible mods, game installations, and separate mod 
 - **Speak your language** with English, Italian, French, German, Spanish, Portuguese, Polish, and Japanese localizations.
 
 > [!NOTE]
-> Nexus Mods integration is present but disabled while the Deltamod Community application registration is pending. GameBanana, ModDB, and local imports work without a Nexus Mods account.
+> Nexus Mods integration is present but disabled while the Deltamod Community OAuth application registration is pending. GameBanana, ModDB, and local imports work without a Nexus Mods account.
 
-When enabled, Nexus Mods uses single-sign-on only, requests a bounded result page, and respects quota responses using the server's `Retry-After` value. Manually supplied credentials are not accepted.
+When enabled, Nexus Mods uses OAuth 2.0 Authorization Code with PKCE S256. The desktop callback is fixed at `http://127.0.0.1:52817/callback`, binds only to the IPv4 loopback interface, verifies `state`, and closes after authorization; it never falls back to a dynamic port. Access and refresh tokens are encrypted with Electron's secure storage or stored in the native OS keyring, refreshed before expiry, and sent only as Bearer tokens to the Nexus Mods API. Catalogue requests remain limited to one bounded result page, and quota responses honor the server's `Retry-After` value. Manually supplied credentials are not accepted.
+
+The public client ID belongs in `nexusOAuthClientId` in `package.json` after Nexus Mods completes registration. Local development can temporarily provide the same public identifier through `DELTAMOD_NEXUS_OAUTH_CLIENT_ID`; no client secret is used or expected for this desktop PKCE flow.
 
 ## Download
 

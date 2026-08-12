@@ -38,10 +38,13 @@ toml = "0.8.23"
 http = "1"
 tauri = { version = "2", features = ["image-png"] }
 base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+sha2 = "0.10"
 tauri-plugin-opener = "2.5.4"
 tauri-plugin-dialog = "2.7.2"
 tokio = { version = "1", features = ["rt", "sync"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+url = "2"
 deltamod-installations-domain = { path = "crates/installations" }
 deltamod-mods-themes-domain = { path = "crates/mods-themes" }
 deltamod-mods-themes-runtime = { path = "crates/mods-themes-runtime" }

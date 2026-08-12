@@ -65,7 +65,7 @@ test('launches securely and keeps Options categories inside their column', async
                 DELTAMOD_TEST: '1',
                 DELTAMOD_TEST_ALLOW_AUDIO: '1',
                 DELTAMOD_TEST_USER_DATA: userData,
-                DELTAMOD_NEXUS_SSO_APP_ID: 'deltamod-community-test'
+                DELTAMOD_NEXUS_OAUTH_CLIENT_ID: 'deltamod-community-test'
             }
         });
         const window = await application.firstWindow();
@@ -1170,7 +1170,7 @@ test('launches securely and keeps Options categories inside their column', async
         await expect(window.locator('.nexus-key-row input')).toHaveCount(0);
         await expect(window.locator('#options')).toContainText('Not connected');
         await expect(window.getByRole('button', { name: 'Sign in' })).toBeVisible();
-        await expect(window.locator('#options')).toContainText('returns authorization directly to Community');
+        await expect(window.locator('#options')).toContainText('returns through Community’s fixed local callback');
         if (process.env.DELTAMOD_SCREENSHOT_DIR) {
             await window.screenshot({
                 path: path.join(process.env.DELTAMOD_SCREENSHOT_DIR, '08-nexus-settings.png')

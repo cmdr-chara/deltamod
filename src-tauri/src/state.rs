@@ -111,6 +111,8 @@ pub struct AppState {
     /// None means the platform secure store could not be initialized. Never fall back to files.
     pub credentials: Option<CredentialStore<KeyringBackend>>,
     pub gamebanana_login_active: AtomicBool,
+    pub nexus_oauth_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub nexus_oauth_refresh: Mutex<()>,
     pub assets: AssetRuntime,
     pub mod_images: HashMap<String, String>,
     pub game: GameRuntime,
@@ -249,6 +251,8 @@ impl AppState {
             game_download_cancellations: Mutex::new(HashMap::new()),
             credentials,
             gamebanana_login_active: AtomicBool::new(false),
+            nexus_oauth_cancel: Mutex::new(None),
+            nexus_oauth_refresh: Mutex::new(()),
             assets,
             mod_images,
             game,

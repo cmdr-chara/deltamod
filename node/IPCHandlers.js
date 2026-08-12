@@ -24,7 +24,11 @@ const GamePatching = require('./GamePatching');
 const ProfileMigration = require('./ProfileMigration');
 const ModSources = require('./ModSources');
 const UndertaleModTool = require('./UndertaleModTool');
-const { NexusSsoClient, parseNexusSsoAppId } = require('./NexusSso');
+const {
+    NexusOAuthClient,
+    parseNexusOAuthClientId,
+    parseStoredNexusOAuthTokens
+} = require('./NexusSso');
 const { downloadToFile } = require('./security/RemoteSecurity');
 const { detectImageType } = require('./security/ImageSecurity');
 const { resolveWithin } = require('./security/PathSecurity');
@@ -85,6 +89,10 @@ function parseExternalHttpsUrl(value, allowedHosts) {
 }
 
 function getNexusCredentialPath() {
+    return getSystemFile('nexus-oauth-tokens', true);
+}
+
+function getLegacyNexusCredentialPath() {
     return getSystemFile('nexus-api-key', true);
 }
 
@@ -94,7 +102,9 @@ function getNexusAuthMetadataPath() {
 
 function getNexusAuthMethod() {
     const metadata = readJsonSync(getNexusAuthMetadataPath(), {});
-    return metadata?.method === 'sso' ? 'sso' : 'personal';
+    return metadata?.schemaVersion === 2 && metadata?.method === 'oauth-pkce'
+        ? 'oauth-pkce'
+        : null;
 }
 
 function createNexusPersonalKeyDisabledError() {
@@ -105,16 +115,21 @@ function createNexusPersonalKeyDisabledError() {
 
 function clearNexusCredentialFiles() {
     try { fs.rmSync(getNexusCredentialPath(), { force: true }); } catch {}
+    try { fs.rmSync(getLegacyNexusCredentialPath(), { force: true }); } catch {}
     try { fs.rmSync(getNexusAuthMetadataPath(), { force: true }); } catch {}
 }
 
-function readNexusApiKey() {
+function readNexusOAuthTokens() {
     const credentialPath = getNexusCredentialPath();
-    if (!fs.existsSync(credentialPath)) return null;
-    // SSO is the only supported authentication path. Treat credentials from
-    // older builds (including those explicitly marked method=personal) as
-    // unusable and remove the local copy instead of silently sending it to Nexus.
-    if (getNexusAuthMethod() !== 'sso') {
+    const legacyCredentialPath = getLegacyNexusCredentialPath();
+    if (!fs.existsSync(credentialPath)) {
+        // WebSocket SSO API keys and manually entered keys are not OAuth
+        // credentials. Remove either legacy format instead of sending it in a
+        // Bearer header or attempting an unsafe migration.
+        if (fs.existsSync(legacyCredentialPath)) clearNexusCredentialFiles();
+        return null;
+    }
+    if (getNexusAuthMethod() !== 'oauth-pkce') {
         clearNexusCredentialFiles();
         return null;
     }
@@ -124,31 +139,39 @@ function readNexusApiKey() {
         throw error;
     }
     try {
-        return safeStorage.decryptString(fs.readFileSync(credentialPath));
+        return parseStoredNexusOAuthTokens(
+            safeStorage.decryptString(fs.readFileSync(credentialPath))
+        );
     } catch {
-        const error = new Error('The saved Nexus Mods API key could not be decrypted. Remove it and connect again.');
+        const error = new Error('The saved Nexus Mods authorization could not be decrypted. Remove it and connect again.');
         error.code = 'NEXUS_CREDENTIAL_INVALID';
         throw error;
     }
 }
 
-function storeNexusApiKey(apiKey, method) {
-    if (method !== 'sso') throw createNexusPersonalKeyDisabledError();
+function storeNexusOAuthTokens(tokens) {
     if (!safeStorage.isEncryptionAvailable()) {
         const error = new Error('Secure credential storage is unavailable on this system.');
         error.code = 'SECURE_STORAGE_UNAVAILABLE';
         throw error;
     }
-    writeFileAtomicSync(
-        getNexusCredentialPath(),
-        safeStorage.encryptString(apiKey),
-        { backup: false }
-    );
-    writeJsonAtomicSync(getNexusAuthMetadataPath(), {
-        schemaVersion: 1,
-        method: 'sso',
-        updatedAt: new Date().toISOString()
-    }, { backup: false });
+    const normalized = parseStoredNexusOAuthTokens(tokens);
+    try {
+        writeFileAtomicSync(
+            getNexusCredentialPath(),
+            safeStorage.encryptString(JSON.stringify(normalized)),
+            { backup: false }
+        );
+        writeJsonAtomicSync(getNexusAuthMetadataPath(), {
+            schemaVersion: 2,
+            method: 'oauth-pkce',
+            updatedAt: new Date().toISOString()
+        }, { backup: false });
+        try { fs.rmSync(getLegacyNexusCredentialPath(), { force: true }); } catch {}
+    } catch (error) {
+        clearNexusCredentialFiles();
+        throw error;
+    }
 }
 
 function toJsonSafe(value, depth = 0) {
@@ -441,13 +464,91 @@ module.exports = function registerIPCHandlers(context) {
     const profileImports = new Map();
     const gameImports = new Map();
     const easterEggWindowShaker = new EasterEggWindowShaker();
-    const configuredNexusSsoAppId = parseNexusSsoAppId(
-        process.env.DELTAMOD_NEXUS_SSO_APP_ID || require('../package.json').nexusSsoAppId
+    const packageConfig = require('../package.json');
+    const configuredNexusOAuthClientId = parseNexusOAuthClientId(
+        process.env.DELTAMOD_NEXUS_OAUTH_CLIENT_ID || packageConfig.nexusOAuthClientId
     );
-    const nexusSso = new NexusSsoClient({
-        appId: configuredNexusSsoAppId,
+    const nexusOAuth = new NexusOAuthClient({
+        clientId: configuredNexusOAuthClientId,
+        scope: process.env.DELTAMOD_NEXUS_OAUTH_SCOPE ?? packageConfig.nexusOAuthScope ?? '',
         openExternal: url => shell.openExternal(parseExternalHttpsUrl(url, ['nexusmods.com']))
     });
+    let nexusTokenRefresh = null;
+    let nexusCredentialRevision = 0;
+    let nexusAuthorizationRevision = null;
+
+    function nexusCredentialOperationCancelled() {
+        const error = new Error('The Nexus Mods authorization operation was cancelled.');
+        error.code = 'NEXUS_SSO_CANCELLED';
+        return error;
+    }
+
+    function invalidateNexusCredentials() {
+        nexusCredentialRevision += 1;
+        clearNexusCredentialFiles();
+    }
+
+    function cancelNexusAuthorization() {
+        const pending = nexusAuthorizationRevision !== null;
+        if (pending && nexusAuthorizationRevision === nexusCredentialRevision) {
+            nexusCredentialRevision += 1;
+        }
+        return nexusOAuth.cancel() || pending;
+    }
+
+    async function getValidNexusOAuthTokens({ forceRefresh = false } = {}) {
+        const tokens = readNexusOAuthTokens();
+        if (!tokens) return null;
+
+        const refreshWindowMs = 60 * 1000;
+        const now = Date.now();
+        if (!forceRefresh && tokens.expiresAt > now + refreshWindowMs) return tokens;
+        if (!nexusOAuth.available) {
+            if (!forceRefresh && tokens.expiresAt > now + 5000) return tokens;
+            const error = new Error('Nexus Mods sign-in cannot be refreshed without the registered OAuth client ID.');
+            error.code = 'NEXUS_SSO_NOT_REGISTERED';
+            throw error;
+        }
+
+        if (!nexusTokenRefresh) {
+            const refreshRevision = nexusCredentialRevision;
+            nexusTokenRefresh = nexusOAuth.refresh(tokens).then(refreshed => {
+                if (refreshRevision !== nexusCredentialRevision) {
+                    throw nexusCredentialOperationCancelled();
+                }
+                storeNexusOAuthTokens(refreshed);
+                return refreshed;
+            }).catch(error => {
+                if (error?.code === 'NEXUS_OAUTH_REAUTH_REQUIRED'
+                    && refreshRevision === nexusCredentialRevision) {
+                    invalidateNexusCredentials();
+                }
+                if (!forceRefresh
+                    && refreshRevision === nexusCredentialRevision
+                    && error?.code !== 'NEXUS_SSO_CANCELLED'
+                    && error?.code !== 'NEXUS_OAUTH_REAUTH_REQUIRED'
+                    && tokens.expiresAt > Date.now() + 5000) {
+                    return tokens;
+                }
+                throw error;
+            }).finally(() => {
+                nexusTokenRefresh = null;
+            });
+        }
+        return nexusTokenRefresh;
+    }
+
+    async function withNexusAccessToken(operation) {
+        const tokens = await getValidNexusOAuthTokens();
+        if (!tokens) return operation(null);
+        try {
+            return await operation(tokens.accessToken);
+        } catch (error) {
+            if (error?.code !== 'NEXUS_AUTH_FAILED') throw error;
+            const refreshed = await getValidNexusOAuthTokens({ forceRefresh: true });
+            return operation(refreshed?.accessToken || null);
+        }
+    }
     // { getGBUIConf, collections }
 
     const undertaleModToolConfigPath = getSystemFile('undertale-mod-tool.json', true);
@@ -996,18 +1097,18 @@ module.exports = function registerIPCHandlers(context) {
     });
     handle('modSources:nexusStatus', async () => {
         const baseStatus = {
-            ssoAvailable: nexusSso.available,
-            ssoPending: nexusSso.pending,
+            ssoAvailable: nexusOAuth.available,
+            ssoPending: nexusAuthorizationRevision !== null,
             // Kept as a false compatibility field for older renderers. There
             // is no backend path that accepts or uses personal API keys.
             personalKeyFallbackAllowed: false,
-            authMethod: fs.existsSync(getNexusCredentialPath()) && getNexusAuthMethod() === 'sso'
-                ? 'sso'
+            authMethod: fs.existsSync(getNexusCredentialPath()) && getNexusAuthMethod() === 'oauth-pkce'
+                ? 'oauth-pkce'
                 : null
         };
-        let key;
+        let tokens;
         try {
-            key = readNexusApiKey();
+            tokens = readNexusOAuthTokens();
         } catch (error) {
             const serialized = serializeNexusError(
                 error,
@@ -1023,13 +1124,13 @@ module.exports = function registerIPCHandlers(context) {
                 ...nexusErrorMetadata(error)
             };
         }
-        if (!key) return { ...baseStatus, configured: false, connected: false };
+        if (!tokens) return { ...baseStatus, configured: false, connected: false };
         try {
             return {
                 ...baseStatus,
                 configured: true,
                 connected: true,
-                ...(await ModSources.validateNexusApiKey(key))
+                ...(await withNexusAccessToken(token => ModSources.validateNexusAccessToken(token)))
             };
         } catch (error) {
             const serialized = serializeNexusError(
@@ -1053,11 +1154,12 @@ module.exports = function registerIPCHandlers(context) {
         throw createNexusPersonalKeyDisabledError();
     });
     handle('modSources:startNexusSso', async event => {
-        const cancelOnRendererClose = () => nexusSso.cancel();
+        let authorizationRevision = null;
+        const cancelOnRendererClose = () => cancelNexusAuthorization();
         event.sender.once('destroyed', cancelOnRendererClose);
         try {
-            if (!nexusSso.available) {
-                const error = new Error('Nexus Mods SSO is unavailable until Nexus issues the application slug.');
+            if (!nexusOAuth.available) {
+                const error = new Error('Nexus Mods sign-in is unavailable until Nexus issues the OAuth client ID.');
                 error.code = 'NEXUS_SSO_NOT_REGISTERED';
                 throw error;
             }
@@ -1066,15 +1168,25 @@ module.exports = function registerIPCHandlers(context) {
                 error.code = 'SECURE_STORAGE_UNAVAILABLE';
                 throw error;
             }
-            const key = await nexusSso.start();
-            const status = await ModSources.validateNexusApiKey(key);
-            storeNexusApiKey(key, 'sso');
+            if (nexusAuthorizationRevision !== null) {
+                const error = new Error('A Nexus Mods sign-in is already waiting for authorization.');
+                error.code = 'NEXUS_SSO_ALREADY_PENDING';
+                throw error;
+            }
+            authorizationRevision = ++nexusCredentialRevision;
+            nexusAuthorizationRevision = authorizationRevision;
+            const tokens = await nexusOAuth.start();
+            const status = await ModSources.validateNexusAccessToken(tokens.accessToken);
+            if (authorizationRevision !== nexusCredentialRevision) {
+                throw nexusCredentialOperationCancelled();
+            }
+            storeNexusOAuthTokens(tokens);
             return {
                 ok: true,
                 status: {
                     configured: true,
                     connected: true,
-                    authMethod: 'sso',
+                    authMethod: 'oauth-pkce',
                     ssoAvailable: true,
                     ssoPending: false,
                     personalKeyFallbackAllowed: false,
@@ -1092,15 +1204,19 @@ module.exports = function registerIPCHandlers(context) {
                 error: serialized
             };
         } finally {
+            if (authorizationRevision !== null
+                && nexusAuthorizationRevision === authorizationRevision) {
+                nexusAuthorizationRevision = null;
+            }
             event.sender.removeListener('destroyed', cancelOnRendererClose);
         }
     });
     handle('modSources:cancelNexusSso', () => {
-        return nexusSso.cancel();
+        return cancelNexusAuthorization();
     });
     handle('modSources:clearNexusKey', () => {
-        nexusSso.cancel();
-        clearNexusCredentialFiles();
+        cancelNexusAuthorization();
+        invalidateNexusCredentials();
         return true;
     });
     handle('modSources:open', async (event, args) => {
@@ -1129,15 +1245,19 @@ module.exports = function registerIPCHandlers(context) {
         }
         let resolved;
         try {
-            resolved = await ModSources.getNexusPrimaryDownload({
-                domain,
-                modId: request.modId,
-                apiKey: readNexusApiKey()
-            });
+            resolved = await withNexusAccessToken(accessToken =>
+                ModSources.getNexusPrimaryDownload({
+                    domain,
+                    modId: request.modId,
+                    accessToken
+                })
+            );
         } catch (error) {
             if ([
                 'NEXUS_SSO_REQUIRED',
+                'NEXUS_AUTH_REQUIRED',
                 'NEXUS_AUTH_FAILED',
+                'NEXUS_OAUTH_REAUTH_REQUIRED',
                 'NEXUS_MANUAL_DOWNLOAD_REQUIRED',
                 'NEXUS_PERSONAL_KEY_DISABLED',
                 'NEXUS_RATE_LIMITED'

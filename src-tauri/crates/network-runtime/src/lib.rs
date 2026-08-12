@@ -96,14 +96,14 @@ pub enum RuntimeError {
 #[derive(Clone, Copy)]
 enum Authentication<'a> {
     GameBananaCookie(&'a str),
-    NexusApiKey(&'a str),
+    NexusBearer(&'a str),
 }
 
 impl Authentication<'_> {
     fn allowed_for(self, url: &Url) -> bool {
         match self {
             Self::GameBananaCookie(_) => url.host_str() == Some("gamebanana.com"),
-            Self::NexusApiKey(_) => url.host_str() == Some("api.nexusmods.com"),
+            Self::NexusBearer(_) => url.host_str() == Some("api.nexusmods.com"),
         }
     }
 }
@@ -114,15 +114,6 @@ pub trait SecretStore: Send + Sync {
     fn put(&self, name: &str, value: &[u8]) -> Result<(), Self::Error>;
     fn delete(&self, name: &str) -> Result<(), Self::Error>;
 }
-pub trait SsoWebSocket: Send + Sync {
-    type Error: std::error::Error + Send + Sync + 'static;
-    fn start(&self, app_id: &str) -> Result<Box<dyn SsoSession>, Self::Error>;
-}
-pub trait SsoSession: Send {
-    fn poll(&mut self) -> Result<Option<Vec<u8>>, RuntimeError>;
-    fn cancel(&mut self);
-}
-
 #[derive(Clone)]
 pub struct Client {
     http: reqwest::Client,
@@ -228,10 +219,15 @@ impl Client {
         let mut url = safe_url(provider, start)?;
         for hop in 0..=self.max_redirects {
             let mut r = self.http.request(method.clone(), url.clone());
+            if provider == Provider::Nexus && url.host_str() == Some("api.nexusmods.com") {
+                r = r
+                    .header("application-name", "Deltamod Community")
+                    .header("application-version", "2.0.3");
+            }
             if let Some(auth) = auth.filter(|value| value.allowed_for(&url)) {
                 r = match auth {
                     Authentication::GameBananaCookie(cookie) => r.header(header::COOKIE, cookie),
-                    Authentication::NexusApiKey(key) => r.header("apikey", key),
+                    Authentication::NexusBearer(token) => r.bearer_auth(token),
                 };
             }
             if let Some(b) = body.clone() {
@@ -286,12 +282,27 @@ impl Client {
         auth: Option<&str>,
     ) -> Result<T, RuntimeError> {
         let auth = auth.map(|value| match provider {
-            Provider::Nexus => Authentication::NexusApiKey(value),
+            Provider::Nexus => Authentication::NexusBearer(value),
             Provider::GameBanana => Authentication::GameBananaCookie(value),
             Provider::ModDb => Authentication::GameBananaCookie(value),
         });
         self.request_json(provider, Method::GET, url, auth, None)
             .await
+    }
+
+    pub async fn nexus_graphql(
+        &self,
+        body: serde_json::Value,
+        access_token: Option<&str>,
+    ) -> Result<serde_json::Value, RuntimeError> {
+        self.request_json(
+            Provider::Nexus,
+            Method::POST,
+            "https://api.nexusmods.com/v2/graphql",
+            access_token.map(Authentication::NexusBearer),
+            Some(body),
+        )
+        .await
     }
 
     async fn request_json<T: for<'de> Deserialize<'de>>(
@@ -321,7 +332,7 @@ impl Client {
         F: FnMut(ProgressEnvelope) + Send,
     {
         let auth = auth.map(|value| match provider {
-            Provider::Nexus => Authentication::NexusApiKey(value),
+            Provider::Nexus => Authentication::NexusBearer(value),
             Provider::GameBanana => Authentication::GameBananaCookie(value),
             Provider::ModDb => Authentication::GameBananaCookie(value),
         });
@@ -444,14 +455,14 @@ pub struct ProviderResponse {
 }
 pub struct Nexus<'a> {
     pub client: &'a Client,
-    pub api_key: Option<String>,
+    pub access_token: Option<String>,
 }
 impl<'a> Nexus<'a> {
     fn credential(&self) -> Result<&str, RuntimeError> {
-        self.api_key
+        self.access_token
             .as_deref()
-            .filter(|key| valid_nexus_key(key))
-            .ok_or_else(|| RuntimeError::Auth("no valid Nexus keyring credential".into()))
+            .filter(|token| valid_nexus_token(token))
+            .ok_or_else(|| RuntimeError::Auth("no valid Nexus OAuth access token".into()))
     }
 
     pub async fn validate(&self) -> Result<NexusUser, RuntimeError> {
@@ -460,7 +471,7 @@ impl<'a> Nexus<'a> {
                 Provider::Nexus,
                 Method::GET,
                 "https://api.nexusmods.com/v1/users/validate.json",
-                Some(Authentication::NexusApiKey(self.credential()?)),
+                Some(Authentication::NexusBearer(self.credential()?)),
                 None,
             )
             .await
@@ -474,7 +485,7 @@ impl<'a> Nexus<'a> {
                 Provider::Nexus,
                 Method::GET,
                 "https://api.nexusmods.com/v1/users/me.json",
-                Some(Authentication::NexusApiKey(key)),
+                Some(Authentication::NexusBearer(key)),
                 None,
             )
             .await?;
@@ -516,7 +527,7 @@ impl<'a> Nexus<'a> {
                 Provider::Nexus,
                 Method::GET,
                 &files_url,
-                Some(Authentication::NexusApiKey(key)),
+                Some(Authentication::NexusBearer(key)),
                 None,
             )
             .await?;
@@ -557,7 +568,7 @@ impl<'a> Nexus<'a> {
                 Provider::Nexus,
                 Method::GET,
                 &links_url,
-                Some(Authentication::NexusApiKey(key)),
+                Some(Authentication::NexusBearer(key)),
                 None,
             )
             .await?;
@@ -585,11 +596,8 @@ impl<'a> Nexus<'a> {
     }
 }
 
-fn valid_nexus_key(value: &str) -> bool {
-    (20..=200).contains(&value.len())
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"+/=_-".contains(&byte))
+fn valid_nexus_token(value: &str) -> bool {
+    (20..=8192).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_graphic())
 }
 
 fn valid_slug(value: &str) -> bool {
@@ -774,16 +782,16 @@ mod tests {
         let gamebanana = safe_url(Provider::GameBanana, "https://gamebanana.com/apiv12").unwrap();
         let gamebanana_image =
             safe_url(Provider::GameBanana, "https://images.gamebanana.com/image").unwrap();
-        assert!(Authentication::NexusApiKey("secret").allowed_for(&nexus_api));
-        assert!(!Authentication::NexusApiKey("secret").allowed_for(&nexus_cdn));
+        assert!(Authentication::NexusBearer("secret").allowed_for(&nexus_api));
+        assert!(!Authentication::NexusBearer("secret").allowed_for(&nexus_cdn));
         assert!(Authentication::GameBananaCookie("secret").allowed_for(&gamebanana));
         assert!(!Authentication::GameBananaCookie("secret").allowed_for(&gamebanana_image));
     }
 
     #[test]
     fn provider_identifiers_are_bounded() {
-        assert!(valid_nexus_key("A-secure-looking-api-key-123456"));
-        assert!(!valid_nexus_key("short"));
+        assert!(valid_nexus_token("A-secure-looking-oauth-token-123456"));
+        assert!(!valid_nexus_token("short"));
         assert!(valid_slug("deltarune"));
         assert!(!valid_slug("../deltarune"));
         assert!(validate_model_and_id("Mod", 42).is_ok());

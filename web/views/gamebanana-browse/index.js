@@ -1294,7 +1294,7 @@ async function downloadNexusSource(item, button) {
                 ? 'Nexus Mods authorization required'
                 : manual ? 'Download confirmation required' : 'Nexus Mods download failed',
             authorizationRequired
-                ? 'Direct download needs Nexus Mods authorization. Connect with single sign-on in Settings, then try again or continue on the official mod page.'
+                ? 'Direct download needs Nexus Mods authorization. Connect with OAuth in Settings, then try again or continue on the official mod page.'
                 : manual
                     ? 'Nexus Mods requires this download to be confirmed on its website. The mod page can be opened now.'
                 : (error?.message || 'The archive could not be downloaded and imported.'),
@@ -1510,7 +1510,7 @@ async function initializeExternalSource(table) {
             table,
             needsNexusAuth ? 'Sign in with Nexus Mods' : 'Catalogue unavailable',
             needsNexusAuth
-                ? 'Connect your Nexus Mods account with single sign-on in Settings before browsing this catalogue.'
+                ? 'Connect your Nexus Mods account with OAuth in Settings before browsing this catalogue.'
                 : (error?.message || 'The selected mod catalogue could not be loaded.'),
             needsNexusAuth ? {
                 label: 'Open Nexus Mods settings',

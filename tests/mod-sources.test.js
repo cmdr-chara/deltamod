@@ -14,7 +14,7 @@ const {
     normalizeModDbFeed,
     normalizeNexusMods,
     safeHttpsUrl,
-    validateNexusApiKey
+    validateNexusAccessToken
 } = require('../node/ModSources');
 
 describe('mod source request validation', () => {
@@ -88,10 +88,38 @@ describe('ModDB RSS normalization', () => {
 });
 
 describe('Nexus Mods normalization and download host containment', () => {
-    it('requires an SSO-issued credential instead of a pasted personal key', async () => {
-        await expect(validateNexusApiKey(null)).rejects.toMatchObject({
-            code: 'NEXUS_SSO_REQUIRED'
+    it('requires an OAuth access token instead of a pasted personal key', async () => {
+        await expect(validateNexusAccessToken(null)).rejects.toMatchObject({
+            code: 'NEXUS_AUTH_REQUIRED'
         });
+    });
+
+    it('uses OAuth Bearer authorization without sending the legacy API-key header', async () => {
+        const originalFetch = globalThis.fetch;
+        let requestOptions;
+        globalThis.fetch = async (_url, options) => {
+            requestOptions = options;
+            return new Response(JSON.stringify({
+                name: 'Chara',
+                user_id: 42,
+                is_premium: true
+            }), { status: 200, headers: { 'content-type': 'application/json' } });
+        };
+
+        try {
+            clearNexusRequestPolicyState();
+            await expect(validateNexusAccessToken('A'.repeat(20))).resolves.toMatchObject({
+                valid: true,
+                name: 'Chara',
+                userId: 42,
+                premium: true
+            });
+            expect(requestOptions.headers.authorization).toBe(`Bearer ${'A'.repeat(20)}`);
+            expect(requestOptions.headers).not.toHaveProperty('apikey');
+        } finally {
+            globalThis.fetch = originalFetch;
+            clearNexusRequestPolicyState();
+        }
     });
 
     it('normalizes rating metadata and filters text locally', () => {
@@ -307,7 +335,7 @@ describe('Nexus Mods normalization and download host containment', () => {
 
         try {
             clearNexusRequestPolicyState();
-            await expect(validateNexusApiKey('A'.repeat(20))).rejects.toMatchObject({
+            await expect(validateNexusAccessToken('A'.repeat(20))).rejects.toMatchObject({
                 code: 'NEXUS_RATE_LIMITED',
                 status: 429,
                 retryAfterMs: 5000,
@@ -328,7 +356,7 @@ describe('Nexus Mods normalization and download host containment', () => {
 
         try {
             clearNexusRequestPolicyState();
-            await expect(validateNexusApiKey('A'.repeat(20))).rejects.toMatchObject({
+            await expect(validateNexusAccessToken('A'.repeat(20))).rejects.toMatchObject({
                 code: 'NEXUS_RATE_LIMITED',
                 status: 429,
                 retryAfterMs: 60_000,

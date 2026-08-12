@@ -168,8 +168,10 @@ impl FromStr for BackendChannel {
             | "modSources:nexusStatus"
             | "modSources:validateUrl"
             | "modSources:startNexusSso"
+            | "modSources:cancelNexusSso"
             | "modSources:clearNexusKey"
             | "modSources:open"
+            | "modSources:downloadNexus"
             | "getInstallations"
             | "getSystemIndex"
             | "getMaxExistingIndex"
@@ -241,9 +243,7 @@ impl FromStr for BackendChannel {
             | "sampleError"
             | "rebootDev"
             | "setSponsor"
-            | "modSources:cancelNexusSso"
             | "shakeCommunityWindowForEasterEgg"
-            | "modSources:downloadNexus"
             | "createInstallLink"
             | "undertaleModTool:openInstallation"
             | "gamebanana_downloadAllInCollection"
@@ -409,6 +409,9 @@ fn dispatch_domain(
 ) -> Result<Value, String> {
     let dialogs = deltamod_tauri_os_adapters::tauri_adapter::TauriDialogBackend::new(app);
     if let Some(value) = channels::dialogs::dispatch(app, state, &dialogs, name, data)? {
+        return Ok(value);
+    }
+    if let Some(value) = channels::nexus_download::dispatch(app, state, &dialogs, name, data)? {
         return Ok(value);
     }
     if let Some(value) = channels::import_download::dispatch(app, state, &dialogs, name, data)? {

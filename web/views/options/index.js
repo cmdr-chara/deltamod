@@ -760,7 +760,7 @@ window.currentPageStack.cat = async function(cat) {
             const status = await window.communityAPI.modSources.nexusStatus();
             if (status.connected) {
                 await addInfoRow('Connection', `Connected as ${status.name}`);
-                await addInfoRow('Authentication', 'Nexus Mods single sign-on');
+                await addInfoRow('Authentication', 'Nexus Mods OAuth 2.0');
                 await addInfoRow(
                     'Download access',
                     status.premium ? 'Premium API downloads available' : 'Website confirmation may be required',
@@ -770,7 +770,7 @@ window.currentPageStack.cat = async function(cat) {
                 );
                 await addButton(
                     'Disconnect Nexus Mods',
-                    'Removes the saved Nexus Mods single sign-on session from this device.',
+                    'Removes the saved Nexus Mods OAuth authorization from this device.',
                     async () => {
                         await window.communityAPI.modSources.clearNexusKey();
                         window._pageArguments = { cat: 'nexus' };
@@ -790,8 +790,8 @@ window.currentPageStack.cat = async function(cat) {
                     signInPending
                         ? 'Finish authorization in the Nexus Mods browser window, or cancel the pending sign-in below.'
                         : registrationPending
-                            ? 'Nexus Mods must issue the application slug before Community can offer single sign-on.'
-                            : (status.error || 'Connect a Nexus Mods account with single sign-on to browse its catalogue.')
+                            ? 'Nexus Mods must issue the OAuth client ID before Community can offer account sign-in.'
+                            : (status.error || 'Connect a Nexus Mods account with OAuth to browse its catalogue.')
                 );
                 if (status.ssoAvailable === true) {
                     let signingIn = false;
@@ -823,16 +823,16 @@ window.currentPageStack.cat = async function(cat) {
                     };
                     ssoButton = await addButton(
                         'Sign in with Nexus Mods',
-                        'Opens Nexus Mods in your browser and returns authorization directly to Community.',
+                        'Opens Nexus Mods in your browser and returns through Community’s fixed local callback.',
                         toggleSso,
                         status.ssoPending ? 'Cancel sign-in' : 'Sign in'
                     );
                     signingIn = Boolean(status.ssoPending);
                 } else if (!signInPending) {
                     await addInfoRow(
-                        'Single sign-on',
+                        'OAuth 2.0',
                         'Unavailable',
-                        'This integration is waiting for the Nexus-issued application registration. No credential can be entered manually.'
+                        'This integration is waiting for the Nexus-issued OAuth client ID. No credential can be entered manually.'
                     );
                 }
             }

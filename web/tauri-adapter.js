@@ -14,8 +14,8 @@
     const listen = root.__TAURI__.event.listen;
     const unsupportedCommands = new Set([
         'htmlAlert_outwin', 'shouldGoIM', 'sampleError',
-        'rebootDev', 'setSponsor', 'modSources:cancelNexusSso',
-        'shakeCommunityWindowForEasterEgg', 'modSources:downloadNexus', 'createInstallLink',
+        'rebootDev', 'setSponsor',
+        'shakeCommunityWindowForEasterEgg', 'createInstallLink',
         'undertaleModTool:openInstallation', 'gamebanana_downloadAllInCollection', 'start-update',
         'ignore-update', 'getEditionByIndex', 'openFlagDatabase',
         'deltamoddersDiscord', 'canReportError', 'npsCallback', 'executeArgumentCmd', 'initialize',

@@ -1,4 +1,4 @@
-use crate::{error, state::AppState};
+use crate::{channels::nexus_oauth, error, state::AppState};
 use deltamod_credentials_adapter::{CredentialKind, Secret};
 use deltamod_network_runtime::GameBanana;
 use serde_json::{json, Value};
@@ -272,9 +272,7 @@ pub fn dispatch(state: &AppState, channel: &str, data: &[Value]) -> Result<Optio
             Ok(Some(json!(true)))
         }
         "modSources:clearNexusKey" => {
-            credentials(state)?
-                .clear(CredentialKind::NexusSsoKey)
-                .map_err(|_| "CREDENTIALS_UNAVAILABLE".to_owned())?;
+            nexus_oauth::clear_tokens(state).map_err(|_| "CREDENTIALS_UNAVAILABLE".to_owned())?;
             Ok(Some(json!(true)))
         }
         "validateGamebananaToken" => {
