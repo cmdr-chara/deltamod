@@ -569,6 +569,7 @@ mod tests {
     #[test]
     fn mod_channels_preserve_legacy_shapes() {
         let (state, root) = state();
+        assert!(state.credentials.is_none());
         let mod_dir = state.data_root.root.join("mods").join("folder");
         fs::create_dir_all(&mod_dir).unwrap();
         fs::write(

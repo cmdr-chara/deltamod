@@ -181,7 +181,11 @@ impl AppState {
             ProfileRuntime::open(data_root.root.clone()).map_err(|_| "state root unavailable")?;
         let network = NetworkClient::new(Duration::from_secs(20), 2, Duration::from_millis(100))
             .map_err(|_| "network unavailable")?;
-        let credentials = CredentialStore::new(Arc::new(KeyringBackend::new())).ok();
+        let credentials = if test_mode {
+            None
+        } else {
+            CredentialStore::new(Arc::new(KeyringBackend::new())).ok()
+        };
         let network_runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
