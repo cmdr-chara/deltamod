@@ -13,18 +13,15 @@
   <a href="https://github.com/cmdr-chara/deltamod/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?sort=semver&amp;style=for-the-badge&amp;label=release&amp;color=7c5cff"></a>
   <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/cmdr-chara/deltamod/total?style=for-the-badge&amp;color=ef476f"></a>
   <a href="https://github.com/cmdr-chara/deltamod/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/cmdr-chara/deltamod?style=for-the-badge&amp;color=ffd166"></a>
-  <a href="https://github.com/cmdr-chara/deltamod/issues"><img alt="Open issues" src="https://img.shields.io/github/issues/cmdr-chara/deltamod?style=for-the-badge&amp;color=06d6a0"></a>
   <a href="./LICENSE.txt"><img alt="License: EUPL 1.2" src="https://img.shields.io/badge/license-EUPL--1.2-4c8bf5?style=for-the-badge"></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/cmdr-chara/deltamod/releases/latest"><strong>Download Deltamod</strong></a>
   &nbsp;•&nbsp;
-  <a href="https://gamebanana.com/tools/20575">GameBanana</a>
-  &nbsp;•&nbsp;
   <a href="#supported-games">Supported games</a>
   &nbsp;•&nbsp;
-  <a href="https://github.com/cmdr-chara/deltamod/issues/new/choose">Get help</a>
+  <a href="#development">Development</a>
 </p>
 
 <p align="center">
@@ -153,14 +150,10 @@ Individual mods may target only specific game versions. Always read the mod auth
 
 UndertaleModTool `.csx` patches require Windows x64, Linux x64, or an Intel Mac because upstream does not publish an Apple Silicon CLI binary. Deltamod snapshots the complete mod directory before script execution, allowing companion files to load from the staged script path without exposing a partially changed package.
 
-## Need help?
+## Project resources
 
-- [Report a bug or request a feature](https://github.com/cmdr-chara/deltamod/issues/new/choose)
 - [Browse all releases](https://github.com/cmdr-chara/deltamod/releases)
-- [Visit the GameBanana page](https://gamebanana.com/tools/20575)
 - [Read the security policy](./SECURITY.md) for vulnerability reports
-
-When reporting a problem, include your operating system, game, mod, and the exact steps that triggered it.
 
 ## Development
 
