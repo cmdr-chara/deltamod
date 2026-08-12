@@ -1,122 +1,170 @@
 <p align="center">
-  <img width="180" alt="Deltamod logo" src="./web/img/gblogo-outline.png">
+  <img src="./web/img/gblogo-outline.png" width="360" alt="Deltamod Community">
 </p>
 
 <h1 align="center">Deltamod Community</h1>
 
-<p align="center">Install and manage mods for DELTARUNE, UNDERTALE, and other supported GameMaker games.</p>
-
 <p align="center">
-  <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?sort=semver&amp;style=flat-square&amp;cacheSeconds=300"></a>
-  <a href="./LICENSE.txt"><img alt="License: EUPL 1.2" src="https://img.shields.io/badge/license-EUPL--1.2-4c8bf5?style=flat-square"></a>
+  <strong>Your mods. Your worlds. One launcher.</strong><br>
+  A community-built mod manager for DELTARUNE, UNDERTALE,<br>and other supported GameMaker games.
 </p>
 
 <p align="center">
-  <a href="https://github.com/cmdr-chara/deltamod/releases">Download</a> ·
-  <a href="https://gamebanana.com/tools/20575">GameBanana</a> ·
-  <a href="https://github.com/cmdr-chara/deltamod/issues">Issues</a>
+  <a href="https://github.com/cmdr-chara/deltamod/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?sort=semver&amp;style=for-the-badge&amp;label=release&amp;color=7c5cff"></a>
+  <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/cmdr-chara/deltamod/total?style=for-the-badge&amp;color=ef476f"></a>
+  <a href="https://github.com/cmdr-chara/deltamod/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/cmdr-chara/deltamod?style=for-the-badge&amp;color=ffd166"></a>
+  <a href="https://github.com/cmdr-chara/deltamod/issues"><img alt="Open issues" src="https://img.shields.io/github/issues/cmdr-chara/deltamod?style=for-the-badge&amp;color=06d6a0"></a>
+  <a href="./LICENSE.txt"><img alt="License: EUPL 1.2" src="https://img.shields.io/badge/license-EUPL--1.2-4c8bf5?style=for-the-badge"></a>
 </p>
+
+<p align="center">
+  <a href="https://github.com/cmdr-chara/deltamod/releases/latest"><strong>Download Deltamod</strong></a>
+  &nbsp;•&nbsp;
+  <a href="https://gamebanana.com/tools/20575">GameBanana</a>
+  &nbsp;•&nbsp;
+  <a href="#supported-games">Supported games</a>
+  &nbsp;•&nbsp;
+  <a href="https://github.com/cmdr-chara/deltamod/issues/new/choose">Get help</a>
+</p>
+
+<p align="center">
+  <img src="./art/thumbnail.png" alt="Deltamod Community artwork">
+</p>
+
+---
+
+## Modding, without the busywork
+
+Deltamod Community brings compatible mods, game installations, and separate mod setups together in one place. Browse community catalogues, import a local archive, switch profiles, and let Deltamod handle the installation flow.
+
+| Discover | Install | Organize |
+| :---: | :---: | :---: |
+| Browse supported **GameBanana** mods and **ModDB** listings. | Import archives or install compatible packages with guided progress. | Keep multiple game installations, collections, and mod setups separate. |
+
+## See it in action
+
+### One home for every setup
+
+<p align="center">
+  <img src="./art/readme/deltamod-app-tour.gif" width="960" alt="Deltamod Community navigating between the patch menu, installed mods, installations, and collections">
+</p>
+
+<p align="center"><sub>Move between your patch list, installed mods, game installations, and collections.</sub></p>
+
+### Discover, preview, install
+
+<p align="center">
+  <img src="./art/readme/deltamod-mod-shop.gif" width="960" alt="Deltamod Community Mod Shop preview and import progress">
+</p>
+
+<p align="center"><sub>Browse the Mod Shop, open image galleries, and follow download and import progress. Catalogue entries shown here use local demo data.</sub></p>
+
+### Make it feel like yours
+
+<p align="center">
+  <img src="./art/readme/deltamod-personalization.gif" width="960" alt="Selecting a Deltamod theme and changing the interface language">
+</p>
+
+<p align="center"><sub>Switch complete visual themes and choose between eight interface languages.</sub></p>
+
+### What it can do
+
+- **Install and remove mods** packaged for Deltamod-compatible games.
+- **Import local mod archives** without relying on an online catalogue.
+- **Apply UndertaleModTool `.csx` patches** after an explicit safety warning.
+- **Browse GameBanana inside the app** and open supported ModDB downloads.
+- **Manage multiple installations and profiles** for different mod setups.
+- **Import official Deltamod data** into an independent community profile.
+- **Speak your language** with English, Italian, French, German, Spanish, Portuguese, Polish, and Japanese localizations.
+
+> [!NOTE]
+> Nexus Mods integration is present but disabled while the Deltamod Community application registration is pending. GameBanana, ModDB, and local imports work without a Nexus Mods account.
 
 ## Download
 
-The stable 2.0.3 release uses the Tauri desktop shell. Download it from the
-[official GitHub release page](https://github.com/cmdr-chara/deltamod/releases/tag/community-v2.0.3).
-Choose the asset for your operating system and architecture. Windows and macOS
-artifacts are currently unsigned because this community project does not have
-paid platform signing credentials. Verify the file against `SHA256SUMS.txt` on
-the release page before installing it.
+The current stable release is **Deltamod Community 2.0.3**, powered by the Tauri desktop shell.
 
-Deltamod Community does not currently update itself. Check the release page and
-download future versions manually until a signed updater is configured.
+<p align="center">
+  <a href="https://github.com/cmdr-chara/deltamod/releases/tag/community-v2.0.3">
+    <img alt="Download version 2.0.3" src="https://img.shields.io/badge/DOWNLOAD-v2.0.3-ef476f?style=for-the-badge&amp;logo=github">
+  </a>
+</p>
 
-### Install on Windows
+Choose the asset matching your operating system and architecture. Windows and macOS packages are currently unsigned because this community project does not have paid platform-signing credentials.
 
-1. Open the downloaded installer.
-2. Windows may report an unknown publisher; confirm the installer hash matches
-   `SHA256SUMS.txt` on the official release page.
-3. Finish the installer and open **Deltamod Community**.
+> [!IMPORTANT]
+> Download only from the official GitHub release page and verify the file against the attached `SHA256SUMS.txt`. Deltamod does not currently update itself; future versions must be installed manually.
 
-Only continue when the installer came from the official release page and its
-SHA-256 hash matches the published checksum.
+<details>
+<summary><strong>Windows installation</strong></summary>
 
-### Install on macOS
+1. Download and open the Windows installer.
+2. If Windows reports an unknown publisher, first confirm that its SHA-256 hash matches `SHA256SUMS.txt` on the release page.
+3. Complete the installer and launch **Deltamod Community**.
 
-1. Open the downloaded DMG and move Deltamod Community to Applications.
-2. Open Deltamod Community from Applications.
+</details>
 
-The app is not notarized. Verify the DMG checksum before deciding whether to
-allow the app in macOS Privacy & Security settings.
+<details>
+<summary><strong>macOS installation</strong></summary>
 
-To check your Mac type, open **Apple menu > About This Mac** and look for
-**Chip: Apple** or **Processor: Intel**.
+1. Download the DMG for your Mac, open it, and move **Deltamod Community** to Applications.
+2. Launch the app from Applications.
 
-### Install on Linux
+The app is not notarized. Verify the DMG checksum before deciding whether to allow it in **System Settings → Privacy & Security**. To identify your architecture, open **Apple menu → About This Mac** and look for **Chip: Apple** or **Processor: Intel**.
 
-Make the AppImage executable, then open it:
+</details>
+
+<details>
+<summary><strong>Linux installation</strong></summary>
+
+Make the AppImage executable, then launch it:
 
 ```console
 chmod +x deltamod-community-*.AppImage
 ./deltamod-community-*.AppImage
 ```
 
-Do not download `.blockmap`, `.yml`, G3MTool source, or GitHub's automatic
-source archives unless you are a developer.
+</details>
 
-## Features
-
-- Install and remove compatible mod packages.
-- Import local mod archives.
-- Apply UndertaleModTool `.csx` script patches after an explicit safety warning.
-- Browse and install supported GameBanana mods.
-- Browse ModDB listings and open their download pages.
-- Keep multiple game installations and mod setups.
-- Import data from official Deltamod without changing the official profile.
-
-Nexus Mods support is present but disabled while the application registration
-is pending. When enabled, it uses single-sign-on only, requests a bounded result page,
-and respects quota responses using the server's `Retry-After` value. You
-do not need Nexus Mods to use Deltamod Community.
+Files ending in `.blockmap` or `.yml`, G3MTool source bundles, and GitHub's automatic source archives are intended for development or release infrastructure—not normal installation.
 
 ## Supported games
 
-- DELTARUNE
-- DELTARUNE Demo
-- DELTARUNE Demo (LTS)
-- UNDERTALE
-- Undertale Yellow
-- Pizza Tower
+| Game | Support |
+| --- | :---: |
+| **DELTARUNE** | ✅ |
+| **DELTARUNE Demo** | ✅ |
+| **DELTARUNE Demo (LTS)** | ✅ |
+| **UNDERTALE** | ✅ |
+| **Undertale Yellow** | ✅ |
+| **Pizza Tower** | ✅ |
 
-Individual mods may only work with specific game versions.
+Individual mods may target only specific game versions. Always read the mod author's compatibility notes before installing.
 
 ## Platform status
 
-| Platform | Status |
-| --- | --- |
-| Windows 64-bit | Stable |
-| Linux 64-bit | Experimental |
-| macOS Apple and Intel | Experimental |
-| Wine or CrossOver | Unofficial |
+| Platform | Status | Notes |
+| --- | :---: | --- |
+| Windows x64 | **Stable** | Recommended platform. |
+| Linux x64 | **Experimental** | Distributed as an AppImage. |
+| macOS Apple Silicon | **Experimental** | Native app; `.csx` script patches are unavailable. |
+| macOS Intel | **Experimental** | Native app with `.csx` patch support. |
+| Wine / CrossOver | **Unofficial** | May work, but is not a supported release target. |
 
-UndertaleModTool `.csx` patches currently require Windows x64, Linux x64, or
-an Intel Mac because upstream does not publish an Apple Silicon CLI binary.
-Script patches use `<patch type="csx" patch="scripts/patch.csx" to="data.win" />`.
-Deltamod snapshots the complete mod directory before execution, so scripts can
-load companion files relative to their staged script path without accessing a
-partially changed package.
+UndertaleModTool `.csx` patches require Windows x64, Linux x64, or an Intel Mac because upstream does not publish an Apple Silicon CLI binary. Deltamod snapshots the complete mod directory before script execution, allowing companion files to load from the staged script path without exposing a partially changed package.
 
-## Help
+## Need help?
 
-- [Report a bug](https://github.com/cmdr-chara/deltamod/issues/new/choose)
-- [View all releases](https://github.com/cmdr-chara/deltamod/releases)
-- [GameBanana page](https://gamebanana.com/tools/20575)
-- For security problems, read [SECURITY.md](./SECURITY.md).
+- [Report a bug or request a feature](https://github.com/cmdr-chara/deltamod/issues/new/choose)
+- [Browse all releases](https://github.com/cmdr-chara/deltamod/releases)
+- [Visit the GameBanana page](https://gamebanana.com/tools/20575)
+- [Read the security policy](./SECURITY.md) for vulnerability reports
 
-When reporting a problem, include your operating system, game, mod, and the
-steps that caused it.
+When reporting a problem, include your operating system, game, mod, and the exact steps that triggered it.
 
 ## Development
 
-Requires [Node.js 22](https://nodejs.org/).
+You will need [Node.js 22](https://nodejs.org/). Tauri builds additionally require the platform prerequisites for Tauri development.
 
 ```console
 git clone https://github.com/cmdr-chara/deltamod.git
@@ -125,7 +173,7 @@ npm ci
 npm run dev
 ```
 
-Checks:
+### Quality checks
 
 ```console
 npm test
@@ -133,22 +181,26 @@ npm run typecheck
 npm run security:audit
 ```
 
-Builds are written to `dist/`:
+### Desktop builds
 
-| System | Command |
+| Target | Command |
 | --- | --- |
 | Windows | `npm run build-windows` |
 | Linux | `npm run build-linux` |
 | macOS | `npm run build-macos` |
+| Tauri | `npm run build:tauri` |
 
-Patching uses [G3MTool](https://github.com/y114git/G3MTool) and the
-[UndertaleModTool CLI](https://github.com/UnderminersTeam/UndertaleModTool).
-Run `npm run acquire:g3mtool` and `npm run acquire:undertale-mod-tool` to
-download and verify the pinned builds. Licensing and source details are in
-[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+Build output is written to `dist/`. Patching uses [G3MTool](https://github.com/y114git/G3MTool) and the [UndertaleModTool CLI](https://github.com/UnderminersTeam/UndertaleModTool); run `npm run acquire:g3mtool` and `npm run acquire:undertale-mod-tool` to download and verify the pinned builds.
+
+For release requirements and third-party details, see [RELEASE-GATE.md](./RELEASE-GATE.md) and [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
 ## License
 
-[EUPL 1.2](./LICENSE.txt). See [NOTICE.md](./NOTICE.md) and
-[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for attribution and bundled
-third-party software.
+Deltamod Community is licensed under the [European Union Public Licence 1.2](./LICENSE.txt). Attribution and bundled third-party software are documented in [NOTICE.md](./NOTICE.md) and [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+
+---
+
+<p align="center">
+  Made with <span aria-label="determination">❤️</span> by the Deltamod community.<br>
+  <sub>An independent fan project. Not affiliated with or endorsed by Toby Fox.</sub>
+</p>
