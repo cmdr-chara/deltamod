@@ -78,6 +78,8 @@ Deltamod Community brings compatible mods, game installations, and separate mod 
 > [!NOTE]
 > Nexus Mods integration is present but disabled while the Deltamod Community application registration is pending. GameBanana, ModDB, and local imports work without a Nexus Mods account.
 
+When enabled, Nexus Mods uses single-sign-on only, requests a bounded result page, and respects quota responses using the server's `Retry-After` value. Manually supplied credentials are not accepted.
+
 ## Download
 
 The current stable release is **Deltamod Community 2.0.3**, powered by the Tauri desktop shell.
@@ -154,6 +156,9 @@ UndertaleModTool `.csx` patches require Windows x64, Linux x64, or an Intel Mac 
 ## Project resources
 
 - [Report a bug](https://github.com/cmdr-chara/deltamod/issues/new/choose)
+- [Read the contribution guide](./CONTRIBUTING.md)
+- [Read the Code of Conduct](./CODE_OF_CONDUCT.md)
+- [Get support](./SUPPORT.md)
 - [Browse all releases](https://github.com/cmdr-chara/deltamod/releases)
 - [Read the security policy](./SECURITY.md) for vulnerability reports
 
