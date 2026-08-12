@@ -5,9 +5,10 @@
 Deltamod Community 2.0.3 is the current stable release. Security fixes are
 applied to the newest stable release and to the current `DeltaMaster` branch.
 
-Stable Windows and macOS artifacts must carry the expected platform signature.
-Do not bypass operating-system security checks or install an artifact whose
-publisher or signature cannot be verified. Automatic updates are not currently
+Windows and macOS artifacts are currently unsigned. Download them only from the
+official GitHub release and verify their SHA-256 value against the attached
+`SHA256SUMS.txt`. Checksums detect corruption or replacement after publication
+but do not prove publisher identity. Automatic updates are not currently
 enabled; obtain updates manually from the official GitHub release page.
 
 Official Deltamod and Deltamod Community are separate applications. Reports

@@ -117,114 +117,14 @@ jobs:
       - run: npm run build:tauri:resources -- ${{ matrix.target }}
       - run: npm run build:tauri:butler -- ${{ matrix.target }}
       - run: npm run verify:tauri-staging -- ${{ matrix.target }}
-      - name: Require and import Windows signing certificate
-        if: runner.os == 'Windows'
-        id: windows_signing
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PFX_BASE64) -or [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
-            throw "WINDOWS_CERTIFICATE_PFX_BASE64 and WINDOWS_CERTIFICATE_PASSWORD are required."
-          }
-          $pfx = Join-Path $env:RUNNER_TEMP "deltamod-release.pfx"
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_PFX_BASE64))
-          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
-          $certificate = @(Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password) |
-            Where-Object HasPrivateKey | Select-Object -First 1
-          if (-not $certificate) { throw "Imported Windows certificate has no private key." }
-          $config = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
-          $config.bundle.targets = @("nsis")
-          $config.bundle.createUpdaterArtifacts = $false
-          $config.bundle | Add-Member -Force -NotePropertyName windows -NotePropertyValue @{
-            certificateThumbprint = $certificate.Thumbprint
-            digestAlgorithm = "sha256"
-            timestampUrl = "https://timestamp.digicert.com"
-          }
-          $config | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 "src-tauri/tauri.release.generated.json"
-          "thumbprint=$($certificate.Thumbprint)" >> $env:GITHUB_OUTPUT
-      - name: Require Apple signing and notarization credentials
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            test -n "${!name}" || { echo "::error::$name is required"; exit 1; }
-          done
-          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/deltamod-release.p12"
-          openssl pkcs12 -in "$RUNNER_TEMP/deltamod-release.p12" -passin env:APPLE_CERTIFICATE_PASSWORD -noout
-      - name: Build signed Windows NSIS bundle
-        if: runner.os == 'Windows'
+      - name: Build unsigned manual-download bundle
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: .
-          args: --config src-tauri/tauri.release.generated.json --target ${{ matrix.target }} --bundles nsis
-      - name: Build Linux AppImage and deb bundles
-        if: runner.os == 'Linux'
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: .
-          args: --target ${{ matrix.target }} --bundles appimage,deb
-      - name: Build signed and notarized macOS DMG
-        if: runner.os == 'macOS'
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        with:
-          projectPath: .
-          args: --target ${{ matrix.target }} --bundles dmg
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
       - run: node scripts/verify-tauri-package.js "src-tauri/target/${{ matrix.target }}/release/bundle" "${{ matrix.target }}"
-      - name: Verify Windows Authenticode signature
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $installers = Get-ChildItem "src-tauri/target/${{ matrix.target }}/release/bundle/nsis" -Filter *.exe -File
-          if (-not $installers) { throw "No NSIS installer was produced." }
-          foreach ($installer in $installers) {
-            $signature = Get-AuthenticodeSignature $installer.FullName
-            if ($signature.Status -ne "Valid" -or $signature.SignerCertificate.Thumbprint -ne "${{ steps.windows_signing.outputs.thumbprint }}") {
-              throw "Invalid Authenticode signature on $($installer.Name): $($signature.Status)"
-            }
-          }
-      - name: Verify macOS signing and notarization
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          app=$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -print -quit)
-          dmg=$(find "src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -name '*.dmg' -print -quit)
-          test -n "$app" && test -n "$dmg"
-          codesign --verify --deep --strict --verbose=2 "$app"
-          codesign -dv --verbose=4 "$app" 2>&1 | grep -F "Authority=$APPLE_SIGNING_IDENTITY"
-          xcrun stapler validate "$dmg"
-      - name: Remove temporary Apple certificate
-        if: always() && runner.os == 'macOS'
-        shell: bash
-        run: rm -f "$RUNNER_TEMP/deltamod-release.p12"
-      - name: Remove imported Windows certificate
-        if: always() && runner.os == 'Windows' && steps.windows_signing.outputs.thumbprint != ''
-        shell: pwsh
-        run: |
-          Remove-Item "Cert:\CurrentUser\My\${{ steps.windows_signing.outputs.thumbprint }}" -Force
-          Remove-Item (Join-Path $env:RUNNER_TEMP "deltamod-release.pfx"), "src-tauri/tauri.release.generated.json" -Force -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact }}
@@ -258,7 +158,6 @@ jobs:
   publish:
     needs: [package, third-party-source]
     runs-on: ubuntu-latest
-    environment: stable-release
     permissions:
       contents: write
     steps:
@@ -274,4 +173,6 @@ jobs:
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
           test "${#artifacts[@]}" -eq 7
-          gh release create "$GITHUB_REF_NAME" "${artifacts[@]}" --verify-tag --latest --notes-file CHANGELOG.txt --title "Deltamod Community ${GITHUB_REF_NAME#community-v}"
+          (cd release-artifacts && sha256sum * > SHA256SUMS.txt)
+          artifacts+=("release-artifacts/SHA256SUMS.txt")
+          gh release create "$GITHUB_REF_NAME" "${artifacts[@]}" --verify-tag --latest --notes-file CHANGELOG.txt --title "Deltamod Community ${GITHUB_REF_NAME#community-v} (unsigned)"

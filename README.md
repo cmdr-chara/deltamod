@@ -21,9 +21,10 @@
 
 The stable 2.0.3 release uses the Tauri desktop shell. Download it from the
 [official GitHub release page](https://github.com/cmdr-chara/deltamod/releases/tag/community-v2.0.3).
-Choose the asset for your operating system and architecture. Stable Windows and
-macOS artifacts are published only when they have the required platform
-signature; verify the publisher or signature before installing them.
+Choose the asset for your operating system and architecture. Windows and macOS
+artifacts are currently unsigned because this community project does not have
+paid platform signing credentials. Verify the file against `SHA256SUMS.txt` on
+the release page before installing it.
 
 Deltamod Community does not currently update itself. Check the release page and
 download future versions manually until a signed updater is configured.
@@ -31,19 +32,20 @@ download future versions manually until a signed updater is configured.
 ### Install on Windows
 
 1. Open the downloaded installer.
-2. Confirm that Windows reports the expected verified publisher.
+2. Windows may report an unknown publisher; confirm the installer hash matches
+   `SHA256SUMS.txt` on the official release page.
 3. Finish the installer and open **Deltamod Community**.
 
-Do not bypass a Windows security warning. If the signature or publisher cannot
-be verified, delete the installer and report the release asset.
+Only continue when the installer came from the official release page and its
+SHA-256 hash matches the published checksum.
 
 ### Install on macOS
 
 1. Open the downloaded DMG and move Deltamod Community to Applications.
 2. Open Deltamod Community from Applications.
 
-Do not override macOS security checks. If macOS cannot verify the app, delete it
-and report the release asset.
+The app is not notarized. Verify the DMG checksum before deciding whether to
+allow the app in macOS Privacy & Security settings.
 
 To check your Mac type, open **Apple menu > About This Mac** and look for
 **Chip: Apple** or **Processor: Intel**.
