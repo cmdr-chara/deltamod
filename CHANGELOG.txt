@@ -1,10 +1,11 @@
-# Deltamod Community 2.0.8
+# Deltamod Community 2.0.9
 
 Released 2026-08-13.
 
 This maintenance release keeps the stable package layout tidy, closes the
 remaining npm audit finding, and keeps the Linux manual-download package
-reliable on GitHub-hosted runners.
+reliable on GitHub-hosted runners, and fixes recursive artifact hashing during
+release publication.
 
 ## Fixed
 
@@ -13,6 +14,11 @@ reliable on GitHub-hosted runners.
   uses the native Debian package until that toolchain is fixed upstream.
 - Update the transitive `nanoid` dependency to 3.3.18, fixing the high-severity
   custom-generator denial-of-service advisory reported by `npm audit`.
+
+- Generate `SHA256SUMS.txt` from artifact files in their downloaded subfolders,
+  so release publication handles GitHub's merged artifact layout correctly.
+
+# Deltamod Community 2.0.8
 
 # Deltamod Community 2.0.7
 

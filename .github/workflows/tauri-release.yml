@@ -175,7 +175,7 @@ jobs:
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
           test "${#artifacts[@]}" -eq 6
-          (cd release-artifacts && sha256sum * > SHA256SUMS.txt)
+          (cd release-artifacts && find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
       - name: Attest release artifacts
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
