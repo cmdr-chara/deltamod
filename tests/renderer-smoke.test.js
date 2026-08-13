@@ -65,6 +65,20 @@ describe('renderer page smoke contracts', () => {
         expect(config.app.security.csp['style-src-attr']).toContain("'unsafe-inline'");
     });
 
+    it('declares a square icon for every Tauri bundle target', () => {
+        const config = JSON.parse(read(path.join(root, 'src-tauri', 'tauri.conf.json')));
+        const icons = config.bundle.icon;
+        expect(Array.isArray(icons)).toBe(true);
+        expect(icons.length).toBeGreaterThan(0);
+        for (const icon of icons) {
+            const iconPath = path.resolve(root, 'src-tauri', icon);
+            expect(fs.existsSync(iconPath), `${icon} exists`).toBe(true);
+            const header = fs.readFileSync(iconPath);
+            expect(header.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+            expect(header.readUInt32BE(16)).toBe(header.readUInt32BE(20));
+        }
+    });
+
     it('closes through the backend instead of clearing the WebView document', () => {
         const appMarkup = read(path.join(root, 'web', 'index.html'));
         const appScript = read(path.join(root, 'web', 'index.js'));
