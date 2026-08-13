@@ -1,3 +1,16 @@
+# Deltamod Community 2.0.6
+
+Released 2026-08-13.
+
+This maintenance release keeps the stable package layout tidy and makes the
+Linux AppImage job deterministic on GitHub-hosted runners.
+
+## Fixed
+
+- Run the Linux bundle on Ubuntu 22.04 with the AppImage FUSE runtime and
+  extraction fallback enabled, avoiding the intermittent `linuxdeploy` failure
+  that blocked the previous stable release.
+
 # Deltamod Community 2.0.5
 
 Released 2026-08-13.
