@@ -175,7 +175,7 @@ fn legacy_mod_records(state: &AppState) -> Vec<Value> {
         };
         let Ok(manifest) = fs::read_to_string(&manifest_path)
             .ok()
-            .and_then(|text| text.parse::<toml::Value>().ok())
+            .and_then(|text| toml::from_str::<toml::Value>(&text).ok())
             .ok_or(())
         else {
             continue;
@@ -569,6 +569,7 @@ mod tests {
     #[test]
     fn mod_channels_preserve_legacy_shapes() {
         let (state, root) = state();
+        assert!(state.credentials.is_none());
         let mod_dir = state.data_root.root.join("mods").join("folder");
         fs::create_dir_all(&mod_dir).unwrap();
         fs::write(

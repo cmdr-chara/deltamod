@@ -38,10 +38,13 @@ jobs:
           components: rustfmt, clippy
       - name: Install Linux Tauri dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - run: npm ci
-      - run: npm run acquire:g3mtool
-      - run: npm run acquire:undertale-mod-tool
+        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Install npm dependencies
+        run: node scripts/retry-command.js --label "npm ci" -- npm ci
+      - name: Acquire G3MTool
+        run: node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
+      - name: Acquire UndertaleModTool
+        run: node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
         if: matrix.target != 'aarch64-apple-darwin'
       - run: npm run build:native-sidecars:target -- ${{ matrix.target }}
       - run: npm run build:tauri:resources -- ${{ matrix.target }}
@@ -59,26 +62,26 @@ jobs:
       - run: npm run verify:undertale-mod-tool-manifest
       - name: Install Playwright Chromium
         if: runner.os == 'macOS'
-        run: npx playwright install chromium
+        run: node scripts/retry-command.js --label "Playwright Chromium installation" -- npx playwright install chromium
       - name: Electron workflow smoke test
         if: runner.os == 'macOS'
         run: npm run test:e2e
       - name: Package smoke build
         shell: bash
         run: |
-          npm run acquire:g3mtool
+          node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
           npm run verify:g3mtool
           if [[ "$RUNNER_OS" == "macOS" && "$RUNNER_ARCH" == "ARM64" ]]; then
-            node scripts/acquire-undertale-mod-tool.js darwin-x64
+            node scripts/retry-command.js --label "UndertaleModTool Intel acquisition" -- node scripts/acquire-undertale-mod-tool.js darwin-x64
             node scripts/verify-undertale-mod-tool.js darwin-x64 --tree-only
           else
-            npm run acquire:undertale-mod-tool
+            node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
             npm run verify:undertale-mod-tool
             npm run smoke:game-patching-csx
           fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             npm run build:native-sidecars
-            npx electron-builder --win --dir --publish never
+            node scripts/retry-command.js --label "Electron Windows package build" -- npx electron-builder --win --dir --publish never
             node scripts/verify-packaged-hash-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
             node scripts/verify-packaged-security-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
             node scripts/verify-packaged-copy-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
@@ -86,10 +89,10 @@ jobs:
             node scripts/verify-packaged-patch-transaction-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
             node scripts/verify-packaged-undertale-mod-tool.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            npx electron-builder --mac --arm64 --dir --publish never
+            node scripts/retry-command.js --label "Electron macOS package build" -- npx electron-builder --mac --arm64 --dir --publish never
             node scripts/verify-packaged-undertale-mod-tool.js "dist/mac-arm64/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64 --tree-only
           else
-            npx electron-builder --linux --dir --publish never
+            node scripts/retry-command.js --label "Electron Linux package build" -- npx electron-builder --linux --dir --publish never
             node scripts/verify-packaged-undertale-mod-tool.js "dist/linux-unpacked/resources/app.asar.unpacked" linux-x64
           fi
 
@@ -101,12 +104,15 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm run acquire:undertale-mod-tool
+      - name: Install npm dependencies
+        run: node scripts/retry-command.js --label "npm ci" -- npm ci
+      - name: Acquire UndertaleModTool
+        run: node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
       - run: npm run verify:undertale-mod-tool
-      - run: npm run acquire:g3mtool
+      - name: Acquire G3MTool
+        run: node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
       - run: npm run verify:g3mtool
       - run: npm run smoke:game-patching-csx
       - run: npm run build:boot
-      - run: npx electron-builder --mac --x64 --dir --publish never
+      - run: node scripts/retry-command.js --label "Electron macOS Intel package build" -- npx electron-builder --mac --x64 --dir --publish never
       - run: node scripts/verify-packaged-undertale-mod-tool.js "dist/mac/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64

@@ -45,7 +45,7 @@ type NexusStatus = {
     connected: boolean;
     ssoAvailable: boolean;
     ssoPending: boolean;
-    authMethod: 'sso' | null;
+    authMethod: 'oauth-pkce' | null;
     name?: string;
     premium?: boolean;
     error?: string;

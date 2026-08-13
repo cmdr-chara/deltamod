@@ -1111,7 +1111,7 @@ fn tree_sha256(root: &Path) -> Result<String, Error> {
 }
 fn sha2_digest(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(bytes))
+    hex::encode(Sha256::digest(bytes))
 }
 fn copy_tree(source: &Path, destination: &Path) -> Result<(), Error> {
     fs::create_dir_all(destination)?;

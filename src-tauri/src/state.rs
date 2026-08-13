@@ -111,6 +111,8 @@ pub struct AppState {
     /// None means the platform secure store could not be initialized. Never fall back to files.
     pub credentials: Option<CredentialStore<KeyringBackend>>,
     pub gamebanana_login_active: AtomicBool,
+    pub nexus_oauth_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub nexus_oauth_refresh: Mutex<()>,
     pub assets: AssetRuntime,
     pub mod_images: HashMap<String, String>,
     pub game: GameRuntime,
@@ -181,7 +183,11 @@ impl AppState {
             ProfileRuntime::open(data_root.root.clone()).map_err(|_| "state root unavailable")?;
         let network = NetworkClient::new(Duration::from_secs(20), 2, Duration::from_millis(100))
             .map_err(|_| "network unavailable")?;
-        let credentials = CredentialStore::new(Arc::new(KeyringBackend::new())).ok();
+        let credentials = if test_mode {
+            None
+        } else {
+            CredentialStore::new(Arc::new(KeyringBackend::new())).ok()
+        };
         let network_runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -245,6 +251,8 @@ impl AppState {
             game_download_cancellations: Mutex::new(HashMap::new()),
             credentials,
             gamebanana_login_active: AtomicBool::new(false),
+            nexus_oauth_cancel: Mutex::new(None),
+            nexus_oauth_refresh: Mutex::new(()),
             assets,
             mod_images,
             game,

@@ -270,83 +270,74 @@ pub fn escape_comment_html(value: &str) -> String {
         .replace('\n', "<br>")
 }
 
-pub const SSO_ENDPOINT: &str = "wss://sso.nexusmods.com";
-pub const SSO_PAGE: &str = "https://www.nexusmods.com/sso";
-pub fn parse_sso_app_id(value: &str) -> Option<String> {
+pub const NEXUS_OAUTH_AUTHORIZATION_ENDPOINT: &str = "https://users.nexusmods.com/oauth/authorize";
+pub const NEXUS_OAUTH_TOKEN_ENDPOINT: &str = "https://users.nexusmods.com/oauth/token";
+pub const NEXUS_OAUTH_CALLBACK: &str = "http://127.0.0.1:52817/callback";
+pub fn parse_nexus_oauth_client_id(value: &str) -> Option<String> {
     let s = value.trim();
-    if (2..=80).contains(&s.len())
+    if (1..=200).contains(&s.len())
         && s.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
         && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '~' | '-'))
     {
         Some(s.to_owned())
     } else {
         None
     }
 }
-pub fn parse_sso_message(value: &str) -> Result<String, &'static str> {
-    let mut s = value.trim();
-    if s.is_empty() || s.len() > 4096 {
-        return Err("invalid API credential");
+pub fn validate_nexus_oauth_value(value: &str, maximum: usize) -> Result<&str, &'static str> {
+    let value = value.trim();
+    if (8..=maximum).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_graphic()) {
+        Ok(value)
+    } else {
+        Err("invalid OAuth value")
     }
-    if s.starts_with('{') {
-        if s.contains("\"success\":false") || s.contains("\"success\": false") {
-            return Err("Nexus Mods rejected the sign-in request");
-        }
-        let marker = "\"api_key\"";
-        let start = s.find(marker).ok_or("invalid API credential")? + marker.len();
-        s = s[start..].trim_start_matches([' ', ':', '"']);
-        s = s.split('"').next().ok_or("invalid API credential")?;
-    }
-    if s.len() < 20
-        || s.len() > 200
-        || !s
-            .bytes()
-            .all(|c| c.is_ascii_alphanumeric() || b"+/=_-".contains(&c))
-    {
-        return Err("invalid API credential");
-    }
-    Ok(s.to_owned())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SsoState {
+pub enum OAuthState {
     Idle,
-    Connecting,
+    Listening,
     AwaitingAuthorization,
+    ExchangingCode,
     Completed,
     Cancelled,
     Failed,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SsoEvent {
+pub enum OAuthEvent {
     Start,
-    SocketOpened,
-    CredentialReceived,
+    BrowserOpened,
+    CodeReceived,
+    TokensReceived,
     Cancel,
     Timeout,
     ConnectionFailed,
 }
-pub fn sso_transition(state: SsoState, event: SsoEvent) -> Result<SsoState, &'static str> {
+pub fn oauth_transition(state: OAuthState, event: OAuthEvent) -> Result<OAuthState, &'static str> {
     match (state, event) {
-        (SsoState::Idle, SsoEvent::Start) => Ok(SsoState::Connecting),
-        (SsoState::Connecting, SsoEvent::SocketOpened) => Ok(SsoState::AwaitingAuthorization),
-        (SsoState::AwaitingAuthorization, SsoEvent::CredentialReceived) => Ok(SsoState::Completed),
-        (SsoState::Connecting | SsoState::AwaitingAuthorization, SsoEvent::Cancel) => {
-            Ok(SsoState::Cancelled)
+        (OAuthState::Idle, OAuthEvent::Start) => Ok(OAuthState::Listening),
+        (OAuthState::Listening, OAuthEvent::BrowserOpened) => Ok(OAuthState::AwaitingAuthorization),
+        (OAuthState::AwaitingAuthorization, OAuthEvent::CodeReceived) => {
+            Ok(OAuthState::ExchangingCode)
         }
+        (OAuthState::ExchangingCode, OAuthEvent::TokensReceived) => Ok(OAuthState::Completed),
         (
-            SsoState::Connecting | SsoState::AwaitingAuthorization,
-            SsoEvent::Timeout | SsoEvent::ConnectionFailed,
-        ) => Ok(SsoState::Failed),
-        _ => Err("invalid SSO transition"),
+            OAuthState::Listening | OAuthState::AwaitingAuthorization | OAuthState::ExchangingCode,
+            OAuthEvent::Cancel,
+        ) => Ok(OAuthState::Cancelled),
+        (
+            OAuthState::Listening | OAuthState::AwaitingAuthorization | OAuthState::ExchangingCode,
+            OAuthEvent::Timeout | OAuthEvent::ConnectionFailed,
+        ) => Ok(OAuthState::Failed),
+        _ => Err("invalid OAuth transition"),
     }
 }
 
 pub trait HttpsTransport {
     type Error;
 }
-pub trait WebSocketTransport {
+pub trait OAuthTransport {
     type Error;
 }
 pub trait SecretStore {
@@ -364,7 +355,9 @@ where
         .filter(|(k, _)| {
             matches!(
                 *k,
-                "DELTAMOD_NEXUS_SSO_APP_ID" | "DELTAMOD_NETWORK_TIMEOUT_MS"
+                "DELTAMOD_NEXUS_OAUTH_CLIENT_ID"
+                    | "DELTAMOD_NEXUS_OAUTH_SCOPE"
+                    | "DELTAMOD_NETWORK_TIMEOUT_MS"
             )
         })
         .map(|(k, v)| (k.to_owned(), v.to_owned()))
@@ -541,25 +534,22 @@ mod tests {
         assert!(normalize_comment_target("../1", "Mod").is_err());
     }
     #[test]
-    fn sso_parsing_and_state_machine() {
+    fn oauth_parsing_and_state_machine() {
         assert_eq!(
-            parse_sso_app_id("deltamod-community").as_deref(),
+            parse_nexus_oauth_client_id("deltamod-community").as_deref(),
             Some("deltamod-community")
         );
-        assert!(parse_sso_app_id("bad slug/x").is_none());
-        assert!(parse_sso_message("A-secure-looking-api-key-123456").is_ok());
-        assert!(parse_sso_message(
-            r#"{"success":true,"data":{"api_key":"A-secure-looking-api-key-123456"}}"#
-        )
-        .is_ok());
-        assert!(parse_sso_message(&"x".repeat(4097)).is_err());
+        assert!(parse_nexus_oauth_client_id("bad client/x").is_none());
+        assert!(validate_nexus_oauth_value("authorization-code-123456", 4096).is_ok());
+        assert!(validate_nexus_oauth_value(&"x".repeat(4097), 4096).is_err());
+        assert_eq!(NEXUS_OAUTH_CALLBACK, "http://127.0.0.1:52817/callback");
         assert_eq!(
-            sso_transition(SsoState::Idle, SsoEvent::Start).unwrap(),
-            SsoState::Connecting
+            oauth_transition(OAuthState::Idle, OAuthEvent::Start).unwrap(),
+            OAuthState::Listening
         );
         assert_eq!(
-            sso_transition(SsoState::AwaitingAuthorization, SsoEvent::Cancel).unwrap(),
-            SsoState::Cancelled
+            oauth_transition(OAuthState::AwaitingAuthorization, OAuthEvent::Cancel).unwrap(),
+            OAuthState::Cancelled
         );
     }
     #[test]
@@ -583,11 +573,12 @@ mod tests {
     #[test]
     fn secrets_are_exactly_named() {
         let got = filter_secret_environment([
-            ("DELTAMOD_NEXUS_SSO_APP_ID", "x"),
+            ("DELTAMOD_NEXUS_OAUTH_CLIENT_ID", "x"),
+            ("DELTAMOD_NEXUS_OAUTH_SCOPE", "public"),
             ("NEXUS_API_KEY", "secret"),
             ("DELTAMOD_NETWORK_TIMEOUT_MS", "5000"),
         ]);
-        assert_eq!(got.len(), 2);
+        assert_eq!(got.len(), 3);
         assert!(!got.contains_key("NEXUS_API_KEY"));
     }
 }

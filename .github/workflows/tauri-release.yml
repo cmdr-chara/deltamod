@@ -31,7 +31,7 @@ jobs:
       - run: npm run acquire:undertale-mod-tool
       - run: npm run build:native-sidecars:target -- x86_64-unknown-linux-gnu
       - run: npm run build:tauri:resources -- x86_64-unknown-linux-gnu
-      - name: Validate stable 2.0.3 tag and manifests
+      - name: Validate stable tag and manifests
         shell: bash
         run: |
           node <<'NODE'
@@ -45,8 +45,8 @@ jobs:
           const cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
           const cargoVersion = /^version\s*=\s*"([^"]+)"/m.exec(cargo)?.[1];
           const versions = { tag: tagVersion, package: packageVersion, cargo: cargoVersion, tauri: tauriVersion };
-          if (tagVersion !== '2.0.3' || Object.values(versions).some(version => version !== tagVersion)) {
-            throw new Error(`Release requires every manifest and tag to be 2.0.3: ${JSON.stringify(versions)}`);
+          if (Object.values(versions).some(version => version !== tagVersion)) {
+            throw new Error(`Release requires every manifest and tag to match: ${JSON.stringify(versions)}`);
           }
           const config = require('./src-tauri/tauri.conf.json');
           if (config.bundle?.active !== true || config.bundle?.createUpdaterArtifacts !== false) {
@@ -160,19 +160,30 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-artifacts
           merge-multiple: true
+      - name: Prepare SHA-256 manifest
+        shell: bash
+        run: |
+          mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
+          test "${#artifacts[@]}" -eq 7
+          (cd release-artifacts && sha256sum * > SHA256SUMS.txt)
+      - name: Attest release artifacts
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: release-artifacts/*
       - name: Publish stable manual-download release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
-          test "${#artifacts[@]}" -eq 7
-          (cd release-artifacts && sha256sum * > SHA256SUMS.txt)
-          artifacts+=("release-artifacts/SHA256SUMS.txt")
+          test "${#artifacts[@]}" -eq 8
           gh release create "$GITHUB_REF_NAME" "${artifacts[@]}" --verify-tag --latest --notes-file CHANGELOG.txt --title "Deltamod Community ${GITHUB_REF_NAME#community-v} (unsigned)"

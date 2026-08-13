@@ -1,3 +1,21 @@
+# Deltamod Community 2.0.4
+
+Released 2026-08-13.
+
+This maintenance release hardens the Linux Tauri dependency graph and tidies
+the repository layout without changing the application protocol or user-data
+location.
+
+## Fixed
+
+- Patched the GTK3/GLib `VariantStrIter` unsoundness reported by
+  GHSA-wrw7-89jp-8q8g using the upstream two-line fix while Tauri still pins
+  GTK3/GLib 0.18.
+- Removed duplicate per-crate Cargo lockfiles; the Tauri workspace now uses
+  its single reviewed lockfile as documented.
+- Moved release/platform documentation and legacy launchers into dedicated
+  directories while preserving their commands and rollback behavior.
+
 # Deltamod Community 2.0.3
 
 Released 2026-08-12.

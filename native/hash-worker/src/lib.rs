@@ -200,7 +200,7 @@ fn hash_file_with_hook(path: &Path, after_read: impl FnOnce()) -> io::Result<(St
     }
 
     let signature = format!("{}:{}", opened_after.len(), modified_millis(&opened_after)?);
-    Ok((signature, format!("{:x}", hasher.finalize())))
+    Ok((signature, hex::encode(hasher.finalize())))
 }
 
 #[cfg(windows)]
@@ -253,7 +253,7 @@ fn hash_file_with_hook(path: &Path, after_read: impl FnOnce()) -> io::Result<(St
         after.size,
         windows_mtime_millis(after.last_write_time)?
     );
-    Ok((signature, format!("{:x}", hasher.finalize())))
+    Ok((signature, hex::encode(hasher.finalize())))
 }
 
 #[cfg(windows)]

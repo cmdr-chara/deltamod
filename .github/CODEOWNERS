@@ -1,0 +1,11 @@
+# Default ownership for repository changes.
+* @cmdr-chara
+
+# Security and release-sensitive areas.
+/.github/ @cmdr-chara
+/native/ @cmdr-chara
+/node/security/ @cmdr-chara
+/scripts/ @cmdr-chara
+/src-tauri/ @cmdr-chara
+/SECURITY.md @cmdr-chara
+/docs/RELEASE-GATE.md @cmdr-chara

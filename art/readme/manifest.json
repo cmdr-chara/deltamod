@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-12",
+  "capture": {
+    "source": "Deltamod Community Electron development build",
+    "viewport": "960x600",
+    "frameRate": 8,
+    "paletteColors": 128,
+    "loop": true
+  },
+  "assets": [
+    {
+      "file": "deltamod-app-tour.gif",
+      "width": 960,
+      "height": 600,
+      "frames": 53,
+      "durationSeconds": 6.63,
+      "bytes": 301637,
+      "sha256": "6921deed210d1e2094247495132b96b92e3b910df4797b4358f3ba05e79ce0c4"
+    },
+    {
+      "file": "deltamod-mod-shop.gif",
+      "width": 960,
+      "height": 600,
+      "frames": 62,
+      "durationSeconds": 7.76,
+      "bytes": 673495,
+      "sha256": "45052cf365ce0942b69f14d1b671203dc9e9aa05eff03eb53bda65969ead4e71"
+    },
+    {
+      "file": "deltamod-personalization.gif",
+      "width": 960,
+      "height": 600,
+      "frames": 66,
+      "durationSeconds": 8.26,
+      "bytes": 974174,
+      "sha256": "7acb7404ca9d1e65402987b1e7412b68cbab2c3dc19c5906018bda154e8da7eb"
+    }
+  ]
+}

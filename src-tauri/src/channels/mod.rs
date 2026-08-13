@@ -4,6 +4,8 @@ pub mod game;
 pub mod import_download;
 pub mod installations;
 pub mod mods;
+pub mod nexus_download;
+pub mod nexus_oauth;
 pub mod patching;
 pub mod protocol;
 pub mod runtime;

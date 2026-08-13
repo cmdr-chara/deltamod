@@ -9,7 +9,7 @@ const root = path.join(__dirname, '..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
 describe('Nexus renderer policy', () => {
-    it('exposes SSO only and never renders a pasted credential control', () => {
+    it('exposes OAuth PKCE only and never renders a pasted credential control', () => {
         const ipc = read('node/IPCHandlers.js');
         const preload = read('web/preload.js');
         const types = read('web/types/preload.d.ts');
@@ -22,7 +22,9 @@ describe('Nexus renderer policy', () => {
         expect(options).toContain('NEXUS_SSO_NOT_REGISTERED');
         expect(options).toContain('status.ssoAvailable === true');
         expect(ipc).toMatch(/handle\('modSources:setNexusKey',[\s\S]*?throw createNexusPersonalKeyDisabledError\(\)/);
-        expect(ipc).toMatch(/getNexusAuthMethod\(\) !== 'sso'[\s\S]*?clearNexusCredentialFiles\(\)[\s\S]*?return null/);
+        expect(ipc).toMatch(/getNexusAuthMethod\(\) !== 'oauth-pkce'[\s\S]*?clearNexusCredentialFiles\(\)[\s\S]*?return null/);
+        expect(ipc).toContain('DELTAMOD_NEXUS_OAUTH_CLIENT_ID');
+        expect(ipc).not.toContain('DELTAMOD_NEXUS_SSO_APP_ID');
     });
 
     it('serializes external refreshes and presents typed Nexus quota waits', () => {
@@ -38,9 +40,11 @@ describe('Nexus renderer policy', () => {
         expect(shop).toMatch(/if \(isNexusRateLimited\(error\)\) \{[\s\S]*?renderSourceState\([\s\S]*?formatRateLimitMessage\(error\)[\s\S]*?scheduleNexusRateLimitRetry/);
     });
 
-    it('documents the SSO-only, bounded, quota-aware catalogue contract', () => {
+    it('documents the OAuth PKCE, fixed-callback, bounded, quota-aware catalogue contract', () => {
         const readme = read('README.md');
-        expect(readme).toMatch(/single-sign-on only/i);
+        expect(readme).toMatch(/OAuth 2\.0 Authorization Code with PKCE S256/i);
+        expect(readme).toContain('http://127.0.0.1:52817/callback');
+        expect(readme).toMatch(/never falls back to a dynamic port/i);
         expect(readme).toMatch(/bounded result page/i);
         expect(readme).toMatch(/quota.*Retry-After/i);
         expect(readme).not.toMatch(/personal\s+api\s+key/i);

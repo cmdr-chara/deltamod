@@ -34,6 +34,7 @@ pub struct HostAllowlist(&'static [&'static str]);
 
 impl HostAllowlist {
     pub const GAMEBANANA: Self = Self(&["gamebanana.com"]);
+    pub const NEXUS: Self = Self(&["nexusmods.com", "nexus-cdn.com"]);
     pub const GAME_DOWNLOADS: Self = Self(&[
         "itch.io",
         "hwcdn.net",
@@ -284,6 +285,25 @@ mod tests {
         ] {
             assert!(validate_url(url, HostAllowlist::GAME_DOWNLOADS).is_err());
         }
+    }
+
+    #[test]
+    fn nexus_download_hosts_reject_suffix_lookalikes() {
+        assert!(validate_url(
+            "https://cf-files.nexusmods.com/archive.zip",
+            HostAllowlist::NEXUS
+        )
+        .is_ok());
+        assert!(validate_url(
+            "https://cdn.nexus-cdn.com/archive.zip",
+            HostAllowlist::NEXUS
+        )
+        .is_ok());
+        assert!(validate_url(
+            "https://nexusmods.com.evil.test/archive.zip",
+            HostAllowlist::NEXUS
+        )
+        .is_err());
     }
 
     #[test]

@@ -209,6 +209,7 @@
 .viewport .cat > button:not(.back) {
     cursor: pointer;
     width: 100%;
+    caret-color: transparent;
 }
 
 .viewport #modtable th {

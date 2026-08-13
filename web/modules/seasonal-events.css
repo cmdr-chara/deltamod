@@ -1,0 +1,229 @@
+.deltamod-seasonal-layer {
+    --season-accent: var(--theme-color, rgb(205, 68, 81));
+    --season-soul: var(--theme-soul-color, var(--season-accent));
+    position: fixed;
+    inset: 0;
+    z-index: 98;
+    contain: layout paint style;
+    overflow: hidden;
+    opacity: 0;
+    color: var(--season-accent);
+    pointer-events: none;
+    transition: opacity 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.deltamod-seasonal-layer[data-active="true"] {
+    opacity: 1;
+}
+
+.deltamod-seasonal-layer[hidden] {
+    display: none;
+}
+
+body.deltamod-boot-active > .deltamod-seasonal-layer {
+    z-index: 1510;
+}
+
+.seasonal-corner {
+    position: absolute;
+    display: block;
+    opacity: 0.82;
+    color: var(--season-accent);
+    image-rendering: pixelated;
+}
+
+.seasonal-corner-primary {
+    bottom: 20px;
+    right: 24px;
+}
+
+.seasonal-corner-secondary {
+    bottom: 20px;
+    left: 82px;
+    color: var(--season-soul);
+    transform: scaleX(-1);
+}
+
+.seasonal-pixel-mark {
+    display: block;
+    background: currentColor;
+    image-rendering: pixelated;
+}
+
+.seasonal-dmodicon-glyph {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: 2;
+    display: block;
+    opacity: 0;
+    color: var(--theme-soul-color, var(--theme-color, rgb(205, 68, 81)));
+    image-rendering: pixelated;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    transition: opacity 120ms steps(2, end);
+}
+
+.dmodicon-soul {
+    transition: opacity 120ms steps(2, end);
+}
+
+.dmodicon-seasonal-active .dmodicon-soul {
+    opacity: 0;
+}
+
+.dmodicon-seasonal-active .seasonal-dmodicon-glyph {
+    opacity: 1;
+}
+
+.seasonal-particles,
+.seasonal-particle {
+    position: absolute;
+    inset: 0;
+    display: block;
+}
+
+.seasonal-particle {
+    inset: auto;
+    top: var(--season-y);
+    left: var(--season-x);
+    width: var(--season-size);
+    height: var(--season-size);
+    opacity: 0;
+    background: var(--season-accent);
+    image-rendering: pixelated;
+}
+
+.seasonal-particle[data-tone="soul"] {
+    background: var(--season-soul);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .deltamod-seasonal-layer[data-active="true"] .seasonal-corner {
+        animation: seasonal-mark-lock 8s steps(1, end) infinite;
+    }
+
+    .deltamod-seasonal-layer[data-active="true"] .seasonal-corner-secondary {
+        animation-name: seasonal-mark-lock-mirrored;
+        animation-delay: -3.7s;
+    }
+
+    .deltamod-seasonal-layer[data-event="mens-health"] .seasonal-corner-secondary {
+        animation-name: seasonal-mark-lock;
+    }
+
+    .dmodicon-seasonal-active .seasonal-dmodicon-glyph {
+        animation: seasonal-shell-signal 6.4s steps(1, end) infinite;
+    }
+
+    .deltamod-seasonal-layer[data-event="christmas"] .seasonal-particle {
+        top: -8px;
+        animation: seasonal-snow var(--season-duration) steps(24, end) var(--season-delay) infinite;
+    }
+
+    .deltamod-seasonal-layer[data-event="easter"] .seasonal-particle {
+        animation: seasonal-hop var(--season-duration) steps(8, end) var(--season-delay) infinite;
+    }
+
+    .deltamod-seasonal-layer[data-event="halloween"] .seasonal-particle {
+        width: calc(var(--season-size) * 2);
+        animation: seasonal-haunt var(--season-duration) steps(12, end) var(--season-delay) infinite;
+    }
+
+    .deltamod-seasonal-layer[data-event="womens-health"] .seasonal-particle,
+    .deltamod-seasonal-layer[data-event="mens-health"] .seasonal-particle {
+        animation: seasonal-heartbeat var(--season-duration) steps(1, end) var(--season-delay) infinite;
+    }
+
+    .deltamod-seasonal-layer[data-event="new-year"] .seasonal-particle {
+        animation: seasonal-spark var(--season-duration) steps(10, end) var(--season-delay) infinite;
+    }
+}
+
+.deltamod-seasonal-layer[data-event="mens-health"] .seasonal-corner-secondary {
+    transform: none;
+}
+
+@keyframes seasonal-mark-lock {
+    0%, 88%, 100% { opacity: 0.82; transform: translate3d(0, 0, 0); }
+    89% { opacity: 0; transform: translate3d(0, 0, 0); }
+    90% { opacity: 1; transform: translate3d(-3px, 0, 0); }
+    91% { opacity: 0.5; transform: translate3d(2px, 0, 0); }
+    92% { opacity: 0.82; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes seasonal-mark-lock-mirrored {
+    0%, 88%, 100% { opacity: 0.82; transform: scaleX(-1) translate3d(0, 0, 0); }
+    89% { opacity: 0; transform: scaleX(-1) translate3d(0, 0, 0); }
+    90% { opacity: 1; transform: scaleX(-1) translate3d(-3px, 0, 0); }
+    91% { opacity: 0.5; transform: scaleX(-1) translate3d(2px, 0, 0); }
+    92% { opacity: 0.82; transform: scaleX(-1) translate3d(0, 0, 0); }
+}
+
+@keyframes seasonal-snow {
+    0% { opacity: 0; transform: translate3d(0, -5vh, 0); }
+    7% { opacity: 0.75; }
+    90% { opacity: 0.75; }
+    100% { opacity: 0; transform: translate3d(var(--season-drift), 108vh, 0); }
+}
+
+@keyframes seasonal-hop {
+    0%, 12%, 100% { opacity: 0; transform: translate3d(0, 0, 0); }
+    18%, 36% { opacity: 0.72; transform: translate3d(0, -12px, 0); }
+    44%, 70% { opacity: 0.72; transform: translate3d(8px, 0, 0); }
+    78% { opacity: 0; transform: translate3d(8px, 0, 0); }
+}
+
+@keyframes seasonal-haunt {
+    0%, 18%, 100% { opacity: 0; transform: translate3d(-8px, 0, 0); }
+    24%, 58% { opacity: 0.68; transform: translate3d(0, -3px, 0); }
+    64%, 78% { opacity: 0.68; transform: translate3d(10px, 3px, 0); }
+    84% { opacity: 0; transform: translate3d(14px, 0, 0); }
+}
+
+@keyframes seasonal-heartbeat {
+    0%, 70%, 76%, 82%, 100% { opacity: 0; transform: translate3d(0, 0, 0); }
+    72%, 78% { opacity: 0.76; transform: translate3d(0, -2px, 0); }
+    73%, 79% { opacity: 0.3; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes seasonal-spark {
+    0%, 72%, 100% { opacity: 0; transform: translate3d(0, 0, 0); }
+    76% { opacity: 1; transform: translate3d(0, -8px, 0); }
+    84% { opacity: 0.72; transform: translate3d(var(--season-drift), -18px, 0); }
+    90% { opacity: 0; transform: translate3d(var(--season-drift), -24px, 0); }
+}
+
+@keyframes seasonal-shell-signal {
+    0%, 84%, 100% { opacity: 1; transform: translate(-50%, -50%) translate3d(0, 0, 0); }
+    85% { opacity: 0; transform: translate(-50%, -50%) translate3d(0, 0, 0); }
+    86% { opacity: 1; transform: translate(-50%, -50%) translate3d(-1px, 0, 0); }
+    87% { opacity: 0.52; transform: translate(-50%, -50%) translate3d(1px, 0, 0); }
+    88% { opacity: 1; transform: translate(-50%, -50%) translate3d(0, 0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .deltamod-seasonal-layer {
+        transition: none;
+    }
+
+    .seasonal-particle {
+        display: none;
+    }
+
+    .seasonal-dmodicon-glyph {
+        transition: none;
+    }
+}
+
+@media (max-width: 720px), (max-height: 560px) {
+    .seasonal-corner-secondary,
+    .seasonal-particle:nth-child(n + 10) {
+        display: none;
+    }
+
+    .seasonal-corner-primary {
+        bottom: 12px;
+        right: 12px;
+    }
+}

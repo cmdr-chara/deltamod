@@ -13,10 +13,10 @@ sevenz-rust2 = { version = "=0.21.4", default-features = false, features = ["bzi
 tar = { version = "=0.4.46", default-features = false }
 tempfile = "=3.27.0"
 thiserror = "=2.0.20"
-toml = "=0.8.23"
+toml = "=1.1.4"
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
-zip = { version = "=4.6.1", default-features = false, features = ["deflate", "deflate64", "bzip2", "zstd"] }
+zip = { version = "=8.6.0", default-features = false, features = ["deflate", "deflate64", "bzip2", "zstd"] }
 
 [dev-dependencies]
 deltamod-game-download-runtime = { path = "../game-download-runtime" }
@@ -27,7 +27,7 @@ sevenz-rust2 = { version = "=0.21.4", default-features = false, features = ["com
 tauri = { version = "2", features = [] }
 tokio = { version = "1", features = ["rt", "sync"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-zip = { version = "=4.6.1", default-features = false, features = ["deflate"] }
+zip = { version = "=8.6.0", default-features = false, features = ["deflate"] }
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -6,7 +6,8 @@ license = "EUPL-1.2"
 description = "Verified, bounded runtime for Deltamod external tools"
 
 [dependencies]
-sha2 = "0.10"
+hex = "0.4"
+sha2 = "0.11"
 thiserror = "2"
 
 [target.'cfg(windows)'.dependencies]

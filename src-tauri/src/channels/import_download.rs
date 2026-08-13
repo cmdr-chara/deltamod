@@ -60,7 +60,7 @@ fn duplicate_decision<D: ChoiceBackend>(
     }
 }
 
-fn run_import<D: ChoiceBackend, C: Fn() -> bool>(
+pub(crate) fn run_import<D: ChoiceBackend, C: Fn() -> bool>(
     dialogs: &D,
     archive: &std::path::Path,
     packet_root: &std::path::Path,

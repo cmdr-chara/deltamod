@@ -130,7 +130,7 @@ pub fn sha256_file(path: &Path) -> Result<String, RuntimeError> {
         }
         hash.update(&buffer[..n]);
     }
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(hex::encode(hash.finalize()))
 }
 
 pub fn verify_tool(

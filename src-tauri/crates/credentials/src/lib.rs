@@ -13,14 +13,16 @@ const METADATA_USER: &str = "credentials-schema";
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum CredentialKind {
     GameBananaCookies,
-    NexusSsoKey,
+    NexusOAuthTokens,
+    NexusLegacySsoKey,
 }
 
 impl CredentialKind {
     fn user(self) -> &'static str {
         match self {
             Self::GameBananaCookies => "gamebanana-cookies",
-            Self::NexusSsoKey => "nexus-sso-key",
+            Self::NexusOAuthTokens => "nexus-oauth-tokens",
+            Self::NexusLegacySsoKey => "nexus-sso-key",
         }
     }
 

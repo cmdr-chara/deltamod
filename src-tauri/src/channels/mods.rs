@@ -1,4 +1,4 @@
-use crate::{error, state::AppState};
+use crate::{channels::nexus_oauth, error, state::AppState};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use deltamod_credentials_adapter::CredentialKind;
 use deltamod_network_domain::{validate_https_url, BrowseRequest, Provider};
@@ -7,6 +7,25 @@ use deltamod_tauri_os_adapters::validate_https_external;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
+
+const NEXUS_CATALOG_QUERY: &str = r#"
+query BrowseMods($filter: ModsFilter, $sort: [ModsSort!], $offset: Int, $count: Int) {
+  mods(filter: $filter, sort: $sort, offset: $offset, count: $count) {
+    totalCount
+    nodes {
+      modId
+      name
+      summary
+      author
+      updatedAt
+      pictureUrl
+      adultContent
+      downloads
+      endorsements
+    }
+  }
+}
+"#;
 
 fn legacy_mod_image(state: &AppState, uid: &str) -> Option<String> {
     let entries = std::fs::read_dir(state.data_root.root.join("packets")).ok()?;
@@ -124,6 +143,124 @@ fn moddb_catalog(slug: &str, entries: Vec<ModEntry>, query: Option<&str>) -> Val
     })
 }
 
+fn nexus_catalog(
+    state: &AppState,
+    domain: &str,
+    query: Option<&str>,
+    sort: &str,
+    offset: u32,
+    count: u32,
+    access_token: Option<String>,
+) -> Result<Value, String> {
+    let query = query.unwrap_or_default().trim();
+    let secondary_sort = match sort {
+        "latest_updated" => "updatedAt",
+        "trending" => "endorsements",
+        _ => "createdAt",
+    };
+    let mut filter = json!({
+        "op": "AND",
+        "gameDomainName": [{"value": domain, "op": "EQUALS"}]
+    });
+    if !query.is_empty() {
+        filter["nameStemmed"] = json!([{"value": query, "op": "MATCHES"}]);
+    }
+    let sort_value = if !query.is_empty() {
+        let secondary = match secondary_sort {
+            "updatedAt" => json!({"updatedAt": {"direction": "DESC"}}),
+            "endorsements" => json!({"endorsements": {"direction": "DESC"}}),
+            _ => json!({"createdAt": {"direction": "DESC"}}),
+        };
+        json!([{"relevance": {"direction": "DESC"}}, secondary])
+    } else if sort == "trending" {
+        json!([
+            {"endorsements": {"direction": "DESC"}},
+            {"downloads": {"direction": "DESC"}}
+        ])
+    } else if secondary_sort == "updatedAt" {
+        json!([{"updatedAt": {"direction": "DESC"}}])
+    } else {
+        json!([{"createdAt": {"direction": "DESC"}}])
+    };
+    let body = json!({
+        "query": NEXUS_CATALOG_QUERY,
+        "variables": {
+            "filter": filter,
+            "sort": sort_value,
+            "offset": offset,
+            "count": count
+        }
+    });
+    let payload = state
+        .network_runtime
+        .lock()
+        .map_err(|_| error::internal())?
+        .block_on(state.network.nexus_graphql(body, access_token.as_deref()))
+        .map_err(|_| "MOD_SOURCE_BROWSE_FAILED".to_owned())?;
+    if payload
+        .get("errors")
+        .and_then(Value::as_array)
+        .is_some_and(|errors| !errors.is_empty())
+    {
+        return Err("MOD_SOURCE_BROWSE_FAILED".to_owned());
+    }
+    let page = payload
+        .pointer("/data/mods")
+        .ok_or_else(|| "MOD_SOURCE_BROWSE_FAILED".to_owned())?;
+    let nodes = page
+        .get("nodes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "MOD_SOURCE_BROWSE_FAILED".to_owned())?;
+    let mut items: Vec<Value> = nodes
+        .iter()
+        .take(count as usize)
+        .filter_map(|node| {
+            let mod_id = node
+                .get("modId")
+                .and_then(|value| value.as_u64().or_else(|| value.as_str()?.parse().ok()))
+                .filter(|id| *id > 0)?;
+            let picture_url = node
+                .get("pictureUrl")
+                .and_then(Value::as_str)
+                .filter(|url| validate_https_url(Provider::Nexus, url).is_ok());
+            Some(json!({
+                "provider": "nexus",
+                "id": mod_id.to_string(),
+                "title": node.get("name").and_then(Value::as_str).unwrap_or("Nexus mod"),
+                "summary": node.get("summary").and_then(Value::as_str).unwrap_or_default(),
+                "author": node.get("author").and_then(Value::as_str).unwrap_or("Nexus Mods contributor"),
+                "updatedAt": node.get("updatedAt").and_then(Value::as_str).unwrap_or_default(),
+                "imageUrl": picture_url,
+                "sourceUrl": format!("https://www.nexusmods.com/{domain}/mods/{mod_id}"),
+                "contentRating": if node.get("adultContent").and_then(Value::as_bool).unwrap_or(false) { "adult" } else { "general" },
+                "downloads": node.get("downloads").and_then(Value::as_u64).unwrap_or(0),
+                "endorsements": node.get("endorsements").and_then(Value::as_u64).unwrap_or(0),
+                "featured": domain.eq_ignore_ascii_case("deltarune") && mod_id == 23,
+                "installMode": "nexus",
+                "actionLabel": "Download"
+            }))
+        })
+        .collect();
+    items.sort_by_key(|item| {
+        !item
+            .get("featured")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    });
+    let total_count = page.get("totalCount").and_then(Value::as_u64);
+    let has_more = total_count
+        .map(|total| u64::from(offset).saturating_add(items.len() as u64) < total)
+        .unwrap_or(items.len() >= count as usize);
+    Ok(json!({
+        "provider": "nexus",
+        "catalogScope": "page",
+        "hasMore": has_more,
+        "totalCount": total_count,
+        "attribution": "Metadata and popularity counts provided by Nexus Mods",
+        "items": items
+    }))
+}
+
 fn open_provider_url(app: &AppHandle, raw: &str, provider: Provider) -> Result<Value, String> {
     let hosts: &[&str] = match provider {
         Provider::GameBanana => &["gamebanana.com"],
@@ -169,6 +306,12 @@ pub fn dispatch(
                 .get("query")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
+            let sort = request
+                .get("sort")
+                .and_then(Value::as_str)
+                .filter(|value| matches!(*value, "latest_added" | "latest_updated" | "trending"))
+                .unwrap_or("latest_added")
+                .to_owned();
             let offset = request
                 .get("offset")
                 .and_then(Value::as_u64)
@@ -184,8 +327,23 @@ pub fn dispatch(
             BrowseRequest::new(provider, domain.clone(), query.clone(), offset, count)
                 .map_err(|_| error::invalid("modSources:browse"))?;
             if provider == Provider::Nexus {
+                let domain = domain.ok_or_else(|| error::invalid("modSources:browse"))?;
                 return Ok(Some(
-                    json!({"ok":false,"error":{"code":"NEXUS_SSO_REQUIRED","message":"Nexus Mods single sign-on is required."}}),
+                    match nexus_catalog(
+                        state,
+                        &domain,
+                        query.as_deref(),
+                        &sort,
+                        offset,
+                        count,
+                        None,
+                    ) {
+                        Ok(result) => json!({"ok": true, "result": result}),
+                        Err(_) => json!({
+                            "ok": false,
+                            "error": {"code":"MOD_SOURCE_BROWSE_FAILED","message":"The Nexus Mods catalogue could not be loaded."}
+                        }),
+                    },
                 ));
             }
             if provider == Provider::GameBanana {
@@ -240,34 +398,59 @@ pub fn dispatch(
             open_provider_url(app, url, provider).map(Some)
         }
         "modSources:nexusStatus" => {
-            let configured = state
-                .credentials
-                .as_ref()
-                .and_then(|store| store.load(CredentialKind::NexusSsoKey).ok())
-                .flatten()
-                .is_some();
-            Ok(Some(json!({
-                "ssoAvailable": false,
-                "ssoPending": false,
+            let configured = nexus_oauth::has_tokens(state);
+            let available = nexus_oauth::configured_client_id().is_some();
+            let pending = nexus_oauth::pending(state);
+            let base = json!({
+                "ssoAvailable": available,
+                "ssoPending": pending,
                 "personalKeyFallbackAllowed": false,
-                "authMethod": configured.then_some("sso"),
+                "authMethod": configured.then_some("oauth-pkce"),
                 "configured": configured,
-                "connected": configured
-            })))
+                "connected": false
+            });
+            if !configured {
+                return Ok(Some(base));
+            }
+            match nexus_oauth::access_token(state).and_then(|token| {
+                token
+                    .ok_or(nexus_oauth::OAuthFailure {
+                        code: "NEXUS_AUTH_REQUIRED",
+                        message: "Nexus Mods authorization is required.",
+                        status: None,
+                    })
+                    .and_then(|token| nexus_oauth::validate_access_token(state, token))
+            }) {
+                Ok(user) => Ok(Some(json!({
+                    "ssoAvailable": available,
+                    "ssoPending": pending,
+                    "personalKeyFallbackAllowed": false,
+                    "authMethod": "oauth-pkce",
+                    "configured": true,
+                    "connected": true,
+                    "valid": true,
+                    "name": user.name.unwrap_or_else(|| "Nexus Mods user".to_owned()),
+                    "userId": user.user_id,
+                    "premium": user.is_premium.unwrap_or(false),
+                    "supporter": user.is_supporter.unwrap_or(false)
+                }))),
+                Err(failure) => Ok(Some(json!({
+                    "ssoAvailable": available,
+                    "ssoPending": pending,
+                    "personalKeyFallbackAllowed": false,
+                    "authMethod": "oauth-pkce",
+                    "configured": nexus_oauth::has_tokens(state),
+                    "connected": false,
+                    "code": failure.code,
+                    "error": failure.message,
+                    "status": failure.status
+                }))),
+            }
         }
-        "modSources:startNexusSso" => Ok(Some(json!({
-            "ok": false,
-            "error": {"code":"NEXUS_SSO_UNAVAILABLE","message":"Nexus Mods SSO is not available in this build."}
-        }))),
-        "modSources:cancelNexusSso" => Err(error::unavailable("modSources:cancelNexusSso")),
+        "modSources:startNexusSso" => Ok(Some(nexus_oauth::start(app, state))),
+        "modSources:cancelNexusSso" => Ok(Some(json!(nexus_oauth::cancel(state)))),
         "modSources:clearNexusKey" => {
-            let store = state
-                .credentials
-                .as_ref()
-                .ok_or_else(|| error::unavailable("credentials"))?;
-            store
-                .clear(CredentialKind::NexusSsoKey)
-                .map_err(|_| error::internal())?;
+            nexus_oauth::clear_tokens(state).map_err(|_| error::internal())?;
             Ok(Some(Value::Null))
         }
         "logoutGamebanana" | "eraseGamebananaCache" => {
