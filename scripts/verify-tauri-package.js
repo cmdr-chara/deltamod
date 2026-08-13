@@ -14,7 +14,7 @@ if (config.bundle.active !== true || config.bundle.createUpdaterArtifacts !== fa
 if (config.bundle.license !== 'EUPL-1.2') throw new Error('Bundle license metadata is incorrect.');
 const expectedExtensions = {
   'x86_64-pc-windows-msvc': ['.exe'],
-  'x86_64-unknown-linux-gnu': ['.appimage', '.deb'],
+  'x86_64-unknown-linux-gnu': ['.deb'],
   'x86_64-apple-darwin': ['.dmg'],
   'aarch64-apple-darwin': ['.dmg']
 }[target];
