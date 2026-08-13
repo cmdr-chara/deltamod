@@ -18,8 +18,6 @@ release publication.
 - Generate `SHA256SUMS.txt` from artifact files in their downloaded subfolders,
   so release publication handles GitHub's merged artifact layout correctly.
 
-# Deltamod Community 2.0.8
-
 # Deltamod Community 2.0.7
 
 Released 2026-08-13.
