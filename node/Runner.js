@@ -113,7 +113,7 @@ function asyncTimeout(amount) {
 function writeTopPart() {
     process.stdout.write(`\x1b]0;${PRODUCT_NAME}\x07`);
     console.clear();
-    const ascii = fs.readFileSync(path.join(__dirname, '..', 'ascii.txt'), 'utf8');
+    const ascii = fs.readFileSync(path.join(__dirname, '..', 'art', 'ascii-banner.txt'), 'utf8');
     console.startupHeader(PRODUCT_NAME, app.getVersion(), ascii);
 }
 
