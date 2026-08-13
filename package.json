@@ -176,7 +176,7 @@
     "@chainsafe/xdelta3-node": "^1.0.2",
     "@sentry/node": "^10.69.0",
     "7zip-bin": "5.1.1",
-    "7zip-min": "^2.1.0",
+    "7zip-min": "^3.0.1",
     "axios": "^1.18.1",
     "cheerio": "^1.2.0",
     "create-desktop-shortcuts": "^1.11.1",
