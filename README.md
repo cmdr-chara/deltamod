@@ -194,7 +194,7 @@ npm run security:audit
 
 Build output is written to `dist/`. Patching uses [G3MTool](https://github.com/y114git/G3MTool) and the [UndertaleModTool CLI](https://github.com/UnderminersTeam/UndertaleModTool); run `npm run acquire:g3mtool` and `npm run acquire:undertale-mod-tool` to download and verify the pinned builds.
 
-For release requirements and third-party details, see [RELEASE-GATE.md](./RELEASE-GATE.md) and [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+For release requirements and third-party details, see [RELEASE-GATE.md](./docs/RELEASE-GATE.md) and [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
 ## License
 

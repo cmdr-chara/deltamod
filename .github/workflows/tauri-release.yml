@@ -31,7 +31,7 @@ jobs:
       - run: npm run acquire:undertale-mod-tool
       - run: npm run build:native-sidecars:target -- x86_64-unknown-linux-gnu
       - run: npm run build:tauri:resources -- x86_64-unknown-linux-gnu
-      - name: Validate stable 2.0.3 tag and manifests
+      - name: Validate stable tag and manifests
         shell: bash
         run: |
           node <<'NODE'
@@ -45,8 +45,8 @@ jobs:
           const cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
           const cargoVersion = /^version\s*=\s*"([^"]+)"/m.exec(cargo)?.[1];
           const versions = { tag: tagVersion, package: packageVersion, cargo: cargoVersion, tauri: tauriVersion };
-          if (tagVersion !== '2.0.3' || Object.values(versions).some(version => version !== tagVersion)) {
-            throw new Error(`Release requires every manifest and tag to be 2.0.3: ${JSON.stringify(versions)}`);
+          if (Object.values(versions).some(version => version !== tagVersion)) {
+            throw new Error(`Release requires every manifest and tag to match: ${JSON.stringify(versions)}`);
           }
           const config = require('./src-tauri/tauri.conf.json');
           if (config.bundle?.active !== true || config.bundle?.createUpdaterArtifacts !== false) {

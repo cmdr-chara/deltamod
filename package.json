@@ -1,7 +1,7 @@
 {
   "name": "deltamod-community",
   "productName": "Deltamod Community",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "nexusOAuthClientId": "",
   "nexusOAuthScope": "",
   "description": "Community-maintained Deltarune mod manager",
@@ -57,7 +57,7 @@
     "prebuild-linux": "npm run build:boot",
     "build-macos": "electron-builder --mac --publish never",
     "prebuild-macos": "npm run build:boot",
-    "erase-data": "Erase.bat"
+    "erase-data": "scripts/legacy/erase-data.bat"
   },
   "build": {
     "appId": "io.github.cmdr-chara.deltamod-community",

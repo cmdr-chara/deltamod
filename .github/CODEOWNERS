@@ -8,4 +8,4 @@
 /scripts/ @cmdr-chara
 /src-tauri/ @cmdr-chara
 /SECURITY.md @cmdr-chara
-/RELEASE-GATE.md @cmdr-chara
+/docs/RELEASE-GATE.md @cmdr-chara

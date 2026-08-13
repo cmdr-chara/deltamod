@@ -1,6 +1,6 @@
 [package]
 name = "deltamod-tauri-shell"
-version = "2.0.3"
+version = "2.0.4"
 edition = "2021"
 publish = false
 
@@ -26,6 +26,12 @@ members = [
     "crates/game-download-runtime",
 ]
 resolver = "2"
+
+# Tauri 2 currently depends on GTK3, which pins GLib 0.18. The vendored patch
+# carries the upstream VariantStrIter soundness fix until GTK4/GLib 0.20 can
+# be adopted without breaking the Linux shell dependency graph.
+[patch.crates-io]
+glib = { path = "../vendor/glib-0.18.5-patched" }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

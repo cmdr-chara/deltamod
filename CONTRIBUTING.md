@@ -56,7 +56,7 @@ cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.
 cargo test --workspace --locked --manifest-path src-tauri/Cargo.toml
 ```
 
-Release changes must also satisfy [RELEASE-GATE.md](./RELEASE-GATE.md).
+Release changes must also satisfy [RELEASE-GATE.md](./docs/RELEASE-GATE.md).
 
 ## Pull requests
 
