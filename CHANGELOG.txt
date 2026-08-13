@@ -1,8 +1,9 @@
-# Deltamod Community 2.0.4
+# Deltamod Community 2.0.5
 
 Released 2026-08-13.
 
-This maintenance release hardens the Linux Tauri dependency graph and tidies
+This maintenance release hardens the Linux Tauri dependency graph, fixes
+cross-platform bundle icons, and tidies
 the repository layout without changing the application protocol or user-data
 location.
 
