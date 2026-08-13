@@ -477,9 +477,9 @@ fn write_source_metadata(
     source: &LegacySourceMetadata,
 ) -> Result<(), ImportError> {
     let path = root.join("meta.toml");
-    let mut value = fs::read_to_string(&path)
-        .map_err(|_| ImportError::Manifest("meta.toml is not UTF-8"))?
-        .parse::<toml::Value>()
+    let text =
+        fs::read_to_string(&path).map_err(|_| ImportError::Manifest("meta.toml is not UTF-8"))?;
+    let mut value = toml::from_str::<toml::Value>(&text)
         .map_err(|_| ImportError::Manifest("meta.toml is invalid"))?;
     let metadata = value
         .get_mut("metadata")
@@ -995,9 +995,9 @@ fn read_manifest(root: &Path, max_bytes: u64) -> Result<Manifest, ImportError> {
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > max_bytes {
         return Err(ImportError::Manifest("meta.toml has an invalid size"));
     }
-    let value = fs::read_to_string(path)
-        .map_err(|_| ImportError::Manifest("meta.toml is not UTF-8"))?
-        .parse::<toml::Value>()
+    let text =
+        fs::read_to_string(path).map_err(|_| ImportError::Manifest("meta.toml is not UTF-8"))?;
+    let value = toml::from_str::<toml::Value>(&text)
         .map_err(|_| ImportError::Manifest("meta.toml is invalid"))?;
     let metadata = value
         .get("metadata")

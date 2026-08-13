@@ -175,7 +175,7 @@ fn legacy_mod_records(state: &AppState) -> Vec<Value> {
         };
         let Ok(manifest) = fs::read_to_string(&manifest_path)
             .ok()
-            .and_then(|text| text.parse::<toml::Value>().ok())
+            .and_then(|text| toml::from_str::<toml::Value>(&text).ok())
             .ok_or(())
         else {
             continue;

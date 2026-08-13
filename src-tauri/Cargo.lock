@@ -917,6 +917,7 @@ version = "0.1.0"
 dependencies = [
  "deltamod-native-core",
  "fence-windows",
+ "hex",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -986,6 +987,7 @@ dependencies = [
  "deltamod-native-core",
  "deltamod-tools-runtime",
  "deltamod-updater-launch-runtime",
+ "hex",
  "roxmltree",
  "serde",
  "serde_json",
@@ -1091,6 +1093,7 @@ name = "deltamod-tools-runtime"
 version = "0.1.0"
 dependencies = [
  "fence-windows",
+ "hex",
  "rustix",
  "sha2 0.11.0",
  "tempfile",
