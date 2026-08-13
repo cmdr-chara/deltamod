@@ -161,7 +161,7 @@
   "author": "Deltamod contributors",
   "license": "EUPL-1.2",
   "devDependencies": {
-    "@playwright/test": "^1.62.0",
+    "@playwright/test": "^1.62.1",
     "@tauri-apps/cli": "2.11.4",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.18",
