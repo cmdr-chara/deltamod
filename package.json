@@ -1,7 +1,7 @@
 {
   "name": "deltamod-community",
   "productName": "Deltamod Community",
-  "version": "2.0.9",
+  "version": "2.0.10",
   "nexusOAuthClientId": "",
   "nexusOAuthScope": "",
   "description": "Community-maintained Deltarune mod manager",
@@ -36,6 +36,7 @@
     "tauri:check": "tauri info",
     "build:tauri": "npm run build:tauri:prepare && tauri build --config src-tauri/tauri.conf.json",
     "build:tauri:no-bundle": "npm run build:tauri:prepare && tauri build --config src-tauri/tauri.conf.json --no-bundle",
+    "build:installer": "node scripts/build-installer.js",
     "verify:tauri-staging": "node scripts/verify-tauri-staging.js",
     "verify:tauri-package": "node scripts/verify-tauri-package.js",
     "verify:tauri:gate": "npm run verify:tauri-staging && npm run verify:tauri-package",

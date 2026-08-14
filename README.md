@@ -84,11 +84,11 @@ The public client ID belongs in `nexusOAuthClientId` in `package.json` after Nex
 
 ## Download
 
-The current stable release is **Deltamod Community 2.0.3**, powered by the Tauri desktop shell.
+The current stable release is **Deltamod Community 2.0.10**, powered by the Tauri desktop shell.
 
 <p align="center">
-  <a href="https://github.com/cmdr-chara/deltamod/releases/tag/community-v2.0.3">
-    <img alt="Download version 2.0.3" src="https://img.shields.io/badge/DOWNLOAD-v2.0.3-ef476f?style=for-the-badge&amp;logo=github">
+  <a href="https://github.com/cmdr-chara/deltamod/releases/tag/community-v2.0.10">
+    <img alt="Download version 2.0.10" src="https://img.shields.io/badge/DOWNLOAD-v2.0.10-ef476f?style=for-the-badge&amp;logo=github">
   </a>
 </p>
 
@@ -100,7 +100,7 @@ Choose the asset matching your operating system and architecture. Windows and ma
 <details>
 <summary><strong>Windows installation</strong></summary>
 
-1. Download and open the Windows installer.
+1. Download and open **Deltamod Community Setup.exe**, the Deltamod-themed installer.
 2. If Windows reports an unknown publisher, first confirm that its SHA-256 hash matches `SHA256SUMS.txt` on the release page.
 3. Complete the installer and launch **Deltamod Community**.
 
@@ -119,11 +119,10 @@ The app is not notarized. Verify the DMG checksum before deciding whether to all
 <details>
 <summary><strong>Linux installation</strong></summary>
 
-Make the AppImage executable, then launch it:
+Install the Debian package with your graphical package manager, or from a terminal:
 
 ```console
-chmod +x deltamod-community-*.AppImage
-./deltamod-community-*.AppImage
+sudo apt install ./deltamod-community-*.deb
 ```
 
 </details>

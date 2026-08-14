@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deltamod Community Setup</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' deltapack:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost deltapack:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <link rel="stylesheet" href="../commons/base.css">
+    <link rel="stylesheet" href="index.css">
+    <script src="../tauri-adapter.js"></script>
+</head>
+<body class="deltamod-installer-shell" data-installer-state="idle">
+    <div class="installer-background" aria-hidden="true"></div>
+
+    <header class="installer-topbar">
+        <div class="installer-title" data-tauri-drag-region>
+            <span id="installer-window-title">Deltamod Community Setup</span>
+        </div>
+        <div class="installer-window-actions">
+            <button id="installer-minimize" type="button" aria-label="Minimize" title="Minimize">−</button>
+            <button id="installer-close" type="button" aria-label="Close" title="Close">×</button>
+        </div>
+    </header>
+
+    <main class="installer-viewport">
+        <section class="installer-page" aria-labelledby="installer-heading">
+            <div class="installer-content-grid">
+                <section class="installer-emblem-panel" aria-label="Deltamod Community setup">
+                    <img src="../img/packIcon.png" alt="Deltamod Community" class="installer-emblem">
+                    <span id="installer-version" class="installer-version">Preparing setup</span>
+                </section>
+
+                <section class="installer-content" aria-label="Installation details">
+                    <h1 id="installer-heading">Install Deltamod Community</h1>
+                    <p class="installer-lede">Choose a folder, then Deltamod will handle the rest.</p>
+
+                    <form id="installer-form" class="installer-form">
+                        <label for="install-directory">Installation folder</label>
+                        <div class="installer-path-row">
+                            <input id="install-directory" name="install-directory" type="text" spellcheck="false" autocomplete="off">
+                            <button id="installer-install" class="installer-primary" type="submit">Install</button>
+                        </div>
+                        <p class="installer-hint">You can change this folder later from the app settings.</p>
+                    </form>
+
+                    <p id="installer-target" class="installer-target" hidden></p>
+
+                    <section id="installer-progress" class="installer-progress" hidden aria-live="polite">
+                        <div class="progress-heading">
+                            <span id="installer-phase">Connecting</span>
+                            <span id="installer-percent">0%</span>
+                        </div>
+                        <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <span id="installer-progress-fill"></span>
+                        </div>
+                        <p id="installer-detail" class="installer-hint"></p>
+                    </section>
+
+                    <p id="installer-status" class="installer-status" role="status" aria-live="polite"></p>
+                    <div id="installer-actions" class="installer-actions" hidden>
+                        <button id="installer-launch" class="installer-primary" type="button">Open Deltamod</button>
+                        <button id="installer-done" class="installer-quiet" type="button">Close setup</button>
+                    </div>
+                </section>
+            </div>
+        </section>
+    </main>
+    <script src="index.js"></script>
+</body>
+</html>

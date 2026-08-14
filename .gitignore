@@ -33,5 +33,6 @@ tools/G3MTool
 /native/patch-plan-worker/bin/
 /native/patch-transaction-worker/bin/
 /src-tauri/**/target/
+/src-tauri/target-installer/
 /src-tauri/binaries/
 /src-tauri/resources/third-party/

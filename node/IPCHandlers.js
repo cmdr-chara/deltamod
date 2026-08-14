@@ -705,6 +705,19 @@ module.exports = function registerIPCHandlers(context) {
     handle('isCMode', () => isControllerMode);
     handle('shouldGoIM', () => process.argv.includes('---im'));
     handle('diagnosticInfo', () => `Deltamod Community ${app.getVersion()} - Running on ${os.platform()} ${os.release()} - cmode ${isControllerMode ? 'on' : 'off'} - devtools ${isDevToolsEnabled ? 'enabled' : 'disabled'} - ${state.updateAvailable ? 'update available' : 'no update'}`);
+    handle('isInstallerMode', () => false);
+    handle('installerInfo', () => ({
+        version: app.getVersion(),
+        assetUrl: null,
+        defaultInstallDir: path.join(app.getPath('appData'), 'Deltamod Community')
+    }));
+    for (const channel of ['installerInstall', 'installerLaunch', 'installerMinimize', 'installerQuit']) {
+        handle(channel, () => {
+            const error = new Error('The standalone installer is not active.');
+            error.code = 'INSTALLER_NOT_ACTIVE';
+            throw error;
+        });
+    }
     handle('isPackaged', () => app.isPackaged);
     handle('version', () => require('../package.json').version);
     handle('getOS', () => ({ platform: process.platform, release: os.release(), version: os.version() }));
