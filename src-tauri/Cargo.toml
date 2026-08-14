@@ -1,6 +1,6 @@
 [package]
 name = "deltamod-tauri-shell"
-version = "2.0.9"
+version = "2.0.10"
 edition = "2021"
 publish = false
 
@@ -44,11 +44,11 @@ toml = "1.1.4"
 http = "1"
 tauri = { version = "2", features = ["image-png"] }
 base64 = "0.23"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }
 sha2 = "0.11"
 tauri-plugin-opener = "2.5.4"
 tauri-plugin-dialog = "2.7.2"
-tokio = { version = "1", features = ["rt", "sync"] }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 url = "2"
 deltamod-installations-domain = { path = "crates/installations" }

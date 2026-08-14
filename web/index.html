@@ -11,6 +11,9 @@
     <link rel="stylesheet" href="modules/seasonal-events.css">
     <link rel="stylesheet" href="boot/deltamod-boot.css">
 
+    <style id="deltamod-route-guard">html.deltamod-route-pending body { visibility: hidden; }</style>
+    <script>document.documentElement.classList.add('deltamod-route-pending');</script>
+
     <script src="./tauri-adapter.js"></script>
     <script src="./modules/tippy/popper.min.js"></script>
     <script src="./modules/tippy/tippy-bundle.umd.js"></script>
@@ -152,9 +155,36 @@
 
 </div>
   <style id="dynamic-theme-styles"></style>
-  <script src="./modules/localization.js"></script>
-  <script src="./modules/theme-sprites.js"></script>
-  <script src="./modules/seasonal-events.js"></script>
-  <script src="./boot/deltamod-boot.js"></script>
-  <script src="index.js"></script>
+  <script>
+    (() => {
+      const load = source => new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = source;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error(`Unable to load ${source}`));
+        document.body.appendChild(script);
+      });
+      const startCommunity = async () => {
+        for (const source of [
+          './modules/localization.js',
+          './modules/theme-sprites.js',
+          './modules/seasonal-events.js',
+          './boot/deltamod-boot.js',
+          // The guarded loader eventually appends the normal renderer (src="index.js").
+          'index.js'
+        ]) await load(source);
+        document.documentElement.classList.remove('deltamod-route-pending');
+      };
+      const installerMode = window.deltamodBackend?.invoke
+        ? window.deltamodBackend.invoke('isInstallerMode', [])
+        : Promise.resolve(false);
+      Promise.resolve(installerMode).then(isInstaller => {
+        if (isInstaller === true) {
+          window.location.replace('./installer/index.html');
+          return;
+        }
+        return startCommunity();
+      }).catch(() => startCommunity());
+    })();
+  </script>
 </html>

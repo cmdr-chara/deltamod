@@ -25,7 +25,8 @@
         'page', 'audio', 'gplog', 'updateAvailable', 'du-progress', 'themeChange',
         'updateProgress', 'refresh', 'finishedPatch', 'dlmodURL-progress',
         'protocol-download-progress', 'profile-import-progress', 'game-import-progress',
-        'hash-progress', 'winResAlert', 'leave-controller-mode', 'mod-source-progress'
+        'hash-progress', 'winResAlert', 'leave-controller-mode', 'mod-source-progress',
+        'installer-progress'
     ]);
 
     function invoke(channel, data = []) {

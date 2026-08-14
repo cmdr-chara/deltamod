@@ -1,3 +1,4 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![forbid(unsafe_code)]
 
 mod channels;
@@ -9,7 +10,16 @@ use base64::Engine;
 use deltamod_asset_runtime::{headers, plan_range, Body, Error as AssetError, Range};
 use http::{Request, Response, StatusCode};
 use serde_json::{json, Value};
-use std::{io::Read, str::FromStr, thread, time::Duration};
+use sha2::{Digest, Sha256};
+use std::{
+    fs::File,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    process::Command,
+    str::FromStr,
+    thread,
+    time::Duration,
+};
 use tauri::{AppHandle, Emitter, Manager, UriSchemeContext, WebviewWindow};
 
 #[cfg(any(target_os = "windows", target_os = "android"))]
@@ -121,6 +131,12 @@ fn serve_asset<R: tauri::Runtime>(
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum BackendChannel {
     DiagnosticInfo,
+    InstallerMode,
+    InstallerInfo,
+    InstallerInstall,
+    InstallerLaunch,
+    InstallerMinimize,
+    InstallerQuit,
     GetOs,
     IsDevMode,
     IsPackaged,
@@ -145,6 +161,12 @@ impl FromStr for BackendChannel {
     fn from_str(channel: &str) -> Result<Self, Self::Err> {
         let known = match channel {
             "diagnosticInfo" => Self::DiagnosticInfo,
+            "isInstallerMode" => Self::InstallerMode,
+            "installerInfo" => Self::InstallerInfo,
+            "installerInstall" => Self::InstallerInstall,
+            "installerLaunch" => Self::InstallerLaunch,
+            "installerMinimize" => Self::InstallerMinimize,
+            "installerQuit" => Self::InstallerQuit,
             "getOS" => Self::GetOs,
             "isDevMode" => Self::IsDevMode,
             "isPackaged" => Self::IsPackaged,
@@ -273,6 +295,293 @@ fn platform_name() -> &'static str {
     }
 }
 
+fn is_installer_mode() -> bool {
+    option_env!("DELTAMOD_INSTALLER_MODE") == Some("1")
+        || std::env::args().any(|arg| arg == "--installer")
+}
+
+fn installer_asset_url() -> String {
+    option_env!("DELTAMOD_INSTALLER_ASSET_URL")
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            format!(
+                "https://github.com/cmdr-chara/deltamod/releases/download/community-v{version}/Deltamod.Community_{version}_x64-setup.exe",
+                version = env!("CARGO_PKG_VERSION")
+            )
+        })
+}
+
+fn installer_asset_sha256() -> Option<&'static str> {
+    option_env!("DELTAMOD_INSTALLER_SHA256").filter(|value| !value.trim().is_empty())
+}
+
+fn default_installer_directory(app: &AppHandle) -> PathBuf {
+    app.path()
+        .app_local_data_dir()
+        .map(|path| path.join("Deltamod Community"))
+        .unwrap_or_else(|_| std::env::temp_dir().join("Deltamod Community"))
+}
+
+fn validate_installer_directory(raw: &str) -> Result<PathBuf, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return Err("Choose an installation folder.".to_owned());
+    }
+    let path = PathBuf::from(trimmed);
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err("The installation folder must be an absolute local path.".to_owned());
+    }
+    if path.parent().is_none() {
+        return Err("The installation folder cannot be a drive root.".to_owned());
+    }
+    Ok(path)
+}
+
+fn emit_installer_progress(app: &AppHandle, progress: f64, phase: &str, detail: &str) {
+    let _ = app.emit(
+        "installer-progress",
+        json!({
+            "progress": progress.clamp(0.0, 1.0),
+            "phase": phase,
+            "detail": detail,
+        }),
+    );
+}
+
+fn run_silent_installer(installer: &Path) -> Result<i32, String> {
+    let mut command = Command::new(installer);
+    command.arg("/S");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let status = command
+        .status()
+        .map_err(|_| "Deltamod could not start the installation engine.".to_owned())?;
+    Ok(status.code().unwrap_or(1))
+}
+
+fn copy_directory_contents(source: &Path, destination: &Path) -> Result<(), String> {
+    let entries = std::fs::read_dir(source).map_err(|_| {
+        "The installed package could not be located in its staging folder.".to_owned()
+    })?;
+    for entry in entries {
+        let entry = entry
+            .map_err(|_| "The setup could not read the staged installation files.".to_owned())?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .map_err(|_| "The setup could not inspect the staged installation files.".to_owned())?;
+        if file_type.is_dir() {
+            std::fs::create_dir_all(&destination_path).map_err(|_| {
+                "The setup could not create the selected installation folder.".to_owned()
+            })?;
+            copy_directory_contents(&source_path, &destination_path)?;
+        } else if file_type.is_file() {
+            std::fs::copy(&source_path, &destination_path)
+                .map_err(|_| "The setup could not copy the installation files.".to_owned())?;
+        }
+    }
+    Ok(())
+}
+
+fn launch_installed_application(raw_directory: &str) -> Result<(), String> {
+    let install_dir = validate_installer_directory(raw_directory)?;
+    let candidates = [
+        install_dir.join("deltamod-tauri-shell.exe"),
+        install_dir.join("Deltamod Community.exe"),
+        install_dir.join("Deltamod.exe"),
+    ];
+    let executable = candidates
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| {
+            "Deltamod Community was installed, but its launcher was not found.".to_owned()
+        })?;
+    let mut command = Command::new(executable);
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    command
+        .spawn()
+        .map_err(|_| "Deltamod Community could not be launched.".to_owned())?;
+    Ok(())
+}
+
+async fn download_and_install(app: AppHandle, raw_directory: String) -> Result<Value, String> {
+    let install_dir = validate_installer_directory(&raw_directory)?;
+    std::fs::create_dir_all(&install_dir)
+        .map_err(|_| "The setup could not create the selected installation folder.".to_owned())?;
+    let url = installer_asset_url();
+    if !url.starts_with("https://github.com/") {
+        return Err("The setup download source is not trusted.".to_owned());
+    }
+
+    emit_installer_progress(
+        &app,
+        0.08,
+        "Connecting",
+        "Contacting the Deltamod release server",
+    );
+    let client = reqwest::Client::builder()
+        .user_agent("Deltamod Community Setup")
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(300))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|_| "The setup could not initialize its secure download client.".to_owned())?;
+    emit_installer_progress(
+        &app,
+        0.09,
+        "Connecting",
+        "Secure channel ready; waiting for the release server",
+    );
+    let response =
+        match tokio::time::timeout(Duration::from_secs(20), client.get(&url).send()).await {
+            Ok(Ok(response)) => response,
+            Ok(Err(_)) => {
+                return Err("The Deltamod setup could not reach the release server.".to_owned());
+            }
+            Err(_) => {
+                return Err(
+                "The release server took too long to respond. Check your connection and try again."
+                    .to_owned(),
+            );
+            }
+        };
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(
+            "The stable Deltamod release package is not available yet. Try again after the release is published."
+                .to_owned(),
+        );
+    }
+    if !response.status().is_success() {
+        return Err(format!(
+            "The Deltamod release server returned HTTP {}.",
+            response.status()
+        ));
+    }
+    emit_installer_progress(
+        &app,
+        0.10,
+        "Downloading",
+        "Release package found; starting transfer",
+    );
+    let total = response.content_length().unwrap_or(0);
+    if total > 1_024 * 1_024 * 1_024 {
+        return Err("The setup package is larger than the supported limit.".to_owned());
+    }
+
+    let temporary = std::env::temp_dir().join(format!(
+        "deltamod-community-setup-{}.exe",
+        std::process::id()
+    ));
+    let mut file = File::create(&temporary)
+        .map_err(|_| "The setup could not create its temporary download.".to_owned())?;
+    let mut digest = Sha256::new();
+    let mut downloaded = 0_u64;
+    let mut stream = response;
+    while let Some(chunk) = stream
+        .chunk()
+        .await
+        .map_err(|_| "The setup download was interrupted.".to_owned())?
+    {
+        downloaded = downloaded.saturating_add(chunk.len() as u64);
+        if downloaded > 1_024 * 1_024 * 1_024 {
+            let _ = std::fs::remove_file(&temporary);
+            return Err("The setup package is larger than the supported limit.".to_owned());
+        }
+        file.write_all(&chunk)
+            .map_err(|_| "The setup could not save the downloaded package.".to_owned())?;
+        digest.update(&chunk);
+        let download_progress = if total == 0 {
+            0.42
+        } else {
+            0.10 + (downloaded as f64 / total as f64) * 0.38
+        };
+        emit_installer_progress(
+            &app,
+            download_progress,
+            "Downloading",
+            &format!("{} MB received", downloaded / (1024 * 1024)),
+        );
+    }
+    file.flush()
+        .map_err(|_| "The setup could not finish saving the package.".to_owned())?;
+    drop(file);
+
+    if let Some(expected) = installer_asset_sha256() {
+        let actual = digest
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        if expected.len() != 64
+            || !expected
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
+            || !actual.eq_ignore_ascii_case(expected)
+        {
+            let _ = std::fs::remove_file(&temporary);
+            return Err("The downloaded setup failed its integrity check.".to_owned());
+        }
+    }
+
+    emit_installer_progress(
+        &app,
+        0.55,
+        "Installing",
+        "Applying Deltamod Community to the selected folder",
+    );
+    let installer_path = temporary.clone();
+    let exit_code =
+        tauri::async_runtime::spawn_blocking(move || run_silent_installer(&installer_path))
+            .await
+            .map_err(|_| "The installation engine stopped unexpectedly.".to_owned())??;
+    let _ = std::fs::remove_file(&temporary);
+
+    if exit_code != 0 {
+        return Err(format!(
+            "The installation engine exited with code {exit_code}."
+        ));
+    }
+    let staging_dir = default_installer_directory(&app);
+    if install_dir != staging_dir {
+        emit_installer_progress(
+            &app,
+            0.78,
+            "Finalizing",
+            "Moving Deltamod Community to the selected folder",
+        );
+        copy_directory_contents(&staging_dir, &install_dir)?;
+    }
+    if !install_dir.join("deltamod-tauri-shell.exe").is_file() {
+        return Err(
+            "The installation engine finished, but the Deltamod launcher was not found in the selected folder."
+                .to_owned(),
+        );
+    }
+    emit_installer_progress(
+        &app,
+        1.0,
+        "Ready",
+        "Deltamod Community is installed and ready to launch",
+    );
+    Ok(Value::Null)
+}
+
 fn os_details() -> Value {
     let info = os_info::get();
     json!({"platform": platform_name(), "release": info.version().to_string(), "version": info.to_string()})
@@ -338,6 +647,12 @@ fn dispatch(
                 "packaged"
             }
         ))),
+        BackendChannel::InstallerMode
+        | BackendChannel::InstallerInfo
+        | BackendChannel::InstallerInstall
+        | BackendChannel::InstallerLaunch
+        | BackendChannel::InstallerMinimize
+        | BackendChannel::InstallerQuit => Err(error::unavailable("installer")),
         BackendChannel::Minimize => window
             .minimize()
             .map(|_| Value::Null)
@@ -516,6 +831,55 @@ async fn backend_invoke(
         return Err(error::invalid("backend"));
     }
     let parsed = BackendChannel::from_str(&channel).map_err(|()| error::unavailable("unknown"))?;
+    match parsed {
+        BackendChannel::InstallerMode => return Ok(json!(is_installer_mode())),
+        BackendChannel::InstallerInfo => {
+            if !is_installer_mode() {
+                return Err(error::unavailable("installer"));
+            }
+            return Ok(json!({
+                "version": app.package_info().version.to_string(),
+                "assetUrl": installer_asset_url(),
+                "defaultInstallDir": default_installer_directory(&app).to_string_lossy(),
+            }));
+        }
+        BackendChannel::InstallerInstall => {
+            if !is_installer_mode() {
+                return Err(error::unavailable("installer"));
+            }
+            let directory = data
+                .first()
+                .and_then(Value::as_str)
+                .ok_or_else(|| error::invalid("installerInstall"))?;
+            return download_and_install(app, directory.to_owned()).await;
+        }
+        BackendChannel::InstallerLaunch => {
+            if !is_installer_mode() {
+                return Err(error::unavailable("installer"));
+            }
+            let directory = data
+                .first()
+                .and_then(Value::as_str)
+                .ok_or_else(|| error::invalid("installerLaunch"))?;
+            launch_installed_application(directory)?;
+            return Ok(Value::Null);
+        }
+        BackendChannel::InstallerMinimize => {
+            if !is_installer_mode() {
+                return Err(error::unavailable("installer"));
+            }
+            window.minimize().map_err(|_| error::internal())?;
+            return Ok(Value::Null);
+        }
+        BackendChannel::InstallerQuit => {
+            if !is_installer_mode() {
+                return Err(error::unavailable("installer"));
+            }
+            app.exit(0);
+            return Ok(Value::Null);
+        }
+        _ => {}
+    }
     if parsed == BackendChannel::LoginGamebanana {
         channels::auth::login(app).await
     } else {
@@ -549,16 +913,18 @@ fn main() {
                 .path()
                 .resource_dir()
                 .map_err(|_| "state root unavailable")?;
-            app.manage(
-                state::AppState::initialize_with_app(
-                    data_dir,
-                    resource_dir.clone(),
-                    app.handle().clone(),
-                )
-                .map_err(|_| "state root unavailable")?,
-            );
+            if !is_installer_mode() {
+                app.manage(
+                    state::AppState::initialize_with_app(
+                        data_dir,
+                        resource_dir.clone(),
+                        app.handle().clone(),
+                    )
+                    .map_err(|_| "state root unavailable")?,
+                );
+            }
             let controller = controller::ControllerMode::new(&resource_dir);
-            if controller.enabled() {
+            if !is_installer_mode() && controller.enabled() {
                 if let Some(window) = app.get_webview_window("main") {
                     window
                         .set_fullscreen(true)
@@ -577,15 +943,19 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            let controller = window.app_handle().state::<controller::ControllerMode>();
-            match event {
-                tauri::WindowEvent::Focused(true) => {
-                    let _ = controller.start();
+            if let Some(controller) = window
+                .app_handle()
+                .try_state::<controller::ControllerMode>()
+            {
+                match event {
+                    tauri::WindowEvent::Focused(true) => {
+                        let _ = controller.start();
+                    }
+                    tauri::WindowEvent::Focused(false) | tauri::WindowEvent::Destroyed => {
+                        controller.stop()
+                    }
+                    _ => {}
                 }
-                tauri::WindowEvent::Focused(false) | tauri::WindowEvent::Destroyed => {
-                    controller.stop()
-                }
-                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![backend_invoke])

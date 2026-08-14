@@ -5,6 +5,12 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'isCMode',
     'shouldGoIM',
     'diagnosticInfo',
+    'isInstallerMode',
+    'installerInfo',
+    'installerInstall',
+    'installerLaunch',
+    'installerMinimize',
+    'installerQuit',
     'isPackaged',
     'version',
     'openCommunityMaintainerProfile',
@@ -131,7 +137,8 @@ const ALLOWED_EVENT_CHANNELS = new Set([
     'hash-progress',
     'winResAlert',
     'leave-controller-mode',
-    'mod-source-progress'
+    'mod-source-progress',
+    'installer-progress'
 ]);
 
 const ASSET_SCHEMES = Object.freeze({

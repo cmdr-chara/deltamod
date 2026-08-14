@@ -1,3 +1,23 @@
+# Deltamod Community 2.0.10
+
+Released 2026-08-14.
+
+This stable release introduces a Deltamod-themed Windows setup experience and
+keeps the release documentation aligned with the packages published for every
+supported desktop platform.
+
+## Highlights
+
+- Add a custom Tauri setup shell for Windows with the same pixel-art visual
+  language as Deltamod, selectable installation destination, live progress,
+  integrity verification, and launch controls.
+- Keep the installer fully graphical on Windows without opening a console
+  window.
+- Publish the standard Debian package for Linux and separate DMGs for Intel and
+  Apple Silicon Macs.
+- Update the README to point to the current stable release and document the
+  actual `.deb` installation flow.
+
 # Deltamod Community 2.0.9
 
 Released 2026-08-13.
@@ -17,8 +37,6 @@ release publication.
 
 - Generate `SHA256SUMS.txt` from artifact files in their downloaded subfolders,
   so release publication handles GitHub's merged artifact layout correctly.
-
-# Deltamod Community 2.0.8
 
 # Deltamod Community 2.0.7
 
