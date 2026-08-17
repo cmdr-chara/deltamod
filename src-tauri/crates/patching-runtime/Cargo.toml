@@ -10,7 +10,7 @@ deltamod-hash-worker = { path = "../../../native/hash-worker" }
 deltamod-native-core = { path = "../../../native/core" }
 deltamod-tools-runtime = { path = "../tools-runtime" }
 deltamod-updater-launch-runtime = { path = "../updater-launch-runtime" }
-roxmltree = "0.20"
+roxmltree = "0.21"
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
