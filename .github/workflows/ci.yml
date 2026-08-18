@@ -116,3 +116,159 @@ jobs:
       - run: npm run build:boot
       - run: node scripts/retry-command.js --label "Electron macOS Intel package build" -- npx electron-builder --mac --x64 --dir --publish never
       - run: node scripts/verify-packaged-undertale-mod-tool.js "dist/mac/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64
+
+  prepare-stable-release:
+    needs: [verify, verify-csx-macos-intel]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/DeltaMaster'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Check out validated DeltaMaster
+        uses: actions/checkout@v6
+        with:
+          ref: DeltaMaster
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Refuse stale candidates
+        id: candidate
+        env:
+          VALIDATED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin DeltaMaster --tags --force
+          current="$(git rev-parse origin/DeltaMaster)"
+          if [ "$current" != "$VALIDATED_SHA" ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "A newer DeltaMaster commit exists; its CI run owns the next release."
+            exit 0
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve stable release version
+        if: steps.candidate.outputs.release == 'true'
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(node -p "require('./package.json').version")"
+          if ! [[ "$current" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "Stable releases require x.y.z; found $current" >&2
+            exit 1
+          fi
+          current_tag="community-v$current"
+          if git rev-parse "$current_tag" >/dev/null 2>&1; then
+            version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+          else
+            version="$current"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=community-v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Synchronize release manifests
+        if: steps.candidate.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          VALIDATED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'src-tauri/tauri.conf.json';
+          const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+          config.version = process.env.VERSION;
+          fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+          NODE
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          from datetime import date
+          from pathlib import Path
+
+          version = os.environ['VERSION']
+          sha = os.environ['VALIDATED_SHA']
+
+          cargo = Path('src-tauri/Cargo.toml')
+          text = cargo.read_text(encoding='utf-8')
+          text, count = re.subn(
+              r'(?m)^(version\s*=\s*")[^"]+("\s*)$',
+              rf'\g<1>{version}\2',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('could not update src-tauri/Cargo.toml package version')
+          cargo.write_text(text, encoding='utf-8')
+
+          lock = Path('src-tauri/Cargo.lock')
+          text = lock.read_text(encoding='utf-8')
+          pattern = r'(\[\[package\]\]\nname = "deltamod-tauri-shell"\nversion = ")[^"]+("\n)'
+          text, count = re.subn(pattern, rf'\g<1>{version}\2', text, count=1)
+          if count != 1:
+              raise SystemExit('could not update src-tauri/Cargo.lock shell version')
+          lock.write_text(text, encoding='utf-8')
+
+          changelog = Path('CHANGELOG.txt')
+          previous = changelog.read_text(encoding='utf-8')
+          if previous.startswith(f'# Deltamod Community {version}\n'):
+              raise SystemExit(0)
+
+          tags = subprocess.check_output(
+              ['git', 'tag', '--list', 'community-v*', '--sort=-v:refname'], text=True
+          ).splitlines()
+          revision = f'{tags[0]}..{sha}' if tags else sha
+          log = subprocess.check_output(
+              ['git', 'log', revision, '--format=%s%x09%h'], text=True
+          ).splitlines()
+          changes = []
+          for line in reversed(log):
+              subject, _, short = line.partition('\t')
+              if subject.startswith('chore(release):'):
+                  continue
+              changes.append(f'- {subject} (`{short}`).')
+          if not changes:
+              changes.append(f'- Verified maintenance update (`{sha[:12]}`).')
+
+          section = (
+              f'# Deltamod Community {version}\n\n'
+              f'Released {date.today().isoformat()}.\n\n'
+              f'## Changes\n\n' + '\n'.join(changes) + '\n\n'
+          )
+          changelog.write_text(section + previous, encoding='utf-8')
+          PY
+
+      - name: Commit, tag, and dispatch stable release
+        if: steps.candidate.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): Deltamod Community ${VERSION} [skip ci]"
+            git push origin HEAD:DeltaMaster
+          fi
+          release_sha="$(git rev-parse HEAD)"
+          git fetch origin --tags --force
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Refusing to move existing stable tag $TAG" >&2
+            exit 1
+          fi
+          git tag "$TAG" "$release_sha"
+          git push origin "refs/tags/$TAG"
+          gh workflow run tauri-release.yml --ref "$TAG"
