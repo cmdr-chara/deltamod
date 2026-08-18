@@ -1,3 +1,4 @@
+# Registered-workflow retrigger for the validated 2.0.11 publication.
 name: Publish Deltamod Community 2.0.11
 
 on:
