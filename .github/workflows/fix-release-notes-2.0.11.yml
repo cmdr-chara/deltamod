@@ -1,0 +1,69 @@
+name: Refresh Deltamod Community 2.0.11 release notes
+
+on:
+  push:
+    branches: [DeltaMaster]
+    paths:
+      - .github/workflows/fix-release-notes-2.0.11.yml
+
+permissions:
+  contents: write
+  statuses: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/release-notes.md <<'EOF'
+          ## Deltamod Community 2.0.11
+
+          This maintenance release focuses on smoother mod handoff, cross-platform Tauri reliability, and a cleaner verified release path.
+
+          ### Highlights
+
+          - **Verified deltamodCLI handoff:** Deltamod Community can receive local `.modarchive` imports and launcher handoff markers from deltamodCLI without widening the renderer API.
+          - **More resilient mod previews:** malformed packet metadata is skipped during fallback image lookup instead of breaking the lookup path.
+          - **macOS Tauri fix:** the file-handoff event bridge now builds correctly on Apple Silicon, restoring the macOS ARM release path.
+          - **More reliable Linux builds:** Tauri dependency installation now avoids stalled hosted-runner mirrors with bounded retries and timeouts.
+          - **Dependency and security maintenance:** runtime and development dependencies were refreshed, with the release still passing the project test, typecheck, audit, Rust, packaging, and manifest-validation gates.
+
+          ### Downloads
+
+          - **Windows x64:** Deltamod Community Setup (`.exe`)
+          - **Linux x64:** Debian package (`.deb`)
+          - **macOS Intel:** DMG
+          - **macOS Apple Silicon:** DMG
+
+          Windows and macOS packages are currently unsigned/not notarized. Verify downloads against the included `SHA256SUMS.txt` before installation.
+
+          ### Platform notes
+
+          - UndertaleModTool `.csx` patches are available on Windows x64, Linux x64, and Intel macOS.
+          - `.csx` patches remain unavailable on Apple Silicon because the upstream UndertaleModTool CLI does not provide a native Apple Silicon binary.
+          - Nexus Mods integration remains disabled while the Deltamod Community OAuth application registration is pending; GameBanana, ModDB, and local imports continue to work.
+
+          ### Release integrity
+
+          Release packages were produced from the validated `community-v2.0.11` tag and are accompanied by SHA-256 checksums, artifact attestations, and corresponding-source archives for bundled third-party tooling.
+
+          **Full technical diff:** https://github.com/cmdr-chara/deltamod/compare/community-v2.0.10...community-v2.0.11
+          EOF
+
+          gh release edit community-v2.0.11 \
+            --repo cmdr-chara/deltamod \
+            --notes-file /tmp/release-notes.md \
+            --title 'Deltamod Community 2.0.11 (unsigned)'
+
+          release_url="$(gh api repos/cmdr-chara/deltamod/releases/tags/community-v2.0.11 --jq .html_url)"
+          gh api --method POST "repos/cmdr-chara/deltamod/statuses/$SHA" \
+            -f state=success \
+            -f context='release-notes-refresh' \
+            -f description='2.0.11-release-notes-refreshed' \
+            -f target_url="$release_url"
