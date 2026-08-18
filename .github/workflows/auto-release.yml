@@ -1,13 +1,21 @@
-name: Legacy Auto Release (disabled)
+name: Bootstrap 2.0.11 Dispatcher
 
 on:
+  push:
+    branches: [DeltaMaster]
+    paths:
+      - .github/workflows/auto-release.yml
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
-  disabled:
+  dispatch:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Automatic stable releases are integrated into Community CI."
+      - name: Dispatch validated 2.0.11 bootstrap
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run bootstrap-2.0.11.yml --ref DeltaMaster
