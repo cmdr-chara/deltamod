@@ -532,7 +532,11 @@ mod tests {
         let target = root.join("target");
         std::fs::create_dir_all(&broken).unwrap();
         std::fs::create_dir_all(&target).unwrap();
-        std::fs::write(target.join("__deltaID.json"), br#"{"uniqueId":"target-uid"}"#).unwrap();
+        std::fs::write(
+            target.join("__deltaID.json"),
+            br#"{"uniqueId":"target-uid"}"#,
+        )
+        .unwrap();
         std::fs::write(target.join("icon.png"), b"\x89PNG\r\n\x1a\n").unwrap();
 
         let image = legacy_mod_image_from_roots(vec![broken, target], "target-uid");
