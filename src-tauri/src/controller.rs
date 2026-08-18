@@ -83,7 +83,7 @@ impl Drop for ControllerMode {
 pub fn install_protocols(app: &AppHandle) -> Result<(), &'static str> {
     #[cfg(target_os = "macos")]
     {
-        let plugin = tauri::plugin::Builder::new("file-handoff-events")
+        let plugin = tauri::plugin::Builder::<tauri::Wry, ()>::new("file-handoff-events")
             .on_event(|app, event| {
                 if let tauri::RunEvent::Opened { urls } = event {
                     let args = urls
