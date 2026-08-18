@@ -1,0 +1,175 @@
+name: Bootstrap Deltamod Community 2.0.11
+
+on:
+  push:
+    branches: [DeltaMaster]
+    paths:
+      - .github/workflows/bootstrap-2.0.11.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: deltamod-bootstrap-2.0.11
+  cancel-in-progress: false
+
+jobs:
+  prepare-and-validate:
+    runs-on: ubuntu-latest
+    outputs:
+      release_sha: ${{ steps.release.outputs.release_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: DeltaMaster
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Linux Tauri dependencies
+        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Prepare exact 2.0.11 metadata
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin DeltaMaster --tags --force
+          if gh release view community-v2.0.11 >/dev/null 2>&1; then
+            echo "release_sha=" >> "$GITHUB_OUTPUT"
+            echo "community-v2.0.11 is already published."
+            exit 0
+          fi
+          current="$(node -p "require('./package.json').version")"
+          if [ "$current" != "2.0.10" ] && [ "$current" != "2.0.11" ]; then
+            echo "Unexpected Deltamod version: $current" >&2
+            exit 1
+          fi
+          npm version 2.0.11 --no-git-tag-version --allow-same-version
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'src-tauri/tauri.conf.json';
+          const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+          config.version = '2.0.11';
+          fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+          NODE
+          python - <<'PY'
+          import re
+          import subprocess
+          from datetime import date
+          from pathlib import Path
+
+          version = '2.0.11'
+          cargo = Path('src-tauri/Cargo.toml')
+          text = cargo.read_text(encoding='utf-8')
+          text, count = re.subn(
+              r'(?m)^(version\s*=\s*")[^"]+("\s*)$',
+              rf'\g<1>{version}\2',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('could not update src-tauri/Cargo.toml')
+          cargo.write_text(text, encoding='utf-8')
+
+          lock = Path('src-tauri/Cargo.lock')
+          text = lock.read_text(encoding='utf-8')
+          pattern = r'(\[\[package\]\]\nname = "deltamod-tauri-shell"\nversion = ")[^"]+("\n)'
+          text, count = re.subn(pattern, rf'\g<1>{version}\2', text, count=1)
+          if count != 1:
+              raise SystemExit('could not update src-tauri/Cargo.lock')
+          lock.write_text(text, encoding='utf-8')
+
+          changelog = Path('CHANGELOG.txt')
+          previous = changelog.read_text(encoding='utf-8')
+          if not previous.startswith(f'# Deltamod Community {version}\n'):
+              log = subprocess.check_output(
+                  ['git', 'log', 'community-v2.0.10..HEAD', '--format=%s%x09%h'],
+                  text=True,
+              ).splitlines()
+              changes = []
+              for line in reversed(log):
+                  subject, _, short = line.partition('\t')
+                  if subject.startswith('chore(release):'):
+                      continue
+                  changes.append(f'- {subject} (`{short}`).')
+              if not changes:
+                  changes.append('- Verified maintenance update.')
+              section = (
+                  f'# Deltamod Community {version}\n\n'
+                  f'Released {date.today().isoformat()}.\n\n'
+                  '## Changes\n\n' + '\n'.join(changes) + '\n\n'
+              )
+              changelog.write_text(section + previous, encoding='utf-8')
+          PY
+
+      - name: Install npm dependencies
+        if: steps.release.outputs.release_sha != '' || steps.release.outcome == 'success'
+        run: node scripts/retry-command.js --label "npm ci" -- npm ci
+
+      - name: Acquire build tools
+        run: |
+          node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
+          node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
+          npm run build:native-sidecars:target -- x86_64-unknown-linux-gnu
+          npm run build:tauri:resources -- x86_64-unknown-linux-gnu
+
+      - name: Validate native and Tauri workspaces
+        run: |
+          cargo fmt --all --check --manifest-path native/Cargo.toml
+          cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
+          cargo test --workspace --locked --manifest-path native/Cargo.toml
+          cargo build --workspace --locked --manifest-path native/Cargo.toml
+          cargo fmt --all --check --manifest-path src-tauri/Cargo.toml
+          cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml -- -D warnings
+          cargo test --workspace --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Validate application contracts
+        run: |
+          npm test
+          npm run typecheck
+          npm run security:audit
+          npm run verify:g3mtool-manifest
+          npm run verify:undertale-mod-tool-manifest
+          npm run parity:report
+
+      - name: Commit exact release candidate
+        id: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): Deltamod Community 2.0.11 [skip ci]"
+            git push origin HEAD:DeltaMaster
+          fi
+          echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and dispatch canonical stable pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.candidate.outputs.release_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin --tags --force
+          if git rev-parse community-v2.0.11 >/dev/null 2>&1; then
+            test "$(git rev-parse community-v2.0.11)" = "$RELEASE_SHA"
+          else
+            git tag community-v2.0.11 "$RELEASE_SHA"
+            git push origin refs/tags/community-v2.0.11
+          fi
+          gh workflow run tauri-release.yml --ref community-v2.0.11
