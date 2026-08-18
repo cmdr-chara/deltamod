@@ -1,0 +1,47 @@
+name: Dispatch Deltamod Community 2.0.11 release
+
+on:
+  push:
+    branches: [DeltaMaster]
+    paths:
+      - .github/workflows/release-2.0.11-dispatch.yml
+
+permissions:
+  actions: write
+  contents: read
+  statuses: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch release if needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='community-v2.0.11'
+          outcome=''
+          target_url="https://github.com/cmdr-chara/deltamod/actions/workflows/tauri-release.yml"
+
+          if gh api "repos/cmdr-chara/deltamod/releases/tags/$tag" >/dev/null 2>&1; then
+            outcome='release-already-published'
+          else
+            runs="$(gh api 'repos/cmdr-chara/deltamod/actions/workflows/tauri-release.yml/runs?per_page=50')"
+            active_url="$(printf '%s' "$runs" | jq -r --arg tag "$tag" '[.workflow_runs[] | select(.head_branch == $tag and (.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "pending" or .status == "requested"))][0].html_url // empty')"
+            if [ -n "$active_url" ]; then
+              outcome='release-run-already-active'
+              target_url="$active_url"
+            else
+              gh workflow run tauri-release.yml --ref "$tag"
+              outcome='release-dispatched'
+            fi
+          fi
+
+          gh api --method POST "repos/cmdr-chara/deltamod/statuses/$SHA" \
+            -f state=success \
+            -f context='release-dispatch' \
+            -f description="$outcome" \
+            -f target_url="$target_url"
