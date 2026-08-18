@@ -275,7 +275,7 @@ jobs:
           changelog.write_text(section + previous, encoding='utf-8')
           PY
 
-      - name: Commit, tag, and dispatch stable release
+      - name: Commit detached release metadata, tag, and dispatch stable release
         if: steps.candidate.outputs.release == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -288,8 +288,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.txt
           if ! git diff --cached --quiet; then
+            # Branch protection requires DeltaMaster changes to flow through PRs.
+            # Keep generated release metadata in a detached commit reachable from
+            # the immutable release tag instead of pushing it back to DeltaMaster.
             git commit -m "chore(release): Deltamod Community ${VERSION} [skip ci]"
-            git push origin HEAD:DeltaMaster
           fi
           release_sha="$(git rev-parse HEAD)"
           git fetch origin --tags --force
