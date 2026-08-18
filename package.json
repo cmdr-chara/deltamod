@@ -1,7 +1,7 @@
 {
   "name": "deltamod-community",
   "productName": "Deltamod Community",
-  "version": "2.0.10",
+  "version": "2.0.11",
   "nexusOAuthClientId": "",
   "nexusOAuthScope": "",
   "description": "Community-maintained Deltarune mod manager",
