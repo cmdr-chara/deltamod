@@ -26,7 +26,7 @@ jobs:
           ref: DeltaMaster
           fetch-depth: 0
 
-      - name: Refuse stale CI results
+      - name: Refuse stale or generated CI results
         id: candidate
         env:
           VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -40,6 +40,14 @@ jobs:
             echo "A newer DeltaMaster commit exists; its CI run will own the next release."
             exit 0
           fi
+          subject="$(git show -s --format=%s "$VALIDATED_SHA")"
+          case "$subject" in
+            "chore(release):"*)
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              echo "Generated release commit; refusing recursive stable release."
+              exit 0
+              ;;
+          esac
           echo "release=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
