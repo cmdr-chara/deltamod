@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: deltamod-bootstrap-2.0.11
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   prepare-and-validate:
@@ -27,6 +27,20 @@ jobs:
           ref: DeltaMaster
           fetch-depth: 0
 
+      - name: Record bootstrap start
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'run_sha=%s\nstage=running\n' "$GITHUB_SHA" > .github/bootstrap-2.0.11-status.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/bootstrap-2.0.11-status.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: record 2.0.11 bootstrap status [skip ci]"
+            git push origin HEAD:DeltaMaster
+          fi
+          echo startup > "$RUNNER_TEMP/bootstrap-stage"
+
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -37,7 +51,10 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install Linux Tauri dependencies
-        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+        run: |
+          echo apt-tauri-deps > "$RUNNER_TEMP/bootstrap-stage"
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Prepare exact 2.0.11 metadata
         id: release
@@ -46,6 +63,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo release-metadata > "$RUNNER_TEMP/bootstrap-stage"
           git fetch origin DeltaMaster --tags --force
           if gh release view community-v2.0.11 >/dev/null 2>&1; then
             echo "community-v2.0.11 is already published."
@@ -115,33 +133,86 @@ jobs:
           PY
 
       - name: Install npm dependencies
-        run: node scripts/retry-command.js --label "npm ci" -- npm ci
+        run: |
+          echo npm-ci > "$RUNNER_TEMP/bootstrap-stage"
+          node scripts/retry-command.js --label "npm ci" -- npm ci
 
       - name: Acquire build tools
         run: |
+          set -euo pipefail
+          echo acquire-tools > "$RUNNER_TEMP/bootstrap-stage"
           node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
           node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
+          echo stage-native-sidecars > "$RUNNER_TEMP/bootstrap-stage"
           npm run build:native-sidecars:target -- x86_64-unknown-linux-gnu
+          echo stage-tauri-resources > "$RUNNER_TEMP/bootstrap-stage"
           npm run build:tauri:resources -- x86_64-unknown-linux-gnu
 
-      - name: Validate native and Tauri workspaces
+      - name: Validate native workspace
         run: |
+          set -euo pipefail
+          echo native-fmt > "$RUNNER_TEMP/bootstrap-stage"
           cargo fmt --all --check --manifest-path native/Cargo.toml
+          echo native-clippy > "$RUNNER_TEMP/bootstrap-stage"
           cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
+          echo native-test > "$RUNNER_TEMP/bootstrap-stage"
           cargo test --workspace --locked --manifest-path native/Cargo.toml
+          echo native-build > "$RUNNER_TEMP/bootstrap-stage"
           cargo build --workspace --locked --manifest-path native/Cargo.toml
+
+      - name: Validate Tauri workspace
+        run: |
+          set -euo pipefail
+          echo tauri-fmt > "$RUNNER_TEMP/bootstrap-stage"
           cargo fmt --all --check --manifest-path src-tauri/Cargo.toml
+          echo tauri-clippy > "$RUNNER_TEMP/bootstrap-stage"
           cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml -- -D warnings
+          echo tauri-test > "$RUNNER_TEMP/bootstrap-stage"
           cargo test --workspace --locked --manifest-path src-tauri/Cargo.toml
 
       - name: Validate application contracts
         run: |
+          set -euo pipefail
+          echo npm-test > "$RUNNER_TEMP/bootstrap-stage"
           npm test
+          echo typecheck > "$RUNNER_TEMP/bootstrap-stage"
           npm run typecheck
+          echo npm-audit > "$RUNNER_TEMP/bootstrap-stage"
           npm run security:audit
+          echo g3mtool-manifest > "$RUNNER_TEMP/bootstrap-stage"
           npm run verify:g3mtool-manifest
+          echo undertale-tool-manifest > "$RUNNER_TEMP/bootstrap-stage"
           npm run verify:undertale-mod-tool-manifest
+          echo parity-report > "$RUNNER_TEMP/bootstrap-stage"
           npm run parity:report
+
+      - name: Record failed bootstrap stage
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$(cat "$RUNNER_TEMP/bootstrap-stage" 2>/dev/null || echo unknown)"
+          printf 'run_sha=%s\nstage=failed:%s\n' "$GITHUB_SHA" "$stage" > .github/bootstrap-2.0.11-status.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/bootstrap-2.0.11-status.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: record 2.0.11 bootstrap failure [skip ci]"
+            git push origin HEAD:DeltaMaster || true
+          fi
+
+      - name: Record validated bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'run_sha=%s\nstage=prepare-validated\n' "$GITHUB_SHA" > .github/bootstrap-2.0.11-status.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/bootstrap-2.0.11-status.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: record 2.0.11 bootstrap validation [skip ci]"
+            git push origin HEAD:DeltaMaster
+          fi
 
       - name: Commit exact release candidate
         id: candidate
