@@ -1,0 +1,168 @@
+name: Auto Stable Patch Release
+
+on:
+  workflow_run:
+    workflows: [Community CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: deltamod-auto-stable-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'DeltaMaster'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out validated DeltaMaster
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: DeltaMaster
+          fetch-depth: 0
+
+      - name: Refuse stale CI results
+        id: candidate
+        env:
+          VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin DeltaMaster --tags --force
+          current="$(git rev-parse origin/DeltaMaster)"
+          if [ "$current" != "$VALIDATED_SHA" ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "A newer DeltaMaster commit exists; its CI run will own the next release."
+            exit 0
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: steps.candidate.outputs.release == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Compute next stable patch
+        if: steps.candidate.outputs.release == 'true'
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(node -p "require('./package.json').version")"
+          if ! [[ "$current" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "Automatic stable releases require x.y.z; found $current" >&2
+            exit 1
+          fi
+          next="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "tag=community-v$next" >> "$GITHUB_OUTPUT"
+
+      - name: Update release manifests
+        if: steps.candidate.outputs.release == 'true'
+        env:
+          NEXT_VERSION: ${{ steps.version.outputs.version }}
+          VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm version "$NEXT_VERSION" --no-git-tag-version
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'src-tauri/tauri.conf.json';
+          const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+          config.version = process.env.NEXT_VERSION;
+          fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+          NODE
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          from datetime import date
+          from pathlib import Path
+
+          version = os.environ['NEXT_VERSION']
+          sha = os.environ['VALIDATED_SHA']
+
+          cargo = Path('src-tauri/Cargo.toml')
+          text = cargo.read_text(encoding='utf-8')
+          text, count = re.subn(
+              r'(?m)^(version\s*=\s*")[^"]+("\s*)$',
+              rf'\g<1>{version}\2',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('could not update src-tauri/Cargo.toml package version')
+          cargo.write_text(text, encoding='utf-8')
+
+          lock = Path('src-tauri/Cargo.lock')
+          text = lock.read_text(encoding='utf-8')
+          pattern = (
+              r'(\[\[package\]\]\nname = "deltamod-tauri-shell"\nversion = ")[^"]+("\n)'
+          )
+          text, count = re.subn(pattern, rf'\g<1>{version}\2', text, count=1)
+          if count != 1:
+              raise SystemExit('could not update src-tauri/Cargo.lock shell version')
+          lock.write_text(text, encoding='utf-8')
+
+          tags = subprocess.check_output(
+              ['git', 'tag', '--list', 'community-v*', '--sort=-v:refname'], text=True
+          ).splitlines()
+          revision = f'{tags[0]}..{sha}' if tags else sha
+          log = subprocess.check_output(
+              ['git', 'log', revision, '--format=%s%x09%h'], text=True
+          ).splitlines()
+          changes = []
+          for line in reversed(log):
+              subject, _, short = line.partition('\t')
+              if subject.startswith('chore(release):'):
+                  continue
+              changes.append(f'- {subject} (`{short}`).')
+          if not changes:
+              changes.append(f'- Verified maintenance update (`{sha[:12]}`).')
+
+          changelog = Path('CHANGELOG.txt')
+          previous = changelog.read_text(encoding='utf-8')
+          section = (
+              f'# Deltamod Community {version}\n\n'
+              f'Released {date.today().isoformat()}.\n\n'
+              f'## Changes\n\n' + '\n'.join(changes) + '\n\n'
+          )
+          changelog.write_text(section + previous, encoding='utf-8')
+          PY
+
+      - name: Commit stable release candidate
+        if: steps.candidate.outputs.release == 'true'
+        id: release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.txt
+          git commit -m "chore(release): Deltamod Community ${VERSION} [skip ci]"
+          git push origin HEAD:DeltaMaster
+          release_sha="$(git rev-parse HEAD)"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Refusing to move existing stable tag $TAG" >&2
+            exit 1
+          fi
+          git tag "$TAG" "$release_sha"
+          git push origin "refs/tags/$TAG"
+          echo "release_sha=$release_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Run canonical stable release pipeline
+        if: steps.candidate.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh workflow run tauri-release.yml --ref "$TAG"

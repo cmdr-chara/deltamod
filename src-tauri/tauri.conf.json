@@ -52,6 +52,30 @@
     "icon": ["../build/icon-big.png"],
     "license": "EUPL-1.2",
     "licenseFile": "../LICENSE.txt",
+    "fileAssociations": [
+      {
+        "ext": ["modarchive"],
+        "name": "Deltamod Mod Archive",
+        "description": "Deltamod Community mod package",
+        "role": "Viewer",
+        "mimeType": "application/x-deltamod-modarchive",
+        "exportedType": {
+          "identifier": "io.github.cmdrchara.deltamodcommunity.modarchive",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": ["deltamod-open"],
+        "name": "Deltamod Community Launch Request",
+        "description": "Deltamod Community CLI launch request",
+        "role": "Viewer",
+        "mimeType": "application/x-deltamod-open",
+        "exportedType": {
+          "identifier": "io.github.cmdrchara.deltamodcommunity.open",
+          "conformsTo": ["public.data"]
+        }
+      }
+    ],
     "windows": {
       "nsis": {
         "headerImage": "../build/installer/installerHeader.bmp",
