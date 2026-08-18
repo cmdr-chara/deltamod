@@ -1,4 +1,4 @@
-name: Dispatch Deltamod Community 2.0.11 release
+name: Publish Deltamod Community 2.0.11
 
 on:
   push:
@@ -7,41 +7,145 @@ on:
       - .github/workflows/release-2.0.11-dispatch.yml
 
 permissions:
-  actions: write
-  contents: read
+  actions: read
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
   statuses: write
 
 jobs:
-  dispatch:
+  publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch release if needed
+      - name: Mark publication started
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          gh api --method POST "repos/cmdr-chara/deltamod/statuses/$SHA" \
+            -f state=pending -f context='release-manual-publish' \
+            -f description='publishing-community-v2.0.11' \
+            -f target_url="https://github.com/cmdr-chara/deltamod/actions"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: DeltaMaster
+          fetch-depth: 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Verify release inputs
+        id: preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='community-v2.0.11'
+          expected_sha='b15a0a57e92b443013b85a168160f7f208d75b07'
+          source_run='32172472816'
+
+          if gh api "repos/cmdr-chara/deltamod/releases/tags/$tag" >/tmp/release.json 2>/dev/null; then
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch origin "refs/tags/$tag:refs/tags/$tag" --force
+          actual_sha="$(git rev-list -n 1 "$tag")"
+          test "$actual_sha" = "$expected_sha"
+
+          artifacts="$(gh api "repos/cmdr-chara/deltamod/actions/runs/$source_run/artifacts?per_page=100")"
+          for name in windows-nsis linux-deb macos-x64-dmg macos-arm64-dmg; do
+            count="$(printf '%s' "$artifacts" | jq -r --arg name "$name" '[.artifacts[] | select(.name == $name and .expired == false)] | length')"
+            test "$count" -eq 1
+          done
+
+          git show "$tag:CHANGELOG.txt" > /tmp/release-notes.txt
+          echo 'publish=true' >> "$GITHUB_OUTPUT"
+          echo "source_run=$source_run" >> "$GITHUB_OUTPUT"
+
+      - name: Download validated package artifacts
+        if: steps.preflight.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ steps.preflight.outputs.source_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          for name in windows-nsis linux-deb macos-x64-dmg macos-arm64-dmg; do
+            gh run download "$SOURCE_RUN" --repo cmdr-chara/deltamod --name "$name" --dir release-artifacts
+          done
+
+      - name: Build corresponding-source archives
+        if: steps.preflight.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run archive:g3mtool-source -- "$PWD/release-artifacts/G3MTool-1.2.5-source.zip"
+          npm run archive:undertale-mod-tool-source -- "$PWD/release-artifacts/UndertaleModTool-0.9.1.2-source.zip"
+
+      - name: Prepare SHA-256 manifest
+        if: steps.preflight.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
+          find release-artifacts -type f -printf '%f\n' | sort
+          test "${#artifacts[@]}" -eq 7
+          (cd release-artifacts && find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+
+      - name: Attest release artifacts
+        if: steps.preflight.outputs.publish == 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: release-artifacts/*
+
+      - name: Publish stable release
+        if: steps.preflight.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
+          test "${#artifacts[@]}" -eq 8
+          gh release create community-v2.0.11 "${artifacts[@]}" \
+            --verify-tag --latest \
+            --notes-file /tmp/release-notes.txt \
+            --title 'Deltamod Community 2.0.11 (unsigned)'
+
+      - name: Verify published release
+        if: success()
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          tag='community-v2.0.11'
-          outcome=''
-          target_url="https://github.com/cmdr-chara/deltamod/actions/workflows/tauri-release.yml"
-
-          if gh api "repos/cmdr-chara/deltamod/releases/tags/$tag" >/dev/null 2>&1; then
-            outcome='release-already-published'
-          else
-            runs="$(gh api 'repos/cmdr-chara/deltamod/actions/workflows/tauri-release.yml/runs?per_page=50')"
-            active_url="$(printf '%s' "$runs" | jq -r --arg tag "$tag" '[.workflow_runs[] | select(.head_branch == $tag and (.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "pending" or .status == "requested"))][0].html_url // empty')"
-            if [ -n "$active_url" ]; then
-              outcome='release-run-already-active'
-              target_url="$active_url"
-            else
-              gh workflow run tauri-release.yml --ref "$tag"
-              outcome='release-dispatched'
-            fi
-          fi
-
+          release_json="$(gh api 'repos/cmdr-chara/deltamod/releases/tags/community-v2.0.11')"
+          test "$(printf '%s' "$release_json" | jq -r '.draft')" = false
+          test "$(printf '%s' "$release_json" | jq -r '.prerelease')" = false
+          test "$(printf '%s' "$release_json" | jq -r '.assets | length')" -eq 8
+          url="$(printf '%s' "$release_json" | jq -r '.html_url')"
           gh api --method POST "repos/cmdr-chara/deltamod/statuses/$SHA" \
-            -f state=success \
-            -f context='release-dispatch' \
-            -f description="$outcome" \
-            -f target_url="$target_url"
+            -f state=success -f context='release-manual-publish' \
+            -f description='community-v2.0.11-published-with-8-assets' \
+            -f target_url="$url"
+
+      - name: Record publication failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          gh api --method POST "repos/cmdr-chara/deltamod/statuses/$SHA" \
+            -f state=failure -f context='release-manual-publish' \
+            -f description='community-v2.0.11-publication-failed' \
+            -f target_url="https://github.com/cmdr-chara/deltamod/actions"
