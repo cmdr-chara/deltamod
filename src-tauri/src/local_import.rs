@@ -57,8 +57,8 @@ fn validate_launch_marker(path: PathBuf) -> Result<PathBuf, &'static str> {
     {
         return Err("The Deltamod launch marker is invalid.");
     }
-    let marker = fs::canonicalize(&path)
-        .map_err(|_| "The Deltamod launch marker could not be resolved.")?;
+    let marker =
+        fs::canonicalize(&path).map_err(|_| "The Deltamod launch marker could not be resolved.")?;
     let handoff_root = std::env::temp_dir().join(HANDOFF_DIRECTORY);
     let handoff_root = fs::canonicalize(handoff_root)
         .map_err(|_| "The Deltamod CLI handoff directory is unavailable.")?;
