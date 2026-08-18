@@ -1,3 +1,47 @@
+# Deltamod Community 2.0.11
+
+Released 2026-08-18.
+
+## Changes
+
+- ci: enable automatic GitHub releases (`7f76f99`).
+- revert: remove unintended auto-release workflow (`6c9dad4`).
+- Merge pull request #27 from cmdr-chara/dependabot/cargo/src-tauri/futures-util-0.3.34 (`1b6417f`).
+- build(deps): bump thiserror from 1.0.69 to 2.0.20 in /src-tauri (#26) (`43ccf14`).
+- build(deps-dev): bump electron from 43.3.0 to 43.4.0 (`7c92f93`).
+- build(deps): bump quick-xml from 0.37.5 to 0.41.0 (`cccfc90`).
+- build(deps): bump roxmltree from 0.20.0 to 0.21.1 (`51eaa58`).
+- build(deps): bump @sentry/node from 10.69.0 to 10.70.0 (`05e295f`).
+- build(deps-dev): bump @types/node from 26.1.2 to 26.2.0 (`a0084f5`).
+- build(deps): bump http-body-util from 0.1.4 to 0.1.5 (`aba51f4`).
+- build(deps): bump create-desktop-shortcuts from 1.11.1 to 1.12.0 (`5eded49`).
+- build(deps): bump js-toml from 1.2.1 to 2.0.1 (`ae3f463`).
+- fix: skip malformed packets during mod image lookup (`b3231c5`).
+- feat: add verified CLI handoff and automatic stable releases (`b25821c`).
+- ci: prevent recursive stable releases (`7eac6ff`).
+- ci: release from the validated Community CI workflow (`04831e5`).
+- ci: disable detached stable release workflow (`8e522c7`).
+- bootstrap: publish Deltamod Community 2.0.11 [bootstrap-release] (`20f9e3e`).
+- bootstrap: trigger registered Deltamod 2.0.11 workflow [bootstrap-release] (`5d61242`).
+- bootstrap: instrument Deltamod 2.0.11 preflight [bootstrap-release] (`16e1eb0`).
+- bootstrap: dispatch Deltamod 2.0.11 from registered workflow (`40acaa0`).
+- bootstrap: instrument Deltamod 2.0.11 dispatcher (`44615ad`).
+- ci: dispatch 2.0.11 through Community CI [community-bootstrap-2.0.11] (`81c2f20`).
+- ci: restore Community CI after fork Actions diagnosis [skip ci] (`2b5bc63`).
+- release: stage Deltamod Community 2.0.11 [skip ci] (`484da2d`).
+- ci: restore disabled legacy release workflow [skip ci] (`e8ddfd0`).
+- ci: trigger Community CI after enabling fork Actions (`68498db`).
+- ci: run one-shot Tauri rustfmt fix (`30252bb`).
+- ci: retrigger registered Tauri rustfmt fix (`2097d85`).
+- ci: repair Tauri rustfmt via Community CI [rustfmt-repair] (`6a3ff63`).
+- style: rustfmt local import [skip ci] (`5d5499e`).
+- style: rustfmt mod source test [skip ci] (`ee53f11`).
+- style: fix Tauri rustfmt gate (`6e03e33`).
+- fix: type macOS file handoff plugin [skip ci] (`9d6ecd6`).
+- ci: harden Ubuntu Tauri dependency install (`d7f1d19`).
+- ci: harden release Ubuntu dependency install [skip ci] (`e1720e8`).
+- ci: tag detached stable release commit (`487f407`).
+
 # Deltamod Community 2.0.10
 
 Released 2026-08-14.
