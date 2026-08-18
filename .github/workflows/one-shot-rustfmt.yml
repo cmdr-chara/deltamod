@@ -1,3 +1,4 @@
+# Registered-workflow retrigger for the Tauri rustfmt fix.
 name: One-shot Tauri rustfmt fix
 
 on:
