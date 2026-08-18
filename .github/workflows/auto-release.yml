@@ -8,14 +8,26 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
   dispatch:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: DeltaMaster
       - name: Dispatch validated 2.0.11 bootstrap
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run bootstrap-2.0.11.yml --ref DeltaMaster
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run bootstrap-2.0.11.yml --ref DeltaMaster
+          printf 'dispatcher_sha=%s\nstage=dispatched\n' "$GITHUB_SHA" > .github/bootstrap-2.0.11-dispatch-status.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/bootstrap-2.0.11-dispatch-status.txt
+          git commit -m "ci: record 2.0.11 bootstrap dispatch [skip ci]"
+          git push origin HEAD:DeltaMaster
