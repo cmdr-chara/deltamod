@@ -272,35 +272,3 @@ jobs:
           git tag "$TAG" "$release_sha"
           git push origin "refs/tags/$TAG"
           gh workflow run tauri-release.yml --ref "$TAG"
-
-  repair-rustfmt:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/DeltaMaster' && contains(github.event.head_commit.message, '[rustfmt-repair]')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: DeltaMaster
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Apply and verify Tauri rustfmt
-        run: |
-          set -euo pipefail
-          cargo fmt --all --manifest-path src-tauri/Cargo.toml
-          cargo fmt --all --check --manifest-path src-tauri/Cargo.toml
-          git diff --check
-      - name: Restore CI and commit formatting repair
-        shell: bash
-        run: |
-          set -euo pipefail
-          git checkout HEAD^ -- .github/workflows/ci.yml
-          rm -f .github/workflows/one-shot-rustfmt.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src-tauri/src/channels/mods.rs src-tauri/src/local_import.rs .github/workflows/ci.yml
-          git add -A .github/workflows/one-shot-rustfmt.yml
-          git commit -m "style: format Tauri Rust sources"
-          git push origin HEAD:DeltaMaster
