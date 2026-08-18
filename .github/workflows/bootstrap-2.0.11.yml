@@ -1,3 +1,4 @@
+# Registered-workflow trigger for the 2.0.11 bootstrap.
 name: Bootstrap Deltamod Community 2.0.11
 
 on:
@@ -19,7 +20,7 @@ jobs:
   prepare-and-validate:
     runs-on: ubuntu-latest
     outputs:
-      release_sha: ${{ steps.release.outputs.release_sha }}
+      release_sha: ${{ steps.candidate.outputs.release_sha }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -47,7 +48,6 @@ jobs:
           set -euo pipefail
           git fetch origin DeltaMaster --tags --force
           if gh release view community-v2.0.11 >/dev/null 2>&1; then
-            echo "release_sha=" >> "$GITHUB_OUTPUT"
             echo "community-v2.0.11 is already published."
             exit 0
           fi
@@ -115,7 +115,6 @@ jobs:
           PY
 
       - name: Install npm dependencies
-        if: steps.release.outputs.release_sha != '' || steps.release.outcome == 'success'
         run: node scripts/retry-command.js --label "npm ci" -- npm ci
 
       - name: Acquire build tools
