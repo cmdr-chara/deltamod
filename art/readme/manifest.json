@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-12",
+  "generatedAt": "2026-08-20",
   "capture": {
     "source": "Deltamod Community Electron development build",
     "viewport": "960x600",
@@ -35,6 +35,20 @@
       "durationSeconds": 8.26,
       "bytes": 974174,
       "sha256": "7acb7404ca9d1e65402987b1e7412b68cbab2c3dc19c5906018bda154e8da7eb"
+    },
+    {
+      "file": "deltamod-workflow-tour.gif",
+      "width": 960,
+      "height": 540,
+      "frames": 60,
+      "durationSeconds": 7.51,
+      "bytes": 253448,
+      "sha256": "3dd98c346747997879889b4a9cc6011dd4817ee8d3204f65a07f1a55dae41807",
+      "source": "local Playwright smoke captures",
+      "sourceViewport": "1920x1080",
+      "theme": "base",
+      "kind": "slideshow",
+      "notes": "Selected screens, not a continuous recording."
     }
   ]
 }
