@@ -18,10 +18,18 @@ function git(args, cwd = temporary) {
     if (result.error || result.status !== 0) throw result.error || new Error(result.stderr);
     return result.stdout.trim();
 }
+function removeTree(target) {
+    fs.rmSync(target, {
+        recursive: true,
+        force: true,
+        maxRetries: 8,
+        retryDelay: 125
+    });
+}
 function removeGitMetadata(directory) {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
         const absolute = path.join(directory, entry.name);
-        if (entry.name === '.git') fs.rmSync(absolute, { recursive: true, force: true });
+        if (entry.name === '.git') removeTree(absolute);
         else if (entry.isDirectory()) removeGitMetadata(absolute);
     }
 }
@@ -43,4 +51,4 @@ async function main() {
 
 main()
     .catch(error => { console.error(error.message); process.exitCode = 1; })
-    .finally(() => fs.rmSync(temporary, { recursive: true, force: true }));
+    .finally(() => removeTree(temporary));

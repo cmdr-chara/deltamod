@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - community-v*
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -25,7 +26,31 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Install Linux Tauri dependencies
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+            [ -f "$source" ] || continue
+            sudo sed -i \
+              -e 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
+              -e 's|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
+              -e 's|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' \
+              "$source"
+          done
+          timeout 5m sudo apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20 \
+            -o Acquire::https::Timeout=20 \
+            update
+          timeout 10m sudo env DEBIAN_FRONTEND=noninteractive apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20 \
+            -o Acquire::https::Timeout=20 \
+            install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
       - run: npm run acquire:g3mtool
       - run: npm run acquire:undertale-mod-tool
@@ -106,7 +131,31 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Install Linux bundle dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+            [ -f "$source" ] || continue
+            sudo sed -i \
+              -e 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
+              -e 's|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
+              -e 's|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' \
+              "$source"
+          done
+          timeout 5m sudo apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20 \
+            -o Acquire::https::Timeout=20 \
+            update
+          timeout 10m sudo env DEBIAN_FRONTEND=noninteractive apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20 \
+            -o Acquire::https::Timeout=20 \
+            install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
       - run: npm run acquire:g3mtool
       - run: npm run verify:g3mtool-manifest
