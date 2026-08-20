@@ -27,42 +27,61 @@ query BrowseMods($filter: ModsFilter, $sort: [ModsSort!], $offset: Int, $count: 
 }
 "#;
 
-fn legacy_mod_image(state: &AppState, uid: &str) -> Option<String> {
-    let entries = std::fs::read_dir(state.data_root.root.join("packets")).ok()?;
-    for entry in entries.flatten() {
-        let root = entry.path();
-        let directory = std::fs::symlink_metadata(&root).ok()?;
+fn legacy_mod_image_from_roots<I>(roots: I, uid: &str) -> Option<String>
+where
+    I: IntoIterator<Item = std::path::PathBuf>,
+{
+    for root in roots {
+        let Ok(directory) = std::fs::symlink_metadata(&root) else {
+            continue;
+        };
         if !directory.is_dir() || directory.file_type().is_symlink() {
             continue;
         }
         let identity_path = root.join("__deltaID.json");
-        let identity_meta = std::fs::symlink_metadata(&identity_path).ok()?;
+        let Ok(identity_meta) = std::fs::symlink_metadata(&identity_path) else {
+            continue;
+        };
         if !identity_meta.is_file()
             || identity_meta.file_type().is_symlink()
             || identity_meta.len() > 64 * 1024
         {
             continue;
         }
-        let identity: Value = serde_json::from_slice(&std::fs::read(identity_path).ok()?).ok()?;
+        let Ok(identity_bytes) = std::fs::read(&identity_path) else {
+            continue;
+        };
+        let Ok(identity) = serde_json::from_slice::<Value>(&identity_bytes) else {
+            continue;
+        };
         if identity.get("uniqueId").and_then(Value::as_str) != Some(uid) {
             continue;
         }
         let icon_path = root.join("icon.png");
-        let icon_meta = std::fs::symlink_metadata(&icon_path).ok()?;
+        let Ok(icon_meta) = std::fs::symlink_metadata(&icon_path) else {
+            continue;
+        };
         if !icon_meta.is_file()
             || icon_meta.file_type().is_symlink()
             || icon_meta.len() == 0
             || icon_meta.len() > 4 * 1024 * 1024
         {
-            return None;
+            continue;
         }
-        let icon = std::fs::read(icon_path).ok()?;
+        let Ok(icon) = std::fs::read(icon_path) else {
+            continue;
+        };
         if !icon.starts_with(b"\x89PNG\r\n\x1a\n") {
-            return None;
+            continue;
         }
         return Some(format!("data:image/png;base64,{}", STANDARD.encode(icon)));
     }
     None
+}
+
+fn legacy_mod_image(state: &AppState, uid: &str) -> Option<String> {
+    let entries = std::fs::read_dir(state.data_root.root.join("packets")).ok()?;
+    legacy_mod_image_from_roots(entries.flatten().map(|entry| entry.path()), uid)
 }
 
 fn provider(value: &str) -> Option<Provider> {
@@ -496,8 +515,37 @@ pub fn dispatch(
 
 #[cfg(test)]
 mod tests {
-    use super::moddb_catalog;
+    use super::{legacy_mod_image_from_roots, moddb_catalog};
     use deltamod_network_runtime::ModEntry;
+
+    #[test]
+    fn legacy_mod_image_skips_malformed_packet_entries() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "deltamod-mod-image-test-{}-{nonce}",
+            std::process::id()
+        ));
+        let broken = root.join("broken");
+        let target = root.join("target");
+        std::fs::create_dir_all(&broken).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(
+            target.join("__deltaID.json"),
+            br#"{"uniqueId":"target-uid"}"#,
+        )
+        .unwrap();
+        std::fs::write(target.join("icon.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+
+        let image = legacy_mod_image_from_roots(vec![broken, target], "target-uid");
+
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(image
+            .as_deref()
+            .is_some_and(|value| value.starts_with("data:image/png;base64,")));
+    }
 
     #[test]
     fn moddb_entries_match_the_renderer_catalog_contract() {

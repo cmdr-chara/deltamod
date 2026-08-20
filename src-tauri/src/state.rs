@@ -135,6 +135,7 @@ impl AppState {
         resource_dir: PathBuf,
         app: tauri::AppHandle,
     ) -> Result<Self, &'static str> {
+        crate::controller::install_protocols(&app)?;
         Self::initialize_inner(data_dir, resource_dir, Some(app))
     }
 

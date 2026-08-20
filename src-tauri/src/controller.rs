@@ -1,3 +1,6 @@
+#[path = "local_import.rs"]
+mod local_import;
+
 use deltamod_tools_runtime::{
     controller_mode_launch, verify_tool, OwnedProcess, ProcessRegistry, ToolKind,
 };
@@ -6,8 +9,9 @@ use std::{
     path::Path,
     process::{Command, Stdio},
     sync::Mutex,
+    time::Duration,
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 const CONTROLLER_FLAG: &str = "-controller";
 const CONTROLLER_SHA256: &str = "04ACDBB53C96CD99B01FE53A0297AC06308DDAD14B5253A3AF4F9A319985AA45";
@@ -73,6 +77,45 @@ impl Drop for ControllerMode {
     fn drop(&mut self) {
         self.registry.terminate_all();
     }
+}
+
+/// Consume OS file-association handoffs without widening the renderer API.
+pub fn install_protocols(app: &AppHandle) -> Result<(), &'static str> {
+    #[cfg(target_os = "macos")]
+    {
+        let plugin = tauri::plugin::Builder::<tauri::Wry, ()>::new("file-handoff-events")
+            .on_event(|app, event| {
+                if let tauri::RunEvent::Opened { urls } = event {
+                    let args = urls
+                        .iter()
+                        .filter_map(|url| url.to_file_path().ok())
+                        .map(|path| path.into_os_string())
+                        .collect::<Vec<_>>();
+                    local_import::handle_args(app, args);
+                }
+            })
+            .build();
+        app.plugin(plugin)
+            .map_err(|_| "file handoff event bridge unavailable")?;
+    }
+
+    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if args.is_empty() {
+        return Ok(());
+    }
+    let startup_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        // initialize_with_app runs immediately before main.rs manages AppState.
+        // Wait for that narrow boundary before an import can touch application state.
+        for _ in 0..3_000 {
+            if startup_app.try_state::<crate::state::AppState>().is_some() {
+                local_import::handle_args(&startup_app, args);
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    });
+    Ok(())
 }
 
 fn is_protocol_url(value: &str) -> bool {
