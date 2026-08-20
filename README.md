@@ -65,6 +65,14 @@ Deltamod Community brings compatible mods, game installations, and separate mod 
 
 <p align="center"><sub>Switch complete visual themes and choose between eight interface languages.</sub></p>
 
+### A quick tour
+
+<p align="center">
+  <img src="./art/readme/deltamod-workflow-tour.gif" width="960" alt="Selected Deltamod Community screens from the local Playwright smoke flow">
+</p>
+
+<p align="center"><sub>Selected screens from the local Playwright smoke flow in the built-in Base Theme: home, mod list, settings, installation manager, catalogue, and credits.</sub></p>
+
 ### What it can do
 
 - **Install and remove mods** packaged for Deltamod-compatible games.
