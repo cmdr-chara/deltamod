@@ -1,3 +1,21 @@
+# Deltamod Community 2.0.12
+
+Released 2026-08-20.
+
+## Changes
+
+- ci: dispatch Community 2.0.11 release (`0c35228`).
+- fix: make UndertaleModTool source cleanup retry-safe [skip ci] (`a6f6285`).
+- ci: publish validated Community 2.0.11 artifacts (`c7c0174`).
+- ci: retrigger validated Community 2.0.11 publication (`f1b086f`).
+- ci: publish Community 2.0.11 from validated artifacts (`4152773`).
+- ci: remove temporary 2.0.11 publisher [skip ci] (`03ff881`).
+- ci: remove temporary 2.0.11 dispatcher [skip ci] (`6901ffc`).
+- ci: refresh 2.0.11 release notes [skip ci] (`6d49309`).
+- ci: run 2.0.11 release notes refresh (`f0cae0a`).
+- ci: remove one-shot release notes refresh [skip ci] (`e78740c`).
+- docs: refresh README visuals (`d3760ed`).
+
 # Deltamod Community 2.0.10
 
 Released 2026-08-14.
