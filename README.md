@@ -31,6 +31,10 @@
 
 ---
 
+## Why this fork exists
+
+Deltamod Community is an independent fork created in response to concerns about censorship in the original repository. We do not support GameBanana's restrictions on mods, and we believe in freedom of creative expression while still respecting applicable laws, platform rules, and community safety.
+
 ## Modding, without the busywork
 
 Deltamod Community brings compatible mods, game installations, and separate mod setups together in one place. Browse community catalogues, import a local archive, switch profiles, and let Deltamod handle the installation flow.
