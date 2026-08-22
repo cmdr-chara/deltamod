@@ -1,3 +1,22 @@
+# Deltamod Community 2.0.13
+
+Released 2026-08-22.
+
+## Changes
+
+- build(deps): consolidate 2.0.11 dependency updates (`41b011a`).
+- fix: stabilize mod import and release handoff (`a43699e`).
+- ci: consolidate Community 2.0.11 release automation (`248e84b`).
+- docs: refresh README visuals (`7bdda0a`).
+- feat(nexus): enable registered OAuth client (`87dc3bd`).
+- fix(nexus): support OAuth profiles and website download fallback (`8c5fb19`).
+- fix(options): align developer category (`a4f8854`).
+- docs: document Nexus OAuth and current release (`c464fdb`).
+- fix(nexus): restore authorization download actions (`f3320e8`).
+- feat(nexus): enable registered OAuth client (`d112373`).
+- docs: explain fork principles (`bc432c8`).
+- release: Nexus Mods is now supported (`46278c0`).
+
 # Deltamod Community 2.0.10
 
 Released 2026-08-14.
