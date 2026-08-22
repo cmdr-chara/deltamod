@@ -139,6 +139,12 @@ describe('renderer page smoke contracts', () => {
             /\.viewport \.cat > button:not\(\.back\)\s*\{[^}]*caret-color:\s*transparent;/s
         );
     });
+
+    it('keeps the developer category on the shared flex layout', () => {
+        const optionsScript = read(path.join(viewsRoot, 'options', 'index.js'));
+        expect(optionsScript).toContain("devBtn.style.removeProperty('display')");
+        expect(optionsScript).not.toContain("devBtn.style.display = 'inline-block'");
+    });
 });
 
 describe('built-in theme smoke contracts', () => {
