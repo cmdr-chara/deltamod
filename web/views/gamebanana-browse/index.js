@@ -1306,14 +1306,14 @@ async function downloadNexusSource(item, button) {
                 : manual
                     ? 'Nexus Mods allows this download from its website, but not through the direct API for this account. Open the mod page to confirm the download, or import the archive after saving it.'
                 : (error?.message || 'The archive could not be downloaded and imported.'),
-            manual
+            authorizationRequired || manual
                 ? [
                     { text: 'Open Nexus Mods', resolveWith: 'open' },
-                    { text: 'Import archive', resolveWith: 'import' },
+                    ...(manual ? [{ text: 'Import archive', resolveWith: 'import' }] : []),
                     { text: 'Cancel', resolveWith: 'cancel' }
                 ]
                 : [{ text: 'OK', resolveWith: 'ok' }],
-            manual ? undefined : 'error'
+            authorizationRequired || manual ? undefined : 'error'
         );
         if (choice === 'open') {
             await window.communityAPI.modSources.open({ provider: 'nexus', url: item.sourceUrl });
