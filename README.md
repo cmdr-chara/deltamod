@@ -79,24 +79,25 @@ Deltamod Community brings compatible mods, game installations, and separate mod 
 - **Import local mod archives** without relying on an online catalogue.
 - **Apply UndertaleModTool `.csx` patches** after an explicit safety warning.
 - **Browse GameBanana inside the app** and open supported ModDB downloads.
+- **Connect Nexus Mods with OAuth 2.0 + PKCE** and browse its catalogue.
 - **Manage multiple installations and profiles** for different mod setups.
 - **Import official Deltamod data** into an independent community profile.
 - **Speak your language** with English, Italian, French, German, Spanish, Portuguese, Polish, and Japanese localizations.
 
 > [!NOTE]
-> Nexus Mods integration is present but disabled while the Deltamod Community OAuth application registration is pending. GameBanana, ModDB, and local imports work without a Nexus Mods account.
+> Nexus Mods sign-in is available from **Options → Nexus Mods**. Premium accounts can download compatible archives through the API; non-premium accounts may need to confirm a download on the Nexus Mods website and then import the saved archive. GameBanana, ModDB, and local imports work without a Nexus Mods account.
 
-When enabled, Nexus Mods uses OAuth 2.0 Authorization Code with PKCE S256. The desktop callback is fixed at `http://127.0.0.1:52817/callback`, binds only to the IPv4 loopback interface, verifies `state`, and closes after authorization; it never falls back to a dynamic port. Access and refresh tokens are encrypted with Electron's secure storage or stored in the native OS keyring, refreshed before expiry, and sent only as Bearer tokens to the Nexus Mods API. Catalogue requests remain limited to one bounded result page, and quota responses honor the server's `Retry-After` value. Manually supplied credentials are not accepted.
+Nexus Mods uses OAuth 2.0 Authorization Code with PKCE S256. The desktop callback is fixed at `http://127.0.0.1:52817/callback`, binds only to the IPv4 loopback interface, verifies `state`, and closes after authorization; it never falls back to a dynamic port. Access and refresh tokens are encrypted with Electron's secure storage or stored in the native OS keyring, refreshed before expiry, and sent only as Bearer tokens to the Nexus Mods API. Catalogue requests remain limited to one bounded result page, and quota responses honor the server's `Retry-After` value. Manually supplied credentials are not accepted.
 
-The public client ID belongs in `nexusOAuthClientId` in `package.json` after Nexus Mods completes registration. Local development can temporarily provide the same public identifier through `DELTAMOD_NEXUS_OAUTH_CLIENT_ID`; no client secret is used or expected for this desktop PKCE flow.
+The registered public client ID is configured as `nexusOAuthClientId` in `package.json`. Local development can temporarily override it through `DELTAMOD_NEXUS_OAUTH_CLIENT_ID`; no client secret is used or expected for this desktop PKCE flow.
 
 ## Download
 
-The current stable release is **Deltamod Community 2.0.10**, powered by the Tauri desktop shell.
+The current stable release is **Deltamod Community 2.0.12**, powered by the Tauri desktop shell.
 
 <p align="center">
-  <a href="https://github.com/cmdr-chara/deltamod/releases/tag/community-v2.0.10">
-    <img alt="Download version 2.0.10" src="https://img.shields.io/badge/DOWNLOAD-v2.0.10-ef476f?style=for-the-badge&amp;logo=github">
+  <a href="https://github.com/cmdr-chara/deltamod/releases/tag/community-v2.0.12">
+    <img alt="Download version 2.0.12" src="https://img.shields.io/badge/DOWNLOAD-v2.0.12-ef476f?style=for-the-badge&amp;logo=github">
   </a>
 </p>
 
@@ -108,7 +109,7 @@ Choose the asset matching your operating system and architecture. Windows and ma
 <details>
 <summary><strong>Windows installation</strong></summary>
 
-1. Download and open **Deltamod Community Setup.exe**, the Deltamod-themed installer.
+1. Download and open **Deltamod.Community.Setup.exe**, the Deltamod-themed installer.
 2. If Windows reports an unknown publisher, first confirm that its SHA-256 hash matches `SHA256SUMS.txt` on the release page.
 3. Complete the installer and launch **Deltamod Community**.
 

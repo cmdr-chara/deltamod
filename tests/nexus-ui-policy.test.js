@@ -40,6 +40,19 @@ describe('Nexus renderer policy', () => {
         expect(shop).toMatch(/if \(isNexusRateLimited\(error\)\) \{[\s\S]*?renderSourceState\([\s\S]*?formatRateLimitMessage\(error\)[\s\S]*?scheduleNexusRateLimitRetry/);
     });
 
+    it('routes forbidden free-tier downloads to the website and archive-import fallback', () => {
+        const shop = read('web/views/gamebanana-browse/index.js');
+
+        expect(shop).toContain("Number(error?.status) === 403");
+        expect(shop).toContain("error?.code === 'NEXUS_MANUAL_DOWNLOAD_REQUIRED'");
+        expect(shop).toContain("{ text: 'Open Nexus Mods', resolveWith: 'open' }");
+        expect(shop).toContain("{ text: 'Import archive', resolveWith: 'import' }");
+        expect(shop).toContain("window.deltamodBackend.invoke('importMod', [])");
+        expect(shop).toContain("phase: manual ? 'manual' : 'failed'");
+        expect(shop).toContain("manual: 'Website confirmation required'");
+        expect(shop).toMatch(/const authorizationRequired = \[[\s\S]*?'NEXUS_AUTH_REQUIRED'[\s\S]*?Number\(error\?\.status\) !== 403/);
+    });
+
     it('documents the OAuth PKCE, fixed-callback, bounded, quota-aware catalogue contract', () => {
         const readme = read('README.md');
         expect(readme).toMatch(/OAuth 2\.0 Authorization Code with PKCE S256/i);

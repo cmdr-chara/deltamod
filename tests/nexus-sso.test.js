@@ -235,6 +235,21 @@ describe('Nexus Mods OAuth desktop session', () => {
         expect(body.has('client_secret')).toBe(false);
     });
 
+    it('surfaces only sanitized OAuth error details when the token exchange is rejected', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+            error: 'invalid_grant',
+            error_description: 'authorization code was rejected\n(and this is bounded)'
+        }), { status: 400 }));
+        const { client } = createFakeClient({ fetchImpl });
+
+        await expect(client.exchangeAuthorizationCode('authorization-code-123456', 'verifier-1234567890'))
+            .rejects.toMatchObject({
+                code: 'NEXUS_OAUTH_TOKEN_FAILED',
+                status: 400,
+                message: 'Nexus Mods rejected the OAuth token exchange (HTTP 400: invalid_grant: authorization code was rejected (and this is bounded)).'
+            });
+    });
+
     it('stays disabled until Nexus issues the public OAuth client ID', async () => {
         const unavailable = new NexusOAuthClient({
             clientId: '',

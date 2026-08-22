@@ -10,7 +10,9 @@ const {
     browseNexus,
     clearNexusRequestPolicyState,
     getAvailableProviders,
+    getNexusPrimaryDownload,
     isNexusDownloadHost,
+    nexusRequest,
     normalizeModDbFeed,
     normalizeNexusMods,
     safeHttpsUrl,
@@ -88,9 +90,37 @@ describe('ModDB RSS normalization', () => {
 });
 
 describe('Nexus Mods normalization and download host containment', () => {
+    function oauthJwt(payload = {}) {
+        const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+        return [
+            encode({ alg: 'RS256', typ: 'JWT' }),
+            encode(payload),
+            'signature'
+        ].join('.');
+    }
+
     it('requires an OAuth access token instead of a pasted personal key', async () => {
         await expect(validateNexusAccessToken(null)).rejects.toMatchObject({
             code: 'NEXUS_AUTH_REQUIRED'
+        });
+    });
+
+    it('reads the OAuth profile from JWT claims without calling the API-key validation endpoint', async () => {
+        const token = oauthJwt({
+            sub: '42',
+            user: {
+                id: 42,
+                username: 'Chara',
+                membership_roles: ['premium', 'supporter']
+            }
+        });
+
+        await expect(validateNexusAccessToken(token)).resolves.toEqual({
+            valid: true,
+            name: 'Chara',
+            userId: 42,
+            premium: true,
+            supporter: true
         });
     });
 
@@ -108,14 +138,92 @@ describe('Nexus Mods normalization and download host containment', () => {
 
         try {
             clearNexusRequestPolicyState();
-            await expect(validateNexusAccessToken('A'.repeat(20))).resolves.toMatchObject({
-                valid: true,
+            await expect(nexusRequest('users/validate.json', 'A'.repeat(20))).resolves.toMatchObject({
                 name: 'Chara',
-                userId: 42,
-                premium: true
+                user_id: 42,
+                is_premium: true
             });
             expect(requestOptions.headers.authorization).toBe(`Bearer ${'A'.repeat(20)}`);
             expect(requestOptions.headers).not.toHaveProperty('apikey');
+        } finally {
+            globalThis.fetch = originalFetch;
+            clearNexusRequestPolicyState();
+        }
+    });
+
+    it('preserves the HTTP status when Nexus rejects OAuth validation', async () => {
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async () => new Response('', { status: 403 });
+
+        try {
+            clearNexusRequestPolicyState();
+            await expect(nexusRequest('users/validate.json', 'A'.repeat(20))).rejects.toMatchObject({
+                code: 'NEXUS_AUTH_FAILED',
+                status: 403,
+                message: 'Nexus Mods rejected the authorization or this operation (HTTP 403).'
+            });
+        } finally {
+            globalThis.fetch = originalFetch;
+            clearNexusRequestPolicyState();
+        }
+    });
+
+    it('maps a Nexus 403 during direct download resolution to the website fallback', async () => {
+        const originalFetch = globalThis.fetch;
+        let requestCount = 0;
+        globalThis.fetch = async () => {
+            requestCount += 1;
+            return new Response('{}', { status: 403 });
+        };
+
+        try {
+            clearNexusRequestPolicyState();
+            await expect(getNexusPrimaryDownload({
+                domain: 'undertale',
+                modId: 43,
+                accessToken: 'A'.repeat(20)
+            })).rejects.toMatchObject({
+                code: 'NEXUS_MANUAL_DOWNLOAD_REQUIRED',
+                status: 403,
+                message: 'Nexus Mods requires this download to be confirmed on its website. Non-premium accounts cannot request a direct API link.'
+            });
+            expect(requestCount).toBe(1);
+        } finally {
+            globalThis.fetch = originalFetch;
+            clearNexusRequestPolicyState();
+        }
+    });
+
+    it('maps a forbidden download-link response after file selection to the website fallback', async () => {
+        const originalFetch = globalThis.fetch;
+        let requestCount = 0;
+        globalThis.fetch = async () => {
+            requestCount += 1;
+            if (requestCount === 1) {
+                return new Response(JSON.stringify({
+                    files: [{
+                        file_id: 99,
+                        file_name: 'undertale-test.zip',
+                        category_name: 'MAIN',
+                        is_primary: true,
+                        size_kb: 12
+                    }]
+                }), { status: 200, headers: { 'content-type': 'application/json' } });
+            }
+            return new Response('{}', { status: 403 });
+        };
+
+        try {
+            clearNexusRequestPolicyState();
+            await expect(getNexusPrimaryDownload({
+                domain: 'undertale',
+                modId: 43,
+                accessToken: 'A'.repeat(20)
+            })).rejects.toMatchObject({
+                code: 'NEXUS_MANUAL_DOWNLOAD_REQUIRED',
+                status: 403
+            });
+            expect(requestCount).toBe(2);
         } finally {
             globalThis.fetch = originalFetch;
             clearNexusRequestPolicyState();
@@ -335,7 +443,7 @@ describe('Nexus Mods normalization and download host containment', () => {
 
         try {
             clearNexusRequestPolicyState();
-            await expect(validateNexusAccessToken('A'.repeat(20))).rejects.toMatchObject({
+            await expect(nexusRequest('users/validate.json', 'A'.repeat(20))).rejects.toMatchObject({
                 code: 'NEXUS_RATE_LIMITED',
                 status: 429,
                 retryAfterMs: 5000,
@@ -356,7 +464,7 @@ describe('Nexus Mods normalization and download host containment', () => {
 
         try {
             clearNexusRequestPolicyState();
-            await expect(validateNexusAccessToken('A'.repeat(20))).rejects.toMatchObject({
+            await expect(nexusRequest('users/validate.json', 'A'.repeat(20))).rejects.toMatchObject({
                 code: 'NEXUS_RATE_LIMITED',
                 status: 429,
                 retryAfterMs: 60_000,

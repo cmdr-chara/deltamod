@@ -70,12 +70,15 @@ async function addCheckboxOption(name, description, flagid, requiresRestart = fa
 }
 
 window.deltamodBackend.invoke('isDevMode', []).then((devmode) => {
+    const devBtn = document.getElementById('b_dev');
+    if (!devBtn) return;
+
     if (devmode) {
-        document.getElementById('b_dev').style.display = 'inline-block';
-    }
-    else {
-        const devBtn = document.getElementById('b_dev');
-        if (devBtn) devBtn.remove();
+        // Let the category stylesheet control the button layout (flex, icon gap,
+        // focus treatment) instead of overriding it with an inline display mode.
+        devBtn.style.removeProperty('display');
+    } else {
+        devBtn.remove();
     }
 });
 

@@ -487,6 +487,7 @@ function updateModDownloadStatus({ phase = 'download', completed = 0, total = 0,
         download: 'Downloading mod…',
         import: 'Importing mod…',
         complete: 'Mod imported successfully',
+        manual: 'Website confirmation required',
         failed: 'Download or import failed'
     };
 
@@ -495,6 +496,8 @@ function updateModDownloadStatus({ phase = 'download', completed = 0, total = 0,
     title.textContent = titles[phase] || titles.download;
     percent.textContent = phase === 'import'
         ? 'Importing'
+        : phase === 'manual'
+            ? 'Website'
         : phase === 'failed' && percentage === 0
             ? 'Failed'
             : `${Math.round(percentage)}%`;
@@ -1271,7 +1274,20 @@ async function downloadNexusSource(item, button) {
         updateModDownloadStatus({ phase: 'complete', currentItem: item.title });
     } catch (error) {
         setDownloadButtonIcon(button, 'cancel');
-        updateModDownloadStatus({ phase: 'failed', currentItem: error?.message || item.title });
+        const authorizationRequired = [
+            'NEXUS_SSO_REQUIRED',
+            'NEXUS_AUTH_REQUIRED'
+        ].includes(error?.code)
+            || (error?.code === 'NEXUS_AUTH_FAILED' && Number(error?.status) !== 403);
+        const manual = !authorizationRequired && (
+            error?.code === 'NEXUS_MANUAL_DOWNLOAD_REQUIRED'
+            || Number(error?.status) === 403
+            || /non-premium|website/i.test(error?.message || '')
+        );
+        updateModDownloadStatus({
+            phase: manual ? 'manual' : 'failed',
+            currentItem: manual ? item.title : error?.message || item.title
+        });
         if (isNexusRateLimited(error)) {
             await htmlAlert(
                 'Nexus Mods rate limit reached',
@@ -1281,14 +1297,6 @@ async function downloadNexusSource(item, button) {
             );
             return;
         }
-        const authorizationRequired = [
-            'NEXUS_SSO_REQUIRED',
-            'NEXUS_AUTH_REQUIRED',
-            'NEXUS_AUTH_FAILED'
-        ].includes(error?.code);
-        const manual = authorizationRequired
-            || error?.code === 'NEXUS_MANUAL_DOWNLOAD_REQUIRED'
-            || /non-premium|website/i.test(error?.message || '');
         const choice = await htmlAlert(
             authorizationRequired
                 ? 'Nexus Mods authorization required'
@@ -1296,18 +1304,33 @@ async function downloadNexusSource(item, button) {
             authorizationRequired
                 ? 'Direct download needs Nexus Mods authorization. Connect with OAuth in Settings, then try again or continue on the official mod page.'
                 : manual
-                    ? 'Nexus Mods requires this download to be confirmed on its website. The mod page can be opened now.'
+                    ? 'Nexus Mods allows this download from its website, but not through the direct API for this account. Open the mod page to confirm the download, or import the archive after saving it.'
                 : (error?.message || 'The archive could not be downloaded and imported.'),
-            manual
+            authorizationRequired || manual
                 ? [
                     { text: 'Open Nexus Mods', resolveWith: 'open' },
+                    ...(manual ? [{ text: 'Import archive', resolveWith: 'import' }] : []),
                     { text: 'Cancel', resolveWith: 'cancel' }
                 ]
                 : [{ text: 'OK', resolveWith: 'ok' }],
-            manual ? undefined : 'error'
+            authorizationRequired || manual ? undefined : 'error'
         );
         if (choice === 'open') {
             await window.communityAPI.modSources.open({ provider: 'nexus', url: item.sourceUrl });
+        } else if (choice === 'import') {
+            try {
+                const imported = await window.deltamodBackend.invoke('importMod', []);
+                if (imported) {
+                    updateModDownloadStatus({ phase: 'complete', currentItem: item.title });
+                }
+            } catch (importError) {
+                await htmlAlert(
+                    'Import failed',
+                    importError?.message || 'The downloaded archive could not be imported.',
+                    [{ text: 'OK', resolveWith: 'ok' }],
+                    'error'
+                );
+            }
         }
     } finally {
         unsubscribe();

@@ -15,12 +15,30 @@ const CLIENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,199}$/;
 const OAUTH_CODE_PATTERN = /^[\x21-\x7e]{8,4096}$/;
 const OAUTH_TOKEN_PATTERN = /^[\x21-\x7e]{20,8192}$/;
 const MAX_TOKEN_RESPONSE_BYTES = 32 * 1024;
+const MAX_OAUTH_ERROR_DETAIL_LENGTH = 160;
 
 function nexusOAuthError(code, message, metadata = {}) {
     const error = new Error(message);
     error.code = code;
     Object.assign(error, metadata);
     return error;
+}
+
+function parseOAuthErrorDetails(raw) {
+    try {
+        const payload = JSON.parse(raw);
+        const sanitize = value => String(value || '')
+            .replace(/[\r\n\t]+/g, ' ')
+            .replace(/[^\x20-\x7e]/g, '')
+            .trim()
+            .slice(0, MAX_OAUTH_ERROR_DETAIL_LENGTH);
+        return {
+            code: sanitize(payload?.error),
+            description: sanitize(payload?.error_description)
+        };
+    } catch {
+        return { code: '', description: '' };
+    }
 }
 
 function parseNexusOAuthClientId(value) {
@@ -297,11 +315,17 @@ class NexusOAuthClient {
         const raw = await readBoundedResponseText(response);
         if (!response.ok) {
             const reauthRequired = refreshing && response.status >= 400 && response.status < 500;
+            const providerError = parseOAuthErrorDetails(raw);
+            const details = [
+                Number(response.status) ? `HTTP ${Number(response.status)}` : '',
+                providerError.code,
+                providerError.description
+            ].filter(Boolean).join(': ');
             throw nexusOAuthError(
                 reauthRequired ? 'NEXUS_OAUTH_REAUTH_REQUIRED' : 'NEXUS_OAUTH_TOKEN_FAILED',
                 reauthRequired
                     ? 'The Nexus Mods authorization has expired or was revoked. Sign in again.'
-                    : 'Nexus Mods rejected the OAuth token exchange.',
+                    : `Nexus Mods rejected the OAuth token exchange${details ? ` (${details})` : ''}.`,
                 { status: Number(response.status) || 0 }
             );
         }
