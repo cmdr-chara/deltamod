@@ -481,15 +481,16 @@ async function nexusRequest(pathname, accessToken) {
         }
     });
     if (!response.ok) {
+        const status = Number(response.status) || 0;
         const error = new Error(
-            response.status === 401 || response.status === 403
-                ? 'Nexus Mods rejected the authorization or this operation.'
-                : `Nexus Mods request failed with HTTP ${response.status}.`
+            status === 401 || status === 403
+                ? `Nexus Mods rejected the authorization or this operation${status ? ` (HTTP ${status})` : ''}.`
+                : `Nexus Mods request failed with HTTP ${status}.`
         );
-        error.code = response.status === 401 || response.status === 403
+        error.code = status === 401 || status === 403
             ? 'NEXUS_AUTH_FAILED'
             : 'MOD_SOURCE_REQUEST_FAILED';
-        error.status = response.status;
+        error.status = status;
         error.retryAfterMs = retryAfterMs;
         error.retryAt = retryAt;
         error.quota = quota;
@@ -498,15 +499,77 @@ async function nexusRequest(pathname, accessToken) {
     return JSON.parse(await readLimitedText(response));
 }
 
-async function validateNexusAccessToken(accessToken) {
-    const user = await nexusRequest('users/validate.json', accessToken);
+function decodeBase64UrlJson(value) {
+    try {
+        return JSON.parse(Buffer.from(String(value || ''), 'base64url').toString('utf8'));
+    } catch {
+        return null;
+    }
+}
+
+// OAuth access tokens issued by Nexus are JWTs.  The legacy
+// /v1/users/validate.json endpoint is an API-key validation endpoint and
+// returns 401 for these bearer tokens, so derive the display profile from the
+// same claims used by Nexus's own OAuth client instead of probing that route.
+function decodeNexusOAuthProfile(accessToken) {
+    const parts = String(accessToken || '').split('.');
+    if (parts.length !== 3 || parts.some(part => part.length === 0)) return null;
+
+    const payload = decodeBase64UrlJson(parts[1]);
+    const user = payload?.user;
+    if (!user || typeof user !== 'object' || Array.isArray(user)) return null;
+
+    const parsedUserId = Number(user.id ?? payload.sub);
+    const userId = Number.isSafeInteger(parsedUserId) && parsedUserId > 0
+        ? parsedUserId
+        : null;
+    const name = String(user.username || payload.preferred_username || '').trim();
+    if (!name && userId === null) return null;
+
+    const roles = Array.isArray(user.membership_roles)
+        ? user.membership_roles.map(role => String(role).toLowerCase())
+        : [];
     return {
         valid: true,
-        name: String(user.name || 'Nexus Mods user'),
-        userId: Number(user.user_id) || null,
-        premium: Boolean(user.is_premium),
-        supporter: Boolean(user.is_supporter)
+        name: name || 'Nexus Mods user',
+        userId,
+        premium: roles.includes('premium'),
+        supporter: roles.includes('supporter')
     };
+}
+
+async function validateNexusAccessToken(accessToken) {
+    const token = String(accessToken || '').trim();
+    if (!/^[\x21-\x7e]{20,8192}$/.test(token)) {
+        const error = new Error('Nexus Mods authorization is required.');
+        error.code = 'NEXUS_AUTH_REQUIRED';
+        throw error;
+    }
+
+    const profile = decodeNexusOAuthProfile(token);
+    if (profile) return profile;
+
+    const error = new Error('Nexus Mods returned an OAuth token without a usable user profile.');
+    error.code = 'NEXUS_AUTH_FAILED';
+    throw error;
+}
+
+function createNexusManualDownloadError(cause) {
+    const error = new Error(
+        'Nexus Mods requires this download to be confirmed on its website. Non-premium accounts cannot request a direct API link.'
+    );
+    error.code = 'NEXUS_MANUAL_DOWNLOAD_REQUIRED';
+    if (Number.isInteger(cause?.status)) error.status = cause.status;
+    if (cause && Object.prototype.hasOwnProperty.call(cause, 'retryAfterMs')) {
+        error.retryAfterMs = cause.retryAfterMs;
+    }
+    if (cause && Object.prototype.hasOwnProperty.call(cause, 'retryAt')) {
+        error.retryAt = cause.retryAt;
+    }
+    if (cause && Object.prototype.hasOwnProperty.call(cause, 'quota')) {
+        error.quota = cause.quota;
+    }
+    return error;
 }
 
 async function browseNexus({ domain, query = '', sort = 'latest_added' }) {
@@ -579,10 +642,16 @@ async function getNexusPrimaryDownload({ domain, modId, accessToken }) {
         error.code = 'INVALID_MOD_SOURCE_ID';
         throw error;
     }
-    const fileResult = await nexusRequest(
-        `games/${encodeURIComponent(domain)}/mods/${numericModId}/files.json`,
-        accessToken
-    );
+    let fileResult;
+    try {
+        fileResult = await nexusRequest(
+            `games/${encodeURIComponent(domain)}/mods/${numericModId}/files.json`,
+            accessToken
+        );
+    } catch (error) {
+        if (Number(error?.status) === 403) throw createNexusManualDownloadError(error);
+        throw error;
+    }
     const files = Array.isArray(fileResult?.files) ? fileResult.files : [];
     const eligible = files.filter(file =>
         Number.isInteger(Number(file.file_id))
@@ -597,16 +666,20 @@ async function getNexusPrimaryDownload({ domain, modId, accessToken }) {
         throw error;
     }
 
-    const links = await nexusRequest(
-        `games/${encodeURIComponent(domain)}/mods/${numericModId}/files/${Number(selected.file_id)}/download_link.json`,
-        accessToken
-    );
+    let links;
+    try {
+        links = await nexusRequest(
+            `games/${encodeURIComponent(domain)}/mods/${numericModId}/files/${Number(selected.file_id)}/download_link.json`,
+            accessToken
+        );
+    } catch (error) {
+        if (Number(error?.status) === 403) throw createNexusManualDownloadError(error);
+        throw error;
+    }
     const link = (Array.isArray(links) ? links : []).find(item => item?.URI)?.URI;
     const downloadUrl = safeHttpsUrl(link, isNexusDownloadHost);
     if (!downloadUrl) {
-        const error = new Error('Nexus Mods did not return an approved download link. Non-premium users may need to download from the website.');
-        error.code = 'NEXUS_MANUAL_DOWNLOAD_REQUIRED';
-        throw error;
+        throw createNexusManualDownloadError();
     }
     const advertisedBytes = (Number(selected.size_kb || selected.size) || 0) * 1024;
     return {
@@ -656,6 +729,7 @@ module.exports = {
     parseNexusQuotaHeaders,
     parseRetryAfter,
     safeHttpsUrl,
+    decodeNexusOAuthProfile,
     nexusRequest,
     validateNexusAccessToken
 };

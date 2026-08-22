@@ -3,6 +3,7 @@
 
 pub mod import_download;
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use futures_util::StreamExt;
 use reqwest::{header, Method, StatusCode, Url};
 use serde::{Deserialize, Serialize};
@@ -406,6 +407,74 @@ pub struct NexusUser {
     pub is_supporter: Option<bool>,
 }
 
+fn parse_nexus_user_id(value: Option<&serde_json::Value>) -> Option<u64> {
+    match value {
+        Some(serde_json::Value::Number(value)) => value.as_u64(),
+        Some(serde_json::Value::String(value)) => value.parse().ok(),
+        _ => None,
+    }
+}
+
+/// Decode the display-only profile embedded in a Nexus OAuth access token.
+/// Nexus issues JWT access tokens whose `user` claims are also used by its
+/// official OAuth client. The legacy `/v1/users/validate.json` route accepts
+/// API keys, not these bearer tokens.
+pub fn decode_nexus_oauth_user(access_token: &str) -> Result<NexusUser, RuntimeError> {
+    let mut parts = access_token.split('.');
+    let (Some(_header), Some(payload), Some(_signature)) =
+        (parts.next(), parts.next(), parts.next())
+    else {
+        return Err(RuntimeError::Auth(
+            "Nexus OAuth token has no JWT payload".into(),
+        ));
+    };
+    if parts.next().is_some() || payload.is_empty() {
+        return Err(RuntimeError::Auth(
+            "Nexus OAuth token has an invalid JWT shape".into(),
+        ));
+    }
+    let payload = URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|_| RuntimeError::Auth("Nexus OAuth token payload is not valid base64".into()))?;
+    let payload: serde_json::Value = serde_json::from_slice(&payload)
+        .map_err(|_| RuntimeError::Auth("Nexus OAuth token payload is not valid JSON".into()))?;
+    let user = payload
+        .get("user")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| RuntimeError::Auth("Nexus OAuth token has no user profile".into()))?;
+    let user_id = parse_nexus_user_id(user.get("id").or_else(|| payload.get("sub")));
+    let name = user
+        .get("username")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            payload
+                .get("preferred_username")
+                .and_then(serde_json::Value::as_str)
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    if name.is_none() && user_id.is_none() {
+        return Err(RuntimeError::Auth(
+            "Nexus OAuth token has no usable user profile".into(),
+        ));
+    }
+    let roles = user
+        .get("membership_roles")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(|role| role.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    Ok(NexusUser {
+        name: Some(name.unwrap_or_else(|| "Nexus Mods user".to_owned())),
+        user_id,
+        is_premium: Some(roles.iter().any(|role| role == "premium")),
+        is_supporter: Some(roles.iter().any(|role| role == "supporter")),
+    })
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NexusFile {
     pub file_id: u64,
@@ -466,15 +535,7 @@ impl<'a> Nexus<'a> {
     }
 
     pub async fn validate(&self) -> Result<NexusUser, RuntimeError> {
-        self.client
-            .request_json(
-                Provider::Nexus,
-                Method::GET,
-                "https://api.nexusmods.com/v1/users/validate.json",
-                Some(Authentication::NexusBearer(self.credential()?)),
-                None,
-            )
-            .await
+        decode_nexus_oauth_user(self.credential()?)
     }
 
     pub async fn status(&self) -> Result<CurrentEnvelope<NexusStatus>, RuntimeError> {
@@ -804,6 +865,29 @@ mod tests {
             safe_remote_filename(Some("../archive.zip"), "fallback"),
             "fallback"
         );
+    }
+
+    #[test]
+    fn oauth_profile_is_decoded_without_legacy_api_validation() {
+        let encode =
+            |value: serde_json::Value| URL_SAFE_NO_PAD.encode(serde_json::to_vec(&value).unwrap());
+        let token = format!(
+            "{}.{}.signature",
+            encode(serde_json::json!({"alg": "RS256", "typ": "JWT"})),
+            encode(serde_json::json!({
+                "sub": "42",
+                "user": {
+                    "id": 42,
+                    "username": "Chara",
+                    "membership_roles": ["premium", "supporter"]
+                }
+            }))
+        );
+        let profile = decode_nexus_oauth_user(&token).unwrap();
+        assert_eq!(profile.name.as_deref(), Some("Chara"));
+        assert_eq!(profile.user_id, Some(42));
+        assert_eq!(profile.is_premium, Some(true));
+        assert_eq!(profile.is_supporter, Some(true));
     }
 
     #[test]
