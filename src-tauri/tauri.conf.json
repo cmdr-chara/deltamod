@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Deltamod Community",
-  "version": "2.0.10",
+  "version": "2.0.14",
   "identifier": "io.github.cmdr-chara.deltamod-community",
   "build": {
     "beforeBuildCommand": "npm run build:boot",
@@ -22,7 +22,9 @@
       }
     ],
     "security": {
-      "capabilities": ["default"],
+      "capabilities": [
+        "default"
+      ],
       "csp": {
         "default-src": "'self'",
         "script-src": "'self' 'unsafe-inline'",
@@ -42,37 +44,49 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "createUpdaterArtifacts": false,
     "publisher": "Deltamod Community contributors",
     "homepage": "https://github.com/cmdr-chara/deltamod",
     "copyright": "Copyright © 2026 Deltamod Community contributors",
     "shortDescription": "A GameMaker-compatible mod manager",
     "longDescription": "Deltamod Community is a community-maintained mod manager for supported GameMaker games.",
-    "icon": ["../build/icon-big.png"],
+    "icon": [
+      "../build/icon-big.png"
+    ],
     "license": "EUPL-1.2",
     "licenseFile": "../LICENSE.txt",
     "fileAssociations": [
       {
-        "ext": ["modarchive"],
+        "ext": [
+          "modarchive"
+        ],
         "name": "Deltamod Mod Archive",
         "description": "Deltamod Community mod package",
         "role": "Viewer",
         "mimeType": "application/x-deltamod-modarchive",
         "exportedType": {
           "identifier": "io.github.cmdrchara.deltamodcommunity.modarchive",
-          "conformsTo": ["public.data"]
+          "conformsTo": [
+            "public.data"
+          ]
         }
       },
       {
-        "ext": ["deltamod-open"],
+        "ext": [
+          "deltamod-open"
+        ],
         "name": "Deltamod Community Launch Request",
         "description": "Deltamod Community CLI launch request",
         "role": "Viewer",
         "mimeType": "application/x-deltamod-open",
         "exportedType": {
           "identifier": "io.github.cmdrchara.deltamodcommunity.open",
-          "conformsTo": ["public.data"]
+          "conformsTo": [
+            "public.data"
+          ]
         }
       }
     ],
@@ -82,7 +96,9 @@
         "sidebarImage": "../build/installer/installerSidebar.bmp",
         "uninstallerHeaderImage": "../build/installer/installerHeader.bmp",
         "installMode": "currentUser",
-        "languages": ["English"],
+        "languages": [
+          "English"
+        ],
         "displayLanguageSelector": false,
         "startMenuFolder": "Deltamod Community"
       }

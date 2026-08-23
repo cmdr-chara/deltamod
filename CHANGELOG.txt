@@ -1,3 +1,11 @@
+# Deltamod Community 2.0.14
+
+Released 2026-08-23.
+
+## Changes
+
+- docs: document source provenance and attribution (`241af9c`).
+
 # Deltamod Community 2.0.10
 
 Released 2026-08-14.
