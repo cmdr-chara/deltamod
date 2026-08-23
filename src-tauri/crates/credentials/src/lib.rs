@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt, sync::Arc};
 use thiserror::Error;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 pub const SCHEMA_VERSION: u32 = 1;
 pub const MAX_SECRET_BYTES: usize = 64 * 1024;
@@ -191,11 +191,13 @@ pub fn migrate_electron_blob<B: Backend, D: ElectronBlobDecryptor, M: ElectronBl
     if blob.len() > MAX_SECRET_BYTES {
         return Err(Error::SecretTooLarge);
     }
-    let decrypted = decryptor.decrypt(blob).map_err(|_| Error::Migration)?;
+    let decrypted = Zeroizing::new(decryptor.decrypt(blob).map_err(|_| Error::Migration)?);
     if decrypted.len() > MAX_SECRET_BYTES {
         return Err(Error::SecretTooLarge);
     }
-    let credentials = migrator.migrate(&decrypted).map_err(|_| Error::Migration)?;
+    let credentials = migrator
+        .migrate(decrypted.as_slice())
+        .map_err(|_| Error::Migration)?;
     let mut count = 0;
     for (kind, secret) in credentials {
         store.store(kind, secret)?;
