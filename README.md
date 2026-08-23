@@ -257,7 +257,7 @@ Build commands:
 | Tauri | `npm run build:tauri` |
 
 <details>
-<summary>Nexus integration details</summary>
+<summary>Technical details: Nexus integration</summary>
 
 Deltamod uses **OAuth 2.0 Authorization Code with PKCE S256** for Nexus Mods sign-in. The registered loopback callback is fixed at `http://127.0.0.1:52817/callback`; the client **never falls back to a dynamic port**.
 
