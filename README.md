@@ -256,6 +256,15 @@ Build commands:
 | macOS | `npm run build-macos` |
 | Tauri | `npm run build:tauri` |
 
+<details>
+<summary>Technical details: Nexus integration</summary>
+
+Deltamod uses **OAuth 2.0 Authorization Code with PKCE S256** for Nexus Mods sign-in. The registered loopback callback is fixed at `http://127.0.0.1:52817/callback`; the client **never falls back to a dynamic port**.
+
+Nexus catalogue browsing uses a **bounded result page** of 50 items and fetches only the requested page. Nexus quota handling honors `Retry-After` and quota reset metadata so requests can pause and retry instead of repeatedly hitting the API while limited.
+
+</details>
+
 Patching uses [G3MTool](https://github.com/y114git/G3MTool) and the [UndertaleModTool CLI](https://github.com/UnderminersTeam/UndertaleModTool). For contribution, release, and third-party details, see:
 
 - [CONTRIBUTING.md](./CONTRIBUTING.md)
