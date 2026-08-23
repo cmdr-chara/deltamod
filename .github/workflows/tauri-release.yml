@@ -237,6 +237,9 @@ jobs:
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
           test "${#artifacts[@]}" -eq 7
           (cd release-artifacts && find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+      - name: Prepare user-facing release notes
+        shell: bash
+        run: node scripts/render-release-notes.js "$GITHUB_REF_NAME" CHANGELOG.txt release-notes.md
       - name: Attest release artifacts
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
@@ -248,4 +251,4 @@ jobs:
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
           test "${#artifacts[@]}" -eq 8
-          gh release create "$GITHUB_REF_NAME" "${artifacts[@]}" --verify-tag --latest --notes-file CHANGELOG.txt --title "Deltamod Community ${GITHUB_REF_NAME#community-v} (unsigned)"
+          gh release create "$GITHUB_REF_NAME" "${artifacts[@]}" --verify-tag --latest --notes-file release-notes.md --title "Deltamod Community ${GITHUB_REF_NAME#community-v} (unsigned)"
