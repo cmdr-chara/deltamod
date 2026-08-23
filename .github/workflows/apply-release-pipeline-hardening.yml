@@ -1,0 +1,100 @@
+name: Apply release pipeline hardening
+
+on:
+  push:
+    branches:
+      - fix/release-publisher-recovery
+    paths:
+      - .github/workflows/apply-release-pipeline-hardening.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: fix/release-publisher-recovery
+          fetch-depth: 0
+
+      - name: Patch stable release and version-bump policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          release = Path('.github/workflows/tauri-release.yml')
+          text = release.read_text(encoding='utf-8')
+          marker = '      - name: Attest release artifacts\n'
+          notes_step = '''      - name: Prepare user-facing release notes
+        shell: bash
+        run: node scripts/render-release-notes.js "$GITHUB_REF_NAME" CHANGELOG.txt release-notes.md
+'''
+          if notes_step not in text:
+              if marker not in text:
+                  raise SystemExit('Could not locate release attestation step')
+              text = text.replace(marker, notes_step + marker, 1)
+          text = text.replace('--notes-file CHANGELOG.txt', '--notes-file release-notes.md')
+          release.write_text(text, encoding='utf-8')
+
+          ci = Path('.github/workflows/ci.yml')
+          text = ci.read_text(encoding='utf-8')
+          sha_expr = '$' + '{{ github.sha }}'
+          before_expr = '$' + '{{ github.event.before }}'
+          old_env = f'''        env:
+          VALIDATED_SHA: {sha_expr}
+'''
+          new_env = f'''        env:
+          VALIDATED_SHA: {sha_expr}
+          BEFORE_SHA: {before_expr}
+'''
+          if '          BEFORE_SHA:' not in text:
+              if old_env not in text:
+                  raise SystemExit('Could not locate stable-candidate environment block')
+              text = text.replace(old_env, new_env, 1)
+
+          old_release = '''          echo "release=true" >> "$GITHUB_OUTPUT"
+'''
+          gate = '''          if [ -n "$BEFORE_SHA" ] && ! [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            changed="$(git diff --name-only "$BEFORE_SHA" "$VALIDATED_SHA")"
+            release_relevant=false
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              case "$file" in
+                .github/*|docs/*|*.md|CHANGELOG.txt|scripts/archive-g3mtool-source.js|scripts/archive-undertale-mod-tool-source.js|scripts/render-release-notes.js)
+                  ;;
+                *)
+                  release_relevant=true
+                  break
+                  ;;
+              esac
+            done <<< "$changed"
+            if [ "$release_relevant" != "true" ]; then
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              echo "Only documentation or release-infrastructure files changed; no application release is required."
+              exit 0
+            fi
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+'''
+          if 'Only documentation or release-infrastructure files changed' not in text:
+              if old_release not in text:
+                  raise SystemExit('Could not locate stable release decision')
+              text = text.replace(old_release, gate, 1)
+          ci.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit hardened pipeline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/ci.yml .github/workflows/tauri-release.yml
+          git rm .github/workflows/apply-release-pipeline-hardening.yml
+          git commit -m "ci: harden stable release notes and bump policy"
+          git push origin HEAD:fix/release-publisher-recovery
