@@ -1031,7 +1031,7 @@ fn read_manifest(root: &Path, max_bytes: u64) -> Result<Manifest, ImportError> {
 }
 
 fn commit(source: PathBuf, destination: &Path, replacing: bool) -> Result<(), ImportError> {
-    commit_with_cleanup(source, destination, replacing, fs::remove_dir_all)
+    commit_with_cleanup(source, destination, replacing, |path| fs::remove_dir_all(path))
 }
 
 fn commit_with_cleanup<F>(
