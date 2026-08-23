@@ -1,0 +1,63 @@
+name: Temporary reliability trigger
+
+on:
+  push:
+    branches:
+      - fix/reliability-findings
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/reliability-findings
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply exact patch script
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/tmp-reliability-patch.yml').read_text().splitlines()
+          start = workflow.index("          python - <<'PY'") + 1
+          end = workflow.index("          PY", start)
+          source = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in workflow[start:end]
+          )
+          exec(compile(source, '<reliability-patch>', 'exec'))
+          PY
+
+          cargo fmt --all --manifest-path native/Cargo.toml
+          cargo fmt --all --manifest-path src-tauri/Cargo.toml
+
+          actual="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            native/core/src/patch_transaction.rs \
+            src-tauri/crates/archive-import-runtime/src/lib.rs \
+            src-tauri/crates/patching-runtime/src/lib.rs | sort)"
+          if [ "$actual" != "$expected" ]; then
+            echo "Unexpected changed files:" >&2
+            git status --short >&2
+            exit 1
+          fi
+      - name: Publish patch commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            native/core/src/patch_transaction.rs \
+            src-tauri/crates/archive-import-runtime/src/lib.rs \
+            src-tauri/crates/patching-runtime/src/lib.rs
+          git commit -m "fix: harden patch recovery and archive commits"
+          git push origin HEAD:fix/reliability-findings
