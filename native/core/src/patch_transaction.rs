@@ -1,5 +1,5 @@
-use std::fs;
-use std::io;
+use std::fs::{self, File};
+use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -159,11 +159,100 @@ pub fn validate(journal: &Journal, game_root: &Path) -> Result<(), TransactionEr
     Ok(())
 }
 
-fn write_journal(path: &Path, journal: &Journal) -> Result<(), TransactionError> {
+fn journal_backup_path(path: &Path) -> PathBuf {
+    path.with_extension("json.bak")
+}
+
+#[cfg(unix)]
+fn sync_parent(path: &Path) -> Result<(), TransactionError> {
+    let parent = path.parent().ok_or(TransactionError::Invalid)?;
+    File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_parent(_path: &Path) -> Result<(), TransactionError> {
+    Ok(())
+}
+
+fn read_journal_file(path: &Path) -> Result<Journal, TransactionError> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(TransactionError::Invalid);
+    }
+    serde_json::from_slice(&fs::read(path)?).map_err(|_| TransactionError::Invalid)
+}
+
+pub fn load_journal(path: &Path) -> Result<Option<Journal>, TransactionError> {
+    let backup = journal_backup_path(path);
+    if !path.exists() {
+        if !backup.exists() {
+            return Ok(None);
+        }
+        let metadata = fs::symlink_metadata(&backup)?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(TransactionError::Invalid);
+        }
+        fs::rename(&backup, path)?;
+        sync_parent(path)?;
+    }
+    let journal = read_journal_file(path)?;
+    if backup.exists() {
+        let _ = fs::remove_file(&backup);
+        let _ = sync_parent(path);
+    }
+    Ok(Some(journal))
+}
+
+pub fn write_journal(path: &Path, journal: &Journal) -> Result<(), TransactionError> {
     let bytes = serde_json::to_vec(journal).map_err(|_| TransactionError::Invalid)?;
+    let parent = path.parent().ok_or(TransactionError::Invalid)?;
+    fs::create_dir_all(parent)?;
     let temp = path.with_extension("json.tmp");
-    fs::write(&temp, &bytes)?;
-    fs::rename(temp, path)?;
+    let backup = journal_backup_path(path);
+
+    let mut file = File::create(&temp)?;
+    file.write_all(&bytes)?;
+    file.flush()?;
+    file.sync_all()?;
+    drop(file);
+
+    if !path.exists() && backup.exists() {
+        fs::rename(&backup, path)?;
+        sync_parent(path)?;
+    }
+
+    if !path.exists() {
+        fs::rename(&temp, path)?;
+        if let Err(error) = sync_parent(path) {
+            let _ = fs::remove_file(path);
+            let _ = fs::remove_file(&temp);
+            return Err(error);
+        }
+        return Ok(());
+    }
+
+    if backup.exists() {
+        fs::remove_file(&backup)?;
+    }
+    fs::rename(path, &backup)?;
+    if let Err(error) = sync_parent(path) {
+        let _ = fs::rename(&backup, path);
+        let _ = fs::remove_file(&temp);
+        return Err(error);
+    }
+    if let Err(error) = fs::rename(&temp, path) {
+        let _ = fs::rename(&backup, path);
+        let _ = fs::remove_file(&temp);
+        return Err(TransactionError::Io(error));
+    }
+
+    // Once the new primary exists, an fsync failure is no longer a failed
+    // transaction: the synced backup remains a recoverable fallback.
+    if sync_parent(path).is_ok() {
+        let _ = fs::remove_file(&backup);
+        let _ = sync_parent(path);
+    }
     Ok(())
 }
 
@@ -290,4 +379,48 @@ pub fn restore(
     fs::remove_dir_all(&backup_root).ok();
     fs::remove_file(journal_path)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_primary_recovers_from_backup_and_restores() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path();
+        let journal_path = game.join(".deltamod-community-patch-journal.json");
+        let backup_root = game.join(".deltamod-community-patch-backups").join("1-1");
+        fs::create_dir_all(&backup_root).unwrap();
+        fs::write(game.join("data.win"), b"patched").unwrap();
+        fs::write(backup_root.join("data.win"), b"original").unwrap();
+
+        let journal = Journal {
+            schema_version: 1,
+            transaction_id: "1-1".into(),
+            state: "patched".into(),
+            started_at: None,
+            completed_at: None,
+            operations: vec![Operation {
+                kind: "restore".into(),
+                target: "data.win".into(),
+                backup: Some("data.win".into()),
+                state: "applied".into(),
+            }],
+        };
+        write_journal(&journal_path, &journal).unwrap();
+
+        let fallback = journal_backup_path(&journal_path);
+        fs::rename(&journal_path, &fallback).unwrap();
+        assert!(!journal_path.exists());
+        assert!(fallback.exists());
+
+        let mut recovered = load_journal(&journal_path).unwrap().unwrap();
+        assert!(journal_path.exists());
+        assert!(!fallback.exists());
+        restore(game, &journal_path, &mut recovered).unwrap();
+
+        assert_eq!(fs::read(game.join("data.win")).unwrap(), b"original");
+        assert!(!journal_path.exists());
+    }
 }

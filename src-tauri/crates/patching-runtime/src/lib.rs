@@ -3,7 +3,7 @@
 use deltamod_hash_worker::Event as NativeHashEvent;
 use deltamod_native_core::{
     patch_plan::{validate_patch_plan, PatchCandidate, PatchPlanRequest, PatchPlatform, PatchType},
-    patch_transaction::{backup, restore, Journal},
+    patch_transaction::{backup, load_journal, restore, write_journal, Journal},
 };
 use deltamod_tools_runtime::{
     g3m_apply, g3m_merge, run_bounded, sha256_file, undertale_mod_cli, verify_tool, ToolKind,
@@ -580,7 +580,8 @@ impl Runtime {
         .map_err(|error| Error::Plan(error.to_string()))?;
         let journal_path = plan.game_root.join(JOURNAL_NAME);
         let mut journal = new_journal();
-        atomic_json(&journal_path, &journal)?;
+        write_journal(&journal_path, &journal)
+            .map_err(|error| Error::Transaction(error.to_string()))?;
         let result = self.commit_plan(
             &plan,
             &scripts,
@@ -595,7 +596,8 @@ impl Runtime {
             Ok(full_log) => {
                 journal.state = "patched".into();
                 journal.completed_at = Some(now_millis().to_string());
-                atomic_json(&journal_path, &journal)?;
+                write_journal(&journal_path, &journal)
+                    .map_err(|error| Error::Transaction(error.to_string()))?;
                 Ok(PatchResult {
                     patched: true,
                     log: String::new(),
@@ -1138,12 +1140,12 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<(), Error> {
 }
 fn restore_existing(root: &Path) -> Result<(), Error> {
     let path = root.join(JOURNAL_NAME);
-    if !path.exists() {
+    let Some(mut journal) =
+        load_journal(&path).map_err(|error| Error::Transaction(error.to_string()))?
+    else {
         return Ok(());
-    }
-    let mut journal: Journal =
-        serde_json::from_slice(&fs::read(&path)?).map_err(|e| Error::Transaction(e.to_string()))?;
-    restore(root, &path, &mut journal).map_err(|e| Error::Transaction(e.to_string()))
+    };
+    restore(root, &path, &mut journal).map_err(|error| Error::Transaction(error.to_string()))
 }
 fn atomic_json(path: &Path, value: &impl Serialize) -> Result<(), io::Error> {
     if let Some(parent) = path.parent() {

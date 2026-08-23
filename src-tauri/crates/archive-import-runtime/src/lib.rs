@@ -1031,6 +1031,18 @@ fn read_manifest(root: &Path, max_bytes: u64) -> Result<Manifest, ImportError> {
 }
 
 fn commit(source: PathBuf, destination: &Path, replacing: bool) -> Result<(), ImportError> {
+    commit_with_cleanup(source, destination, replacing, fs::remove_dir_all)
+}
+
+fn commit_with_cleanup<F>(
+    source: PathBuf,
+    destination: &Path,
+    replacing: bool,
+    cleanup_backup: F,
+) -> Result<(), ImportError>
+where
+    F: FnOnce(&Path) -> io::Result<()>,
+{
     if !replacing {
         return fs::rename(source, destination).map_err(ImportError::Io);
     }
@@ -1046,7 +1058,10 @@ fn commit(source: PathBuf, destination: &Path, replacing: bool) -> Result<(), Im
         let _ = fs::remove_dir_all(source);
         return Err(ImportError::Io(error));
     }
-    fs::remove_dir_all(backup_path)?;
+
+    // Publication already succeeded. Backup cleanup is best-effort so a
+    // cleanup failure cannot be reported as an installation failure.
+    let _ = cleanup_backup(&backup_path);
     Ok(())
 }
 
@@ -1303,6 +1318,24 @@ mod tests {
             fs::read(second.destination.join("__deltaID.json")).unwrap(),
             original
         );
+    }
+
+    #[test]
+    fn cleanup_failure_after_replace_does_not_report_commit_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("installed");
+        let source = root.path().join("replacement");
+        fs::create_dir(&destination).unwrap();
+        fs::create_dir(&source).unwrap();
+        fs::write(destination.join("value"), b"old").unwrap();
+        fs::write(source.join("value"), b"new").unwrap();
+
+        commit_with_cleanup(source, &destination, true, |_| {
+            Err(io::Error::other("injected cleanup failure"))
+        })
+        .unwrap();
+
+        assert_eq!(fs::read(destination.join("value")).unwrap(), b"new");
     }
 
     #[test]
