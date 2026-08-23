@@ -378,6 +378,12 @@ pub fn restore(
     }
     fs::remove_dir_all(&backup_root).ok();
     fs::remove_file(journal_path)?;
+    let fallback = journal_backup_path(journal_path);
+    if fallback.exists() {
+        let _ = fs::remove_file(&fallback);
+    }
+    let _ = fs::remove_file(journal_path.with_extension("json.tmp"));
+    let _ = sync_parent(journal_path);
     Ok(())
 }
 
@@ -422,5 +428,6 @@ mod tests {
 
         assert_eq!(fs::read(game.join("data.win")).unwrap(), b"original");
         assert!(!journal_path.exists());
+        assert!(!journal_backup_path(&journal_path).exists());
     }
 }
