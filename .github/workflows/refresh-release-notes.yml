@@ -1,0 +1,36 @@
+name: Refresh published release notes
+
+on:
+  push:
+    branches: [DeltaMaster]
+    paths:
+      - .github/release-notes/community-v*.md
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Sync curated notes to matching GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          notes_files=(.github/release-notes/community-v*.md)
+          test "${#notes_files[@]}" -gt 0
+          for notes in "${notes_files[@]}"; do
+            tag="$(basename "$notes" .md)"
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$notes"
+              echo "Updated release notes for $tag"
+            else
+              echo "$tag is not published; keeping the curated notes ready for later."
+            fi
+          done
