@@ -164,10 +164,11 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Refuse stale candidates
+      - name: Refuse stale or non-release candidates
         id: candidate
         env:
           VALIDATED_SHA: ${{ github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
         shell: bash
         run: |
           set -euo pipefail
@@ -178,6 +179,28 @@ jobs:
             echo "A newer DeltaMaster commit exists; its CI run owns the next release."
             exit 0
           fi
+
+          if [ -n "$BEFORE_SHA" ] && ! [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            changed="$(git diff --name-only "$BEFORE_SHA" "$VALIDATED_SHA")"
+            release_relevant=false
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              case "$file" in
+                .github/*|docs/*|*.md|CHANGELOG.txt|scripts/archive-g3mtool-source.js|scripts/archive-undertale-mod-tool-source.js|scripts/render-release-notes.js)
+                  ;;
+                *)
+                  release_relevant=true
+                  break
+                  ;;
+              esac
+            done <<< "$changed"
+            if [ "$release_relevant" != "true" ]; then
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              echo "Only documentation or release-infrastructure files changed; no application release is required."
+              exit 0
+            fi
+          fi
+
           echo "release=true" >> "$GITHUB_OUTPUT"
 
       - name: Resolve stable release version
@@ -243,7 +266,7 @@ jobs:
           pattern = r'(\[\[package\]\]\nname = "deltamod-tauri-shell"\nversion = ")[^"]+("\n)'
           text, count = re.subn(pattern, rf'\g<1>{version}\2', text, count=1)
           if count != 1:
-              raise SystemExit('could not update src-tauri/Cargo.lock shell version')
+            raise SystemExit('could not update src-tauri/Cargo.lock shell version')
           lock.write_text(text, encoding='utf-8')
 
           changelog = Path('CHANGELOG.txt')
