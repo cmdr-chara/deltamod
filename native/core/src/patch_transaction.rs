@@ -377,11 +377,11 @@ pub fn restore(
         write_journal(journal_path, journal)?;
     }
     fs::remove_dir_all(&backup_root).ok();
-    fs::remove_file(journal_path)?;
     let fallback = journal_backup_path(journal_path);
     if fallback.exists() {
-        let _ = fs::remove_file(&fallback);
+        fs::remove_file(&fallback)?;
     }
+    fs::remove_file(journal_path)?;
     let _ = fs::remove_file(journal_path.with_extension("json.tmp"));
     let _ = sync_parent(journal_path);
     Ok(())
