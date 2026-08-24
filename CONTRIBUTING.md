@@ -58,6 +58,16 @@ cargo test --workspace --locked --manifest-path src-tauri/Cargo.toml
 
 Release changes must also satisfy [RELEASE-GATE.md](./docs/RELEASE-GATE.md).
 
+## Contribution licensing
+
+Deltamod Community's covered software is distributed under **EUPL-1.2**. By submitting a contribution for inclusion in the repository, you represent that you own the contribution or otherwise have sufficient rights to provide it for distribution under **EUPL-1.2 on the same terms as the repository's covered work**.
+
+You retain copyright in your contribution. Submission does **not** assign your copyright to Deltamod Community or its maintainers.
+
+Do not submit code, assets, generated material, or other content copied from sources with incompatible, unclear, or unsatisfied licensing terms. Preserve required copyright, licence, attribution, patent, and trademark notices, and identify separately licensed material in the pull request.
+
+Read [LICENSING.md](./LICENSING.md) for the repository's licensing and compliance guide and [PROVENANCE.md](./PROVENANCE.md) before importing code from upstream or other projects.
+
 ## Pull requests
 
 1. Create a focused branch from `DeltaMaster`.
@@ -65,5 +75,6 @@ Release changes must also satisfy [RELEASE-GATE.md](./docs/RELEASE-GATE.md).
 3. Run the applicable verification commands locally.
 4. Explain what changed, why, how it was tested, and any remaining limitations.
 5. Keep commits reviewable and do not include secrets, personal data, copyrighted game files, or unrelated generated artifacts.
+6. Confirm that you have the right to submit the contribution and that any separately licensed material is clearly identified with its required notices.
 
-Maintainers may ask for changes when a contribution alters public behavior, security boundaries, packaging, licensing, or supported platforms.
+Maintainers may ask for changes when a contribution alters public behavior, security boundaries, packaging, licensing, provenance, or supported platforms.
