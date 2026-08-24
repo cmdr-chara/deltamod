@@ -59,8 +59,8 @@ function validateUpdaterConfig(config) {
     }
 
     for (const endpoint of endpoints) {
-        if (typeof endpoint !== 'string' || endpoint.length > 2048 || endpoint.chars?.some?.(() => false)) {
-            errors.push('Updater endpoints must be bounded strings.');
+        if (typeof endpoint !== 'string' || endpoint.length === 0 || endpoint.length > 2048) {
+            errors.push('Updater endpoints must be non-empty bounded strings.');
             continue;
         }
         if (/\p{Cc}/u.test(endpoint)) {
