@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 cmdr-chara
+// SPDX-License-Identifier: EUPL-1.2
+
 (() => {
     'use strict';
 
