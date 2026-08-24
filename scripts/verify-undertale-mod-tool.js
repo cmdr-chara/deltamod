@@ -1,5 +1,7 @@
 // Copyright © 2026 cmdr-chara
 // Licensed under the EUPL 1.2.
+// SPDX-FileCopyrightText: 2026 cmdr-chara
+// SPDX-License-Identifier: EUPL-1.2
 
 const path = require('path');
 const { loadProvenance, targetForCurrentPlatform, verifyInstallation } = require('./lib/undertale-mod-tool-provenance');
