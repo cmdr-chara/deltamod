@@ -40,6 +40,14 @@ For renderer and desktop integration changes:
 npm run test:e2e
 ```
 
+For provenance-sensitive changes from a full Git clone:
+
+```console
+node scripts/verify-community-provenance.js
+```
+
+The dedicated Community Provenance workflow reruns this check with full Git history and requires every registered original-work path to retain its SPDX notices and match its recorded file-introduction commit.
+
 For native workers:
 
 ```console
@@ -64,9 +72,11 @@ Deltamod Community's covered software is distributed under **EUPL-1.2**. By subm
 
 You retain copyright in your contribution. Submission does **not** assign your copyright to Deltamod Community or its maintainers.
 
-Do not submit code, assets, generated material, or other content copied from sources with incompatible, unclear, or unsatisfied licensing terms. Preserve required copyright, licence, attribution, patent, and trademark notices, and identify separately licensed material in the pull request.
+Do not submit code, assets, generated material, or other content copied from sources with incompatible, unclear, or unsatisfied licensing terms. Preserve required copyright, licence, attribution, patent, trademark, and SPDX notices, and identify separately licensed material in the pull request.
 
-Read [LICENSING.md](./LICENSING.md) for the repository's licensing and compliance guide and [PROVENANCE.md](./PROVENANCE.md) before importing code from upstream or other projects.
+If you add a new file that should be recorded as Community-original work, add an in-file SPDX copyright/licence notice and update [`ORIGINAL_WORK.md`](./ORIGINAL_WORK.md) plus [`provenance/community-original-work.json`](./provenance/community-original-work.json). Do not register inherited or mixed-history files as whole-file Community originals.
+
+Read [LICENSING.md](./LICENSING.md) for the repository's licensing and compliance guide, [COPYRIGHT.md](./COPYRIGHT.md) for ownership boundaries, and [PROVENANCE.md](./PROVENANCE.md) before importing code from upstream or other projects.
 
 ## Pull requests
 
@@ -76,5 +86,6 @@ Read [LICENSING.md](./LICENSING.md) for the repository's licensing and complianc
 4. Explain what changed, why, how it was tested, and any remaining limitations.
 5. Keep commits reviewable and do not include secrets, personal data, copyrighted game files, or unrelated generated artifacts.
 6. Confirm that you have the right to submit the contribution and that any separately licensed material is clearly identified with its required notices.
+7. Preserve registered SPDX notices and update the original-work evidence registry only when the new record is supported by Git history.
 
 Maintainers may ask for changes when a contribution alters public behavior, security boundaries, packaging, licensing, provenance, or supported platforms.
