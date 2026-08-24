@@ -12,6 +12,14 @@ Upstream Deltamod code remains attributable to its respective authors and subjec
 
 See [`PROVENANCE.md`](./PROVENANCE.md) for the recorded upstream licensing boundary and import policy, and [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) for bundled third-party material.
 
+## Community copyright and original-work evidence
+
+Selected Community-originated files carry explicit `SPDX-FileCopyrightText` and `SPDX-License-Identifier` notices. Their first-introduction evidence is recorded in [`ORIGINAL_WORK.md`](./ORIGINAL_WORK.md) and the machine-readable [`provenance/community-original-work.json`](./provenance/community-original-work.json) registry.
+
+[`COPYRIGHT.md`](./COPYRIGHT.md) explains the ownership boundary. The registry is intentionally conservative and non-exhaustive: it records whole-file origin only where Git history supports that claim and does not assert ownership of inherited or mixed-history upstream files.
+
+Repository CI verifies that registered files still contain their SPDX notices and that each recorded first commit actually added the registered path. These records improve traceability; they do not add restrictions beyond EUPL-1.2 or convert covered code into proprietary software.
+
 ## Redistribution and communication checklist
 
 Article 5 of EUPL-1.2 imposes obligations when covered copies or derivative works are distributed or communicated. In particular, a distributor should ensure that it:
