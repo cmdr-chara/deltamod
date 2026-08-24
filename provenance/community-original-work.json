@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "scope": "Conservative registry of files first introduced as new files in Deltamod Community history and carrying in-file SPDX notices.",
+  "copyrightHolder": "cmdr-chara",
+  "copyrightYear": 2026,
+  "license": "EUPL-1.2",
+  "entries": [
+    {
+      "path": "scripts/build-installer.js",
+      "firstCommit": "552b90adc50757317bf4c8e86b02b7fb8f0fde56",
+      "firstCommitDate": "2026-08-14",
+      "evidence": "added"
+    },
+    {
+      "path": "web/installer/index.js",
+      "firstCommit": "552b90adc50757317bf4c8e86b02b7fb8f0fde56",
+      "firstCommitDate": "2026-08-14",
+      "evidence": "added"
+    },
+    {
+      "path": "web/installer/index.html",
+      "firstCommit": "552b90adc50757317bf4c8e86b02b7fb8f0fde56",
+      "firstCommitDate": "2026-08-14",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/acquire-undertale-mod-tool.js",
+      "firstCommit": "3e936db6887d55fa8f27e4ad90745d2fae965c3a",
+      "firstCommitDate": "2026-08-08",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/lib/undertale-mod-tool-provenance.js",
+      "firstCommit": "3e936db6887d55fa8f27e4ad90745d2fae965c3a",
+      "firstCommitDate": "2026-08-08",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/smoke-game-patching-csx.js",
+      "firstCommit": "3e936db6887d55fa8f27e4ad90745d2fae965c3a",
+      "firstCommitDate": "2026-08-08",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/verify-undertale-mod-tool.js",
+      "firstCommit": "3e936db6887d55fa8f27e4ad90745d2fae965c3a",
+      "firstCommitDate": "2026-08-08",
+      "evidence": "added"
+    },
+    {
+      "path": "tests/undertale-mod-tool-provenance.test.js",
+      "firstCommit": "3e936db6887d55fa8f27e4ad90745d2fae965c3a",
+      "firstCommitDate": "2026-08-08",
+      "evidence": "added"
+    }
+  ]
+}
