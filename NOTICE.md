@@ -18,9 +18,13 @@ This repository contains modifications to the upstream work. The Git history rec
 
 Copyright, licence, patent, and trademark notices required by applicable licences should be preserved when redistributing the project.
 
+For a practical summary of EUPL redistribution, source-availability, copyleft, contribution, trademark, and termination obligations, see [`LICENSING.md`](./LICENSING.md). That guide is explanatory only and does not add restrictions to or replace the EUPL.
+
 ## Upstream and Community contributions
 
 Upstream work remains attributable to its respective authors and contributors. Community modifications remain attributable to their respective authors and contributors, subject to the applicable repository licence.
+
+Contributions submitted for inclusion in Deltamod Community are expected to be licensable and distributable under EUPL-1.2 on the same terms as the repository's covered work. Contributors retain copyright in their contributions; contribution does not constitute copyright assignment to Deltamod Community or its maintainers.
 
 For a documented source and licensing history, including the upstream boundary used for future import review, see [`PROVENANCE.md`](./PROVENANCE.md).
 
