@@ -11,6 +11,11 @@ const root = path.resolve(__dirname, '..');
 const configPath = path.join(root, 'src-tauri', 'tauri.conf.json');
 const releaseWorkflowPath = path.join(root, '.github', 'workflows', 'tauri-release.yml');
 const EXPECTED_ENDPOINT = 'https://github.com/cmdr-chara/deltamod/releases/latest/download/latest.json';
+const DANGEROUS_UPDATER_FLAGS = [
+    'dangerousInsecureTransportProtocol',
+    'dangerousAcceptInvalidCerts',
+    'dangerousAcceptInvalidHostnames'
+];
 
 function isRecord(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -22,8 +27,10 @@ function validateUpdaterConfig(config) {
     const updater = isRecord(config?.plugins?.updater) ? config.plugins.updater : null;
     const enabled = bundle.createUpdaterArtifacts === true;
 
-    if (updater?.dangerousInsecureTransportProtocol === true) {
-        errors.push('plugins.updater.dangerousInsecureTransportProtocol must never be enabled.');
+    for (const flag of DANGEROUS_UPDATER_FLAGS) {
+        if (updater?.[flag] === true) {
+            errors.push(`plugins.updater.${flag} must never be enabled.`);
+        }
     }
 
     if (!enabled) {
@@ -135,14 +142,26 @@ function selfTest() {
     assert.deepEqual(disabled.errors, []);
 
     const insecure = JSON.parse(JSON.stringify(safeConfig));
-    insecure.plugins.updater.endpoints = ['http://example.invalid/latest.json'];
+    insecure.plugins.updater.endpoints = ['http://user:pass@example.invalid/latest.json?channel=stable#unsafe'];
     insecure.plugins.updater.dangerousInsecureTransportProtocol = true;
+    insecure.plugins.updater.dangerousAcceptInvalidCerts = true;
+    insecure.plugins.updater.dangerousAcceptInvalidHostnames = true;
     insecure.plugins.updater.pubkey = 'BEGIN PRIVATE KEY';
     const insecureResult = verify(insecure, '');
     assert.ok(insecureResult.errors.some(error => error.includes('HTTPS')));
+    assert.ok(insecureResult.errors.some(error => error.includes('credentials')));
+    assert.ok(insecureResult.errors.some(error => error.includes('query or fragment')));
     assert.ok(insecureResult.errors.some(error => error.includes('private signing material')));
-    assert.ok(insecureResult.errors.some(error => error.includes('dangerousInsecureTransportProtocol')));
+    for (const flag of DANGEROUS_UPDATER_FLAGS) {
+        assert.ok(insecureResult.errors.some(error => error.includes(flag)));
+    }
     assert.ok(insecureResult.errors.some(error => error.includes('GitHub Actions secrets')));
+
+    const wrongEndpoint = JSON.parse(JSON.stringify(safeConfig));
+    wrongEndpoint.plugins.updater.endpoints = [
+        'https://github.com/cmdr-chara/deltamod/releases/latest/download/not-latest.json'
+    ];
+    assert.ok(verify(wrongEndpoint, safeWorkflow).errors.some(error => error.includes('exactly')));
 }
 
 function main() {
@@ -168,6 +187,7 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
+    DANGEROUS_UPDATER_FLAGS,
     EXPECTED_ENDPOINT,
     validateUpdaterConfig,
     validateReleaseWorkflow,
