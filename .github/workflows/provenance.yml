@@ -1,0 +1,23 @@
+name: Community Provenance
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-provenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Verify original-work records and SPDX notices
+        env:
+          REQUIRE_PROVENANCE_HISTORY: "1"
+        run: node scripts/verify-community-provenance.js
