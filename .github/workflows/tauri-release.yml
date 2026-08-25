@@ -155,11 +155,11 @@ jobs:
           - os: macos-15-intel
             target: x86_64-apple-darwin
             artifact: macos-x64-dmg
-            bundles: dmg
+            bundles: app,dmg
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: macos-arm64-dmg
-            bundles: dmg
+            bundles: app,dmg
     runs-on: ${{ matrix.os }}
     env:
       RUST_TARGET: ${{ matrix.target }}
