@@ -10,7 +10,17 @@ if (!fs.statSync(bundle).isDirectory()) throw new Error(`Artifact is not a direc
 const required = ['NOTICE.md', 'THIRD_PARTY_NOTICES.md'];
 function find(name) { const result = []; const visit = dir => { for (const entry of fs.readdirSync(dir, { withFileTypes: true })) { const file = path.join(dir, entry.name); if (entry.isDirectory()) visit(file); else if (entry.name === name) result.push(file); } }; visit(bundle); return result; }
 const config = JSON.parse(fs.readFileSync(path.join(root, 'src-tauri', 'tauri.conf.json'), 'utf8'));
-if (config.bundle.active !== true || config.bundle.createUpdaterArtifacts !== false) throw new Error('Bundle must be active with updater artifacts disabled for manual-download releases.');
+const updateCapable = target === 'x86_64-pc-windows-msvc'
+    || target === 'x86_64-apple-darwin'
+    || target === 'aarch64-apple-darwin';
+const platformConfig = updateCapable
+    ? JSON.parse(fs.readFileSync(path.join(root, 'src-tauri', target.includes('apple')
+        ? 'tauri.macos.conf.json' : 'tauri.windows.conf.json'), 'utf8'))
+    : null;
+if (config.bundle.active !== true || config.bundle.createUpdaterArtifacts !== false
+    || (updateCapable && platformConfig?.bundle?.createUpdaterArtifacts !== true)) {
+    throw new Error('Bundle updater policy does not match the target platform.');
+}
 if (config.bundle.license !== 'EUPL-1.2') throw new Error('Bundle license metadata is incorrect.');
 const expectedExtensions = {
   'x86_64-pc-windows-msvc': ['.exe'],
@@ -28,6 +38,18 @@ for (const extension of expectedExtensions) {
   if (!foundExtensions.has(extension)) throw new Error(`Bundle is missing the expected ${extension} artifact for ${target}.`);
 }
 if (packages.some(file => !path.basename(file).includes(config.version))) throw new Error(`A package filename does not contain version ${config.version}.`);
+const updaterSignatures = [];
+const visitSignatures = dir => { for (const entry of fs.readdirSync(dir, { withFileTypes: true })) { const file = path.join(dir, entry.name); if (entry.isDirectory()) visitSignatures(file); else if (entry.name.endsWith('.sig')) updaterSignatures.push(file); } };
+visitSignatures(bundle);
+if (updateCapable) {
+    if (updaterSignatures.length !== 1) throw new Error('Update-capable package must contain exactly one Tauri signature.');
+    const updaterArtifact = updaterSignatures[0].slice(0, -4);
+    if (!fs.existsSync(updaterArtifact) || fs.statSync(updaterArtifact).size > 512 * 1024 * 1024) {
+        throw new Error('Signed updater artifact is missing or exceeds 512 MiB.');
+    }
+} else if (updaterSignatures.length !== 0) {
+    throw new Error('Linux .deb package must not contain automatic updater signatures.');
+}
 const hasVisibleContents = required.every(file => find(file).length);
 if (hasVisibleContents) {
   const tools = target === 'aarch64-apple-darwin' ? ['G3MTool'] : ['G3MTool', 'UndertaleModCli'];

@@ -4,7 +4,7 @@ Deltamod Community treats automatic updates as a software-supply-chain boundary.
 
 ## Current state
 
-Automatic installation is intentionally disabled. Stable releases remain manual downloads while the signed updater path is completed.
+Stage 2 wires the official Tauri updater for packaged Windows and macOS builds. Linux remains manual-only because the stable package is `.deb`, while Tauri's supported Linux updater artifact is AppImage.
 
 The Tauri updater runtime already fails closed unless all of these conditions are true:
 
@@ -34,18 +34,17 @@ It also rejects insecure transport, credentials in update URLs, private signing 
 
 ## Rollout stages
 
-### Stage 0 — policy gate
+### Stage 0 — policy gate (complete)
 
 Implemented by this 2.1 security tranche:
 
-- automatic updates remain disabled;
 - CI validates the updater trust configuration;
 - unsafe or partially configured enablement fails the policy check;
 - the existing signed-update runtime remains the only permitted installation boundary.
 
 Rollback: remove the policy-only branch changes. Stable releases continue to work exactly as manual downloads.
 
-### Stage 1 — signing-key ceremony
+### Stage 1 — signing-key ceremony (complete)
 
 Before enabling updater artifacts:
 
@@ -57,17 +56,16 @@ Before enabling updater artifacts:
 
 The private key must never be placed in `tauri.conf.json`, a workflow literal, a release artifact, a test fixture, or a committed `.env` file.
 
-### Stage 2 — signed Windows and macOS updates
+### Stage 2 — signed Windows and macOS updates (implemented; promotion testing required)
 
-After the official updater dependency and generated Cargo lockfile are reviewed:
-
-- enable `bundle.createUpdaterArtifacts`;
+- `tauri-plugin-updater` is pinned and locked;
+- Windows and macOS platform overrides enable `bundle.createUpdaterArtifacts`; the base/Linux configuration keeps it disabled;
 - configure the canonical `latest.json` endpoint and updater public key;
 - build the updater artifacts and `.sig` files through the stable release workflow;
 - generate `latest.json` only from artifacts produced by that release;
 - publish the manifest, signatures, artifacts, SHA-256 manifest, and GitHub attestations together;
 - wire `fireUpdate`, `start-update`, `ignore-update`, updater status, and progress to the concrete Tauri updater adapter;
-- verify update and failure paths on Windows x64, macOS Intel, and macOS Apple Silicon before making checks automatic.
+- verify update and failure paths on Windows x64, macOS Intel, and macOS Apple Silicon before treating Stage 2 as release-ready.
 
 Promotion gate: signature mismatch, missing artifact, wrong version, oversized payload, interrupted download, or metadata failure must all leave the currently installed application runnable.
 
@@ -101,7 +99,7 @@ node scripts/verify-secure-updater-config.js --self-test
 node scripts/verify-secure-updater-config.js
 ```
 
-Updater runtime when host integration is introduced:
+Updater runtime:
 
 ```text
 cargo fmt --all --check --manifest-path src-tauri/Cargo.toml
@@ -111,6 +109,6 @@ cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.
 
 Release promotion must additionally exercise real signed artifacts on every platform enabled for automatic installation.
 
-## Explicit non-goals of Stage 0
+## Explicit non-goals of Stage 2
 
-This change does **not** claim that automatic updating is already available, that unsigned stable releases have become signed, or that rollback is complete. It establishes the policy and trust boundary required to enable those features without weakening the existing release security model.
+This change does **not** enable Linux `.deb` auto-update, replace operating-system code signing/notarization, or claim rollback and recovery testing are complete. Publication remains gated on real signed-artifact update tests for every enabled target.

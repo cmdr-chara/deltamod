@@ -10,6 +10,11 @@ const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '..');
 const configPath = path.join(root, 'src-tauri', 'tauri.conf.json');
 const releaseWorkflowPath = path.join(root, '.github', 'workflows', 'tauri-release.yml');
+const platformConfigPaths = {
+    windows: path.join(root, 'src-tauri', 'tauri.windows.conf.json'),
+    macos: path.join(root, 'src-tauri', 'tauri.macos.conf.json'),
+    linux: path.join(root, 'src-tauri', 'tauri.linux.conf.json')
+};
 const EXPECTED_ENDPOINT = 'https://github.com/cmdr-chara/deltamod/releases/latest/download/latest.json';
 const DANGEROUS_UPDATER_FLAGS = [
     'dangerousInsecureTransportProtocol',
@@ -111,12 +116,40 @@ function validateReleaseWorkflow(workflow, updaterEnabled) {
     if (!/latest\.json/.test(workflow)) {
         errors.push('Stable release workflow must publish the signed latest.json updater manifest.');
     }
+    if (!/\.sig/.test(workflow)) {
+        errors.push('Stable release workflow must collect Tauri signature files.');
+    }
     return errors;
 }
 
-function verify(config, workflow) {
-    const result = validateUpdaterConfig(config);
-    const errors = [...result.errors, ...validateReleaseWorkflow(workflow, result.enabled)];
+function validatePlatformBoundary(platforms) {
+    const errors = [];
+    for (const platform of ['windows', 'macos']) {
+        if (platforms?.[platform]?.bundle?.createUpdaterArtifacts !== true) {
+            errors.push(`${platform} must enable signed updater artifacts.`);
+        }
+    }
+    if (platforms?.linux?.bundle?.createUpdaterArtifacts === true) {
+        errors.push('Linux .deb releases must not enable automatic updater artifacts.');
+    }
+    return errors;
+}
+
+function verify(config, workflow, platforms = null) {
+    const platformEnabled = platforms && ['windows', 'macos']
+        .some(platform => platforms?.[platform]?.bundle?.createUpdaterArtifacts === true);
+    const effective = platformEnabled
+        ? { ...config, bundle: { ...config.bundle, createUpdaterArtifacts: true } }
+        : config;
+    const result = validateUpdaterConfig(effective);
+    const errors = [
+        ...result.errors,
+        ...(platforms && config?.bundle?.createUpdaterArtifacts !== false
+            ? ['Base configuration must keep updater artifacts disabled for Linux .deb builds.']
+            : []),
+        ...(platforms ? validatePlatformBoundary(platforms) : []),
+        ...validateReleaseWorkflow(workflow, result.enabled)
+    ];
     return { enabled: result.enabled, errors };
 }
 
@@ -133,9 +166,25 @@ function selfTest() {
     const safeWorkflow = [
         'env:',
         '  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}',
-        'run: publish latest.json'
+        'run: publish latest.json and collect .sig files'
     ].join('\n');
     assert.deepEqual(verify(safeConfig, safeWorkflow), { enabled: true, errors: [] });
+
+    const platformSafe = JSON.parse(JSON.stringify(safeConfig));
+    platformSafe.bundle.createUpdaterArtifacts = false;
+    const platforms = {
+        windows: { bundle: { createUpdaterArtifacts: true } },
+        macos: { bundle: { createUpdaterArtifacts: true } }
+    };
+    assert.deepEqual(verify(platformSafe, safeWorkflow, platforms), {
+        enabled: true,
+        errors: []
+    });
+    const linuxEnabled = { ...platforms, linux: { bundle: { createUpdaterArtifacts: true } } };
+    assert.ok(verify(platformSafe, safeWorkflow, linuxEnabled).errors
+        .some(error => error.includes('Linux .deb')));
+    assert.ok(verify(safeConfig, safeWorkflow, platforms).errors
+        .some(error => error.includes('Base configuration')));
 
     const disabled = verify({ bundle: { active: true, createUpdaterArtifacts: false } }, '');
     assert.equal(disabled.enabled, false);
@@ -172,8 +221,11 @@ function main() {
     }
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const platforms = Object.fromEntries(Object.entries(platformConfigPaths)
+        .filter(([, file]) => fs.existsSync(file))
+        .map(([platform, file]) => [platform, JSON.parse(fs.readFileSync(file, 'utf8'))]));
     const workflow = fs.readFileSync(releaseWorkflowPath, 'utf8');
-    const result = verify(config, workflow);
+    const result = verify(config, workflow, platforms);
     if (result.errors.length > 0) {
         for (const error of result.errors) console.error(`secure-updater: ${error}`);
         process.exitCode = 1;
@@ -189,6 +241,7 @@ if (require.main === module) main();
 module.exports = {
     DANGEROUS_UPDATER_FLAGS,
     EXPECTED_ENDPOINT,
+    validatePlatformBoundary,
     validateUpdaterConfig,
     validateReleaseWorkflow,
     verify

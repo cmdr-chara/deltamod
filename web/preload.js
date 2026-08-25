@@ -114,6 +114,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'fireUpdate',
     'start-update',
     'ignore-update',
+    'updater-status',
     'initialize',
     'modalTest',
     'openElectronTracer',
@@ -138,7 +139,9 @@ const ALLOWED_EVENT_CHANNELS = new Set([
     'winResAlert',
     'leave-controller-mode',
     'mod-source-progress',
-    'installer-progress'
+    'installer-progress',
+    'updater-status',
+    'updater-progress'
 ]);
 
 const ASSET_SCHEMES = Object.freeze({
@@ -230,7 +233,10 @@ contextBridge.exposeInMainWorld('communityAPI', {
     updates: {
         check: () => invoke('fireUpdate'),
         install: () => invoke('start-update'),
-        ignore: () => invoke('ignore-update')
+        ignore: () => invoke('ignore-update'),
+        status: () => invoke('updater-status'),
+        onStatus: callback => on('updater-status', callback),
+        onProgress: callback => on('updater-progress', callback)
     },
     tools: {
         undertaleModToolStatus: () => invoke('undertaleModTool:status'),
@@ -276,6 +282,8 @@ contextBridge.exposeInMainWorld('preloadAPI', {
     onAudio: callback => on('audio', callback),
     onGPL: callback => on('gplog', callback),
     onUpdateAvailable: callback => on('updateAvailable', callback),
+    onUpdaterStatus: callback => on('updater-status', callback),
+    onUpdaterProgress: callback => on('updater-progress', callback),
     onDDS: callback => on('du-progress', callback),
     onThemeChange: callback => on('themeChange', callback),
     onUpdateProgress: callback => on('updateProgress', callback),

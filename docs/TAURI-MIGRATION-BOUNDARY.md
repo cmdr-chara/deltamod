@@ -15,10 +15,11 @@ and macOS artifacts additionally require a valid platform signature from the
 expected publisher; users must never be directed to bypass operating-system
 security checks.
 
-Updater artifacts are intentionally disabled. The stable Tauri release and all
-subsequent updates are manual downloads from the official GitHub release page
-until a signed updater, update endpoint, and key-management process are
-configured and pass the release gate.
+Signed updater artifacts are enabled only for Windows NSIS and macOS app
+bundles. Their release metadata is generated from the matching `.sig` files and
+published with the existing checksums and GitHub attestations. Linux `.deb`
+remains manual-only and must report an unsupported updater gate until an
+AppImage distribution and recovery path are separately verified.
 
 The target staging script writes `src-tauri/binaries/` for the configured
 external binaries. Keep the native trees for the Electron fallback. The

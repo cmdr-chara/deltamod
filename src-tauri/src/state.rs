@@ -13,12 +13,15 @@ use deltamod_patching_runtime::{PlatformDefinition, Runtime as PatchingRuntime};
 use deltamod_profile_install_runtime::Runtime as ProfileRuntime;
 use deltamod_protocol_domain::{AssetRoots, PendingQueue};
 use deltamod_storage_domain::{DataRoot, ProfileStore};
+use deltamod_updater_launch_runtime::tauri_adapter::{
+    Adapter as TrustedUpdateAdapter, OfficialUpdaterPlugin,
+};
 use deltamod_updater_launch_runtime::{
     GameLifecycle, GameRuntime, GameRuntimeConfig, HostPlatform, SystemProcessSpawner,
-    SystemSteamOpener, UpdateAdapter, UpdateError, UpdateEvent, UpdateEventSink, UpdateInfo,
-    Updater, UpdaterGate, VerifiedArtifact,
+    SystemSteamOpener, UpdateError, UpdateEvent, UpdateEventSink, UpdateInfo, Updater, UpdaterGate,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{
     collections::{BTreeMap, HashMap},
     fs,
@@ -30,40 +33,120 @@ use std::{
     time::Duration,
 };
 use tauri::{Emitter, Manager};
+use tauri_plugin_updater::{Update as TauriUpdate, UpdaterExt};
 
-pub struct DisabledUpdateAdapter;
+const UPDATE_ENDPOINT: &str =
+    "https://github.com/cmdr-chara/deltamod/releases/latest/download/latest.json";
 
-impl UpdateAdapter for DisabledUpdateAdapter {
+pub(crate) struct DownloadedUpdate {
+    update: TauriUpdate,
+    bytes: Vec<u8>,
+}
+
+pub(crate) struct TauriUpdaterHost {
+    app: Option<tauri::AppHandle>,
+    pending: Option<TauriUpdate>,
+}
+
+impl TauriUpdaterHost {
+    fn new(app: Option<tauri::AppHandle>) -> Self {
+        Self { app, pending: None }
+    }
+
+    fn app(&self) -> Result<&tauri::AppHandle, UpdateError> {
+        self.app
+            .as_ref()
+            .ok_or_else(|| UpdateError::Adapter("updater is not configured".into()))
+    }
+}
+
+impl OfficialUpdaterPlugin for TauriUpdaterHost {
+    type VerifiedPayload = DownloadedUpdate;
+
     fn check(&mut self) -> Result<Option<UpdateInfo>, UpdateError> {
-        Err(UpdateError::Adapter("updater is not configured".into()))
+        let updater = self.app()?.updater().map_err(plugin_error)?;
+        let update = tauri::async_runtime::block_on(updater.check()).map_err(plugin_error)?;
+        self.pending = update;
+        self.pending
+            .as_ref()
+            .map(|update| UpdateInfo::available(update.version.clone(), update.body.clone()))
+            .transpose()
     }
 
     fn download_and_verify(
         &mut self,
-        _: &UpdateInfo,
-        _: u64,
-        _: &mut dyn FnMut(u64, Option<u64>) -> Result<(), UpdateError>,
-    ) -> Result<VerifiedArtifact, UpdateError> {
-        Err(UpdateError::Adapter("updater is not configured".into()))
+        info: &UpdateInfo,
+        max_bytes: u64,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> Result<(), UpdateError>,
+    ) -> Result<Self::VerifiedPayload, UpdateError> {
+        let update = self
+            .pending
+            .take()
+            .ok_or_else(|| UpdateError::Adapter("checked update is unavailable".into()))?;
+        if update.version != info.version {
+            return Err(UpdateError::VersionMismatch);
+        }
+        let mut progress_error = None;
+        let bytes = tauri::async_runtime::block_on(update.download(
+            |chunk, total| {
+                if progress_error.is_none() {
+                    progress_error = progress(chunk as u64, total).err();
+                }
+            },
+            || {},
+        ))
+        .map_err(plugin_error)?;
+        if let Some(error) = progress_error {
+            return Err(error);
+        }
+        if bytes.len() as u64 > max_bytes {
+            return Err(UpdateError::ArtifactTooLarge { limit: max_bytes });
+        }
+        Ok(DownloadedUpdate { update, bytes })
     }
 
-    fn install(&mut self, _: VerifiedArtifact) -> Result<(), UpdateError> {
-        Err(UpdateError::Adapter("updater is not configured".into()))
+    fn install_verified(&mut self, payload: &Self::VerifiedPayload) -> Result<(), UpdateError> {
+        payload.update.install(&payload.bytes).map_err(plugin_error)
+    }
+}
+
+fn plugin_error(error: tauri_plugin_updater::Error) -> UpdateError {
+    let message = error.to_string().chars().take(512).collect::<String>();
+    match error {
+        tauri_plugin_updater::Error::Minisign(_)
+        | tauri_plugin_updater::Error::Base64(_)
+        | tauri_plugin_updater::Error::SignatureUtf8(_) => {
+            UpdateError::SignatureVerification(message)
+        }
+        _ => UpdateError::Adapter(message),
     }
 }
 
 #[derive(Clone)]
-pub struct UpdateEvents(pub Arc<Mutex<Vec<UpdateEvent>>>);
+pub struct UpdateEvents(Option<tauri::AppHandle>);
 
 impl UpdateEventSink for UpdateEvents {
     fn emit(&self, event: UpdateEvent) {
-        if let Ok(mut events) = self.0.lock() {
-            events.push(event);
-        }
+        let Some(app) = &self.0 else { return };
+        let (name, payload) = match event {
+            UpdateEvent::Available(info) => (
+                "updateAvailable",
+                json!({"update": info.update, "version": info.version, "releaseName": info.release_name}),
+            ),
+            UpdateEvent::Status(status) => (
+                "updater-status",
+                json!({"state": status.state, "available": status.available, "supported": status.supported, "version": status.version, "reason": status.reason}),
+            ),
+            UpdateEvent::Progress(progress) => (
+                "updater-progress",
+                json!({"operationId": progress.operation_id, "phase": progress.phase, "completed": progress.completed, "total": progress.total, "percentage": progress.percentage}),
+            ),
+        };
+        let _ = app.emit(name, payload);
     }
 }
 
-pub type ShellUpdater = Updater<DisabledUpdateAdapter, UpdateEvents>;
+pub(crate) type ShellUpdater = Updater<TrustedUpdateAdapter<TauriUpdaterHost>, UpdateEvents>;
 
 struct TauriGameLifecycle(tauri::AppHandle);
 
@@ -121,7 +204,6 @@ pub struct AppState {
     pub patch_sequence: AtomicU64,
     pub game_store_path: PathBuf,
     pub updater: Mutex<ShellUpdater>,
-    pub updater_events: Arc<Mutex<Vec<UpdateEvent>>>,
 }
 
 impl AppState {
@@ -216,7 +298,7 @@ impl AppState {
         let game_store_path = selected_game_store(&data_root);
         let host = HostPlatform::current().map_err(|_| "game platform unavailable")?;
         let game_config = GameRuntimeConfig::new(app.join("games"), game_store_path.clone(), host);
-        let game = if let Some(app_handle) = app_handle {
+        let game = if let Some(app_handle) = app_handle.clone() {
             GameRuntime::with_adapters(
                 game_config,
                 Arc::new(SystemProcessSpawner),
@@ -227,11 +309,12 @@ impl AppState {
             GameRuntime::new(game_config)
         };
         let patching = patching_runtime(&data_root, &app, &game_store_path)?;
-        let updater_events = Arc::new(Mutex::new(Vec::new()));
+        let updater_app = app_handle.clone();
+        let updater_gate = updater_gate(app_handle.as_ref());
         let updater = Updater::new(
-            DisabledUpdateAdapter,
-            UpdateEvents(Arc::clone(&updater_events)),
-            UpdaterGate::disabled(),
+            TrustedUpdateAdapter(TauriUpdaterHost::new(updater_app.clone())),
+            UpdateEvents(updater_app),
+            updater_gate,
         );
         Ok(Self {
             data_root,
@@ -262,7 +345,6 @@ impl AppState {
             patch_sequence: AtomicU64::new(0),
             game_store_path,
             updater: Mutex::new(updater),
-            updater_events,
         })
     }
 
@@ -285,6 +367,48 @@ impl AppState {
         )
         .map_err(|_| "preferences unavailable")
     }
+}
+
+fn updater_gate(app: Option<&tauri::AppHandle>) -> UpdaterGate {
+    let Some(app) = app else {
+        return UpdaterGate::disabled();
+    };
+    let config = app.config();
+    let updater = config
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|value| value.as_object());
+    let endpoints = updater
+        .and_then(|value| value.get("endpoints"))
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let public_key = updater
+        .and_then(|value| value.get("pubkey"))
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let endpoints = if endpoints.as_slice() == [UPDATE_ENDPOINT] {
+        endpoints
+    } else {
+        Vec::new()
+    };
+    let updater_artifacts = matches!(
+        config.bundle.create_updater_artifacts,
+        tauri::utils::config::Updater::Bool(true)
+    );
+    UpdaterGate::configured(
+        !cfg!(debug_assertions),
+        cfg!(any(target_os = "windows", target_os = "macos")),
+        updater_artifacts,
+        &endpoints,
+        public_key,
+    )
 }
 
 fn packaged_game_download_catalog(
