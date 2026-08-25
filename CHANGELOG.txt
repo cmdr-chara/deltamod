@@ -1,3 +1,48 @@
+# Deltamod Community 2.0.15
+
+Released 2026-08-25.
+
+## Changes
+
+- fix(release): harden publishing and user-facing notes (`512708c`).
+- docs: make README user-first (`67b9f08`).
+- fix: harden recovery and import reliability (`0bdf9a0`).
+- Harden EUPL licensing and contribution compliance (`617aa94`).
+- docs: add community original-work provenance registry (`395de25`).
+- ci: verify community provenance evidence (`4b54554`).
+- docs: document community copyright ownership (`c7aa63b`).
+- docs: record original work evidence (`7aae905`).
+- ci: enforce original-work provenance (`104de8d`).
+- legal: add SPDX notice to community installer builder (`ba1baf7`).
+- legal: add SPDX notice to community installer UI (`6e8f63c`).
+- legal: add SPDX notice to community installer markup (`e1921bb`).
+- legal: add SPDX notice to UndertaleModTool acquisition code (`e1ed1a7`).
+- legal: add SPDX notice to provenance tooling (`640af38`).
+- legal: add SPDX notice to CSX smoke tooling (`e3920ad`).
+- legal: add SPDX notice to UndertaleModTool verification code (`3771db8`).
+- legal: add SPDX notice to provenance tests (`c335043`).
+- docs: link copyright and original-work evidence (`c7d77e8`).
+- docs: require preservation of SPDX provenance notices (`674daba`).
+- docs: document original-work provenance checks (`b3669a5`).
+- build(deps-dev): bump electron from 43.4.0 to 43.4.1 (#34) (`285fb43`).
+- build(deps-dev): bump vitest from 4.1.10 to 4.1.11 (#35) (`7f63298`).
+- build(deps): bump uuid from 1.24.0 to 1.24.1 in /src-tauri (#37) (`b8890aa`).
+- build(deps-dev): bump vite from 8.2.1 to 8.2.2 (#36) (`566dc7b`).
+- build(deps): bump sevenz-rust2 from 0.21.4 to 0.21.5 in /src-tauri (#38) (`6fc4fac`).
+- security: add signed updater policy gate (`98e6385`).
+- ci: enforce secure updater configuration (`bf22094`).
+- docs: define 2.1 secure update rollout (`baa4d3c`).
+- security: tighten updater endpoint validation (`c5cf922`).
+- docs: align updater integration with current stable state (`9947258`).
+- test: make secure updater policy part of required CI (`0c1d311`).
+- security: reject all updater TLS bypass flags (`d6a694e`).
+- feat: enable signed Tauri updater path (`efa82b1`).
+- ci: add isolated signed updater rehearsal (`07d00d1`).
+- fix: build macOS updater archives (`2ef51d4`).
+- fix: publish verifiable release checksums (`8c5f8ae`).
+- fix: select the next unused stable release tag (`10d53bf`).
+- Merge pull request #40 from cmdr-chara/feature/2.1-secure-updates (`a882423`).
+
 # Deltamod Community 2.0.10
 
 Released 2026-08-14.
