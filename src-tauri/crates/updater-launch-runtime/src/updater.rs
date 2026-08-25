@@ -80,6 +80,7 @@ impl VerifiedArtifact {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UpdaterGate {
     packaged: bool,
+    platform_supported: bool,
     updater_artifacts: bool,
     https_endpoint: bool,
     public_key: bool,
@@ -89,6 +90,7 @@ impl UpdaterGate {
     pub const fn disabled() -> Self {
         Self {
             packaged: false,
+            platform_supported: false,
             updater_artifacts: false,
             https_endpoint: false,
             public_key: false,
@@ -97,12 +99,14 @@ impl UpdaterGate {
 
     pub fn configured(
         packaged: bool,
+        platform_supported: bool,
         updater_artifacts: bool,
         endpoints: &[impl AsRef<str>],
         public_key: &str,
     ) -> Self {
         Self {
             packaged,
+            platform_supported,
             updater_artifacts,
             https_endpoint: !endpoints.is_empty()
                 && endpoints
@@ -113,12 +117,18 @@ impl UpdaterGate {
     }
 
     pub const fn supported(self) -> bool {
-        self.packaged && self.updater_artifacts && self.https_endpoint && self.public_key
+        self.packaged
+            && self.platform_supported
+            && self.updater_artifacts
+            && self.https_endpoint
+            && self.public_key
     }
 
     pub const fn reason(self) -> Option<&'static str> {
         if !self.packaged {
             Some("development-build")
+        } else if !self.platform_supported {
+            Some("unsupported-package")
         } else if !self.updater_artifacts {
             Some("updater-artifacts-disabled")
         } else if !self.https_endpoint {
@@ -506,6 +516,7 @@ mod tests {
         UpdaterGate::configured(
             true,
             true,
+            true,
             &["https://github.com/cmdr-chara/deltamod/releases/latest/download/latest.json"],
             "trusted public key",
         )
@@ -614,10 +625,23 @@ mod tests {
             "https://user@updates.example.com/latest.json",
             "https://updates.example.com/latest.json#fragment",
         ] {
-            let gate = UpdaterGate::configured(true, true, &[endpoint], "public key");
+            let gate = UpdaterGate::configured(true, true, true, &[endpoint], "public key");
             assert!(!gate.supported());
             assert_eq!(gate.reason(), Some("https-endpoint-required"));
         }
+    }
+
+    #[test]
+    fn updater_gate_rejects_packages_without_an_official_update_path() {
+        let gate = UpdaterGate::configured(
+            true,
+            false,
+            true,
+            &["https://github.com/cmdr-chara/deltamod/releases/latest/download/latest.json"],
+            "public key",
+        );
+        assert!(!gate.supported());
+        assert_eq!(gate.reason(), Some("unsupported-package"));
     }
 
     #[test]

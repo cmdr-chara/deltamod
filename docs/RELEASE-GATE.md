@@ -12,12 +12,12 @@ This gate applies to the stable Tauri release. The existing Electron release rem
 6. Each target stages five sidecars, each sidecar is non-empty, target-matched, executable on Unix, and invoked by its real JSON smoke test.
 7. The packaged app starts, shows the main window, reports the exact package version, persists one unique flag, loads the base theme, lists an installation, and returns a bounded error for an unknown IPC channel.
 8. The protocol smoke test registers `deltamod-community://`, launches a cold process with one deep link, confirms `protocol:rendererReady` receives the queued action, and confirms a second instance forwards the link instead of creating a second data root.
-9. Windows x64: clearly label the NSIS package unsigned, install and uninstall it, run a mod import and CSX patch smoke test, and verify all five sidecars.
-10. Linux x64: run the AppImage without installation, verify executable permissions, import a mod, run a G3MTool patch smoke test, and verify all five sidecars.
-11. macOS x64 and arm64: clearly label the DMG unsigned and unnotarized, verify the app bundle architecture, run the same persistence/protocol smoke tests, verify G3MTool, and mark UndertaleModTool CSX unavailable on arm64 rather than silently falling back.
+9. Windows x64: install and uninstall the NSIS package, verify its updater signature and a signed update from the previous stable version, run a mod import and CSX patch smoke test, and verify all five sidecars.
+10. Linux x64: install the `.deb`, confirm updater status is `unsupported-package`, import a mod, run a G3MTool patch smoke test, and verify all five sidecars.
+11. macOS x64 and arm64: verify the app bundle architecture, updater archive signature, and a signed update from the previous stable version; run the same persistence/protocol smoke tests, verify G3MTool, and mark UndertaleModTool CSX unavailable on arm64 rather than silently falling back.
 12. Compare the Tauri smoke results against the Electron release on the same fixture set. Any changed result is a release blocker unless documented in the release notes.
-13. Confirm `createUpdaterArtifacts` remains `false`, no updater endpoint is advertised, and release notes direct users to manually download future versions. Automatic updates remain blocked until a signed updater and key-management process are configured and tested.
-14. Generate `SHA256SUMS.txt` from the final seven release assets and attach it to the same GitHub release. State that checksums verify integrity but not publisher identity.
+13. Confirm updater artifacts are enabled only in the Windows/macOS platform overrides, `latest.json` contains exactly those three signed targets, and Linux `.deb` is absent.
+14. Generate `SHA256SUMS.txt` over every release asset, including signatures and `latest.json`, attach GitHub attestations, and state that checksums verify integrity but not publisher identity.
 
 ## Artifact and license checks
 

@@ -16,8 +16,8 @@
         'htmlAlert_outwin', 'shouldGoIM', 'sampleError',
         'rebootDev', 'setSponsor',
         'shakeCommunityWindowForEasterEgg', 'createInstallLink',
-        'undertaleModTool:openInstallation', 'gamebanana_downloadAllInCollection', 'start-update',
-        'ignore-update', 'getEditionByIndex', 'openFlagDatabase',
+        'undertaleModTool:openInstallation', 'gamebanana_downloadAllInCollection',
+        'getEditionByIndex', 'openFlagDatabase',
         'deltamoddersDiscord', 'canReportError', 'npsCallback', 'executeArgumentCmd', 'initialize',
         'modalTest', 'openElectronTracer', 'installDeltamodCLI'
     ]);
@@ -26,7 +26,7 @@
         'updateProgress', 'refresh', 'finishedPatch', 'dlmodURL-progress',
         'protocol-download-progress', 'profile-import-progress', 'game-import-progress',
         'hash-progress', 'winResAlert', 'leave-controller-mode', 'mod-source-progress',
-        'installer-progress'
+        'installer-progress', 'updater-status', 'updater-progress'
     ]);
 
     function invoke(channel, data = []) {
@@ -132,7 +132,10 @@
         updates: Object.freeze({
             check: () => invoke('fireUpdate'),
             install: () => invoke('start-update'),
-            ignore: () => invoke('ignore-update')
+            ignore: () => invoke('ignore-update'),
+            status: () => invoke('updater-status'),
+            onStatus: callback => on('updater-status', callback),
+            onProgress: callback => on('updater-progress', callback)
         }),
         tools: Object.freeze({
             undertaleModToolStatus: () => invoke('undertaleModTool:status'),
@@ -161,6 +164,8 @@
         onAudio: callback => on('audio', callback),
         onGPL: callback => on('gplog', callback),
         onUpdateAvailable: callback => on('updateAvailable', callback),
+        onUpdaterStatus: callback => on('updater-status', callback),
+        onUpdaterProgress: callback => on('updater-progress', callback),
         onDDS: callback => on('du-progress', callback),
         onThemeChange: callback => on('themeChange', callback),
         onUpdateProgress: callback => on('updateProgress', callback),

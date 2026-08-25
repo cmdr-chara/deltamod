@@ -119,6 +119,10 @@ describe('Tauri browser adapter', () => {
         expect(root.deltamodBackend.isCommandAvailable('cmode-off')).toBe(true);
         expect(root.deltamodBackend.isCommandAvailable('modSources:downloadNexus')).toBe(true);
         expect(root.deltamodBackend.isCommandAvailable('modSources:cancelNexusSso')).toBe(true);
+        expect(root.deltamodBackend.isCommandAvailable('fireUpdate')).toBe(true);
+        expect(root.deltamodBackend.isCommandAvailable('start-update')).toBe(true);
+        expect(root.deltamodBackend.isCommandAvailable('ignore-update')).toBe(true);
+        expect(root.deltamodBackend.isCommandAvailable('updater-status')).toBe(true);
         expect(root.deltamodBackend.isCommandAvailable('undertaleModTool:openInstallation')).toBe(false);
 
         root.__TAURI__.core.invoke.mockRejectedValueOnce(

@@ -259,7 +259,11 @@ impl FromStr for BackendChannel {
             | "precalcGameHashes"
             | "importMod"
             | "dlmodURL" => Self::Implemented(channel.to_owned()),
-            "undertaleModTool:status" | "fireUpdate" => Self::Implemented(channel.to_owned()),
+            "undertaleModTool:status"
+            | "fireUpdate"
+            | "start-update"
+            | "ignore-update"
+            | "updater-status" => Self::Implemented(channel.to_owned()),
             "htmlAlert_outwin"
             | "shouldGoIM"
             | "sampleError"
@@ -269,8 +273,6 @@ impl FromStr for BackendChannel {
             | "createInstallLink"
             | "undertaleModTool:openInstallation"
             | "gamebanana_downloadAllInCollection"
-            | "start-update"
-            | "ignore-update"
             | "getEditionByIndex"
             | "openFlagDatabase"
             | "deltamoddersDiscord"
@@ -787,29 +789,6 @@ fn emit_runtime_events(app: &AppHandle, state: &state::AppState) {
             let _ = app.emit(name, payload);
         }
     }
-    use deltamod_updater_launch_runtime::UpdateEvent;
-    let events = state
-        .updater_events
-        .lock()
-        .map(|mut events| events.drain(..).collect::<Vec<_>>())
-        .unwrap_or_default();
-    for event in events {
-        let (name, payload) = match event {
-            UpdateEvent::Available(info) => (
-                "updateAvailable",
-                json!({"update": info.update, "version": info.version, "releaseName": info.release_name}),
-            ),
-            UpdateEvent::Status(status) => (
-                "updater-status",
-                json!({"state": status.state, "available": status.available, "supported": status.supported, "version": status.version, "reason": status.reason}),
-            ),
-            UpdateEvent::Progress(progress) => (
-                "updater-progress",
-                json!({"operationId": progress.operation_id, "phase": progress.phase, "completed": progress.completed, "total": progress.total, "percentage": progress.percentage}),
-            ),
-        };
-        let _ = app.emit(name, payload);
-    }
 }
 
 #[tauri::command]
@@ -892,6 +871,7 @@ async fn backend_invoke(
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_opener::Builder::new()
                 .open_js_links_on_click(false)
@@ -984,6 +964,9 @@ mod tests {
             "leaveCommentGamebanana",
             "gamebanana_getCollections",
             "fireUpdate",
+            "start-update",
+            "ignore-update",
+            "updater-status",
         ] {
             assert!(matches!(
                 BackendChannel::from_str(channel),
@@ -1000,12 +983,10 @@ mod tests {
             BackendChannel::from_str("loginGamebanana"),
             Ok(BackendChannel::LoginGamebanana)
         );
-        for channel in ["executeArgumentCmd", "start-update"] {
-            assert!(matches!(
-                BackendChannel::from_str(channel),
-                Ok(BackendChannel::Unsupported(name)) if name == channel
-            ));
-        }
+        assert!(matches!(
+            BackendChannel::from_str("executeArgumentCmd"),
+            Ok(BackendChannel::Unsupported(name)) if name == "executeArgumentCmd"
+        ));
         assert!(BackendChannel::from_str("shell:open").is_err());
     }
     #[test]

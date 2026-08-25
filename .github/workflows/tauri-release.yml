@@ -5,6 +5,15 @@ on:
     tags:
       - community-v*
   workflow_dispatch:
+    inputs:
+      release_mode:
+        description: Publish a stable tag or an isolated signed-updater rehearsal
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - rehearsal
 
 permissions:
   contents: read
@@ -16,6 +25,10 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      release_version: ${{ steps.release.outputs.release_version }}
+      rehearsal: ${{ steps.release.outputs.rehearsal }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -56,28 +69,59 @@ jobs:
       - run: npm run acquire:undertale-mod-tool
       - run: npm run build:native-sidecars:target -- x86_64-unknown-linux-gnu
       - run: npm run build:tauri:resources -- x86_64-unknown-linux-gnu
-      - name: Validate stable tag and manifests
+      - name: Resolve release identity and validate manifests
+        id: release
         shell: bash
+        env:
+          RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.release_mode || 'stable' }}
         run: |
-          node <<'NODE'
+          set -euo pipefail
+          if [ "$RELEASE_MODE" = rehearsal ]; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$GITHUB_REF_TYPE" = branch
+            test "$GITHUB_REF_NAME" = feature/2.1-secure-updates
+            release_version="$(node -p "require('./package.json').version")"
+            release_tag="updater-rehearsal-v${release_version}-run-${GITHUB_RUN_ID}"
+            rehearsal=true
+          else
+            test "$RELEASE_MODE" = stable
+            test "$GITHUB_REF_TYPE" = tag
+            release_tag="$GITHUB_REF_NAME"
+            release_version="${release_tag#community-v}"
+            rehearsal=false
+          fi
+          RELEASE_TAG="$release_tag" RELEASE_VERSION="$release_version" node <<'NODE'
           const fs = require('node:fs');
-          const tag = process.env.GITHUB_REF_NAME;
-          const match = /^community-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(tag);
-          if (!match) throw new Error(`Stable tags must use community-v<stable semver>; received ${tag}`);
-          const tagVersion = match.slice(1).join('.');
+          const releaseTag = process.env.RELEASE_TAG;
+          const releaseVersion = process.env.RELEASE_VERSION;
+          if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(releaseVersion)) {
+            throw new Error(`Release version must be stable semver; received ${releaseVersion}`);
+          }
+          const stableTag = `community-v${releaseVersion}`;
+          const rehearsalTag = new RegExp(`^updater-rehearsal-v${releaseVersion.replaceAll('.', '\\.')}-run-\\d+$`);
+          if (releaseTag !== stableTag && !rehearsalTag.test(releaseTag)) {
+            throw new Error(`Release tag is not bound to ${releaseVersion}: ${releaseTag}`);
+          }
           const packageVersion = require('./package.json').version;
           const tauriVersion = require('./src-tauri/tauri.conf.json').version;
           const cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
           const cargoVersion = /^version\s*=\s*"([^"]+)"/m.exec(cargo)?.[1];
-          const versions = { tag: tagVersion, package: packageVersion, cargo: cargoVersion, tauri: tauriVersion };
-          if (Object.values(versions).some(version => version !== tagVersion)) {
+          const versions = { release: releaseVersion, package: packageVersion, cargo: cargoVersion, tauri: tauriVersion };
+          if (Object.values(versions).some(version => version !== releaseVersion)) {
             throw new Error(`Release requires every manifest and tag to match: ${JSON.stringify(versions)}`);
           }
           const config = require('./src-tauri/tauri.conf.json');
-          if (config.bundle?.active !== true || config.bundle?.createUpdaterArtifacts !== false) {
-            throw new Error('Bundling must be active and updater artifacts must remain disabled.');
+          const windows = require('./src-tauri/tauri.windows.conf.json');
+          const macos = require('./src-tauri/tauri.macos.conf.json');
+          if (config.bundle?.active !== true || config.bundle?.createUpdaterArtifacts !== false
+              || windows.bundle?.createUpdaterArtifacts !== true
+              || macos.bundle?.createUpdaterArtifacts !== true) {
+            throw new Error('Updater artifacts must be enabled only for Windows and macOS.');
           }
           NODE
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+          echo "rehearsal=$rehearsal" >> "$GITHUB_OUTPUT"
       - run: cargo fmt --all --check --manifest-path native/Cargo.toml
       - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
       - run: cargo test --workspace --locked --manifest-path native/Cargo.toml
@@ -111,11 +155,11 @@ jobs:
           - os: macos-15-intel
             target: x86_64-apple-darwin
             artifact: macos-x64-dmg
-            bundles: dmg
+            bundles: app,dmg
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: macos-arm64-dmg
-            bundles: dmg
+            bundles: app,dmg
     runs-on: ${{ matrix.os }}
     env:
       RUST_TARGET: ${{ matrix.target }}
@@ -168,7 +212,18 @@ jobs:
       - run: npm run build:tauri:resources -- ${{ matrix.target }}
       - run: npm run build:tauri:butler -- ${{ matrix.target }}
       - run: npm run verify:tauri-staging -- ${{ matrix.target }}
-      - name: Build unsigned manual-download bundle
+      - name: Build signed update-capable bundle
+        if: runner.os != 'Linux'
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: .
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Build Linux manual-download bundle
+        if: runner.os == 'Linux'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -176,6 +231,28 @@ jobs:
           projectPath: .
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
       - run: node scripts/verify-tauri-package.js "src-tauri/target/${{ matrix.target }}/release/bundle" "${{ matrix.target }}"
+      - name: Stage uniquely named updater release asset
+        if: runner.os != 'Linux'
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          shopt -s nullglob
+          if [[ "$BUILD_TARGET" == *windows* ]]; then
+            extension='.exe'
+            signatures=(src-tauri/target/"$BUILD_TARGET"/release/bundle/nsis/*.exe.sig)
+          else
+            extension='.app.tar.gz'
+            signatures=(src-tauri/target/"$BUILD_TARGET"/release/bundle/macos/*.app.tar.gz.sig)
+          fi
+          test "${#signatures[@]}" -eq 1
+          artifact="${signatures[0]%.sig}"
+          destination="updater-release/Deltamod-Community_${version}_${BUILD_TARGET}${extension}"
+          mkdir -p updater-release
+          cp "$artifact" "$destination"
+          cp "${artifact}.sig" "${destination}.sig"
       - name: Pin the setup payload digest
         if: runner.os == 'Windows'
         shell: pwsh
@@ -192,7 +269,7 @@ jobs:
           name: ${{ matrix.artifact }}
           if-no-files-found: error
           path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            updater-release/*
             dist/Deltamod Community Setup.exe
             src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
             src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
@@ -218,7 +295,7 @@ jobs:
             UndertaleModTool-0.9.1.2-source.zip
 
   publish:
-    needs: [package, third-party-source]
+    needs: [validate, package, third-party-source]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -231,24 +308,71 @@ jobs:
         with:
           path: release-artifacts
           merge-multiple: true
+      - name: Prepare signed updater metadata
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+        run: node scripts/generate-tauri-updater-manifest.js release-artifacts "$RELEASE_TAG" release-artifacts/latest.json "$RELEASE_VERSION"
       - name: Prepare SHA-256 manifest
         shell: bash
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
-          test "${#artifacts[@]}" -eq 7
-          (cd release-artifacts && find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          test "${#artifacts[@]}" -eq 13
+          (
+            cd release-artifacts
+            while IFS= read -r -d '' artifact; do
+              digest="$(sha256sum "$artifact")"
+              printf '%s  %s\n' "${digest%% *}" "$(basename "$artifact")"
+            done < <(find . -type f ! -name SHA256SUMS.txt -print0 | sort -z)
+          ) > release-artifacts/SHA256SUMS.txt
       - name: Prepare user-facing release notes
+        if: needs.validate.outputs.rehearsal != 'true'
         shell: bash
-        run: node scripts/render-release-notes.js "$GITHUB_REF_NAME" CHANGELOG.txt release-notes.md
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+        run: node scripts/render-release-notes.js "$RELEASE_TAG" CHANGELOG.txt release-notes.md
+      - name: Prepare rehearsal notes
+        if: needs.validate.outputs.rehearsal == 'true'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+        run: |
+          cat > release-notes.md <<EOF
+          # Signed updater rehearsal ${RELEASE_VERSION}
+
+          This prerelease is an isolated CI rehearsal from commit \`${GITHUB_SHA}\`.
+          It is not a stable release and is not served by the public \`releases/latest\` updater endpoint.
+
+          Rehearsal tag: \`${RELEASE_TAG}\`
+          EOF
       - name: Attest release artifacts
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: release-artifacts/*
-      - name: Publish stable manual-download release
+      - name: Publish stable signed release
+        if: needs.validate.outputs.rehearsal != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
         shell: bash
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
-          test "${#artifacts[@]}" -eq 8
-          gh release create "$GITHUB_REF_NAME" "${artifacts[@]}" --verify-tag --latest --notes-file release-notes.md --title "Deltamod Community ${GITHUB_REF_NAME#community-v} (unsigned)"
+          test "${#artifacts[@]}" -eq 14
+          gh release create "$RELEASE_TAG" "${artifacts[@]}" --verify-tag --latest --notes-file release-notes.md --title "Deltamod Community ${RELEASE_TAG#community-v}"
+      - name: Publish isolated signed updater rehearsal
+        if: needs.validate.outputs.rehearsal == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+        shell: bash
+        run: |
+          mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
+          test "${#artifacts[@]}" -eq 14
+          gh release create "$RELEASE_TAG" "${artifacts[@]}" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --notes-file release-notes.md \
+            --title "Signed updater rehearsal ${RELEASE_VERSION} (run ${GITHUB_RUN_ID})"
