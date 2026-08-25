@@ -25,10 +25,16 @@ function updaterTarget(file) {
     throw new Error(`Cannot determine macOS updater architecture: ${path.basename(file)}`);
 }
 
-function generate(directory, tag) {
+function generate(directory, tag, expectedVersion = null) {
     const match = /^community-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(tag);
-    if (!match) throw new Error(`Invalid stable release tag: ${tag}`);
-    const version = match.slice(1).join('.');
+    const version = expectedVersion || (match ? match.slice(1).join('.') : null);
+    if (!version || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
+        throw new Error(`Invalid stable release version for tag: ${tag}`);
+    }
+    const rehearsalTag = new RegExp(`^updater-rehearsal-v${version.replaceAll('.', '\\.')}-run-\\d+$`);
+    if (tag !== `community-v${version}` && !rehearsalTag.test(tag)) {
+        throw new Error(`Release tag is not bound to version ${version}: ${tag}`);
+    }
     const files = walk(directory);
     const signatures = files.filter(file => file.endsWith('.sig'));
     const platforms = {};
@@ -74,10 +80,11 @@ function main() {
     const directory = process.argv[2];
     const tag = process.argv[3];
     const output = process.argv[4] || path.join(directory || '', 'latest.json');
+    const version = process.argv[5] || null;
     if (!directory || !tag) {
-        throw new Error('Usage: generate-tauri-updater-manifest <artifact-directory> <community-vX.Y.Z> [output]');
+        throw new Error('Usage: generate-tauri-updater-manifest <artifact-directory> <release-tag> [output] [version]');
     }
-    const manifest = generate(path.resolve(directory), tag);
+    const manifest = generate(path.resolve(directory), tag, version);
     fs.writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'wx' });
     console.log(`Generated signed updater metadata for ${Object.keys(manifest.platforms).length} targets.`);
 }

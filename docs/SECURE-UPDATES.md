@@ -67,6 +67,12 @@ The private key must never be placed in `tauri.conf.json`, a workflow literal, a
 - wire `fireUpdate`, `start-update`, `ignore-update`, updater status, and progress to the concrete Tauri updater adapter;
 - verify update and failure paths on Windows x64, macOS Intel, and macOS Apple Silicon before treating Stage 2 as release-ready.
 
+The stable release workflow also has a manual `rehearsal` mode restricted to the
+`feature/2.1-secure-updates` branch. It uses the same signing, packaging, updater
+metadata, checksum, and attestation jobs, but publishes a uniquely tagged GitHub
+prerelease without `--latest`. Rehearsal metadata therefore remains downloadable
+for verification without changing the canonical `releases/latest` endpoint.
+
 Promotion gate: signature mismatch, missing artifact, wrong version, oversized payload, interrupted download, or metadata failure must all leave the currently installed application runnable.
 
 ### Stage 3 — Linux decision

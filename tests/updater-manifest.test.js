@@ -52,4 +52,26 @@ describe('Tauri updater manifest generation', () => {
             fs.rmSync(directory, { recursive: true, force: true });
         }
     });
+
+    it('binds rehearsal metadata to an isolated prerelease tag', () => {
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'deltamod-updater-'));
+        try {
+            for (const name of [
+                'Deltamod-Community_2.1.0_x86_64-pc-windows-msvc.exe',
+                'Deltamod-Community_2.1.0_x86_64-apple-darwin.app.tar.gz',
+                'Deltamod-Community_2.1.0_aarch64-apple-darwin.app.tar.gz'
+            ]) {
+                fs.writeFileSync(path.join(directory, name), 'signed payload');
+                fs.writeFileSync(path.join(directory, `${name}.sig`), 'trusted signature');
+            }
+            const manifest = generate(directory, 'updater-rehearsal-v2.1.0-run-12345', '2.1.0');
+            expect(manifest.version).toBe('2.1.0');
+            expect(manifest.platforms['windows-x86_64'].url)
+                .toContain('/updater-rehearsal-v2.1.0-run-12345/');
+            expect(Object.keys(manifest.platforms).some(target => target.startsWith('linux-'))).toBe(false);
+            expect(() => generate(directory, 'community-v2.1.1', '2.1.0')).toThrow(/not bound/);
+        } finally {
+            fs.rmSync(directory, { recursive: true, force: true });
+        }
+    });
 });
