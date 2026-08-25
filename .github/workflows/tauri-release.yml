@@ -319,7 +319,13 @@ jobs:
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
           test "${#artifacts[@]}" -eq 13
-          (cd release-artifacts && find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (
+            cd release-artifacts
+            while IFS= read -r -d '' artifact; do
+              digest="$(sha256sum "$artifact")"
+              printf '%s  %s\n' "${digest%% *}" "$(basename "$artifact")"
+            done < <(find . -type f ! -name SHA256SUMS.txt -print0 | sort -z)
+          ) > release-artifacts/SHA256SUMS.txt
       - name: Prepare user-facing release notes
         if: needs.validate.outputs.rehearsal != 'true'
         shell: bash
