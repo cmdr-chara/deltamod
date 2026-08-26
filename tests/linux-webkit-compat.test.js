@@ -86,6 +86,15 @@ function linuxTauriRoot({ mode = null, codecSupport = 'probably' } = {}) {
     };
 }
 
+function themeVideo(FakeMediaElement) {
+    const video = new FakeMediaElement(
+        'tauri://localhost/themes/video/chara-theme.mp4',
+        'VIDEO'
+    );
+    video.id = 'theme-background-video';
+    return video;
+}
+
 describe('Linux WebKitGTK compatibility', () => {
     it('bridges custom-scheme audio without refetching the same element source', async () => {
         const { root, FakeMediaElement, CompatibleURL, nativePlay } = linuxTauriRoot();
@@ -147,7 +156,7 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(root.DeltamodLinuxCompat.snapshot().revokedObjectUrls).toBe(1);
     });
 
-    it('releases a bridged media element when load() empties it', async () => {
+    it('releases a bridged audio element when load() empties it', async () => {
         const { root, FakeMediaElement, CompatibleURL } = linuxTauriRoot();
         installMediaCompatibility(root);
         const audio = new FakeMediaElement('themeprot://asset/ch5.mp3', 'AUDIO');
@@ -158,84 +167,101 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(CompatibleURL.revokeObjectURL).toHaveBeenCalledWith('blob:deltamod-media-1');
     });
 
-    it('keeps video on native streaming in auto mode so failures can use the poster fallback', async () => {
-        const { root, FakeMediaElement, nativePlay } = linuxTauriRoot();
+    it('blocks theme background video immediately in auto mode', async () => {
+        const { root, FakeMediaElement, CompatibleURL, nativePlay } = linuxTauriRoot();
         installMediaCompatibility(root);
-        const video = new FakeMediaElement(
-            'tauri://localhost/themes/video/chara-theme.mp4',
-            'VIDEO'
-        );
-
-        await expect(video.play()).resolves.toBe('played');
-        expect(root.fetch).not.toHaveBeenCalled();
-        expect(nativePlay).toHaveBeenCalledTimes(1);
-        expect(root.DeltamodLinuxCompat.snapshot().videoDirectPlays).toBe(1);
-    });
-
-    it('blocks the theme background video in performance mode', async () => {
-        const { root, FakeMediaElement } = linuxTauriRoot({ mode: 'performance' });
-        installMediaCompatibility(root);
-        const video = new FakeMediaElement(
-            'tauri://localhost/themes/video/chara-theme.mp4',
-            'VIDEO'
-        );
-        video.id = 'theme-background-video';
+        const video = themeVideo(FakeMediaElement);
 
         await expect(video.play()).rejects.toMatchObject({
             name: 'NotSupportedError',
-            code: 'DELTAMOD_LINUX_PERFORMANCE_VIDEO_DISABLED'
+            code: 'DELTAMOD_LINUX_THEME_VIDEO_DISABLED'
         });
         expect(root.fetch).not.toHaveBeenCalled();
+        expect(CompatibleURL.createObjectURL).not.toHaveBeenCalled();
+        expect(nativePlay).not.toHaveBeenCalled();
+        expect(root.DeltamodLinuxCompat.forcesPosterVideo()).toBe(true);
         expect(root.DeltamodLinuxCompat.snapshot().videoBlocks).toBe(1);
     });
 
-    it('rejects H.264/AAC theme video early when WebKitGTK reports no codec support', async () => {
-        const { root, FakeMediaElement } = linuxTauriRoot({ codecSupport: '' });
+    it('blocks theme background video in performance mode too', async () => {
+        const { root, FakeMediaElement, CompatibleURL, nativePlay } = linuxTauriRoot({ mode: 'performance' });
         installMediaCompatibility(root);
-        const video = new FakeMediaElement(
-            'tauri://localhost/themes/video/chara-theme.mp4',
-            'VIDEO'
-        );
-        video.id = 'theme-background-video';
+        const video = themeVideo(FakeMediaElement);
+
+        await expect(video.play()).rejects.toMatchObject({
+            code: 'DELTAMOD_LINUX_THEME_VIDEO_DISABLED'
+        });
+        expect(root.fetch).not.toHaveBeenCalled();
+        expect(CompatibleURL.createObjectURL).not.toHaveBeenCalled();
+        expect(nativePlay).not.toHaveBeenCalled();
+        expect(root.DeltamodLinuxCompat.forcesPosterVideo()).toBe(true);
+    });
+
+    it('uses native streamed theme video in quality mode and never Blob-buffers it', async () => {
+        const { root, FakeMediaElement, CompatibleURL, nativePlay } = linuxTauriRoot({ mode: 'quality' });
+        installMediaCompatibility(root);
+        const video = themeVideo(FakeMediaElement);
+
+        await expect(video.play()).resolves.toBe('played');
+        expect(root.fetch).not.toHaveBeenCalled();
+        expect(CompatibleURL.createObjectURL).not.toHaveBeenCalled();
+        expect(nativePlay).toHaveBeenCalledTimes(1);
+        expect(root.DeltamodLinuxCompat.forcesPosterVideo()).toBe(false);
+        const snapshot = root.DeltamodLinuxCompat.snapshot();
+        expect(snapshot.videoDirectPlays).toBe(1);
+        expect(snapshot.videoBlobLoads).toBe(0);
+    });
+
+    it('keeps non-theme custom-scheme video native in every mode', async () => {
+        const { root, FakeMediaElement, CompatibleURL, nativePlay } = linuxTauriRoot();
+        installMediaCompatibility(root);
+        const video = new FakeMediaElement('packet://pack/video/preview.mp4', 'VIDEO');
+
+        await expect(video.play()).resolves.toBe('played');
+        expect(root.fetch).not.toHaveBeenCalled();
+        expect(CompatibleURL.createObjectURL).not.toHaveBeenCalled();
+        expect(nativePlay).toHaveBeenCalledTimes(1);
+        expect(root.DeltamodLinuxCompat.snapshot().videoBlobLoads).toBe(0);
+    });
+
+    it('rejects H.264/AAC quality video early when WebKitGTK reports no codec support', async () => {
+        const { root, FakeMediaElement, CompatibleURL, nativePlay } = linuxTauriRoot({
+            mode: 'quality',
+            codecSupport: ''
+        });
+        installMediaCompatibility(root);
+        const video = themeVideo(FakeMediaElement);
 
         await expect(video.play()).rejects.toMatchObject({
             name: 'NotSupportedError',
             code: 'DELTAMOD_LINUX_VIDEO_CODEC_UNAVAILABLE'
         });
         expect(root.fetch).not.toHaveBeenCalled();
+        expect(CompatibleURL.createObjectURL).not.toHaveBeenCalled();
+        expect(nativePlay).not.toHaveBeenCalled();
         expect(root.DeltamodLinuxCompat.snapshot().videoCodecBlocks).toBe(1);
         expect(root.console.warn).toHaveBeenCalledWith(expect.stringContaining('gst-libav'));
     });
 
-    it('only Blob-bridges video when quality mode is explicitly selected', async () => {
-        const { root, FakeMediaElement, CompatibleURL } = linuxTauriRoot({ mode: 'quality' });
-        installMediaCompatibility(root);
-        const video = new FakeMediaElement(
-            'tauri://localhost/themes/video/chara-theme.mp4',
-            'VIDEO'
-        );
-
-        await expect(video.play()).resolves.toBe('played');
-        expect(root.fetch).toHaveBeenCalledTimes(1);
-        expect(CompatibleURL.createObjectURL).toHaveBeenCalledTimes(1);
-        expect(root.DeltamodLinuxCompat.snapshot().videoBlobLoads).toBe(1);
-    });
-
-    it('persists mode and applies Linux performance classes', () => {
+    it('persists mode and only reduces visual effects in performance mode', () => {
         const { root, classes, storage } = linuxTauriRoot();
         installMediaCompatibility(root);
 
         expect(classes.has('deltamod-linux-webkit')).toBe(true);
-        expect(classes.has('deltamod-linux-reduced-effects')).toBe(true);
+        expect(classes.has('deltamod-linux-reduced-effects')).toBe(false);
         expect(classes.has('deltamod-linux-performance')).toBe(false);
+        expect(root.DeltamodLinuxCompat.usesReducedEffects()).toBe(false);
 
         root.DeltamodLinuxCompat.setMode('performance');
         expect(storage.get('deltamodLinuxMediaMode')).toBe('performance');
         expect(classes.has('deltamod-linux-performance')).toBe(true);
+        expect(classes.has('deltamod-linux-reduced-effects')).toBe(true);
+        expect(root.DeltamodLinuxCompat.usesReducedEffects()).toBe(true);
 
         root.DeltamodLinuxCompat.setMode('quality');
         expect(classes.has('deltamod-linux-reduced-effects')).toBe(false);
         expect(classes.has('deltamod-linux-performance')).toBe(false);
+        expect(root.DeltamodLinuxCompat.usesReducedEffects()).toBe(false);
     });
 
     it('does not patch media playback outside Linux Tauri', () => {
