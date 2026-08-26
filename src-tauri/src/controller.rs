@@ -1,7 +1,7 @@
-#[path = "local_import.rs"]
-mod local_import;
 #[path = "linux_webkit.rs"]
 mod linux_webkit;
+#[path = "local_import.rs"]
+mod local_import;
 
 use deltamod_tools_runtime::{
     controller_mode_launch, verify_tool, OwnedProcess, ProcessRegistry, ToolKind,
