@@ -1,21 +1,49 @@
-/* Linux/WebKitGTK compatibility overrides.
- * Activated by media-compat.js only inside the Tauri Linux renderer. */
+/* Linux/WebKitGTK compatibility and performance overrides.
+ * media-compat.js adds the classes only inside the Tauri Linux renderer. */
 
 html.deltamod-linux-webkit {
     color-scheme: dark;
 }
 
-html.deltamod-linux-webkit * {
+/* Keep normal UI copy readable. Pixel smoothing is scoped to actual Pixel UI
+ * instead of disabling antialiasing for Geist/Calibri everywhere. */
+html.deltamod-linux-webkit body,
+html.deltamod-linux-webkit .calibri,
+html.deltamod-linux-webkit p,
+html.deltamod-linux-webkit small,
+html.deltamod-linux-webkit td,
+html.deltamod-linux-webkit table,
+html.deltamod-linux-webkit input,
+html.deltamod-linux-webkit textarea {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+html.deltamod-linux-webkit h1,
+html.deltamod-linux-webkit h2,
+html.deltamod-linux-webkit h3,
+html.deltamod-linux-webkit h4,
+html.deltamod-linux-webkit button,
+html.deltamod-linux-webkit select,
+html.deltamod-linux-webkit th,
+html.deltamod-linux-webkit .setting-title {
     -webkit-font-smoothing: none;
     -moz-osx-font-smoothing: auto;
-    font-smoothing: none;
+    text-rendering: geometricPrecision;
+}
+
+html.deltamod-linux-webkit button,
+html.deltamod-linux-webkit input,
+html.deltamod-linux-webkit select,
+html.deltamod-linux-webkit textarea {
+    color-scheme: dark;
+    color: white;
 }
 
 html.deltamod-linux-webkit select {
-    color-scheme: dark;
     -webkit-appearance: none;
     appearance: none;
-    color: white;
     background-color: rgb(15, 15, 15);
     padding-right: 34px;
     background-image:
@@ -33,4 +61,65 @@ html.deltamod-linux-webkit select optgroup {
     color-scheme: dark;
     color: white;
     background-color: rgb(15, 15, 15);
+}
+
+html.deltamod-linux-webkit input[type="checkbox"],
+html.deltamod-linux-webkit input[type="radio"] {
+    color-scheme: dark;
+    accent-color: var(--theme-color);
+}
+
+/* Auto and Performance modes remove effects that force expensive offscreen
+ * composition in WebKitGTK. Quality mode leaves the original CSS untouched. */
+html.deltamod-linux-reduced-effects {
+    --panel-blur: 0px;
+}
+
+html.deltamod-linux-reduced-effects table,
+html.deltamod-linux-reduced-effects .alertMsg,
+html.deltamod-linux-reduced-effects .sidebar,
+html.deltamod-linux-reduced-effects .topbar,
+html.deltamod-linux-reduced-effects .options-page .opt,
+html.deltamod-linux-reduced-effects .viewport .cat {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+}
+
+html.deltamod-linux-reduced-effects .sidebar,
+html.deltamod-linux-reduced-effects .topbar {
+    background-color: rgba(18, 18, 20, 0.82);
+}
+
+html.deltamod-linux-reduced-effects .alertMsg {
+    background-color: rgba(8, 8, 10, 0.9);
+}
+
+html.deltamod-linux-reduced-effects .ingranaggio-wheel {
+    animation: none !important;
+}
+
+html.deltamod-linux-reduced-effects .ingranaggio-main {
+    transform: rotate(18deg);
+}
+
+html.deltamod-linux-reduced-effects .ingranaggio-secondary,
+html.deltamod-linux-reduced-effects .ingranaggio-tertiary {
+    transform: rotate(-12deg);
+}
+
+html.deltamod-linux-reduced-effects body.deltamod-ui-entering > .bg,
+html.deltamod-linux-reduced-effects body.deltamod-ui-entering > .theme-background-video,
+html.deltamod-linux-reduced-effects body.deltamod-ui-entering > .dmodicon,
+html.deltamod-linux-reduced-effects body.deltamod-ui-entering > .topbar,
+html.deltamod-linux-reduced-effects body.deltamod-ui-entering > .viewport,
+html.deltamod-linux-reduced-effects body.deltamod-ui-entering > .sidebar,
+html.deltamod-linux-reduced-effects body.deltamod-ui-entering > .language-wheel-toggle {
+    transition-duration: 180ms !important;
+    transition-delay: 0ms !important;
+}
+
+/* Explicit Performance mode never composites a live theme video. The current
+ * theme code receives the play() rejection and uses its poster + audio fallback. */
+html.deltamod-linux-performance .theme-background-video {
+    display: none !important;
 }
