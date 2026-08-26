@@ -121,6 +121,39 @@ describe('Linux runtime polish', () => {
         expect(root.DeltamodLinuxRuntimePolish.snapshot().stallFallbacks).toBe(1);
     });
 
+    it('falls back when a native theme video drops at least 20% of sampled frames', async () => {
+        const { root } = baseRoot();
+        const listeners = new Map();
+        let sample = { totalVideoFrames: 100, droppedVideoFrames: 0 };
+        let frameCheck = null;
+        const video = {
+            hidden: false,
+            paused: false,
+            dataset: { source: 'tauri://localhost/themes/video/chara-theme.mp4' },
+            src: 'tauri://localhost/themes/video/chara-theme.mp4',
+            currentSrc: '',
+            addEventListener: vi.fn((name, callback) => listeners.set(name, callback)),
+            getVideoPlaybackQuality: vi.fn(() => sample)
+        };
+        const background = {};
+        root.document.getElementById = vi.fn(id => id === 'theme-background-video' ? video : null);
+        root.document.querySelector = vi.fn(selector => selector === '.bg' ? background : null);
+        root.fallBackFromThemeVideo = vi.fn(() => Promise.resolve());
+        root.setInterval = vi.fn(callback => { frameCheck = callback; return 1; });
+
+        installLinuxRuntimePolish(root);
+        sample = { totalVideoFrames: 200, droppedVideoFrames: 25 };
+        frameCheck();
+        await Promise.resolve();
+
+        expect(root.fallBackFromThemeVideo).toHaveBeenCalledWith(
+            video,
+            background,
+            'excessive dropped frames (25/100) on Linux WebKitGTK'
+        );
+        expect(root.DeltamodLinuxRuntimePolish.snapshot().droppedFrameFallbacks).toBe(1);
+    });
+
     it('adds a Linux-only rendering-mode selector to the Interface options', async () => {
         const { root, compat } = baseRoot();
         let mode = 'auto';
