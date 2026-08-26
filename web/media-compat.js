@@ -46,6 +46,25 @@
         }
     }
 
+    function mediaSourceFor(element) {
+        const assignedSource = element.src
+            || element.getAttribute?.('src')
+            || element.currentSrc;
+
+        if (needsCompatibilitySource(assignedSource)) return assignedSource;
+
+        const absoluteAssignedSource = normalizeSource(assignedSource);
+        const originalSource = element.dataset?.deltamodOriginalMediaSource;
+        if (absoluteAssignedSource?.startsWith('blob:') && originalSource) {
+            return originalSource;
+        }
+
+        if (originalSource && element.dataset && absoluteAssignedSource) {
+            delete element.dataset.deltamodOriginalMediaSource;
+        }
+        return assignedSource;
+    }
+
     function objectUrlFor(source) {
         const absolute = normalizeSource(source);
         if (!absolute) return Promise.reject(new TypeError('Invalid media source.'));
@@ -75,11 +94,7 @@
     }
 
     MediaElement.prototype.play = function patchedPlay(...args) {
-        const source = this.dataset?.deltamodOriginalMediaSource
-            || this.currentSrc
-            || this.src
-            || this.getAttribute?.('src');
-
+        const source = mediaSourceFor(this);
         if (!needsCompatibilitySource(source)) {
             return nativePlay.apply(this, args);
         }
