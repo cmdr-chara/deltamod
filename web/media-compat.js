@@ -19,9 +19,12 @@
     const html = root.document?.documentElement;
     const diagnostics = {
         audioBlobLoads: 0,
+        sharedAudioBlobLoads: 0,
+        sharedAudioCacheHits: 0,
         videoBlobLoads: 0,
         videoDirectPlays: 0,
         videoBlocks: 0,
+        videoCodecBlocks: 0,
         revokedObjectUrls: 0,
         lastError: null
     };
@@ -42,6 +45,7 @@
     const cleanupAttached = new WeakSet();
     const objectUrls = new Set();
     const bridgedVideos = new Set();
+    const sharedAudioObjectUrls = new Map();
 
     function toggleClass(name, enabled) {
         if (html?.classList?.toggle) {
@@ -163,7 +167,7 @@
     function releaseElementObjectUrl(element, { keepOriginal = false } = {}) {
         const state = elementStates.get(element);
         if (!state) return;
-        revokeObjectUrl(state.objectUrl);
+        if (!state.shared) revokeObjectUrl(state.objectUrl);
         if (state.kind === 'video') bridgedVideos.delete(element);
         elementStates.delete(element);
         if (!keepOriginal && element.dataset) {
@@ -175,8 +179,61 @@
         if (cleanupAttached.has(element) || !element?.addEventListener) return;
         cleanupAttached.add(element);
         element.addEventListener('ended', () => {
-            if (!element.loop) releaseElementObjectUrl(element, { keepOriginal: true });
+            const retainBlob = element.dataset?.deltamodRetainMediaBlob === 'true';
+            if (!element.loop && !retainBlob) {
+                releaseElementObjectUrl(element, { keepOriginal: true });
+            }
         });
+        element.addEventListener('emptied', () => {
+            releaseElementObjectUrl(element);
+        });
+    }
+
+    function fetchObjectUrl(absolute, kind) {
+        return fetchAsset(absolute)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Media request failed with HTTP ${response.status}.`);
+                }
+                return response.blob();
+            })
+            .then(blob => {
+                const objectUrl = Url.createObjectURL(blob);
+                objectUrls.add(objectUrl);
+                diagnostics[kind === 'video' ? 'videoBlobLoads' : 'audioBlobLoads'] += 1;
+                return objectUrl;
+            });
+    }
+
+    function isReusableAppSfxSource(absolute) {
+        try {
+            const parsed = new Url(absolute);
+            return parsed.protocol === 'tauri:'
+                && parsed.hostname === 'localhost'
+                && /^\/audio\/[^/]+\.(?:mp3|ogg|wav)$/i.test(parsed.pathname);
+        } catch {
+            return false;
+        }
+    }
+
+    function sharedAudioObjectUrlFor(absolute) {
+        const cached = sharedAudioObjectUrls.get(absolute);
+        if (cached) {
+            diagnostics.sharedAudioCacheHits += 1;
+            return cached;
+        }
+
+        const pending = fetchObjectUrl(absolute, 'audio')
+            .then(objectUrl => {
+                diagnostics.sharedAudioBlobLoads += 1;
+                return objectUrl;
+            })
+            .catch(error => {
+                sharedAudioObjectUrls.delete(absolute);
+                throw error;
+            });
+        sharedAudioObjectUrls.set(absolute, pending);
+        return pending;
     }
 
     function objectUrlFor(element, source, kind) {
@@ -191,24 +248,20 @@
             releaseElementObjectUrl(element);
         }
 
-        const state = { source: absolute, kind, objectUrl: null, pending: null };
+        const shared = kind === 'audio' && isReusableAppSfxSource(absolute);
+        const state = { source: absolute, kind, objectUrl: null, pending: null, shared };
         if (kind === 'video') bridgedVideos.add(element);
-        const pending = fetchAsset(absolute)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`Media request failed with HTTP ${response.status}.`);
-                }
-                return response.blob();
-            })
-            .then(blob => {
+        const pending = (shared
+            ? sharedAudioObjectUrlFor(absolute)
+            : fetchObjectUrl(absolute, kind))
+            .then(objectUrl => {
                 if (elementStates.get(element) !== state) {
-                    throw new Error('Media source changed while the Blob bridge was loading.');
+                    const error = new Error('Media source changed while the Blob bridge was loading.');
+                    error.code = 'DELTAMOD_MEDIA_SOURCE_CHANGED';
+                    throw error;
                 }
-                const objectUrl = Url.createObjectURL(blob);
-                objectUrls.add(objectUrl);
                 state.objectUrl = objectUrl;
                 state.pending = null;
-                diagnostics[kind === 'video' ? 'videoBlobLoads' : 'audioBlobLoads'] += 1;
                 return objectUrl;
             })
             .catch(error => {
@@ -238,6 +291,29 @@
         return error;
     }
 
+    function supportsThemeVideoCodecs(element, source) {
+        if (!isThemeBackgroundVideo(element) || typeof element?.canPlayType !== 'function') {
+            return true;
+        }
+        try {
+            const parsed = new Url(source);
+            if (!/\.mp4$/i.test(parsed.pathname)) return true;
+        } catch {
+            return true;
+        }
+        return Boolean(element.canPlayType('video/mp4; codecs="avc1.4D401E, mp4a.40.2"'));
+    }
+
+    function codecVideoError(source) {
+        const error = new Error(
+            `Linux WebKitGTK cannot decode the theme H.264/AAC video (${source}). `
+            + 'Install the platform GStreamer codec plugin (Arch: gst-libav) or use Performance mode.'
+        );
+        error.name = 'NotSupportedError';
+        error.code = 'DELTAMOD_LINUX_VIDEO_CODEC_UNAVAILABLE';
+        return error;
+    }
+
     MediaElement.prototype.play = function patchedPlay(...args) {
         const currentState = elementStates.get(this);
         const assignedSource = normalizeSource(this.src || this.getAttribute?.('src') || this.currentSrc);
@@ -258,6 +334,14 @@
         if (kind === 'video' && mode === 'performance' && isThemeBackgroundVideo(this)) {
             diagnostics.videoBlocks += 1;
             const error = performanceVideoError(absolute);
+            diagnostics.lastError = error.code;
+            root.console?.warn?.(error.message);
+            return Promise.reject(error);
+        }
+
+        if (kind === 'video' && !supportsThemeVideoCodecs(this, absolute)) {
+            diagnostics.videoCodecBlocks += 1;
+            const error = codecVideoError(absolute);
             diagnostics.lastError = error.code;
             root.console?.warn?.(error.message);
             return Promise.reject(error);
@@ -288,6 +372,7 @@
 
     root.addEventListener?.('pagehide', () => {
         for (const objectUrl of [...objectUrls]) revokeObjectUrl(objectUrl);
+        sharedAudioObjectUrls.clear();
     }, { once: true });
 
     return 'active';
