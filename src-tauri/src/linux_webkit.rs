@@ -1,6 +1,5 @@
 use std::{
-    env,
-    fs,
+    env, fs,
     path::{Path, PathBuf},
     sync::Once,
 };
@@ -75,9 +74,8 @@ fn plan_environment(
     existing: ExistingEnvironment,
     mode: RequestedMode,
 ) -> EnvironmentPlan {
-    let risk_detected = probe.has_intel_or_amd_drm
-        && !probe.has_nvidia_drm
-        && probe.has_native_nvidia_userspace;
+    let risk_detected =
+        probe.has_intel_or_amd_drm && !probe.has_nvidia_drm && probe.has_native_nvidia_userspace;
 
     let mut plan = EnvironmentPlan {
         mode,
@@ -152,10 +150,7 @@ fn drm_probe(root: &Path) -> (bool, bool) {
 }
 
 fn mesa_egl_vendor() -> Option<PathBuf> {
-    const DIRECTORIES: &[&str] = &[
-        "/etc/glvnd/egl_vendor.d",
-        "/usr/share/glvnd/egl_vendor.d",
-    ];
+    const DIRECTORIES: &[&str] = &["/etc/glvnd/egl_vendor.d", "/usr/share/glvnd/egl_vendor.d"];
 
     for directory in DIRECTORIES {
         let Ok(entries) = fs::read_dir(directory) else {
@@ -311,9 +306,7 @@ mod tests {
             has_intel_or_amd_drm,
             has_nvidia_drm,
             has_native_nvidia_userspace,
-            mesa_egl_vendor: Some(PathBuf::from(
-                "/usr/share/glvnd/egl_vendor.d/50_mesa.json",
-            )),
+            mesa_egl_vendor: Some(PathBuf::from("/usr/share/glvnd/egl_vendor.d/50_mesa.json")),
         }
     }
 
@@ -329,9 +322,7 @@ mod tests {
         assert!(!plan.disable_dmabuf);
         assert_eq!(
             plan.pin_mesa_egl,
-            Some(PathBuf::from(
-                "/usr/share/glvnd/egl_vendor.d/50_mesa.json"
-            ))
+            Some(PathBuf::from("/usr/share/glvnd/egl_vendor.d/50_mesa.json"))
         );
     }
 
