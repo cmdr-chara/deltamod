@@ -160,6 +160,7 @@ describe('Linux menu audio request coordination', () => {
         installLinuxMenuAudio(root);
         root.switchMenuAudioSource(firstSource);
         const firstPlay = audio.play();
+        const firstPlayRejection = expect(firstPlay).rejects.toMatchObject({ name: 'AbortError' });
         root.switchMenuAudioSource(secondSource);
         const secondPlay = audio.play();
 
@@ -169,7 +170,7 @@ describe('Linux menu audio request coordination', () => {
         await completeFetch(fetches[1]);
         await expect(secondPlay).resolves.toBe('played');
         await completeFetch(fetches[0]);
-        await expect(firstPlay).rejects.toMatchObject({ name: 'AbortError' });
+        await firstPlayRejection;
 
         expect(revoked).toHaveLength(1);
         expect(root.console.warn).not.toHaveBeenCalledWith(
@@ -183,6 +184,20 @@ describe('Linux menu audio request coordination', () => {
         const { root, audio, fetches, switchCalls } = linuxMenuAudioRoot();
         const source = 'tauri://localhost/web/themes/mus/chara-theme.mp3';
         const nativeBridgePlay = audio.play;
+
+        const renderer = fs.readFileSync(path.join(projectRoot, 'web', 'index.js'), 'utf8');
+        const fallbackSource = renderer.slice(
+            renderer.indexOf('async function fallBackFromThemeVideo'),
+            renderer.indexOf('window._onClosePage')
+        );
+        const renderPageSource = renderer.slice(
+            renderer.indexOf('async function renderPage'),
+            renderer.indexOf('/**\n * ==========================================\n * Global Window Listeners')
+        );
+        expect(fallbackSource).toContain('switchMenuAudioSource(');
+        expect(fallbackSource).toContain('audio.play()');
+        expect(renderPageSource).toContain('switchMenuAudioSource(');
+        expect(renderPageSource).toContain('audio.play()');
 
         installLinuxMenuAudio(root);
 
