@@ -27,16 +27,18 @@ describe('Linux WebKitGTK startup guard', () => {
             .toBeLessThan(installProtocols.indexOf('#[cfg(target_os = "macos")]'));
     });
 
-    it('only auto-pins Mesa for a non-NVIDIA DRM GPU contaminated by NVIDIA userspace', () => {
+    it('only auto-pins Mesa for a non-NVIDIA DRM GPU with native NVIDIA userspace', () => {
         const guard = source('src-tauri/src/linux_webkit.rs');
 
         expect(guard).toContain('"0x8086" | "0x1002" => has_intel_or_amd = true');
         expect(guard).toContain('"0x10de" => has_nvidia = true');
         expect(guard).toContain('libnvidia-eglcore.so');
         expect(guard).toContain('libnvidia-gpucomp.so');
-        expect(guard).toContain('libegl_nvidia');
+        expect(guard).toContain('libEGL_nvidia.so');
         expect(guard).toContain('libegl_mesa');
         expect(guard).toContain('env::set_var(EGL_VENDOR_VAR, path.as_os_str());');
+        expect(guard).toContain('Deliberately do not');
+        expect(guard).toContain('inspect /usr/lib32');
 
         const autoRisk = guard.slice(
             guard.indexOf('RequestedMode::Auto if risk_detected =>'),
@@ -60,6 +62,7 @@ describe('Linux WebKitGTK startup guard', () => {
             '__NV_PRIME_RENDER_OFFLOAD',
             '__NV_PRIME_RENDER_OFFLOAD_PROVIDER',
             'DRI_PRIME',
+            '__GLX_VENDOR_LIBRARY_NAME',
             'GBM_BACKEND'
         ]) {
             expect(guard).toContain(variable);

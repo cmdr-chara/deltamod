@@ -38,7 +38,7 @@ impl RequestedMode {
 struct GraphicsProbe {
     has_intel_or_amd_drm: bool,
     has_nvidia_drm: bool,
-    has_nvidia_userspace: bool,
+    has_native_nvidia_userspace: bool,
     mesa_egl_vendor: Option<PathBuf>,
 }
 
@@ -77,7 +77,7 @@ fn plan_environment(
 ) -> EnvironmentPlan {
     let risk_detected = probe.has_intel_or_amd_drm
         && !probe.has_nvidia_drm
-        && probe.has_nvidia_userspace;
+        && probe.has_native_nvidia_userspace;
 
     let mut plan = EnvironmentPlan {
         mode,
@@ -120,7 +120,7 @@ fn plan_environment(
         RequestedMode::Auto if risk_detected => {
             plan.pin_mesa_egl = probe.mesa_egl_vendor.clone();
             plan.reason = if plan.pin_mesa_egl.is_some() {
-                "non-NVIDIA DRM GPU with NVIDIA EGL userspace detected; pinning Mesa EGL"
+                "non-NVIDIA DRM GPU with native NVIDIA userspace detected; pinning Mesa EGL"
             } else {
                 "mixed-vendor risk detected but no safe automatic EGL pin is available"
             };
@@ -139,8 +139,7 @@ fn drm_probe(root: &Path) -> (bool, bool) {
     let mut has_intel_or_amd = false;
     let mut has_nvidia = false;
     for entry in entries.flatten() {
-        let vendor_path = entry.path().join("device/vendor");
-        let Ok(vendor) = fs::read_to_string(vendor_path) else {
+        let Ok(vendor) = fs::read_to_string(entry.path().join("device/vendor")) else {
             continue;
         };
         match vendor.trim().to_ascii_lowercase().as_str() {
@@ -152,13 +151,11 @@ fn drm_probe(root: &Path) -> (bool, bool) {
     (has_intel_or_amd, has_nvidia)
 }
 
-fn vendor_json(name_fragment: &str, library_fragment: &str) -> Option<PathBuf> {
+fn mesa_egl_vendor() -> Option<PathBuf> {
     const DIRECTORIES: &[&str] = &[
         "/etc/glvnd/egl_vendor.d",
         "/usr/share/glvnd/egl_vendor.d",
     ];
-    let name_fragment = name_fragment.to_ascii_lowercase();
-    let library_fragment = library_fragment.to_ascii_lowercase();
 
     for directory in DIRECTORIES {
         let Ok(entries) = fs::read_dir(directory) else {
@@ -173,11 +170,11 @@ fn vendor_json(name_fragment: &str, library_fragment: &str) -> Option<PathBuf> {
             if !name.ends_with(".json") {
                 continue;
             }
-            if name.contains(name_fragment.as_str()) {
+            if name.contains("mesa") {
                 return Some(path);
             }
             if fs::read_to_string(&path)
-                .map(|contents| contents.to_ascii_lowercase().contains(library_fragment.as_str()))
+                .map(|contents| contents.to_ascii_lowercase().contains("libegl_mesa"))
                 .unwrap_or(false)
             {
                 return Some(path);
@@ -187,36 +184,41 @@ fn vendor_json(name_fragment: &str, library_fragment: &str) -> Option<PathBuf> {
     None
 }
 
-fn directory_has_nvidia_library(directory: &str) -> bool {
+fn directory_has_native_nvidia_library(directory: &str) -> bool {
     let Ok(entries) = fs::read_dir(directory) else {
         return false;
     };
     entries.flatten().any(|entry| {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        name.starts_with("libnvidia-eglcore.so") || name.starts_with("libnvidia-gpucomp.so")
+        name.starts_with("libnvidia-eglcore.so")
+            || name.starts_with("libnvidia-gpucomp.so")
+            || name.starts_with("libEGL_nvidia.so")
     })
 }
 
-fn probe_graphics() -> GraphicsProbe {
-    let (has_intel_or_amd_drm, has_nvidia_drm) = drm_probe(Path::new("/sys/class/drm"));
-    const NVIDIA_LIBRARY_DIRECTORIES: &[&str] = &[
+fn has_native_nvidia_userspace() -> bool {
+    // Deltamod's supported Linux package is native x64. Deliberately do not
+    // inspect /usr/lib32: a 32-bit-only NVIDIA package cannot be loaded by the
+    // 64-bit WebKitWebProcess and must not activate this compatibility guard.
+    const DIRECTORIES: &[&str] = &[
         "/usr/lib",
-        "/usr/lib32",
         "/usr/lib64",
         "/usr/lib/x86_64-linux-gnu",
         "/usr/lib/aarch64-linux-gnu",
     ];
-    let has_nvidia_userspace = vendor_json("nvidia", "libegl_nvidia").is_some()
-        || NVIDIA_LIBRARY_DIRECTORIES
-            .iter()
-            .any(|directory| directory_has_nvidia_library(directory));
+    DIRECTORIES
+        .iter()
+        .any(|directory| directory_has_native_nvidia_library(directory))
+}
 
+fn probe_graphics() -> GraphicsProbe {
+    let (has_intel_or_amd_drm, has_nvidia_drm) = drm_probe(Path::new("/sys/class/drm"));
     GraphicsProbe {
         has_intel_or_amd_drm,
         has_nvidia_drm,
-        has_nvidia_userspace,
-        mesa_egl_vendor: vendor_json("mesa", "libegl_mesa"),
+        has_native_nvidia_userspace: has_native_nvidia_userspace(),
+        mesa_egl_vendor: mesa_egl_vendor(),
     }
 }
 
@@ -231,12 +233,8 @@ fn existing_environment() -> ExistingEnvironment {
         gpu_route_overridden: env::var_os("__NV_PRIME_RENDER_OFFLOAD").is_some()
             || env::var_os("__NV_PRIME_RENDER_OFFLOAD_PROVIDER").is_some()
             || env::var_os("DRI_PRIME").is_some()
-            || env::var("__GLX_VENDOR_LIBRARY_NAME")
-                .map(|value| value.eq_ignore_ascii_case("nvidia"))
-                .unwrap_or(false)
-            || env::var("GBM_BACKEND")
-                .map(|value| value.to_ascii_lowercase().contains("nvidia"))
-                .unwrap_or(false),
+            || env::var_os("__GLX_VENDOR_LIBRARY_NAME").is_some()
+            || env::var_os("GBM_BACKEND").is_some(),
     }
 }
 
@@ -266,12 +264,12 @@ fn configure_linux() {
     }
 
     eprintln!(
-        "[linux-webkit] mode={} mixed_vendor_risk={} intel_or_amd_drm={} nvidia_drm={} nvidia_userspace={} mesa_egl={} renderer={} egl_vendor={} reason={}",
+        "[linux-webkit] mode={} mixed_vendor_risk={} intel_or_amd_drm={} nvidia_drm={} native_nvidia_userspace={} mesa_egl={} renderer={} egl_vendor={} reason={}",
         plan.mode.label(),
         plan.risk_detected,
         probe.has_intel_or_amd_drm,
         probe.has_nvidia_drm,
-        probe.has_nvidia_userspace,
+        probe.has_native_nvidia_userspace,
         probe
             .mesa_egl_vendor
             .as_deref()
@@ -307,12 +305,12 @@ mod tests {
     fn probe(
         has_intel_or_amd_drm: bool,
         has_nvidia_drm: bool,
-        has_nvidia_userspace: bool,
+        has_native_nvidia_userspace: bool,
     ) -> GraphicsProbe {
         GraphicsProbe {
             has_intel_or_amd_drm,
             has_nvidia_drm,
-            has_nvidia_userspace,
+            has_native_nvidia_userspace,
             mesa_egl_vendor: Some(PathBuf::from(
                 "/usr/share/glvnd/egl_vendor.d/50_mesa.json",
             )),
