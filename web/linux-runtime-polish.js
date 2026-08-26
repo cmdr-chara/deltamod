@@ -41,8 +41,11 @@
         rewindPlayer = new NativeAudio();
         rewindPlayer.preload = 'auto';
         rewindPlayer.src = 'audio/rew.mp3';
-        rewindPlayer.dataset = rewindPlayer.dataset || {};
-        rewindPlayer.dataset.deltamodRetainMediaBlob = 'true';
+        if (typeof rewindPlayer.setAttribute === 'function') {
+            rewindPlayer.setAttribute('data-deltamod-retain-media-blob', 'true');
+        } else if (rewindPlayer.dataset) {
+            rewindPlayer.dataset.deltamodRetainMediaBlob = 'true';
+        }
         return rewindPlayer;
     }
 
@@ -74,9 +77,9 @@
     }
 
     const modeCopy = Object.freeze({
-        auto: 'Native video when WebKitGTK can keep up; falls back to the poster and separate audio if playback becomes unreliable.',
-        performance: 'Uses the static theme poster, separate audio, reduced blur, and minimal decorative animation.',
-        quality: 'Keeps full visual effects and allows Blob-buffered theme video. This uses the most CPU and memory on Linux.'
+        auto: 'Uses the static theme poster and separate audio while keeping normal visual effects. Recommended on Linux.',
+        performance: 'Uses the static theme poster and separate audio with reduced blur and decorative animation.',
+        quality: 'Uses native streamed theme video and full visual effects. This can use substantially more CPU on WebKitGTK.'
     });
 
     function injectLinuxModeControl() {
@@ -193,7 +196,7 @@
         }
 
         function fallback(reason, counter) {
-            if (compat.getMode() !== 'auto') return;
+            if (compat.getMode() !== 'quality') return;
             const background = root.document?.querySelector?.('.bg');
             if (!background || typeof root.fallBackFromThemeVideo !== 'function') {
                 warn(`Linux theme video is unhealthy (${reason}), but the poster fallback is unavailable.`);
@@ -206,7 +209,7 @@
         }
 
         function recordStall() {
-            if (compat.getMode() !== 'auto' || video.hidden || video.paused) return;
+            if (compat.getMode() !== 'quality' || video.hidden || video.paused) return;
             const current = now();
             if (current - lastStallAt < 750) return;
             lastStallAt = current;
@@ -229,7 +232,7 @@
         resetFrameBaseline();
 
         const frameTimer = root.setInterval?.(() => {
-            if (compat.getMode() !== 'auto' || video.hidden || video.paused) return;
+            if (compat.getMode() !== 'quality' || video.hidden || video.paused) return;
             const source = video.dataset?.source || video.currentSrc || video.src || '';
             if (source !== lastSource) {
                 resetFrameBaseline();
