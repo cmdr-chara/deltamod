@@ -4,7 +4,7 @@ const installMediaCompatibility = require('../web/media-compat');
 
 const projectRoot = path.join(__dirname, '..');
 
-function linuxTauriRoot({ mode = null } = {}) {
+function linuxTauriRoot({ mode = null, codecSupport = 'probably' } = {}) {
     const nativePlay = vi.fn(function play() {
         this.nativePlayCount = (this.nativePlayCount || 0) + 1;
         return Promise.resolve('played');
@@ -39,6 +39,7 @@ function linuxTauriRoot({ mode = null } = {}) {
         }
 
         pause() {}
+        canPlayType() { return codecSupport; }
     }
     FakeMediaElement.prototype.play = nativePlay;
 
@@ -86,7 +87,7 @@ function linuxTauriRoot({ mode = null } = {}) {
 }
 
 describe('Linux WebKitGTK compatibility', () => {
-    it('bridges custom-scheme audio without refetching the same source', async () => {
+    it('bridges custom-scheme audio without refetching the same element source', async () => {
         const { root, FakeMediaElement, CompatibleURL, nativePlay } = linuxTauriRoot();
 
         expect(installMediaCompatibility(root)).toBe('active');
@@ -103,31 +104,58 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(nativePlay).toHaveBeenCalledTimes(2);
     });
 
-    it('revokes stale object URLs when an audio element changes source', async () => {
+    it('shares tiny app SFX blobs across separate transient Audio elements', async () => {
         const { root, FakeMediaElement, CompatibleURL } = linuxTauriRoot();
         installMediaCompatibility(root);
-        const audio = new FakeMediaElement('tauri://localhost/audio/rew.mp3', 'AUDIO');
+        const first = new FakeMediaElement('tauri://localhost/audio/htmlalert.mp3', 'AUDIO');
+        const second = new FakeMediaElement('tauri://localhost/audio/htmlalert.mp3', 'AUDIO');
 
-        await audio.play();
-        audio.src = 'themeprot://asset/ch5.mp3';
-        await audio.play();
+        await first.play();
+        await second.play();
 
-        expect(root.fetch).toHaveBeenNthCalledWith(1, 'tauri://localhost/audio/rew.mp3');
-        expect(root.fetch).toHaveBeenNthCalledWith(2, 'themeprot://asset/ch5.mp3');
-        expect(CompatibleURL.revokeObjectURL).toHaveBeenCalledWith('blob:deltamod-media-1');
-        expect(audio.dataset.deltamodOriginalMediaSource).toBe('themeprot://asset/ch5.mp3');
+        expect(root.fetch).toHaveBeenCalledTimes(1);
+        expect(CompatibleURL.createObjectURL).toHaveBeenCalledTimes(1);
+        const snapshot = root.DeltamodLinuxCompat.snapshot();
+        expect(snapshot.sharedAudioBlobLoads).toBe(1);
+        expect(snapshot.sharedAudioCacheHits).toBe(1);
     });
 
-    it('releases one-shot media blobs after playback ends', async () => {
+    it('revokes stale non-shared object URLs when an audio element changes source', async () => {
         const { root, FakeMediaElement, CompatibleURL } = linuxTauriRoot();
         installMediaCompatibility(root);
-        const audio = new FakeMediaElement('tauri://localhost/audio/rew.mp3', 'AUDIO');
+        const audio = new FakeMediaElement('themeprot://asset/ch5.mp3', 'AUDIO');
+
+        await audio.play();
+        audio.src = 'themeprot://asset/ch6.mp3';
+        await audio.play();
+
+        expect(root.fetch).toHaveBeenNthCalledWith(1, 'themeprot://asset/ch5.mp3');
+        expect(root.fetch).toHaveBeenNthCalledWith(2, 'themeprot://asset/ch6.mp3');
+        expect(CompatibleURL.revokeObjectURL).toHaveBeenCalledWith('blob:deltamod-media-1');
+        expect(audio.dataset.deltamodOriginalMediaSource).toBe('themeprot://asset/ch6.mp3');
+    });
+
+    it('releases one-shot non-shared media blobs after playback ends', async () => {
+        const { root, FakeMediaElement, CompatibleURL } = linuxTauriRoot();
+        installMediaCompatibility(root);
+        const audio = new FakeMediaElement('themeprot://asset/ch5.mp3', 'AUDIO');
 
         await audio.play();
         audio.emit('ended');
 
         expect(CompatibleURL.revokeObjectURL).toHaveBeenCalledWith('blob:deltamod-media-1');
         expect(root.DeltamodLinuxCompat.snapshot().revokedObjectUrls).toBe(1);
+    });
+
+    it('releases a bridged media element when load() empties it', async () => {
+        const { root, FakeMediaElement, CompatibleURL } = linuxTauriRoot();
+        installMediaCompatibility(root);
+        const audio = new FakeMediaElement('themeprot://asset/ch5.mp3', 'AUDIO');
+
+        await audio.play();
+        audio.emit('emptied');
+
+        expect(CompatibleURL.revokeObjectURL).toHaveBeenCalledWith('blob:deltamod-media-1');
     });
 
     it('keeps video on native streaming in auto mode so failures can use the poster fallback', async () => {
@@ -159,6 +187,24 @@ describe('Linux WebKitGTK compatibility', () => {
         });
         expect(root.fetch).not.toHaveBeenCalled();
         expect(root.DeltamodLinuxCompat.snapshot().videoBlocks).toBe(1);
+    });
+
+    it('rejects H.264/AAC theme video early when WebKitGTK reports no codec support', async () => {
+        const { root, FakeMediaElement } = linuxTauriRoot({ codecSupport: '' });
+        installMediaCompatibility(root);
+        const video = new FakeMediaElement(
+            'tauri://localhost/themes/video/chara-theme.mp4',
+            'VIDEO'
+        );
+        video.id = 'theme-background-video';
+
+        await expect(video.play()).rejects.toMatchObject({
+            name: 'NotSupportedError',
+            code: 'DELTAMOD_LINUX_VIDEO_CODEC_UNAVAILABLE'
+        });
+        expect(root.fetch).not.toHaveBeenCalled();
+        expect(root.DeltamodLinuxCompat.snapshot().videoCodecBlocks).toBe(1);
+        expect(root.console.warn).toHaveBeenCalledWith(expect.stringContaining('gst-libav'));
     });
 
     it('only Blob-bridges video when quality mode is explicitly selected', async () => {
@@ -201,7 +247,7 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(root.DeltamodLinuxCompat).toBeUndefined();
     });
 
-    it('loads the compatibility layer under blob-enabled HTML and Tauri CSPs', () => {
+    it('loads Linux media and runtime polish under blob-enabled HTML and Tauri CSPs', () => {
         const html = fs.readFileSync(path.join(projectRoot, 'web', 'index.html'), 'utf8');
         const tauriConfig = JSON.parse(fs.readFileSync(
             path.join(projectRoot, 'src-tauri', 'tauri.conf.json'),
@@ -212,7 +258,9 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(html).toContain("media-src 'self' blob: deltapack: themeprot: packet:");
         expect(html).toContain('<link rel="stylesheet" href="linux-webkit-compat.css">');
         expect(html).toContain('<script src="./media-compat.js"></script>');
+        expect(html).toContain("'./linux-runtime-polish.js'");
         expect(html.indexOf('./media-compat.js')).toBeGreaterThan(html.indexOf('./tauri-adapter.js'));
+        expect(html.indexOf("'./linux-runtime-polish.js'")).toBeGreaterThan(html.indexOf("'index.js'"));
         expect(csp['media-src']).toContain('blob:');
         expect(csp['connect-src']).toContain('themeprot:');
         expect(csp['connect-src']).toContain('packet:');
