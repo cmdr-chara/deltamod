@@ -173,7 +173,8 @@
           './modules/seasonal-events.js',
           './boot/deltamod-boot.js',
           // The guarded loader eventually appends the normal renderer (src="index.js").
-          'index.js'
+          'index.js',
+          './linux-runtime-polish.js'
         ]) await load(source);
         document.documentElement.classList.remove('deltamod-route-pending');
       };
