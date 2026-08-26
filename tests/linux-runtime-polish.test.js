@@ -1,6 +1,6 @@
 const installLinuxRuntimePolish = require('../web/linux-runtime-polish');
 
-function baseRoot() {
+function baseRoot({ mode = 'auto' } = {}) {
     const loopMenuAudio = vi.fn();
     const menuAudio = {
         loop: false,
@@ -12,19 +12,30 @@ function baseRoot() {
         constructor() {
             this.src = '';
             this.preload = '';
-            this.dataset = {};
+            const dataset = {};
+            Object.defineProperty(this, 'dataset', {
+                value: dataset,
+                writable: false,
+                configurable: false,
+                enumerable: true
+            });
             this.currentTime = 12;
             this.playbackRate = 1;
             this.pause = vi.fn();
             this.play = vi.fn(() => Promise.resolve());
+            this.setAttribute = vi.fn((name, value) => {
+                if (name === 'data-deltamod-retain-media-blob') {
+                    dataset.deltamodRetainMediaBlob = String(value);
+                }
+            });
             createdAudio.push(this);
         }
     }
 
     const compat = {
         isLinuxTauri: true,
-        getMode: vi.fn(() => 'auto'),
-        setMode: vi.fn()
+        getMode: vi.fn(() => mode),
+        setMode: vi.fn(value => { mode = value; return value; })
     };
 
     return {
@@ -62,15 +73,20 @@ describe('Linux runtime polish', () => {
         expect(root.DeltamodLinuxRuntimePolish.snapshot().manualLoopRemoved).toBe(true);
     });
 
-    it('reuses one rewind player instead of creating a new Audio element on every navigation', async () => {
+    it('reuses one rewind player without assigning to the read-only dataset property', async () => {
         const { root, createdAudio } = baseRoot();
         installLinuxRuntimePolish(root);
 
-        await root.rew();
-        await root.rew();
+        await expect(root.rew()).resolves.toBe(true);
+        await expect(root.rew()).resolves.toBe(true);
 
         expect(createdAudio).toHaveLength(1);
+        expect(Object.getOwnPropertyDescriptor(createdAudio[0], 'dataset').writable).toBe(false);
         expect(createdAudio[0].src).toBe('audio/rew.mp3');
+        expect(createdAudio[0].setAttribute).toHaveBeenCalledWith(
+            'data-deltamod-retain-media-blob',
+            'true'
+        );
         expect(createdAudio[0].dataset.deltamodRetainMediaBlob).toBe('true');
         expect(createdAudio[0].pause).toHaveBeenCalledTimes(2);
         expect(createdAudio[0].play).toHaveBeenCalledTimes(2);
@@ -86,8 +102,8 @@ describe('Linux runtime polish', () => {
         expect(createdAudio).toHaveLength(0);
     });
 
-    it('falls back to the theme poster after repeated Linux WebKitGTK stalls in auto mode', async () => {
-        const { root } = baseRoot();
+    it('falls back from quality video after repeated Linux WebKitGTK stalls', async () => {
+        const { root } = baseRoot({ mode: 'quality' });
         const listeners = new Map();
         let clock = 0;
         const video = {
@@ -121,9 +137,8 @@ describe('Linux runtime polish', () => {
         expect(root.DeltamodLinuxRuntimePolish.snapshot().stallFallbacks).toBe(1);
     });
 
-    it('falls back when a native theme video drops at least 20% of sampled frames', async () => {
-        const { root } = baseRoot();
-        const listeners = new Map();
+    it('falls back from quality video when at least 20% of sampled frames are dropped', async () => {
+        const { root } = baseRoot({ mode: 'quality' });
         let sample = { totalVideoFrames: 100, droppedVideoFrames: 0 };
         let frameCheck = null;
         const video = {
@@ -132,7 +147,7 @@ describe('Linux runtime polish', () => {
             dataset: { source: 'tauri://localhost/themes/video/chara-theme.mp4' },
             src: 'tauri://localhost/themes/video/chara-theme.mp4',
             currentSrc: '',
-            addEventListener: vi.fn((name, callback) => listeners.set(name, callback)),
+            addEventListener: vi.fn(),
             getVideoPlaybackQuality: vi.fn(() => sample)
         };
         const background = {};
@@ -154,11 +169,31 @@ describe('Linux runtime polish', () => {
         expect(root.DeltamodLinuxRuntimePolish.snapshot().droppedFrameFallbacks).toBe(1);
     });
 
+    it('does not run the quality health fallback while auto poster mode is selected', async () => {
+        const { root } = baseRoot({ mode: 'auto' });
+        const listeners = new Map();
+        const video = {
+            hidden: false,
+            paused: false,
+            dataset: { source: 'tauri://localhost/themes/video/chara-theme.mp4' },
+            src: 'tauri://localhost/themes/video/chara-theme.mp4',
+            currentSrc: '',
+            addEventListener: vi.fn((name, callback) => listeners.set(name, callback)),
+            getVideoPlaybackQuality: vi.fn(() => ({ totalVideoFrames: 100, droppedVideoFrames: 100 }))
+        };
+        root.document.getElementById = vi.fn(id => id === 'theme-background-video' ? video : null);
+        root.fallBackFromThemeVideo = vi.fn(() => Promise.resolve());
+
+        installLinuxRuntimePolish(root);
+        listeners.get('waiting')();
+        await Promise.resolve();
+
+        expect(root.fallBackFromThemeVideo).not.toHaveBeenCalled();
+        expect(root.DeltamodLinuxRuntimePolish.snapshot().videoStalls).toBe(0);
+    });
+
     it('adds a Linux-only rendering-mode selector to the Interface options', async () => {
         const { root, compat } = baseRoot();
-        let mode = 'auto';
-        compat.getMode = vi.fn(() => mode);
-        compat.setMode = vi.fn(value => { mode = value; return value; });
 
         function node(tagName) {
             return {
