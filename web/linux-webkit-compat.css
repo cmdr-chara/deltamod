@@ -1,0 +1,36 @@
+/* Linux/WebKitGTK compatibility overrides.
+ * Activated by media-compat.js only inside the Tauri Linux renderer. */
+
+html.deltamod-linux-webkit {
+    color-scheme: dark;
+}
+
+html.deltamod-linux-webkit * {
+    -webkit-font-smoothing: none;
+    -moz-osx-font-smoothing: auto;
+    font-smoothing: none;
+}
+
+html.deltamod-linux-webkit select {
+    color-scheme: dark;
+    -webkit-appearance: none;
+    appearance: none;
+    color: white;
+    background-color: rgb(15, 15, 15);
+    padding-right: 34px;
+    background-image:
+        linear-gradient(45deg, transparent 50%, currentColor 50%),
+        linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position:
+        calc(100% - 15px) 50%,
+        calc(100% - 10px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+}
+
+html.deltamod-linux-webkit select option,
+html.deltamod-linux-webkit select optgroup {
+    color-scheme: dark;
+    color: white;
+    background-color: rgb(15, 15, 15);
+}
