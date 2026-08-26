@@ -16,12 +16,16 @@ describe('Linux WebKitGTK startup guard', () => {
         expect(main).toContain('.setup(|app| {');
         expect(main).toContain('state::AppState::initialize_with_app(');
         expect(state).toContain('crate::controller::install_protocols(&app)?;');
-        expect(controller).toContain('#[path = "linux_webkit.rs"]');
-        expect(controller).toContain('linux_webkit::configure();');
+        expect(controller).toMatch(
+            /#\[cfg\(target_os = "linux"\)\]\n#\[path = "linux_webkit\.rs"\]\nmod linux_webkit;/
+        );
 
         const installProtocols = controller.slice(
             controller.indexOf('pub fn install_protocols'),
             controller.indexOf('fn is_protocol_url')
+        );
+        expect(installProtocols).toMatch(
+            /#\[cfg\(target_os = "linux"\)\]\n\s*linux_webkit::configure\(\);/
         );
         expect(installProtocols.indexOf('linux_webkit::configure();'))
             .toBeLessThan(installProtocols.indexOf('#[cfg(target_os = "macos")]'));
