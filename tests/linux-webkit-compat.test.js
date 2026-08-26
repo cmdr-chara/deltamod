@@ -65,6 +65,20 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(nativePlay).toHaveBeenCalledTimes(2);
     });
 
+    it('follows a new custom source after the same media element was blob-bridged', async () => {
+        const { root, FakeMediaElement } = linuxTauriRoot();
+        installMediaCompatibility(root);
+        const audio = new FakeMediaElement('tauri://localhost/audio/rew.mp3');
+
+        await audio.play();
+        audio.src = 'themeprot://asset/ch5.mp3';
+        await audio.play();
+
+        expect(root.fetch).toHaveBeenNthCalledWith(1, 'tauri://localhost/audio/rew.mp3');
+        expect(root.fetch).toHaveBeenNthCalledWith(2, 'themeprot://asset/ch5.mp3');
+        expect(audio.dataset.deltamodOriginalMediaSource).toBe('themeprot://asset/ch5.mp3');
+    });
+
     it('does not patch media playback outside Linux Tauri', () => {
         const { root, FakeMediaElement, nativePlay } = linuxTauriRoot();
         root.navigator = { platform: 'MacIntel', userAgent: 'WebKit macOS' };
