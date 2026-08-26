@@ -173,11 +173,11 @@ fn vendor_json(name_fragment: &str, library_fragment: &str) -> Option<PathBuf> {
             if !name.ends_with(".json") {
                 continue;
             }
-            if name.contains(&name_fragment) {
+            if name.contains(name_fragment.as_str()) {
                 return Some(path);
             }
             if fs::read_to_string(&path)
-                .map(|contents| contents.to_ascii_lowercase().contains(&library_fragment))
+                .map(|contents| contents.to_ascii_lowercase().contains(library_fragment.as_str()))
                 .unwrap_or(false)
             {
                 return Some(path);
