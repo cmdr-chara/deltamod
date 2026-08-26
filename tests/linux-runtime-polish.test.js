@@ -121,6 +121,51 @@ describe('Linux runtime polish', () => {
         expect(root.DeltamodLinuxRuntimePolish.snapshot().stallFallbacks).toBe(1);
     });
 
+    it('adds a Linux-only rendering-mode selector to the Interface options', async () => {
+        const { root, compat } = baseRoot();
+        let mode = 'auto';
+        compat.getMode = vi.fn(() => mode);
+        compat.setMode = vi.fn(value => { mode = value; return value; });
+
+        function node(tagName) {
+            return {
+                tagName,
+                children: [],
+                dataset: {},
+                style: {},
+                append(...children) { this.children.push(...children); },
+                appendChild(child) { this.children.push(child); return child; },
+                setAttribute: vi.fn(),
+                addEventListener: vi.fn(function addEventListener(name, callback) {
+                    this.listeners = this.listeners || new Map();
+                    this.listeners.set(name, callback);
+                })
+            };
+        }
+
+        const tableBody = node('tbody');
+        root.document.createElement = vi.fn(tag => node(tag));
+        root.document.getElementById = vi.fn(() => null);
+        root.document.querySelector = vi.fn(selector => {
+            if (selector === '#options') return tableBody;
+            return null;
+        });
+        root.currentPageStack = { cat: vi.fn(() => Promise.resolve()) };
+
+        installLinuxRuntimePolish(root);
+        await root.currentPageStack.cat('ui');
+
+        expect(tableBody.children).toHaveLength(1);
+        const row = tableBody.children[0];
+        const select = row.children[1].children[0].children[0];
+        expect(select.id).toBe('SELECT-LINUX-PERFORMANCE-MODE');
+        expect(select.children.map(option => option.value)).toEqual(['auto', 'performance', 'quality']);
+
+        select.value = 'performance';
+        select.listeners.get('change')();
+        expect(compat.setMode).toHaveBeenCalledWith('performance');
+    });
+
     it('does nothing when the Linux compatibility layer is inactive', () => {
         const { root, menuAudio } = baseRoot();
         root.DeltamodLinuxCompat = undefined;
