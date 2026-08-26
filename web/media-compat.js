@@ -44,7 +44,6 @@
     const elementStates = new WeakMap();
     const cleanupAttached = new WeakSet();
     const objectUrls = new Set();
-    const bridgedVideos = new Set();
     const sharedAudioObjectUrls = new Map();
 
     function toggleClass(name, enabled) {
@@ -58,7 +57,7 @@
 
     function applyModeClasses() {
         html?.classList?.add?.('deltamod-linux-webkit');
-        toggleClass('deltamod-linux-reduced-effects', mode !== 'quality');
+        toggleClass('deltamod-linux-reduced-effects', mode === 'performance');
         toggleClass('deltamod-linux-performance', mode === 'performance');
         if (html?.dataset) html.dataset.deltamodLinuxMediaMode = mode;
     }
@@ -66,16 +65,6 @@
     function setMode(nextMode) {
         if (!supportedModes.has(nextMode)) {
             throw new TypeError(`Unknown Linux media mode: ${nextMode}`);
-        }
-        if (nextMode !== 'quality') {
-            for (const video of [...bridgedVideos]) {
-                const state = elementStates.get(video);
-                if (state?.source) {
-                    video.pause?.();
-                    video.src = state.source;
-                }
-                releaseElementObjectUrl(video);
-            }
         }
         mode = nextMode;
         try {
@@ -95,8 +84,8 @@
         isLinuxTauri: true,
         getMode: () => mode,
         setMode,
-        usesReducedEffects: () => mode !== 'quality',
-        forcesPosterVideo: () => mode === 'performance',
+        usesReducedEffects: () => mode === 'performance',
+        forcesPosterVideo: () => mode !== 'quality',
         snapshot: () => Object.freeze({ mode, ...diagnostics })
     });
     root.DeltamodLinuxCompat = compatApi;
@@ -168,7 +157,6 @@
         const state = elementStates.get(element);
         if (!state) return;
         if (!state.shared) revokeObjectUrl(state.objectUrl);
-        if (state.kind === 'video') bridgedVideos.delete(element);
         elementStates.delete(element);
         if (!keepOriginal && element.dataset) {
             delete element.dataset.deltamodOriginalMediaSource;
@@ -189,7 +177,7 @@
         });
     }
 
-    function fetchObjectUrl(absolute, kind) {
+    function fetchAudioObjectUrl(absolute) {
         return fetchAsset(absolute)
             .then(response => {
                 if (!response.ok) {
@@ -200,7 +188,7 @@
             .then(blob => {
                 const objectUrl = Url.createObjectURL(blob);
                 objectUrls.add(objectUrl);
-                diagnostics[kind === 'video' ? 'videoBlobLoads' : 'audioBlobLoads'] += 1;
+                diagnostics.audioBlobLoads += 1;
                 return objectUrl;
             });
     }
@@ -223,7 +211,7 @@
             return cached;
         }
 
-        const pending = fetchObjectUrl(absolute, 'audio')
+        const pending = fetchAudioObjectUrl(absolute)
             .then(objectUrl => {
                 diagnostics.sharedAudioBlobLoads += 1;
                 return objectUrl;
@@ -236,7 +224,7 @@
         return pending;
     }
 
-    function objectUrlFor(element, source, kind) {
+    function audioObjectUrlFor(element, source) {
         const absolute = normalizeSource(source);
         if (!absolute) return Promise.reject(new TypeError('Invalid media source.'));
 
@@ -248,14 +236,14 @@
             releaseElementObjectUrl(element);
         }
 
-        const shared = kind === 'audio' && isReusableAppSfxSource(absolute);
-        const state = { source: absolute, kind, objectUrl: null, pending: null, shared };
-        if (kind === 'video') bridgedVideos.add(element);
+        const shared = isReusableAppSfxSource(absolute);
+        const state = { source: absolute, objectUrl: null, pending: null, shared };
         const pending = (shared
             ? sharedAudioObjectUrlFor(absolute)
-            : fetchObjectUrl(absolute, kind))
+            : fetchAudioObjectUrl(absolute))
             .then(objectUrl => {
                 if (elementStates.get(element) !== state) {
+                    if (!shared) revokeObjectUrl(objectUrl);
                     const error = new Error('Media source changed while the Blob bridge was loading.');
                     error.code = 'DELTAMOD_MEDIA_SOURCE_CHANGED';
                     throw error;
@@ -267,7 +255,6 @@
             .catch(error => {
                 if (elementStates.get(element) === state) {
                     elementStates.delete(element);
-                    if (kind === 'video') bridgedVideos.delete(element);
                 }
                 diagnostics.lastError = `blob-load: ${error?.message || error}`;
                 throw error;
@@ -284,10 +271,10 @@
             || element?.classList?.contains?.('theme-background-video');
     }
 
-    function performanceVideoError(source) {
-        const error = new Error(`Linux performance mode uses the theme poster instead of video: ${source}`);
+    function posterVideoError(source) {
+        const error = new Error(`Linux ${mode} mode uses the theme poster instead of video: ${source}`);
         error.name = 'NotSupportedError';
-        error.code = 'DELTAMOD_LINUX_PERFORMANCE_VIDEO_DISABLED';
+        error.code = 'DELTAMOD_LINUX_THEME_VIDEO_DISABLED';
         return error;
     }
 
@@ -307,7 +294,7 @@
     function codecVideoError(source) {
         const error = new Error(
             `Linux WebKitGTK cannot decode the theme H.264/AAC video (${source}). `
-            + 'Install the platform GStreamer codec plugin (Arch: gst-libav) or use Performance mode.'
+            + 'Install the platform GStreamer codec plugin (Arch: gst-libav) or use Auto/Performance mode.'
         );
         error.name = 'NotSupportedError';
         error.code = 'DELTAMOD_LINUX_VIDEO_CODEC_UNAVAILABLE';
@@ -331,41 +318,41 @@
         const absolute = normalizeSource(source);
         const kind = mediaKind(this);
 
-        if (kind === 'video' && mode === 'performance' && isThemeBackgroundVideo(this)) {
-            diagnostics.videoBlocks += 1;
-            const error = performanceVideoError(absolute);
-            diagnostics.lastError = error.code;
-            root.console?.warn?.(error.message);
-            return Promise.reject(error);
-        }
+        if (kind === 'video') {
+            if (isThemeBackgroundVideo(this) && mode !== 'quality') {
+                diagnostics.videoBlocks += 1;
+                const error = posterVideoError(absolute);
+                diagnostics.lastError = error.code;
+                root.console?.warn?.(error.message);
+                return Promise.reject(error);
+            }
 
-        if (kind === 'video' && !supportsThemeVideoCodecs(this, absolute)) {
-            diagnostics.videoCodecBlocks += 1;
-            const error = codecVideoError(absolute);
-            diagnostics.lastError = error.code;
-            root.console?.warn?.(error.message);
-            return Promise.reject(error);
-        }
+            if (!supportsThemeVideoCodecs(this, absolute)) {
+                diagnostics.videoCodecBlocks += 1;
+                const error = codecVideoError(absolute);
+                diagnostics.lastError = error.code;
+                root.console?.warn?.(error.message);
+                return Promise.reject(error);
+            }
 
-        // Auto mode deliberately keeps video on the native WebKit/GStreamer path.
-        // If the host cannot decode or stream the custom URI, Deltamod's existing
-        // theme-video error handler falls back to the poster + separate theme audio.
-        if (kind === 'video' && mode === 'auto') {
+            // Never Blob-buffer Linux video. Quality and non-theme video use the
+            // native WebKit/GStreamer stream so Range requests and decoder state
+            // remain intact. Auto/Performance theme video is rejected above and
+            // the existing app fallback supplies the poster + separate audio.
             diagnostics.videoDirectPlays += 1;
             return nativePlay.apply(this, args);
         }
 
-        // Audio requires the Blob bridge on WebKitGTK custom schemes. Video only
-        // opts into full buffering in explicit quality mode, where fidelity is
-        // preferred over Linux memory/CPU cost.
-        return objectUrlFor(this, absolute, kind)
+        // Custom-scheme audio still needs a Blob bridge on WebKitGTK. Repeated
+        // built-in SFX share one Blob URL to avoid player/request churn.
+        return audioObjectUrlFor(this, absolute)
             .then(objectUrl => {
                 if (this.dataset) this.dataset.deltamodOriginalMediaSource = absolute;
                 if (this.src !== objectUrl) this.src = objectUrl;
                 return nativePlay.apply(this, args);
             })
             .catch(error => {
-                root.console?.warn?.(`Unable to prepare Linux WebKit ${kind} source ${absolute}:`, error);
+                root.console?.warn?.(`Unable to prepare Linux WebKit audio source ${absolute}:`, error);
                 throw error;
             });
     };
