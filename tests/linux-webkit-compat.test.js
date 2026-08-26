@@ -87,12 +87,21 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(FakeMediaElement.prototype.play).toBe(nativePlay);
     });
 
-    it('loads the compatibility layer under a blob-enabled media CSP', () => {
+    it('loads the compatibility layer under blob-enabled HTML and Tauri CSPs', () => {
         const html = fs.readFileSync(path.join(projectRoot, 'web', 'index.html'), 'utf8');
+        const tauriConfig = JSON.parse(fs.readFileSync(
+            path.join(projectRoot, 'src-tauri', 'tauri.conf.json'),
+            'utf8'
+        ));
+        const csp = tauriConfig.app.security.csp;
+
         expect(html).toContain("media-src 'self' blob: deltapack: themeprot: packet:");
         expect(html).toContain('<link rel="stylesheet" href="linux-webkit-compat.css">');
         expect(html).toContain('<script src="./media-compat.js"></script>');
         expect(html.indexOf('./media-compat.js')).toBeGreaterThan(html.indexOf('./tauri-adapter.js'));
+        expect(csp['media-src']).toContain('blob:');
+        expect(csp['connect-src']).toContain('themeprot:');
+        expect(csp['connect-src']).toContain('packet:');
     });
 
     it('forces dark non-native selects and pixel-friendly smoothing only on Linux Tauri', () => {
