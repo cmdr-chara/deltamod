@@ -16,11 +16,16 @@
         rewindErrors: 0,
         videoStalls: 0,
         droppedFrameFallbacks: 0,
-        stallFallbacks: 0
+        stallFallbacks: 0,
+        qualityVideoFallbackReason: null
     };
 
     function warn(message, error) {
         root.console?.warn?.(message, error || '');
+    }
+
+    function localize(key, fallback, ...args) {
+        return root.Localization?.t?.(key, fallback, ...args) || fallback;
     }
 
     function polishMenuAudio() {
@@ -77,30 +82,125 @@
     }
 
     const modeCopy = Object.freeze({
-        auto: 'Uses the static theme poster and separate audio while keeping normal visual effects. Recommended on Linux.',
-        performance: 'Uses the static theme poster and separate audio with reduced blur and decorative animation.',
-        quality: 'Uses native streamed theme video and full visual effects. This can use substantially more CPU on WebKitGTK.'
+        auto: Object.freeze({
+            labelKey: 'linux_rendering_auto',
+            label: 'Auto (recommended)',
+            descriptionKey: 'linux_rendering_auto_desc',
+            description: 'Uses the static theme poster and separate audio while keeping normal visual effects. Recommended on Linux.'
+        }),
+        performance: Object.freeze({
+            labelKey: 'linux_rendering_performance',
+            label: 'Performance',
+            descriptionKey: 'linux_rendering_performance_desc',
+            description: 'Uses the static theme poster and separate audio with reduced blur and decorative animation.'
+        }),
+        quality: Object.freeze({
+            labelKey: 'linux_rendering_quality',
+            label: 'Quality',
+            descriptionKey: 'linux_rendering_quality_desc',
+            description: 'Uses native streamed theme video and full visual effects. This can use substantially more CPU on WebKitGTK.'
+        })
     });
+
+    function currentQualityFallbackReason() {
+        if (compat.getMode() !== 'quality') return null;
+        if (root.themeVideoFallbackActive === false) {
+            diagnostics.qualityVideoFallbackReason = null;
+        }
+        return diagnostics.qualityVideoFallbackReason;
+    }
+
+    function refreshLinuxModeControl() {
+        const doc = root.document;
+        const select = doc?.getElementById?.('SELECT-LINUX-PERFORMANCE-MODE');
+        const title = doc?.getElementById?.('DELTAMOD-LINUX-RENDERING-TITLE');
+        const description = doc?.getElementById?.('DELTAMOD-LINUX-RENDERING-DESCRIPTION');
+        const status = doc?.getElementById?.('DELTAMOD-LINUX-RENDERING-STATUS');
+        if (!select || !title || !description || !status) return false;
+
+        const current = compat.getMode();
+        const config = modeCopy[current] || modeCopy.auto;
+        select.value = current;
+        title.textContent = localize('linux_rendering_mode', 'Linux rendering mode');
+        select.setAttribute(
+            'aria-label',
+            localize('linux_rendering_mode_aria', 'Linux rendering mode')
+        );
+        description.textContent = localize(config.descriptionKey, config.description);
+
+        for (const option of select.children || []) {
+            const optionConfig = modeCopy[option.value];
+            if (optionConfig) {
+                option.textContent = localize(optionConfig.labelKey, optionConfig.label);
+            }
+        }
+
+        const fallbackReason = currentQualityFallbackReason();
+        status.hidden = !fallbackReason;
+        status.textContent = fallbackReason
+            ? localize(
+                'linux_rendering_fallback_active',
+                'Video fallback active for this theme: {0}',
+                fallbackReason
+            )
+            : '';
+        return true;
+    }
+
+    function recordQualityFallback(reason) {
+        if (compat.getMode() !== 'quality') return;
+        diagnostics.qualityVideoFallbackReason = String(reason || 'playback fallback');
+        refreshLinuxModeControl();
+    }
+
+    function installThemeVideoFallbackObserver() {
+        const nativeFallback = root.fallBackFromThemeVideo;
+        if (typeof nativeFallback !== 'function' || nativeFallback.__deltamodLinuxFallbackObserved) {
+            return;
+        }
+        const observedFallback = function observedLinuxThemeVideoFallback(video, background, reason, ...args) {
+            const qualityAtCall = compat.getMode() === 'quality';
+            return Promise.resolve(nativeFallback.call(this, video, background, reason, ...args))
+                .then(result => {
+                    if (qualityAtCall) recordQualityFallback(reason);
+                    return result;
+                });
+        };
+        observedFallback.__deltamodLinuxFallbackObserved = true;
+        root.fallBackFromThemeVideo = observedFallback;
+    }
 
     function injectLinuxModeControl() {
         const doc = root.document;
         const tableBody = doc?.querySelector?.('#options')
             || doc?.querySelector?.('.options-page tbody');
-        if (!tableBody || doc.getElementById?.('SELECT-LINUX-PERFORMANCE-MODE')) return false;
+        if (!tableBody) return false;
+        if (doc.getElementById?.('SELECT-LINUX-PERFORMANCE-MODE')) {
+            refreshLinuxModeControl();
+            return false;
+        }
 
         const row = doc.createElement('tr');
         row.dataset.deltamodLinuxSetting = 'rendering-mode';
 
         const label = doc.createElement('td');
         const title = doc.createElement('span');
+        title.id = 'DELTAMOD-LINUX-RENDERING-TITLE';
         title.className = 'setting-title';
-        title.textContent = 'Linux rendering mode';
         const description = doc.createElement('small');
+        description.id = 'DELTAMOD-LINUX-RENDERING-DESCRIPTION';
         description.className = 'calibri';
         description.style.display = 'block';
         description.style.marginTop = '4px';
+        const status = doc.createElement('small');
+        status.id = 'DELTAMOD-LINUX-RENDERING-STATUS';
+        status.className = 'calibri';
+        status.style.display = 'block';
+        status.style.marginTop = '4px';
+        status.style.color = 'var(--theme-color)';
+        status.hidden = true;
 
-        label.append(title, doc.createElement('br'), description);
+        label.append(title, doc.createElement('br'), description, status);
 
         const action = doc.createElement('td');
         action.className = 'setting-control-cell center';
@@ -108,33 +208,21 @@
         control.className = 'setting-control';
         const select = doc.createElement('select');
         select.id = 'SELECT-LINUX-PERFORMANCE-MODE';
-        select.setAttribute('aria-label', 'Linux rendering mode');
 
-        for (const [value, text] of [
-            ['auto', 'Auto (recommended)'],
-            ['performance', 'Performance'],
-            ['quality', 'Quality']
-        ]) {
+        for (const value of ['auto', 'performance', 'quality']) {
             const option = doc.createElement('option');
             option.value = value;
-            option.textContent = text;
             select.appendChild(option);
         }
 
-        const refreshDescription = () => {
-            const current = compat.getMode();
-            select.value = current;
-            description.textContent = modeCopy[current] || modeCopy.auto;
-        };
-        refreshDescription();
-
         select.addEventListener('change', () => {
             try {
+                diagnostics.qualityVideoFallbackReason = null;
                 compat.setMode(select.value);
-                refreshDescription();
+                refreshLinuxModeControl();
             } catch (error) {
                 warn('Unable to change Linux rendering mode.', error);
-                refreshDescription();
+                refreshLinuxModeControl();
             }
         });
 
@@ -142,6 +230,7 @@
         action.appendChild(control);
         row.append(label, action);
         tableBody.appendChild(row);
+        refreshLinuxModeControl();
         return true;
     }
 
@@ -224,6 +313,11 @@
 
         video.addEventListener('waiting', recordStall);
         video.addEventListener('stalled', recordStall);
+        video.addEventListener('playing', () => {
+            if (compat.getMode() !== 'quality') return;
+            diagnostics.qualityVideoFallbackReason = null;
+            refreshLinuxModeControl();
+        });
         video.addEventListener('loadedmetadata', resetFrameBaseline);
         video.addEventListener('emptied', () => {
             stallTimes.length = 0;
@@ -258,10 +352,14 @@
     }
 
     polishMenuAudio();
+    installThemeVideoFallbackObserver();
     installVideoHealthMonitor();
+    root.addEventListener?.('deltamod-language-change', refreshLinuxModeControl);
+    Promise.resolve(root.Localization?.ready).then(refreshLinuxModeControl).catch(() => {});
 
     root.DeltamodLinuxRuntimePolish = Object.freeze({
         refreshOptions: patchOptionsCategory,
+        refreshModeControl: refreshLinuxModeControl,
         playRewind: playManagedRewind,
         snapshot: () => Object.freeze({ ...diagnostics })
     });
