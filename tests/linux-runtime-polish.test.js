@@ -38,6 +38,10 @@ function baseRoot({ mode = 'auto' } = {}) {
         setMode: vi.fn(value => { mode = value; return value; })
     };
 
+    const interpolate = (value, args) => String(value).replace(/{(\d+)}/g, (match, index) => (
+        args[index] === undefined ? match : String(args[index])
+    ));
+
     return {
         compat,
         createdAudio,
@@ -45,6 +49,10 @@ function baseRoot({ mode = 'auto' } = {}) {
         menuAudio,
         root: {
             DeltamodLinuxCompat: compat,
+            Localization: {
+                ready: Promise.resolve(),
+                t: vi.fn((key, fallback, ...args) => interpolate(fallback, args))
+            },
             audio: menuAudio,
             loopMenuAudio,
             rew: vi.fn(),
@@ -60,6 +68,44 @@ function baseRoot({ mode = 'auto' } = {}) {
             clearInterval: vi.fn()
         }
     };
+}
+
+function optionDom(root) {
+    function node(tagName) {
+        return {
+            tagName,
+            children: [],
+            dataset: {},
+            style: {},
+            hidden: false,
+            append(...children) { this.children.push(...children); },
+            appendChild(child) { this.children.push(child); return child; },
+            setAttribute: vi.fn(function setAttribute(name, value) { this[name] = value; }),
+            addEventListener: vi.fn(function addEventListener(name, callback) {
+                this.listeners = this.listeners || new Map();
+                this.listeners.set(name, callback);
+            })
+        };
+    }
+
+    const tableBody = node('tbody');
+    const findById = (target, id) => {
+        if (target?.id === id) return target;
+        for (const child of target?.children || []) {
+            const found = findById(child, id);
+            if (found) return found;
+        }
+        return null;
+    };
+
+    root.document.createElement = vi.fn(tag => node(tag));
+    root.document.getElementById = vi.fn(id => findById(tableBody, id));
+    root.document.querySelector = vi.fn(selector => {
+        if (selector === '#options') return tableBody;
+        return null;
+    });
+    root.currentPageStack = { cat: vi.fn(() => Promise.resolve()) };
+    return { tableBody };
 }
 
 describe('Linux runtime polish', () => {
@@ -116,10 +162,11 @@ describe('Linux runtime polish', () => {
             getVideoPlaybackQuality: vi.fn(() => ({ totalVideoFrames: 0, droppedVideoFrames: 0 }))
         };
         const background = {};
+        const nativeFallback = vi.fn(() => Promise.resolve());
         root.document.getElementById = vi.fn(id => id === 'theme-background-video' ? video : null);
         root.document.querySelector = vi.fn(selector => selector === '.bg' ? background : null);
         root.performance = { now: vi.fn(() => clock) };
-        root.fallBackFromThemeVideo = vi.fn(() => Promise.resolve());
+        root.fallBackFromThemeVideo = nativeFallback;
 
         installLinuxRuntimePolish(root);
 
@@ -128,13 +175,16 @@ describe('Linux runtime polish', () => {
             listeners.get('waiting')();
         }
         await Promise.resolve();
+        await Promise.resolve();
 
-        expect(root.fallBackFromThemeVideo).toHaveBeenCalledWith(
+        expect(nativeFallback).toHaveBeenCalledWith(
             video,
             background,
             'repeated stalls on Linux WebKitGTK'
         );
         expect(root.DeltamodLinuxRuntimePolish.snapshot().stallFallbacks).toBe(1);
+        expect(root.DeltamodLinuxRuntimePolish.snapshot().qualityVideoFallbackReason)
+            .toBe('repeated stalls on Linux WebKitGTK');
     });
 
     it('falls back from quality video when at least 20% of sampled frames are dropped', async () => {
@@ -151,22 +201,26 @@ describe('Linux runtime polish', () => {
             getVideoPlaybackQuality: vi.fn(() => sample)
         };
         const background = {};
+        const nativeFallback = vi.fn(() => Promise.resolve());
         root.document.getElementById = vi.fn(id => id === 'theme-background-video' ? video : null);
         root.document.querySelector = vi.fn(selector => selector === '.bg' ? background : null);
-        root.fallBackFromThemeVideo = vi.fn(() => Promise.resolve());
+        root.fallBackFromThemeVideo = nativeFallback;
         root.setInterval = vi.fn(callback => { frameCheck = callback; return 1; });
 
         installLinuxRuntimePolish(root);
         sample = { totalVideoFrames: 200, droppedVideoFrames: 25 };
         frameCheck();
         await Promise.resolve();
+        await Promise.resolve();
 
-        expect(root.fallBackFromThemeVideo).toHaveBeenCalledWith(
+        expect(nativeFallback).toHaveBeenCalledWith(
             video,
             background,
             'excessive dropped frames (25/100) on Linux WebKitGTK'
         );
         expect(root.DeltamodLinuxRuntimePolish.snapshot().droppedFrameFallbacks).toBe(1);
+        expect(root.DeltamodLinuxRuntimePolish.snapshot().qualityVideoFallbackReason)
+            .toBe('excessive dropped frames (25/100) on Linux WebKitGTK');
     });
 
     it('does not run the quality health fallback while auto poster mode is selected', async () => {
@@ -188,50 +242,74 @@ describe('Linux runtime polish', () => {
         listeners.get('waiting')();
         await Promise.resolve();
 
-        expect(root.fallBackFromThemeVideo).not.toHaveBeenCalled();
         expect(root.DeltamodLinuxRuntimePolish.snapshot().videoStalls).toBe(0);
     });
 
-    it('adds a Linux-only rendering-mode selector to the Interface options', async () => {
+    it('adds a localized Linux-only rendering-mode selector to the Interface options', async () => {
         const { root, compat } = baseRoot();
-
-        function node(tagName) {
-            return {
-                tagName,
-                children: [],
-                dataset: {},
-                style: {},
-                append(...children) { this.children.push(...children); },
-                appendChild(child) { this.children.push(child); return child; },
-                setAttribute: vi.fn(),
-                addEventListener: vi.fn(function addEventListener(name, callback) {
-                    this.listeners = this.listeners || new Map();
-                    this.listeners.set(name, callback);
-                })
-            };
-        }
-
-        const tableBody = node('tbody');
-        root.document.createElement = vi.fn(tag => node(tag));
-        root.document.getElementById = vi.fn(() => null);
-        root.document.querySelector = vi.fn(selector => {
-            if (selector === '#options') return tableBody;
-            return null;
+        const translations = {
+            linux_rendering_mode: 'Linux graphics mode',
+            linux_rendering_mode_aria: 'Linux graphics mode',
+            linux_rendering_auto: 'Automatic',
+            linux_rendering_auto_desc: 'Automatic poster mode',
+            linux_rendering_performance: 'Fast',
+            linux_rendering_performance_desc: 'Reduced effects',
+            linux_rendering_quality: 'Full quality',
+            linux_rendering_quality_desc: 'Native video'
+        };
+        root.Localization.t = vi.fn((key, fallback, ...args) => {
+            const value = translations[key] || fallback;
+            return String(value).replace(/{(\d+)}/g, (match, index) => (
+                args[index] === undefined ? match : String(args[index])
+            ));
         });
-        root.currentPageStack = { cat: vi.fn(() => Promise.resolve()) };
+        const { tableBody } = optionDom(root);
 
         installLinuxRuntimePolish(root);
         await root.currentPageStack.cat('ui');
 
         expect(tableBody.children).toHaveLength(1);
         const row = tableBody.children[0];
+        const title = row.children[0].children[0];
+        const description = row.children[0].children[2];
         const select = row.children[1].children[0].children[0];
+        expect(title.textContent).toBe('Linux graphics mode');
+        expect(description.textContent).toBe('Automatic poster mode');
         expect(select.id).toBe('SELECT-LINUX-PERFORMANCE-MODE');
         expect(select.children.map(option => option.value)).toEqual(['auto', 'performance', 'quality']);
+        expect(select.children.map(option => option.textContent)).toEqual([
+            'Automatic',
+            'Fast',
+            'Full quality'
+        ]);
 
         select.value = 'performance';
         select.listeners.get('change')();
         expect(compat.setMode).toHaveBeenCalledWith('performance');
+        expect(description.textContent).toBe('Reduced effects');
+    });
+
+    it('shows the Quality fallback reason without changing the underlying fallback result', async () => {
+        const { root, compat } = baseRoot({ mode: 'quality' });
+        const nativeFallback = vi.fn(() => Promise.resolve('poster-active'));
+        root.fallBackFromThemeVideo = nativeFallback;
+        const { tableBody } = optionDom(root);
+
+        installLinuxRuntimePolish(root);
+        await root.currentPageStack.cat('ui');
+        await expect(root.fallBackFromThemeVideo({}, {}, 'codec unavailable'))
+            .resolves.toBe('poster-active');
+
+        const status = tableBody.children[0].children[0].children[3];
+        expect(nativeFallback).toHaveBeenCalledTimes(1);
+        expect(status.hidden).toBe(false);
+        expect(status.textContent).toBe('Video fallback active for this theme: codec unavailable');
+        expect(root.DeltamodLinuxRuntimePolish.snapshot().qualityVideoFallbackReason)
+            .toBe('codec unavailable');
+
+        compat.setMode('auto');
+        root.DeltamodLinuxRuntimePolish.refreshModeControl();
+        expect(status.hidden).toBe(true);
     });
 
     it('does nothing when the Linux compatibility layer is inactive', () => {
