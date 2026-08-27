@@ -259,7 +259,7 @@ fn configure_linux() {
     }
 
     eprintln!(
-        "[linux-webkit] mode={} mixed_vendor_risk={} intel_or_amd_drm={} nvidia_drm={} native_nvidia_userspace={} mesa_egl={} renderer={} egl_vendor={} reason={}",
+        "[linux-webkit] mode={} mixed_vendor_risk={} intel_or_amd_drm={} nvidia_drm={} native_nvidia_userspace={} mesa_egl={} renderer={} compositing={} render_device={} egl_vendor={} reason={}",
         plan.mode.label(),
         plan.risk_detected,
         probe.has_intel_or_amd_drm,
@@ -271,6 +271,8 @@ fn configure_linux() {
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "unavailable".to_owned()),
         effective_renderer_label(),
+        effective_compositing_label(),
+        effective_render_device_label(),
         env::var(EGL_VENDOR_VAR).unwrap_or_else(|_| "automatic".to_owned()),
         plan.reason,
     );
@@ -284,6 +286,20 @@ fn effective_renderer_label() -> &'static str {
     } else {
         "native"
     }
+}
+
+fn effective_compositing_label() -> &'static str {
+    if env::var_os(DISABLE_COMPOSITING_VAR).is_some() {
+        "disabled"
+    } else {
+        "automatic"
+    }
+}
+
+fn effective_render_device_label() -> String {
+    env::var_os(RENDER_DEVICE_VAR)
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "automatic".to_owned())
 }
 
 pub fn configure() {
