@@ -262,11 +262,15 @@ function applyThemeBackground() {
     video.play().catch(error => {
         void fallBackFromThemeVideo(video, background, error?.name || 'playback rejected');
     });
+    const themeVideoReadyTimeout = window.DeltamodLinuxCompat?.isLinuxTauri
+        && window.DeltamodLinuxCompat.getMode?.() === 'quality'
+        ? 20000
+        : 5000;
     themeVideoLoadTimer = setTimeout(() => {
         if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
             void fallBackFromThemeVideo(video, background, 'load timeout');
         }
-    }, 5000);
+    }, themeVideoReadyTimeout);
 }
 
 async function fallBackFromThemeVideo(video, background, reason) {

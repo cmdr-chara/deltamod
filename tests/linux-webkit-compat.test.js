@@ -21,6 +21,7 @@ function linuxTauriRoot({ mode = null, codecSupport = 'probably' } = {}) {
             this.id = '';
             this.dataset = {};
             this.loop = false;
+            this.preload = 'none';
             this.listeners = new Map();
         }
 
@@ -39,6 +40,12 @@ function linuxTauriRoot({ mode = null, codecSupport = 'probably' } = {}) {
         }
 
         pause() {}
+        removeAttribute(name) {
+            if (name === 'src') this.src = '';
+        }
+        load() {
+            this.emit('emptied');
+        }
         canPlayType() { return codecSupport; }
     }
     FakeMediaElement.prototype.play = nativePlay;
@@ -92,6 +99,7 @@ function themeVideo(FakeMediaElement) {
         'VIDEO'
     );
     video.id = 'theme-background-video';
+    video.dataset.source = video.src;
     return video;
 }
 
@@ -106,11 +114,45 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(root.fetch).toHaveBeenCalledWith('tauri://localhost/audio/rew.mp3');
         expect(CompatibleURL.createObjectURL).toHaveBeenCalledTimes(1);
         expect(audio.src).toBe('blob:deltamod-media-1');
+        expect(audio.preload).toBe('auto');
         expect(root.DeltamodLinuxCompat.snapshot().audioBlobLoads).toBe(1);
 
         await audio.play();
         expect(root.fetch).toHaveBeenCalledTimes(1);
         expect(nativePlay).toHaveBeenCalledTimes(2);
+    });
+
+    it('exposes the unpatched media play method to companion bridges', async () => {
+        const { root, FakeMediaElement, nativePlay } = linuxTauriRoot();
+        installMediaCompatibility(root);
+        const audio = new FakeMediaElement('blob:deltamod-native', 'AUDIO');
+
+        await expect(root.DeltamodLinuxCompat.playNative(audio)).resolves.toBe('played');
+        expect(nativePlay).toHaveBeenCalledTimes(1);
+        expect(audio.nativePlayCount).toBe(1);
+    });
+
+    it('waits for Blob media readiness before invoking native playback', async () => {
+        const { root, FakeMediaElement, nativePlay } = linuxTauriRoot();
+        const timers = [];
+        root.setTimeout = vi.fn(callback => {
+            timers.push(callback);
+            return timers.length;
+        });
+        root.clearTimeout = vi.fn();
+        installMediaCompatibility(root);
+        const audio = new FakeMediaElement('blob:deltamod-native', 'AUDIO');
+        audio.readyState = 0;
+
+        const play = root.DeltamodLinuxCompat.playNativeWhenReady(audio);
+        await Promise.resolve();
+        expect(nativePlay).not.toHaveBeenCalled();
+
+        audio.readyState = 4;
+        audio.emit('canplay');
+        await expect(play).resolves.toBe('played');
+        expect(nativePlay).toHaveBeenCalledTimes(1);
+        expect(root.clearTimeout).toHaveBeenCalledWith(1);
     });
 
     it('shares tiny app SFX blobs across separate transient Audio elements', async () => {
@@ -197,19 +239,33 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(root.DeltamodLinuxCompat.forcesPosterVideo()).toBe(true);
     });
 
-    it('uses native streamed theme video in quality mode and never Blob-buffers it', async () => {
+    it('buffers theme video once in quality mode for stable WebKitGTK playback', async () => {
         const { root, FakeMediaElement, CompatibleURL, nativePlay } = linuxTauriRoot({ mode: 'quality' });
         installMediaCompatibility(root);
         const video = themeVideo(FakeMediaElement);
 
         await expect(video.play()).resolves.toBe('played');
-        expect(root.fetch).not.toHaveBeenCalled();
-        expect(CompatibleURL.createObjectURL).not.toHaveBeenCalled();
+        expect(root.fetch).toHaveBeenCalledWith('tauri://localhost/themes/video/chara-theme.mp4');
+        expect(CompatibleURL.createObjectURL).toHaveBeenCalledTimes(1);
         expect(nativePlay).toHaveBeenCalledTimes(1);
         expect(root.DeltamodLinuxCompat.forcesPosterVideo()).toBe(false);
+        expect(video.preload).toBe('auto');
         const snapshot = root.DeltamodLinuxCompat.snapshot();
-        expect(snapshot.videoDirectPlays).toBe(1);
-        expect(snapshot.videoBlobLoads).toBe(0);
+        expect(snapshot.videoDirectPlays).toBe(0);
+        expect(snapshot.videoBlobLoads).toBe(1);
+
+        await video.play();
+        expect(root.fetch).toHaveBeenCalledTimes(1);
+        expect(CompatibleURL.createObjectURL).toHaveBeenCalledTimes(1);
+        expect(nativePlay).toHaveBeenCalledTimes(2);
+
+        // A cancelled custom-scheme load may report emptied after the Blob
+        // source is installed. That stale event must not discard the bridge.
+        video.src = '';
+        video.emit('emptied');
+        video.src = 'blob:deltamod-media-1';
+        await video.play();
+        expect(root.fetch).toHaveBeenCalledTimes(1);
     });
 
     it('keeps non-theme custom-scheme video native in every mode', async () => {
@@ -243,14 +299,14 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(root.console.warn).toHaveBeenCalledWith(expect.stringContaining('gst-libav'));
     });
 
-    it('persists mode and only reduces visual effects in performance mode', () => {
+    it('persists mode and keeps expensive effects disabled outside quality mode', () => {
         const { root, classes, storage } = linuxTauriRoot();
         installMediaCompatibility(root);
 
         expect(classes.has('deltamod-linux-webkit')).toBe(true);
-        expect(classes.has('deltamod-linux-reduced-effects')).toBe(false);
+        expect(classes.has('deltamod-linux-reduced-effects')).toBe(true);
         expect(classes.has('deltamod-linux-performance')).toBe(false);
-        expect(root.DeltamodLinuxCompat.usesReducedEffects()).toBe(false);
+        expect(root.DeltamodLinuxCompat.usesReducedEffects()).toBe(true);
 
         root.DeltamodLinuxCompat.setMode('performance');
         expect(storage.get('deltamodLinuxMediaMode')).toBe('performance');
@@ -262,6 +318,10 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(classes.has('deltamod-linux-reduced-effects')).toBe(false);
         expect(classes.has('deltamod-linux-performance')).toBe(false);
         expect(root.DeltamodLinuxCompat.usesReducedEffects()).toBe(false);
+
+        root.DeltamodLinuxCompat.setMode('auto');
+        expect(classes.has('deltamod-linux-reduced-effects')).toBe(true);
+        expect(root.DeltamodLinuxCompat.usesReducedEffects()).toBe(true);
     });
 
     it('does not patch media playback outside Linux Tauri', () => {
@@ -296,6 +356,7 @@ describe('Linux WebKitGTK compatibility', () => {
         const css = fs.readFileSync(path.join(projectRoot, 'web', 'linux-webkit-compat.css'), 'utf8');
 
         expect(css).toContain('html.deltamod-linux-webkit body');
+        expect(css).toContain('font-family: system-ui, "Segoe UI", sans-serif;');
         expect(css).toContain('-webkit-font-smoothing: antialiased;');
         expect(css).toContain('html.deltamod-linux-webkit .setting-title');
         expect(css).toContain('-webkit-font-smoothing: none;');

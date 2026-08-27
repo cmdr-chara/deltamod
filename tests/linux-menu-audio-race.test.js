@@ -38,6 +38,8 @@ function linuxMenuAudioRoot() {
         readyState: 0,
         currentTime: 0,
         loop: true,
+        volume: 0.5,
+        preload: 'none',
         get src() {
             return this._src;
         },
@@ -135,8 +137,92 @@ describe('Linux menu audio request coordination', () => {
         await expect(secondPlay).resolves.toBe('played');
 
         expect(objectUrls).toHaveLength(1);
+        expect(audio.preload).toBe('auto');
         expect(nativeBridgePlay).toHaveBeenCalledTimes(1);
         expect(root.DeltamodLinuxMenuAudio.snapshot().coalescedPlays).toBe(1);
+    });
+
+    it('bypasses the patched media play method after assigning its Blob URL', async () => {
+        const { root, audio, fetches } = linuxMenuAudioRoot();
+        const patchedPlay = audio.play;
+        const nativePlay = vi.fn(function nativePlay(element) {
+            if (!element.src.startsWith('blob:')) {
+                return Promise.reject(new Error(`Unexpected source: ${element.src}`));
+            }
+            element.paused = false;
+            element.readyState = 2;
+            return Promise.resolve('native-played');
+        });
+        root.DeltamodLinuxCompat.playNative = nativePlay;
+        const source = 'themeprot://chara/chara-theme.mp3';
+
+        installLinuxMenuAudio(root);
+        root.switchMenuAudioSource(source);
+        const play = audio.play();
+
+        expect(fetches).toHaveLength(1);
+        await completeFetch(fetches[0]);
+        await expect(play).resolves.toBe('native-played');
+        expect(nativePlay).toHaveBeenCalledTimes(1);
+        expect(patchedPlay).not.toHaveBeenCalled();
+    });
+
+    it('falls back to a decoded Web Audio buffer when WebKit rejects MP3 media', async () => {
+        const { root, audio, fetches } = linuxMenuAudioRoot();
+        const nativeError = Object.assign(new Error('The operation is not supported.'), {
+            name: 'NotSupportedError',
+            code: 4
+        });
+        const gain = {
+            gain: { value: 0 },
+            connect: vi.fn()
+        };
+        const sourceNode = {
+            loop: false,
+            connect: vi.fn(() => gain),
+            start: vi.fn(),
+            stop: vi.fn(),
+            disconnect: vi.fn()
+        };
+        const context = {
+            state: 'running',
+            destination: {},
+            resume: vi.fn(() => Promise.resolve()),
+            decodeAudioData: vi.fn(() => Promise.resolve({ duration: 177 })),
+            createGain: vi.fn(() => gain),
+            createBufferSource: vi.fn(() => sourceNode)
+        };
+        gain.connect.mockReturnValue(context.destination);
+        root.DeltamodLinuxCompat.playNative = vi.fn(() => Promise.reject(nativeError));
+        root.AudioContext = vi.fn(function AudioContext() {
+            return context;
+        });
+        root.setInterval = vi.fn(() => 1);
+        root.clearInterval = vi.fn();
+        const source = 'themeprot://chara/chara-theme.mp3';
+
+        installLinuxMenuAudio(root);
+        root.switchMenuAudioSource(source);
+        const play = audio.play();
+
+        expect(fetches).toHaveLength(1);
+        fetches[0].resolve({
+            ok: true,
+            status: 200,
+            blob: () => Promise.resolve({
+                type: 'audio/mpeg',
+                arrayBuffer: () => Promise.resolve(new ArrayBuffer(8))
+            })
+        });
+
+        await expect(play).resolves.toBe('web-audio-played');
+        expect(context.decodeAudioData).toHaveBeenCalledTimes(1);
+        expect(sourceNode.start).toHaveBeenCalledTimes(1);
+        expect(root.DeltamodLinuxMenuAudio.snapshot()).toMatchObject({
+            webAudioFallbacks: 1,
+            webAudioDecodeLoads: 1,
+            lastError: null
+        });
     });
 
     it('does not reset the player when switchMenuAudioSource() repeats the active source', () => {

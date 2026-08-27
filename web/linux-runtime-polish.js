@@ -86,7 +86,7 @@
             labelKey: 'linux_rendering_auto',
             label: 'Auto (recommended)',
             descriptionKey: 'linux_rendering_auto_desc',
-            description: 'Uses the static theme poster and separate audio while keeping normal visual effects. Recommended on Linux.'
+            description: 'Uses the static theme poster and separate audio with Linux-safe visual effects. Recommended on Linux.'
         }),
         performance: Object.freeze({
             labelKey: 'linux_rendering_performance',
@@ -98,7 +98,7 @@
             labelKey: 'linux_rendering_quality',
             label: 'Quality',
             descriptionKey: 'linux_rendering_quality_desc',
-            description: 'Uses native streamed theme video and full visual effects. This can use substantially more CPU on WebKitGTK.'
+            description: 'Uses a buffered theme video for stable WebKitGTK playback and full visual effects. This can use substantially more CPU and memory.'
         })
     });
 

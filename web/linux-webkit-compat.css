@@ -15,6 +15,11 @@ html.deltamod-linux-webkit td,
 html.deltamod-linux-webkit table,
 html.deltamod-linux-webkit input,
 html.deltamod-linux-webkit textarea {
+    /* Geist.ttf is a multi-face Geist Pixel collection. WebKitGTK can select
+     * its line-styled face for the Calibri alias, leaving scanlines in body
+     * copy. Keep Pixel for headings/controls, but use the platform UI face
+     * for readable Linux text. */
+    font-family: system-ui, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;

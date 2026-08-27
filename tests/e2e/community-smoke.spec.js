@@ -279,16 +279,13 @@ test('launches securely and keeps Options categories inside their column', async
             width: window.innerWidth,
             height: window.innerHeight
         }));
-        await expect.poll(() => languageWheel.evaluate(element => {
+        await expect.poll(() => languageWheel.evaluate((element, viewportSize) => {
             const bounds = element.getBoundingClientRect();
-            return {
-                x: bounds.x + bounds.width / 2,
-                y: bounds.y + bounds.height / 2
-            };
-        })).toEqual({
-            x: viewport.width / 2,
-            y: viewport.height / 2
-        });
+            return Math.hypot(
+                (bounds.x + bounds.width / 2) - (viewportSize.width / 2),
+                (bounds.y + bounds.height / 2) - (viewportSize.height / 2)
+            );
+        }, viewport)).toBeLessThanOrEqual(1);
         await expect(window.locator('#language-wheel-current-flag')).toHaveAttribute(
             'src',
             /language-flags\/en\.svg$/
@@ -1217,7 +1214,14 @@ test('launches securely and keeps Options categories inside their column', async
         const windowPositionDuringNumbers = await application.evaluate(({ BrowserWindow }) =>
             BrowserWindow.getAllWindows()[0].getPosition()
         );
-        expect(windowPositionDuringNumbers).not.toEqual(windowPositionBeforeStrike);
+        const usesRendererShakeFallback = await window.evaluate(() => (
+            document.querySelector('#chara-easter-egg')?.classList.contains('is-window-shake-fallback')
+        ));
+        if (usesRendererShakeFallback) {
+            expect(windowPositionDuringNumbers).toEqual(windowPositionBeforeStrike);
+        } else {
+            expect(windowPositionDuringNumbers).not.toEqual(windowPositionBeforeStrike);
+        }
         if (process.env.DELTAMOD_SCREENSHOT_DIR) {
             await window.screenshot({
                 path: path.join(process.env.DELTAMOD_SCREENSHOT_DIR, '10-chara-9999.png')

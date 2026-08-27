@@ -45,6 +45,7 @@
     const cleanupAttached = new WeakSet();
     const objectUrls = new Set();
     const sharedAudioObjectUrls = new Map();
+    let nativePlay = null;
 
     function toggleClass(name, enabled) {
         if (html?.classList?.toggle) {
@@ -57,7 +58,7 @@
 
     function applyModeClasses() {
         html?.classList?.add?.('deltamod-linux-webkit');
-        toggleClass('deltamod-linux-reduced-effects', mode === 'performance');
+        toggleClass('deltamod-linux-reduced-effects', mode !== 'quality');
         toggleClass('deltamod-linux-performance', mode === 'performance');
         if (html?.dataset) html.dataset.deltamodLinuxMediaMode = mode;
     }
@@ -78,14 +79,79 @@
         return mode;
     }
 
+    function playNative(element, ...args) {
+        if (typeof nativePlay !== 'function') {
+            return Promise.reject(new Error('Native media playback is unavailable.'));
+        }
+        return nativePlay.apply(element, args);
+    }
+
+    function waitForMediaReady(element) {
+        if (!element?.addEventListener || Number(element.readyState) >= 2) {
+            return Promise.resolve();
+        }
+
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            let timeoutId = null;
+            const events = ['loadeddata', 'canplay'];
+
+            const cleanup = () => {
+                events.forEach(name => element.removeEventListener?.(name, onReady));
+                element.removeEventListener?.('error', onError);
+                if (timeoutId !== null) root.clearTimeout?.(timeoutId);
+            };
+
+            const finish = (callback, value) => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                callback(value);
+            };
+
+            const onReady = () => {
+                if (Number(element.readyState) >= 2) finish(resolve);
+            };
+            const onError = () => {
+                finish(reject, element.error || new Error('Media element failed while loading.'));
+            };
+
+            events.forEach(name => element.addEventListener(name, onReady));
+            element.addEventListener('error', onError);
+            onReady();
+
+            const schedule = root.setTimeout || globalThis.setTimeout;
+            const timeoutMs = String(element.tagName || '').toUpperCase() === 'VIDEO'
+                ? 20000
+                : 5000;
+            timeoutId = schedule(() => {
+                if (Number(element.readyState) >= 2) {
+                    finish(resolve);
+                } else if (element.error) {
+                    finish(reject, element.error);
+                } else {
+                    // Let native play() produce the final decoder error when
+                    // a WebKit build never emits a readiness event.
+                    finish(resolve);
+                }
+            }, timeoutMs);
+        });
+    }
+
+    function playNativeWhenReady(element, ...args) {
+        return waitForMediaReady(element).then(() => playNative(element, ...args));
+    }
+
     applyModeClasses();
 
     const compatApi = Object.freeze({
         isLinuxTauri: true,
         getMode: () => mode,
         setMode,
-        usesReducedEffects: () => mode === 'performance',
+        usesReducedEffects: () => mode !== 'quality',
         forcesPosterVideo: () => mode !== 'quality',
+        playNative,
+        playNativeWhenReady,
         snapshot: () => Object.freeze({ mode, ...diagnostics })
     });
     root.DeltamodLinuxCompat = compatApi;
@@ -97,7 +163,7 @@
         return 'styles-only';
     }
 
-    const nativePlay = MediaElement.prototype.play;
+    nativePlay = MediaElement.prototype.play;
 
     function normalizeSource(rawSource) {
         if (!rawSource) return null;
@@ -173,11 +239,24 @@
             }
         });
         element.addEventListener('emptied', () => {
+            const state = elementStates.get(element);
+            const assignedSource = normalizeSource(
+                element.src || element.getAttribute?.('src') || element.currentSrc
+            );
+            // applyThemeBackground cancels the old custom-scheme video before
+            // installing its Blob source. WebKitGTK can deliver that old
+            // emptied event after the new bridge state exists; keep the state
+            // while the theme element is still associated with that source.
+            if (state?.kind === 'video'
+                && !assignedSource
+                && normalizeSource(element.dataset?.source) === state.source) {
+                return;
+            }
             releaseElementObjectUrl(element);
         });
     }
 
-    function fetchAudioObjectUrl(absolute) {
+    function fetchMediaObjectUrl(absolute, kind) {
         return fetchAsset(absolute)
             .then(response => {
                 if (!response.ok) {
@@ -188,7 +267,7 @@
             .then(blob => {
                 const objectUrl = Url.createObjectURL(blob);
                 objectUrls.add(objectUrl);
-                diagnostics.audioBlobLoads += 1;
+                diagnostics[kind === 'video' ? 'videoBlobLoads' : 'audioBlobLoads'] += 1;
                 return objectUrl;
             });
     }
@@ -211,7 +290,7 @@
             return cached;
         }
 
-        const pending = fetchAudioObjectUrl(absolute)
+        const pending = fetchMediaObjectUrl(absolute, 'audio')
             .then(objectUrl => {
                 diagnostics.sharedAudioBlobLoads += 1;
                 return objectUrl;
@@ -224,7 +303,7 @@
         return pending;
     }
 
-    function audioObjectUrlFor(element, source) {
+    function mediaObjectUrlFor(element, source, kind, shared = false) {
         const absolute = normalizeSource(source);
         if (!absolute) return Promise.reject(new TypeError('Invalid media source.'));
 
@@ -236,11 +315,10 @@
             releaseElementObjectUrl(element);
         }
 
-        const shared = isReusableAppSfxSource(absolute);
-        const state = { source: absolute, objectUrl: null, pending: null, shared };
+        const state = { source: absolute, objectUrl: null, pending: null, shared, kind };
         const pending = (shared
             ? sharedAudioObjectUrlFor(absolute)
-            : fetchAudioObjectUrl(absolute))
+            : fetchMediaObjectUrl(absolute, kind))
             .then(objectUrl => {
                 if (elementStates.get(element) !== state) {
                     if (!shared) revokeObjectUrl(objectUrl);
@@ -264,6 +342,40 @@
         elementStates.set(element, state);
         attachElementCleanup(element);
         return pending;
+    }
+
+    function audioObjectUrlFor(element, source) {
+        return mediaObjectUrlFor(element, source, 'audio', isReusableAppSfxSource(normalizeSource(source)));
+    }
+
+    function videoObjectUrlFor(element, source) {
+        return mediaObjectUrlFor(element, source, 'video');
+    }
+
+    function playBufferedMedia(element, source, kind, args) {
+        if (kind === 'video' && !elementStates.has(element)) {
+            // applyThemeBackground assigns the custom URI before calling
+            // play(). Cancel that native WebKit load before installing the
+            // Blob bridge; its late `emptied` event otherwise invalidates the
+            // newly-created request and produces a false source-change error.
+            const assignedSource = normalizeSource(
+                element.src || element.getAttribute?.('src') || element.currentSrc
+            );
+            if (assignedSource === source) {
+                element.pause?.();
+                element.removeAttribute?.('src');
+                element.load?.();
+            }
+        }
+        const objectUrl = kind === 'video'
+            ? videoObjectUrlFor(element, source)
+            : audioObjectUrlFor(element, source);
+        return objectUrl.then(value => {
+            if (element.dataset) element.dataset.deltamodOriginalMediaSource = source;
+            if ('preload' in element) element.preload = 'auto';
+            if (element.src !== value) element.src = value;
+            return playNativeWhenReady(element, ...args);
+        });
     }
 
     function isThemeBackgroundVideo(element) {
@@ -335,22 +447,26 @@
                 return Promise.reject(error);
             }
 
-            // Never Blob-buffer Linux video. Quality and non-theme video use the
-            // native WebKit/GStreamer stream so Range requests and decoder state
-            // remain intact. Auto/Performance theme video is rejected above and
-            // the existing app fallback supplies the poster + separate audio.
+            // WebKitGTK rejects MP4 served through Tauri's custom URI scheme on
+            // some Linux builds even when the installed GStreamer codecs work.
+            // Buffer the single theme video once in Quality mode, while keeping
+            // non-theme video on the native stream so large previews retain
+            // Range support.
+            if (isThemeBackgroundVideo(this)) {
+                return playBufferedMedia(this, absolute, 'video', args)
+                    .catch(error => {
+                        root.console?.warn?.(`Unable to prepare Linux WebKit theme video ${absolute}:`, error);
+                        throw error;
+                    });
+            }
+
             diagnostics.videoDirectPlays += 1;
-            return nativePlay.apply(this, args);
+            return playNative(this, ...args);
         }
 
         // Custom-scheme audio still needs a Blob bridge on WebKitGTK. Repeated
         // built-in SFX share one Blob URL to avoid player/request churn.
-        return audioObjectUrlFor(this, absolute)
-            .then(objectUrl => {
-                if (this.dataset) this.dataset.deltamodOriginalMediaSource = absolute;
-                if (this.src !== objectUrl) this.src = objectUrl;
-                return nativePlay.apply(this, args);
-            })
+        return playBufferedMedia(this, absolute, 'audio', args)
             .catch(error => {
                 root.console?.warn?.(`Unable to prepare Linux WebKit audio source ${absolute}:`, error);
                 throw error;
