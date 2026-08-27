@@ -77,6 +77,18 @@ describe('Linux WebKitGTK startup guard', () => {
         expect(guard).toContain('explicit GPU routing override preserved');
     });
 
+    it('reports preserved compositing and render-device overrides in startup diagnostics', () => {
+        const guard = source('src-tauri/src/linux_webkit.rs');
+
+        expect(guard).toContain('renderer={} compositing={} render_device={} egl_vendor={}');
+        expect(guard).toContain('effective_compositing_label()');
+        expect(guard).toContain('effective_render_device_label()');
+        expect(guard).toContain('fn effective_compositing_label()');
+        expect(guard).toContain('fn effective_render_device_label() -> String');
+        expect(guard).toContain('env::var_os(DISABLE_COMPOSITING_VAR).is_some()');
+        expect(guard).toContain('env::var_os(RENDER_DEVICE_VAR)');
+    });
+
     it('provides reversible troubleshooting modes without making them the automatic default', () => {
         const guard = source('src-tauri/src/linux_webkit.rs');
 
