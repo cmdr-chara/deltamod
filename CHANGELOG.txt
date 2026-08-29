@@ -1,3 +1,11 @@
+# Deltamod Community 2.0.17
+
+Released 2026-08-29.
+
+## Changes
+
+- style: polish interface and theme contrast (`9e6f8af`).
+
 # Deltamod Community 2.0.10
 
 Released 2026-08-14.
