@@ -1,3 +1,6 @@
+#[cfg(target_os = "linux")]
+#[path = "linux_webkit.rs"]
+mod linux_webkit;
 #[path = "local_import.rs"]
 mod local_import;
 
@@ -81,6 +84,12 @@ impl Drop for ControllerMode {
 
 /// Consume OS file-association handoffs without widening the renderer API.
 pub fn install_protocols(app: &AppHandle) -> Result<(), &'static str> {
+    // Tauri runs setup before config-defined windows are created. Configure the
+    // Linux WebKit/EGL environment here so WebKitWebProcess inherits it, while
+    // leaving Windows and macOS untouched.
+    #[cfg(target_os = "linux")]
+    linux_webkit::configure();
+
     #[cfg(target_os = "macos")]
     {
         let plugin = tauri::plugin::Builder::<tauri::Wry, ()>::new("file-handoff-events")
