@@ -138,10 +138,11 @@ a {
 select {
   font-family: "Pixel", sans-serif;
   font-size: var(--font-size-control);
-  color: white;
-  background-color: rgb(15, 15, 15);
-  border: 1px solid rgb(66, 66, 66);
-  padding: 5px;
+  color: var(--text-primary);
+  background-color: var(--panel-bg-strong);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--control-radius);
+  padding: 7px 9px;
   width: 100%;
   margin-bottom: 10px;
 }
@@ -227,7 +228,7 @@ th {
 
 .patch-mod-warning {
   margin: 9px 0 0;
-  color: #ffd36a;
+  color: var(--warning);
   font-size: var(--font-size-meta);
 }
 
@@ -293,7 +294,7 @@ th {
   border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.12);
-  transition: background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out);
+  transition: background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out);
 }
 
 .patch-toggle-track::after {
@@ -319,33 +320,37 @@ th {
 }
 
 .patch-toggle input:focus-visible + .patch-toggle-track {
-  outline: 3px solid white;
-  outline-offset: 3px;
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .modlist-error {
   width: 100%;
-  padding: 10px;
-  background-color: #ff1111bb;
-  border: 1px solid #ff0000cc;
-  border-radius: 6px;
+  box-sizing: border-box;
+  padding: 14px 18px;
+  background-color: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  border-left: 4px solid var(--danger);
+  border-radius: 10px;
   margin-bottom: 16px;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-  animation: 0.2s ease forwards openError;
+  transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease;
+  animation: var(--motion-standard) ease forwards openError;
 }
 
 .modlist-error:hover {
-  background-color: #ff1111ee;
-  border: 1px solid #ff0000ee;
+  background-color: rgba(216, 45, 45, 0.24);
+  border-color: var(--danger);
 }
 
 .modlist-error > h2 {
-  margin: 0;
+  margin: 0 0 4px;
+  color: var(--danger);
 }
 
 .modlist-error > span {
   margin: 0;
+  color: var(--text-primary);
 }
 
 @keyframes openError {
@@ -359,12 +364,14 @@ th {
 }
 
 .error-list-dialog, .error-list-dialog:focus {
-  color: white;
-  border: 2px solid var(--theme-color);
-  backdrop-filter: blur(8px) brightness(0.8);
-  background-color: rgba(0, 0, 0, 0.6);
-  padding: 15px;
-  border-radius: 5px;
+  color: var(--text-primary);
+  border: 1px solid var(--panel-border);
+  border-top: 3px solid var(--danger);
+  backdrop-filter: blur(var(--panel-blur)) brightness(0.8);
+  background-color: var(--panel-bg-strong);
+  box-shadow: var(--shadow-panel);
+  padding: 20px 22px;
+  border-radius: var(--panel-radius);
   animation: openError 0.3s ease forwards;
 }
 

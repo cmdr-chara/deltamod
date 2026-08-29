@@ -16,6 +16,17 @@ function relativeLuminance([red, green, blue]) {
     return (0.2126 * channels[0]) + (0.7152 * channels[1]) + (0.0722 * channels[2]);
 }
 
+function contrastRatio(first, second) {
+    const firstLuminance = relativeLuminance(first);
+    const secondLuminance = relativeLuminance(second);
+    return (Math.max(firstLuminance, secondLuminance) + 0.05)
+        / (Math.min(firstLuminance, secondLuminance) + 0.05);
+}
+
+function parseHexColor(value) {
+    return [1, 3, 5].map(offset => Number.parseInt(value.slice(offset, offset + 2), 16));
+}
+
 describe('theme sprite recoloring', () => {
     it('parses supported theme colors and rejects invalid channels', () => {
         expect(ThemeSprites.parseThemeColor('rgb(20, 62, 128)')).toEqual([20, 62, 128]);
@@ -78,6 +89,25 @@ describe('theme sprite recoloring', () => {
 
             const contrastWithWhite = 1.05 / (relativeLuminance(interfaceColor) + 0.05);
             expect(contrastWithWhite, `${filename} keeps white labels readable`).toBeGreaterThanOrEqual(4.5);
+        }
+    });
+
+    it('keeps normal and hover control labels at WCAG AA contrast', () => {
+        const themeDirectory = path.join(__dirname, '..', 'web', 'themes', 'data');
+
+        for (const filename of fs.readdirSync(themeDirectory).filter(name => name.endsWith('.theme.json'))) {
+            const theme = JSON.parse(fs.readFileSync(path.join(themeDirectory, filename), 'utf8'));
+            const interfaceColor = ThemeSprites.parseThemeColor(theme.color);
+            const palette = ThemeSprites.controlPalette(interfaceColor);
+
+            expect(
+                contrastRatio(interfaceColor, parseHexColor(palette.inkColor)),
+                `${filename} keeps normal button labels readable`
+            ).toBeGreaterThanOrEqual(4.5);
+            expect(
+                contrastRatio(palette.hoverColor, parseHexColor(palette.hoverInkColor)),
+                `${filename} keeps hover button labels readable`
+            ).toBeGreaterThanOrEqual(4.5);
         }
     });
 

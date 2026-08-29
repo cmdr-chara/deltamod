@@ -65,7 +65,7 @@
 }
 
 .content-filter-label {
-    color: #ddd;
+    color: var(--muted-text);
     font-size: var(--font-size-meta);
 }
 
@@ -79,7 +79,7 @@
 }
 
 .shop-source-label {
-    color: #ddd;
+    color: var(--muted-text);
     font-size: var(--font-size-meta);
 }
 
@@ -745,11 +745,11 @@ input {
 }
 
 .mod-download-status[data-phase="complete"] .mod-download-progress-track > span {
-    background: #54d881;
+    background: var(--success);
 }
 
 .mod-download-status[data-phase="failed"] .mod-download-progress-track > span {
-    background: #ff5b5b;
+    background: var(--danger);
 }
 
 .shop-page .serietast:first-child {

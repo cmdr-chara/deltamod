@@ -98,6 +98,40 @@
         );
     }
 
+    function relativeLuminance(color) {
+        const channels = color.map(channel => {
+            const normalized = channel / 255;
+            return normalized <= 0.04045
+                ? normalized / 12.92
+                : ((normalized + 0.055) / 1.055) ** 2.4;
+        });
+        return (0.2126 * channels[0]) + (0.7152 * channels[1]) + (0.0722 * channels[2]);
+    }
+
+    function contrastRatio(first, second) {
+        const firstLuminance = relativeLuminance(first);
+        const secondLuminance = relativeLuminance(second);
+        return (Math.max(firstLuminance, secondLuminance) + 0.05)
+            / (Math.min(firstLuminance, secondLuminance) + 0.05);
+    }
+
+    function readableInkColor(background) {
+        const white = [255, 255, 255];
+        const black = [0, 0, 0];
+        return contrastRatio(background, white) >= contrastRatio(background, black)
+            ? '#ffffff'
+            : '#000000';
+    }
+
+    function controlPalette(color) {
+        const hoverColor = mixColor(color, [255, 255, 255], 0.16);
+        return {
+            hoverColor,
+            inkColor: readableInkColor(color),
+            hoverInkColor: readableInkColor(hoverColor)
+        };
+    }
+
     function colorHue(color) {
         const normalized = color.map(channel => channel / 255);
         const maximum = Math.max(...normalized);
@@ -440,6 +474,7 @@
         SOUL_COLORS,
         apply,
         canonicalSoulColor,
+        controlPalette,
         observe,
         parseThemeColor,
         recolorPixels,

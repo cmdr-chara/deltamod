@@ -16,21 +16,55 @@
 }
 
 :root {
+    /* Layout & spacing (4px base grid) */
     --content-max-width: 1240px;
     --content-gap: 18px;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+
+    /* Typography scale */
     --font-size-body: 18px;
     --font-size-control: 17px;
     --font-size-meta: 15px;
     --font-size-heading: 22px;
     --font-size-title: 36px;
+
+    /* Text colors (white on near-black surfaces, WCAG AA) */
+    --text-primary: rgba(255, 255, 255, 0.95);
+    --muted-text: rgba(255, 255, 255, 0.76);
+    --text-faint: rgba(255, 255, 255, 0.55);
+
+    /* Surfaces & elevation */
     --panel-bg: rgba(10, 10, 12, 0.74);
     --panel-bg-strong: rgba(9, 9, 11, 0.88);
     --panel-border: rgba(255, 255, 255, 0.1);
     --panel-divider: rgba(255, 255, 255, 0.09);
-    --muted-text: rgba(255, 255, 255, 0.76);
     --panel-radius: 16px;
     --control-radius: 9px;
     --panel-blur: 11px;
+    --shadow-panel: 0 18px 46px rgba(0, 0, 0, 0.24);
+    --shadow-raised: 0 6px 18px rgba(0, 0, 0, 0.3);
+
+    /* Controls */
+    --control-height: 38px;
+    --control-bg: rgba(255, 255, 255, 0.07);
+    --control-bg-hover: rgba(255, 255, 255, 0.13);
+
+    /* Semantic colors (fg passes AA on --*-bg) */
+    --danger: #ff6b6b;
+    --danger-bg: rgba(216, 45, 45, 0.16);
+    --danger-border: rgba(255, 107, 107, 0.45);
+    --success: #54d881;
+    --warning: #ffd36a;
+
+    /* Focus */
+    --focus-ring: 0 0 0 2px #0a0a0c, 0 0 0 4px var(--theme-color, #cd4451);
+
+    /* Motion */
     --motion-instant: 90ms;
     --motion-fast: 140ms;
     --motion-standard: 180ms;
@@ -94,15 +128,18 @@ p {
     line-height: 1.5;
 }
 
-button:not(.sidebar-button):not(.animated-pixel-heart):not(.language-wheel-toggle):not(.chara-choice):not(:hover) {
-    background-color: var(--theme-color) !important; 
+/* Primary action: theme accent with ink text and a soft accent glow on hover.
+   Views opt out per-component (.sidebar-button, .secondary-action, ...). */
+button:not(.sidebar-button):not(.bar-button):not(.animated-pixel-heart):not(.language-wheel-toggle):not(.chara-choice):not(.secondary-action):not(.noScaleBTN):not(:hover):not(:disabled) {
+    background-color: var(--theme-color) !important;
+    color: var(--theme-color-ink, #fff);
 }
 button, input, select {
     font-family: "Pixel", sans-serif;
     font-size: var(--font-size-control);
     line-height: 1.2;
-    color: white;
-    background-color: rgb(15,15,15);
+    color: var(--text-primary);
+    background-color: var(--control-bg);
     padding: 8px 11px;
     border: 0;
     border-radius: var(--control-radius);
@@ -115,30 +152,68 @@ button, input, select {
         opacity var(--motion-instant) linear;
 }
 
+input, select {
+    border: 1px solid var(--panel-border);
+    background-color: var(--panel-bg-strong);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select {
+    box-sizing: border-box;
+    min-height: var(--control-height);
+}
+
+select:hover:not(:disabled) {
+    border-color: var(--theme-color-point3, rgba(255, 255, 255, 0.2));
+}
+
 input:focus {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--theme-color), 0 0 0 3px var(--theme-color-point2);
 }
 
-button:hover {
-    background-color: rgb(235, 235, 235);
-    color: rgb(15, 15, 15);
+button:hover:not(:disabled):not(.sidebar-button):not(.language-wheel-toggle):not(.secondary-action):not(.bar-button):not(.noScaleBTN) {
+    background-color: var(--theme-color-hover, rgb(235, 235, 235));
+    color: var(--theme-color-hover-ink, rgb(15, 15, 15));
 }
 
-button:hover:not(.noScaleBTN) {
-    box-shadow: none;
+button:hover:not(.noScaleBTN):not(.sidebar-button):not(.bar-button):not(.language-wheel-toggle) {
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--theme-color, transparent) 32%, transparent);
 }
 
 button:active:not(.noScaleBTN) {
-    box-shadow: 0 0 4px rgba(255, 255, 255, 0.28);
+    box-shadow: none;
+}
+
+button:disabled,
+input:disabled,
+select:disabled {
+    border: 1px solid var(--panel-border);
+    background: var(--control-bg) !important;
+    color: var(--text-faint);
+    box-shadow: none;
+    opacity: 0.62;
+    cursor: not-allowed;
+}
+
+/* Secondary / quiet action */
+button.secondary-action:not(:hover):not(:disabled) {
+    background: var(--control-bg) !important;
+    box-shadow: inset 0 0 0 1px var(--panel-border);
+    color: var(--text-primary);
+}
+
+button.secondary-action:hover:not(:disabled) {
+    background: var(--control-bg-hover) !important;
+    color: var(--text-primary);
 }
 
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
-    outline: 3px solid white;
-    outline-offset: 2px;
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
 input {
@@ -251,9 +326,10 @@ tbody tr:last-child > td {
 
 th {
     font-family: "Pixel", sans-serif;
-    color: rgba(255, 255, 255, 1);
-    background: color-mix(in srgb, var(--theme-color) 58%, #171315);
-    border-bottom: 0;
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--theme-color) 14%, #171315);
+    border-bottom: 2px solid var(--theme-color);
+    letter-spacing: 0.03em;
 }
 
 .content-page {
@@ -331,8 +407,13 @@ th {
 }
 
 .empty-state-actions .secondary-action {
-    background: rgba(0, 0, 0, 0.5) !important;
+    background: var(--control-bg) !important;
     box-shadow: inset 0 0 0 1px var(--panel-border);
+}
+
+.empty-state-actions .secondary-action:hover {
+    background: var(--control-bg-hover) !important;
+    color: var(--text-primary);
 }
 
 @media (max-width: 700px) {
