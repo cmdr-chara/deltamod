@@ -1,3 +1,50 @@
+# Deltamod Community 2.0.16
+
+Released 2026-08-29.
+
+## Changes
+
+- fix(linux): bridge Tauri media URLs through blob playback (`0855583`).
+- fix(linux): normalize WebKitGTK pixel text and select controls (`a6acacf`).
+- fix(linux): load WebKitGTK media and UI compatibility layer (`19a3c50`).
+- test(linux): cover WebKitGTK media and dark control compatibility (`9462ddd`).
+- fix(linux): honor media source changes after blob bridging (`0907ab0`).
+- test(linux): verify blob bridge follows media source changes (`a5cc04a`).
+- fix(linux): allow blob media and custom-scheme fetches in Tauri CSP (`a00f893`).
+- test(linux): cover Tauri CSP requirements for media bridge (`f063ba3`).
+- perf(linux): make WebKit media policy adaptive (`e686766`).
+- perf(linux): reduce WebKit composition overhead (`f5add07`).
+- test(linux): cover adaptive WebKit media policy (`26ac5a7`).
+- perf(linux): stabilize runtime audio and video health (`ef1b90a`).
+- perf(linux): cache app SFX and detect missing video codecs (`dc51d0e`).
+- perf(linux): load runtime polish after renderer (`f09fd06`).
+- test(linux): cover SFX caching and codec fallback (`16ab868`).
+- test(linux): cover runtime audio and video fallback polish (`6f7119a`).
+- test(linux): cover rendering-mode options control (`87a8f5a`).
+- test(linux): cover dropped-frame adaptive fallback (`8e10850`).
+- fix(linux): isolate WebKitGTK from stray NVIDIA EGL (`8d4e337`).
+- fix(linux): make EGL vendor probe pattern explicit (`78fecfc`).
+- fix(linux): ignore non-native NVIDIA userspace (`9d0a23d`).
+- fix(linux): default theme video to poster mode (`c645cac`).
+- fix(linux): harden SFX and quality video fallback (`c9ff7f7`).
+- test(linux): lock poster-first video policy (`b41e94c`).
+- test(linux): reproduce read-only Audio dataset (`fcabde4`).
+- style(tauri): apply rustfmt module ordering (`590bb56`).
+- style(tauri): apply rustfmt to Linux WebKit guard (`ba161e5`).
+- fix(ci): compile WebKit guard only on Linux (`d7cd527`).
+- test(ci): cover Linux-only WebKit module gating (`25123b0`).
+- Merge pull request #42 from cmdr-chara/polish/linux-webkitgtk-performance (`35a85f1`).
+- fix(linux): coordinate menu audio Blob playback (`eef254d`).
+- test(linux): reproduce menu audio source race (`85d82d0`).
+- fix(linux): load deterministic menu audio coordinator (`99b7be8`).
+- test(linux): bind menu audio race to renderer call sites (`7f86a0e`).
+- polish(linux): surface localized video fallback status (`ba060ec`).
+- test(linux): cover localized fallback status (`5c32aab`).
+- polish(linux): report preserved WebKit overrides (`bb12817`).
+- test(linux): lock startup diagnostic detail (`559d323`).
+- fix(linux): stabilize WebKitGTK media and UI smoke (`bdce2ed`).
+- Merge pull request #41 from cmdr-chara/fix/linux-webkitgtk-media-ui (`3a2d5bc`).
+
 # Deltamod Community 2.0.10
 
 Released 2026-08-14.
