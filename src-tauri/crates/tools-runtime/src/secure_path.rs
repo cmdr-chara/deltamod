@@ -116,7 +116,7 @@ impl PinnedRegularFile {
         Ok(())
     }
 
-    pub(crate) fn launch_path(&self, original: &Path) -> Result<PathBuf, SecurePathError> {
+    pub(crate) fn launch_path(&self, _original: &Path) -> Result<PathBuf, SecurePathError> {
         #[cfg(target_os = "linux")]
         {
             use std::os::fd::AsRawFd as _;
@@ -127,7 +127,7 @@ impl PinnedRegularFile {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            Ok(original.to_owned())
+            Ok(_original.to_owned())
         }
     }
 }
