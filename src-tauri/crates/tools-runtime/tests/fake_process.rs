@@ -287,7 +287,10 @@ fn cancellation_terminates_the_entire_process_tree() {
     let error =
         run_bounded_with_cancel(&spec, Duration::from_secs(5), 4096, &cancellation).unwrap_err();
     cancellation_thread.join().unwrap();
-    assert!(matches!(error, RuntimeError::Cancelled { .. }));
+    assert!(
+        matches!(error, RuntimeError::Cancelled { .. }),
+        "unexpected cancellation result: {error:?}"
+    );
     thread::sleep(Duration::from_millis(750));
     assert!(
         !marker.exists(),

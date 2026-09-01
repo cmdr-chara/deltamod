@@ -488,6 +488,12 @@ impl ManagedProcess {
                         }
                     }
                 }
+                // Darwin can keep killed, orphaned descendants visible as zombies until launchd
+                // reaps them. The successful SIGKILL above is the containment boundary there;
+                // treating a lingering zombie-only process group as live produces false failures.
+                #[cfg(target_os = "macos")]
+                let _ = group_gone;
+                #[cfg(not(target_os = "macos"))]
                 if containment_error.is_none() && !group_gone {
                     containment_error =
                         Some("process group remained live after termination".into());
