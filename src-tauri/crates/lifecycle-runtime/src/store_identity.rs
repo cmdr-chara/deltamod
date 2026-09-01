@@ -115,15 +115,15 @@ fn validate_metadata(
     expected_kind: StoreObjectKind,
     reject_reparse: bool,
 ) -> Result<(), IdentityError> {
+    if metadata.file_type().is_symlink() || (reject_reparse && platform_is_reparse(metadata)) {
+        return Err(IdentityError::Unsafe);
+    }
     let right_kind = match expected_kind {
         StoreObjectKind::Directory => metadata.is_dir(),
         StoreObjectKind::RegularFile => metadata.is_file(),
     };
     if !right_kind {
         return Err(IdentityError::WrongKind);
-    }
-    if metadata.file_type().is_symlink() || (reject_reparse && platform_is_reparse(metadata)) {
-        return Err(IdentityError::Unsafe);
     }
     #[cfg(unix)]
     if expected_kind == StoreObjectKind::RegularFile {
