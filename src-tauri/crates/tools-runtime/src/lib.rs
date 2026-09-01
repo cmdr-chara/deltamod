@@ -578,10 +578,12 @@ impl ProcessRegistry {
                 kind: spec.kind.name(),
                 detail: error.to_string(),
             })?;
-        let mut child = command.spawn().map_err(|source| RuntimeError::Start {
+        let child = command.spawn().map_err(|source| RuntimeError::Start {
             kind: spec.kind.name(),
             source,
         })?;
+        #[cfg(windows)]
+        let mut child = child;
         #[cfg(windows)]
         if let Err(error) = job.assign(&child) {
             let _ = child.kill();
