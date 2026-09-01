@@ -257,7 +257,10 @@ fn timeout_terminates_the_entire_process_tree() {
         vec!["spawn-descendant".into(), marker.as_os_str().to_owned()],
     );
     let error = run_bounded(&spec, Duration::from_millis(100), 4096).unwrap_err();
-    assert!(matches!(error, RuntimeError::Timeout { .. }));
+    assert!(
+        matches!(error, RuntimeError::Timeout { .. }),
+        "unexpected timeout result: {error:?}"
+    );
     thread::sleep(Duration::from_millis(750));
     assert!(
         !marker.exists(),
@@ -328,7 +331,10 @@ fn executable_digest_is_rechecked_at_launch() {
     spec.pin_to(&tool).unwrap();
     fs::write(&spec.executable, b"replaced after verification").unwrap();
     let error = run_bounded(&spec, Duration::from_secs(5), 4096).unwrap_err();
-    assert!(matches!(error, RuntimeError::HashMismatch { .. }));
+    assert!(
+        matches!(error, RuntimeError::HashMismatch { .. }),
+        "unexpected digest result: {error:?}"
+    );
 }
 
 #[test]

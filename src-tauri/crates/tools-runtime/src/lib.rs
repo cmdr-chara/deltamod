@@ -475,7 +475,7 @@ impl ManagedProcess {
         if containment_error.is_none() {
             if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
                 let mut group_gone = false;
-                for _ in 0..100 {
+                for _ in 0..1_000 {
                     match rustix::process::test_kill_process_group(pid) {
                         Err(rustix::io::Errno::SRCH) => {
                             group_gone = true;
@@ -876,17 +876,17 @@ fn pin_command_executable(
         })?;
     let pinned = secure_path::pin_regular_file(&spec.executable, u64::MAX)
         .map_err(|error| executable_inspection_error(spec.kind, &spec.executable, error))?;
-    if pinned.verified().identity().token() != expected_identity {
-        return Err(RuntimeError::ExecutableChanged {
-            kind: spec.kind.name(),
-        });
-    }
     let actual = pinned.verified().sha256();
     if !actual.eq_ignore_ascii_case(&expected) {
         return Err(RuntimeError::HashMismatch {
             kind: spec.kind.name(),
             expected,
             actual: actual.to_owned(),
+        });
+    }
+    if pinned.verified().identity().token() != expected_identity {
+        return Err(RuntimeError::ExecutableChanged {
+            kind: spec.kind.name(),
         });
     }
     Ok((pinned, command_env))
