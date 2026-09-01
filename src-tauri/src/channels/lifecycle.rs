@@ -1483,7 +1483,11 @@ mod tests {
         let catalog = dispatch(&state, "lifecycle:getInstalledMods", &[])
             .unwrap()
             .unwrap();
-        assert_eq!(catalog["installedMods"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            catalog["installedMods"].as_array().unwrap().len(),
+            1,
+            "legacy adoption catalog: {catalog}"
+        );
         assert_eq!(catalog["installedMods"][0]["instanceId"], "packet-uid");
         assert_eq!(
             catalog["installedMods"][0]["archiveSha256"]

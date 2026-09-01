@@ -13,6 +13,10 @@ pub struct StablePathIdentity {
     device: u64,
     #[cfg(unix)]
     inode: u64,
+    #[cfg(unix)]
+    change_seconds: i64,
+    #[cfg(unix)]
+    change_nanoseconds: i64,
     #[cfg(windows)]
     volume_serial: u64,
     #[cfg(windows)]
@@ -25,7 +29,10 @@ impl StablePathIdentity {
     pub(crate) fn token(&self) -> String {
         #[cfg(unix)]
         {
-            format!("{:016x}:{:016x}", self.device, self.inode)
+            format!(
+                "{:016x}:{:016x}:{:016x}:{:016x}",
+                self.device, self.inode, self.change_seconds, self.change_nanoseconds
+            )
         }
         #[cfg(windows)]
         {
@@ -277,6 +284,18 @@ impl OpenedRegular {
 }
 
 #[cfg(unix)]
+fn unix_regular_identity(metadata: &fs::Metadata) -> StablePathIdentity {
+    use std::os::unix::fs::MetadataExt as _;
+
+    StablePathIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        change_seconds: metadata.ctime(),
+        change_nanoseconds: metadata.ctime_nsec(),
+    }
+}
+
+#[cfg(unix)]
 fn open_regular(path: &Path, max_bytes: u64) -> Result<OpenedRegular, SecurePathError> {
     use std::os::unix::fs::MetadataExt as _;
 
@@ -292,14 +311,13 @@ fn open_regular(path: &Path, max_bytes: u64) -> Result<OpenedRegular, SecurePath
     }
     let file = File::open(path)?;
     let metadata = file.metadata()?;
-    let identity = StablePathIdentity {
-        device: metadata.dev(),
-        inode: metadata.ino(),
-    };
+    let identity = unix_regular_identity(&metadata);
     if !metadata.is_file()
         || metadata.nlink() != 1
         || metadata.dev() != path_metadata.dev()
         || metadata.ino() != path_metadata.ino()
+        || metadata.ctime() != path_metadata.ctime()
+        || metadata.ctime_nsec() != path_metadata.ctime_nsec()
         || metadata.len() != path_metadata.len()
     {
         return Err(SecurePathError::Changed);
@@ -363,10 +381,7 @@ fn open_relative_regular(
     }
     let opened = OpenedRegular {
         file,
-        identity: StablePathIdentity {
-            device: metadata.dev(),
-            inode: metadata.ino(),
-        },
+        identity: unix_regular_identity(&metadata),
         size: metadata.len(),
         path: trusted_root.join(relative),
     };
@@ -388,14 +403,8 @@ fn verify_opened(opened: &OpenedRegular) -> Result<(), SecurePathError> {
     {
         return Err(SecurePathError::Unsafe);
     }
-    let handle_identity = StablePathIdentity {
-        device: handle.dev(),
-        inode: handle.ino(),
-    };
-    let path_identity = StablePathIdentity {
-        device: path.dev(),
-        inode: path.ino(),
-    };
+    let handle_identity = unix_regular_identity(&handle);
+    let path_identity = unix_regular_identity(&path);
     if handle_identity != opened.identity
         || path_identity != opened.identity
         || handle.len() != opened.size
@@ -537,6 +546,8 @@ fn inspect_directory_identity_impl(path: &Path) -> Result<StablePathIdentity, Se
     Ok(StablePathIdentity {
         device: opened.dev(),
         inode: opened.ino(),
+        change_seconds: 0,
+        change_nanoseconds: 0,
     })
 }
 
