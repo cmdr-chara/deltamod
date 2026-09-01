@@ -982,7 +982,7 @@ fn schedule_exit(app: AppHandle, restart: bool) {
     });
 }
 
-fn set_app_icon(app: &AppHandle, window: &WebviewWindow, data: &[Value]) -> Result<Value, String> {
+fn set_app_icon(_app: &AppHandle, window: &WebviewWindow, data: &[Value]) -> Result<Value, String> {
     const PREFIX: &str = "data:image/png;base64,";
     const MAX_ENCODED_BYTES: usize = 96 * 1024;
     let encoded = data
@@ -1016,7 +1016,7 @@ fn set_app_icon(app: &AppHandle, window: &WebviewWindow, data: &[Value]) -> Resu
             icon.height(),
         )
         .map_err(|_| error::internal())?;
-        let icon_state = app.state::<TaskbarIconState>();
+        let icon_state = _app.state::<TaskbarIconState>();
         let mut current = icon_state.icon.lock().map_err(|_| error::internal())?;
         *current = Some(taskbar_icon);
     }
