@@ -335,7 +335,7 @@ fn switch_profile(state: &AppState, data: &[Value]) -> Result<Value, String> {
         let files = entries
             .into_iter()
             .map(|entry| InstallFilePlan {
-                path_identity_key: entry.relative.as_str().to_ascii_lowercase(),
+                path_identity_key: lifecycle_path_identity_key(entry.relative.as_str()),
                 expected_previous_sha256: None,
                 path: entry.relative.clone(),
                 sha256: entry.sha256,
@@ -587,7 +587,7 @@ fn adopt_record(state: &AppState, record: &Value) -> Result<Option<(String, Stri
     for entry in entries {
         files.push(InstallFilePlan {
             path: entry.relative.clone(),
-            path_identity_key: entry.relative.as_str().to_ascii_lowercase(),
+            path_identity_key: lifecycle_path_identity_key(entry.relative.as_str()),
             sha256: entry.sha256.clone(),
             size_bytes: entry.size,
             expected_previous_sha256: Some(entry.sha256),
@@ -752,7 +752,7 @@ fn execute_archive_update(
     let files = entries
         .into_iter()
         .map(|entry| InstallFilePlan {
-            path_identity_key: entry.relative.as_str().to_ascii_lowercase(),
+            path_identity_key: lifecycle_path_identity_key(entry.relative.as_str()),
             expected_previous_sha256: None,
             path: entry.relative.clone(),
             sha256: entry.sha256,
@@ -1412,6 +1412,17 @@ fn safe_segment(value: &str) -> bool {
         && !value.chars().any(char::is_control)
 }
 
+fn lifecycle_path_identity_key(path: &str) -> String {
+    #[cfg(windows)]
+    {
+        path.replace('\\', "/").to_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_owned()
+    }
+}
+
 #[cfg(windows)]
 fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
     metadata.file_type().is_symlink()
@@ -1428,6 +1439,21 @@ mod tests {
     use super::*;
     use std::io::Write;
     use zip::write::SimpleFileOptions;
+
+    #[test]
+    fn lifecycle_path_identity_keys_follow_platform_case_semantics() {
+        #[cfg(windows)]
+        assert_eq!(
+            lifecycle_path_identity_key(r"Example\__deltaID.json"),
+            "example/__deltaid.json"
+        );
+
+        #[cfg(not(windows))]
+        assert_eq!(
+            lifecycle_path_identity_key("Example/__deltaID.json"),
+            "Example/__deltaID.json"
+        );
+    }
 
     fn state() -> (AppState, PathBuf) {
         let nonce = SystemTime::now()
