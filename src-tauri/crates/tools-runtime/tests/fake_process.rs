@@ -8,7 +8,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
-    sync::OnceLock,
+    sync::{Mutex, MutexGuard, OnceLock},
     thread,
     time::{Duration, Instant},
 };
@@ -19,6 +19,13 @@ struct SharedFakeExecutable {
 }
 
 static SHARED_FAKE_EXECUTABLE: OnceLock<SharedFakeExecutable> = OnceLock::new();
+static PROCESS_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn serial_process_test() -> MutexGuard<'static, ()> {
+    PROCESS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 fn compile_fake_executable(dir: &Path) -> PathBuf {
     let source = dir.join("fake.rs");
@@ -131,6 +138,7 @@ fn pinned_spec(executable: PathBuf, cwd: &Path, argv: Vec<OsString>) -> CommandS
 
 #[test]
 fn fake_process_observes_exact_launch_context() {
+    let _serial = serial_process_test();
     let dir = tempfile::tempdir().unwrap();
     let executable = fake_executable(dir.path());
     let mut spec = pinned_spec(
@@ -166,6 +174,7 @@ fn fake_process_observes_exact_launch_context() {
 
 #[test]
 fn timeout_is_structured_and_reaped() {
+    let _serial = serial_process_test();
     let dir = tempfile::tempdir().unwrap();
     let executable = fake_executable(dir.path());
     let spec = pinned_spec(executable, dir.path(), vec!["sleep".into()]);
@@ -177,6 +186,7 @@ fn timeout_is_structured_and_reaped() {
 
 #[test]
 fn explicit_cancellation_is_structured_and_reaped() {
+    let _serial = serial_process_test();
     let dir = tempfile::tempdir().unwrap();
     let executable = fake_executable(dir.path());
     let spec = pinned_spec(executable, dir.path(), vec!["sleep".into()]);
@@ -196,6 +206,7 @@ fn explicit_cancellation_is_structured_and_reaped() {
 
 #[test]
 fn stdout_and_stderr_share_one_exact_budget() {
+    let _serial = serial_process_test();
     let dir = tempfile::tempdir().unwrap();
     let executable = fake_executable(dir.path());
     let spec = pinned_spec(
@@ -210,6 +221,7 @@ fn stdout_and_stderr_share_one_exact_budget() {
 
 #[test]
 fn aggregate_output_overflow_is_structured_and_terminates() {
+    let _serial = serial_process_test();
     let dir = tempfile::tempdir().unwrap();
     let executable = fake_executable(dir.path());
     let spec = pinned_spec(
@@ -229,6 +241,7 @@ fn aggregate_output_overflow_is_structured_and_terminates() {
 
 #[test]
 fn aggregate_output_overflow_terminates_descendants() {
+    let _serial = serial_process_test();
     let dir = tempfile::tempdir().unwrap();
     let marker = dir.path().join("overflow-descendant-survived");
     let executable = fake_executable(dir.path());
@@ -248,6 +261,7 @@ fn aggregate_output_overflow_terminates_descendants() {
 
 #[test]
 fn timeout_terminates_the_entire_process_tree() {
+    let _serial = serial_process_test();
     let dir = tempfile::tempdir().unwrap();
     let marker = dir.path().join("descendant-survived");
     let executable = fake_executable(dir.path());
@@ -270,6 +284,7 @@ fn timeout_terminates_the_entire_process_tree() {
 
 #[test]
 fn cancellation_terminates_the_entire_process_tree() {
+    let _serial = serial_process_test();
     let dir = tempfile::tempdir().unwrap();
     let marker = dir.path().join("cancelled-descendant-survived");
     let executable = fake_executable(dir.path());
@@ -300,6 +315,7 @@ fn cancellation_terminates_the_entire_process_tree() {
 
 #[test]
 fn successful_parent_exit_reaps_residual_descendants_before_returning() {
+    let _serial = serial_process_test();
     let dir = tempfile::tempdir().unwrap();
     let marker = dir.path().join("orphan-survived");
     let executable = fake_executable(dir.path());
@@ -321,6 +337,7 @@ fn successful_parent_exit_reaps_residual_descendants_before_returning() {
 
 #[test]
 fn executable_digest_is_rechecked_at_launch() {
+    let _serial = serial_process_test();
     let dir = tempfile::tempdir().unwrap();
     let executable = fake_executable(dir.path());
     let tool = verify_tool(&executable, ToolKind::G3mTool, None).unwrap();
@@ -342,6 +359,7 @@ fn executable_digest_is_rechecked_at_launch() {
 
 #[test]
 fn executable_identity_is_rechecked_at_launch() {
+    let _serial = serial_process_test();
     let dir = tempfile::tempdir().unwrap();
     let executable = fake_executable(dir.path());
     let tool = verify_tool(&executable, ToolKind::G3mTool, None).unwrap();
@@ -363,6 +381,7 @@ fn executable_identity_is_rechecked_at_launch() {
 
 #[test]
 fn unpinned_commands_fail_closed() {
+    let _serial = serial_process_test();
     let dir = tempfile::tempdir().unwrap();
     let executable = fake_executable(dir.path());
     let mut spec = pinned_spec(executable, dir.path(), Vec::new());
