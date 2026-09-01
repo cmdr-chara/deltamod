@@ -587,14 +587,15 @@ impl LifecycleWorkspace for OsLifecycleWorkspace {
         #[cfg(unix)]
         {
             self.transaction_root_pin.verify(&self.transaction_root)?;
-            return Ok(self.transaction_identity.clone());
+            Ok(self.transaction_identity.clone())
         }
         #[cfg(windows)]
-        let current = root_identity(&self.transaction_root)?;
-        #[cfg(windows)]
-        (current == self.transaction_identity)
-            .then_some(current)
-            .ok_or(FilesystemBoundaryError::RootIdentityChanged)
+        {
+            let current = root_identity(&self.transaction_root)?;
+            (current == self.transaction_identity)
+                .then_some(current)
+                .ok_or(FilesystemBoundaryError::RootIdentityChanged)
+        }
     }
 
     fn observe_preflight_no_follow(
