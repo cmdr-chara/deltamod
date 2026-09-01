@@ -146,6 +146,112 @@ jobs:
       - run: node scripts/retry-command.js --label "Electron macOS Intel package build" -- npx electron-builder --mac --x64 --dir --publish never
       - run: node scripts/verify-packaged-undertale-mod-tool.js "dist/mac/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64
 
+  benchmark-on-failure:
+    needs: [verify, verify-csx-macos-intel]
+    if: ${{ always() && (needs.verify.result == 'failure' || needs.verify-csx-macos-intel.result == 'failure') }}
+    runs-on: windows-latest
+    env:
+      TAURI_BUILD_TARGET: x86_64-pc-windows-msvc
+      BENCHMARK_INCLUDED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Install npm dependencies
+        run: node scripts/retry-command.js --label "npm ci" -- npm ci
+      - name: Acquire benchmark resources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
+          if ($LASTEXITCODE -ne 0) { throw "G3MTool acquisition failed with exit code $LASTEXITCODE" }
+          node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
+          if ($LASTEXITCODE -ne 0) { throw "UndertaleModTool acquisition failed with exit code $LASTEXITCODE" }
+      - name: Capture Windows packaged Tauri benchmark diagnostic
+        id: benchmark
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:RUNNER_TEMP 'deltamod-ci-benchmark'
+          $installRoot = Join-Path $env:RUNNER_TEMP 'deltamod-ci-benchmark-install'
+          New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+          try {
+            # CI diagnostics are unsigned and must not attempt updater artifact signing.
+            '{"bundle":{"createUpdaterArtifacts":false}}' |
+              Set-Content -LiteralPath 'src-tauri/tauri.windows.conf.json' -Encoding utf8
+
+            npm run build:boot
+            if ($LASTEXITCODE -ne 0) { throw "Boot build failed with exit code $LASTEXITCODE" }
+            npm run build:native-sidecars:target -- x86_64-pc-windows-msvc
+            if ($LASTEXITCODE -ne 0) { throw "Native sidecar staging failed with exit code $LASTEXITCODE" }
+            npm run build:tauri:resources -- x86_64-pc-windows-msvc
+            if ($LASTEXITCODE -ne 0) { throw "Tauri resource staging failed with exit code $LASTEXITCODE" }
+            npm run build:tauri:butler -- x86_64-pc-windows-msvc
+            if ($LASTEXITCODE -ne 0) { throw "Butler staging failed with exit code $LASTEXITCODE" }
+            npx tauri build --target x86_64-pc-windows-msvc --bundles nsis
+            if ($LASTEXITCODE -ne 0) { throw "Tauri NSIS build failed with exit code $LASTEXITCODE" }
+
+            $bundle = Get-ChildItem -LiteralPath 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter '*.exe' -File |
+              Select-Object -First 1
+            if (-not $bundle) { throw 'The benchmark NSIS bundle was not found.' }
+            New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+            $installer = Start-Process -FilePath $bundle.FullName -ArgumentList '/S', "/D=$installRoot" -Wait -PassThru -WindowStyle Hidden
+            if ($installer.ExitCode -ne 0) { throw "NSIS installation failed with exit code $($installer.ExitCode)" }
+
+            $installedExecutable = Get-ChildItem -LiteralPath $installRoot -Filter 'deltamod-tauri-shell.exe' -File -Recurse |
+              Select-Object -First 1
+            if (-not $installedExecutable) { throw 'The installed benchmark executable was not found.' }
+
+            $shortRevision = if ($env:BENCHMARK_INCLUDED_REVISION.Length -gt 12) {
+              $env:BENCHMARK_INCLUDED_REVISION.Substring(0, 12)
+            } else {
+              $env:BENCHMARK_INCLUDED_REVISION
+            }
+            $resultPath = Join-Path $outputRoot "tauri-windows-$shortRevision.json"
+            node scripts/desktop-benchmark/capture-windows.js `
+              --executable $installedExecutable.FullName `
+              --artifact $bundle.FullName `
+              --output $resultPath `
+              --readiness-file '{readyFile}' `
+              --includes-revision $env:BENCHMARK_INCLUDED_REVISION
+            if ($LASTEXITCODE -ne 0) { throw "Benchmark capture failed with exit code $LASTEXITCODE" }
+          }
+          catch {
+            $_ | Out-String | Set-Content -LiteralPath (Join-Path $outputRoot 'benchmark-error.txt') -Encoding utf8
+            throw
+          }
+          finally {
+            if (Test-Path -LiteralPath $installRoot) {
+              $uninstaller = Get-ChildItem -LiteralPath $installRoot -Filter 'uninstall*.exe' -File -Recurse -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+              if ($uninstaller) {
+                Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+              }
+            }
+          }
+      - name: Upload failure benchmark diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ci-failure-benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/deltamod-ci-benchmark/*
+      - name: Summarize benchmark diagnostic
+        if: always()
+        shell: pwsh
+        env:
+          BENCHMARK_OUTCOME: ${{ steps.benchmark.outcome }}
+        run: |
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '### Windows failure benchmark'
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Capture outcome: ``$env:BENCHMARK_OUTCOME``"
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value 'The raw result is diagnostic only; GitHub-hosted runner hardware is not treated as comparable to the committed same-host release baseline.'
+
   prepare-stable-release:
     needs: [verify, verify-csx-macos-intel]
     if: github.event_name == 'push' && github.ref == 'refs/heads/DeltaMaster'
