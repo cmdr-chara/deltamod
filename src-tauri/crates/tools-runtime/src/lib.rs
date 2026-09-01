@@ -475,7 +475,7 @@ impl ManagedProcess {
         if containment_error.is_none() {
             if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
                 let mut group_gone = false;
-                for _ in 0..1_000 {
+                for _ in 0..100 {
                     match rustix::process::test_kill_process_group(pid) {
                         Err(rustix::io::Errno::SRCH) => {
                             group_gone = true;
@@ -488,12 +488,6 @@ impl ManagedProcess {
                         }
                     }
                 }
-                // Darwin can keep killed, orphaned descendants visible as zombies until launchd
-                // reaps them. The successful SIGKILL above is the containment boundary there;
-                // treating a lingering zombie-only process group as live produces false failures.
-                #[cfg(target_os = "macos")]
-                let _ = group_gone;
-                #[cfg(not(target_os = "macos"))]
                 if containment_error.is_none() && !group_gone {
                     containment_error =
                         Some("process group remained live after termination".into());

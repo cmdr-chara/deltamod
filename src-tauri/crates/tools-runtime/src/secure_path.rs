@@ -14,9 +14,9 @@ pub struct StablePathIdentity {
     #[cfg(unix)]
     inode: u64,
     #[cfg(unix)]
-    change_seconds: i64,
+    generation_seconds: i64,
     #[cfg(unix)]
-    change_nanoseconds: i64,
+    generation_nanoseconds: i64,
     #[cfg(windows)]
     volume_serial: u64,
     #[cfg(windows)]
@@ -31,7 +31,7 @@ impl StablePathIdentity {
         {
             format!(
                 "{:016x}:{:016x}:{:016x}:{:016x}",
-                self.device, self.inode, self.change_seconds, self.change_nanoseconds
+                self.device, self.inode, self.generation_seconds, self.generation_nanoseconds
             )
         }
         #[cfg(windows)]
@@ -286,13 +286,28 @@ impl OpenedRegular {
 #[cfg(unix)]
 fn unix_regular_identity(metadata: &fs::Metadata) -> StablePathIdentity {
     use std::os::unix::fs::MetadataExt as _;
+    let (generation_seconds, generation_nanoseconds) = unix_file_generation(metadata);
 
     StablePathIdentity {
         device: metadata.dev(),
         inode: metadata.ino(),
-        change_seconds: metadata.ctime(),
-        change_nanoseconds: metadata.ctime_nsec(),
+        generation_seconds,
+        generation_nanoseconds,
     }
+}
+
+#[cfg(target_os = "macos")]
+fn unix_file_generation(metadata: &fs::Metadata) -> (i64, i64) {
+    use std::os::macos::fs::MetadataExt as _;
+
+    (metadata.st_birthtime(), metadata.st_birthtime_nsec())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn unix_file_generation(metadata: &fs::Metadata) -> (i64, i64) {
+    use std::os::unix::fs::MetadataExt as _;
+
+    (metadata.ctime(), metadata.ctime_nsec())
 }
 
 #[cfg(unix)]
@@ -312,12 +327,10 @@ fn open_regular(path: &Path, max_bytes: u64) -> Result<OpenedRegular, SecurePath
     let file = File::open(path)?;
     let metadata = file.metadata()?;
     let identity = unix_regular_identity(&metadata);
+    let path_identity = unix_regular_identity(&path_metadata);
     if !metadata.is_file()
         || metadata.nlink() != 1
-        || metadata.dev() != path_metadata.dev()
-        || metadata.ino() != path_metadata.ino()
-        || metadata.ctime() != path_metadata.ctime()
-        || metadata.ctime_nsec() != path_metadata.ctime_nsec()
+        || identity != path_identity
         || metadata.len() != path_metadata.len()
     {
         return Err(SecurePathError::Changed);
@@ -546,8 +559,8 @@ fn inspect_directory_identity_impl(path: &Path) -> Result<StablePathIdentity, Se
     Ok(StablePathIdentity {
         device: opened.dev(),
         inode: opened.ino(),
-        change_seconds: 0,
-        change_nanoseconds: 0,
+        generation_seconds: 0,
+        generation_nanoseconds: 0,
     })
 }
 
@@ -726,6 +739,34 @@ mod tests {
             inspect_regular_file(&original, 64),
             Err(SecurePathError::Unsafe)
         ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_content_mutation_preserves_object_identity() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("file");
+        fs::write(&path, b"before").unwrap();
+        let before = inspect_regular_file(&path, 64).unwrap();
+        fs::write(&path, b"after").unwrap();
+        let after = inspect_regular_file(&path, 64).unwrap();
+        assert_eq!(before.identity(), after.identity());
+        assert_ne!(before.sha256(), after.sha256());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_replacement_changes_verified_identity() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("file");
+        let replacement = root.path().join("replacement");
+        fs::write(&path, b"same").unwrap();
+        fs::write(&replacement, b"same").unwrap();
+        let before = inspect_regular_file(&path, 64).unwrap();
+        fs::remove_file(&path).unwrap();
+        fs::rename(&replacement, &path).unwrap();
+        let after = inspect_regular_file(&path, 64).unwrap();
+        assert_ne!(before.identity(), after.identity());
     }
 
     #[cfg(windows)]
