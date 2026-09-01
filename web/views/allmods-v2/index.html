@@ -1,0 +1,44 @@
+<div class="content-page installed-mods-page product-ui" data-installed-mods-mode="live-lifecycle">
+    <header class="product-library-header">
+        <div class="page-heading">
+            <h1>$$allModsTitle$$</h1>
+            <p>$$community_allmods_subtitle$$</p>
+        </div>
+        <span class="product-fixture-label">Live local catalogue</span>
+    </header>
+
+    <p class="product-preview-note" role="note">
+        Installed packages are tracked by the transactional lifecycle. Verify checks every owned
+        file; uninstall refuses to overwrite or remove externally changed content.
+    </p>
+
+    <section class="product-profile-manager" aria-labelledby="profile-manager-title">
+        <div>
+            <p class="product-eyebrow">Reproducible setup</p>
+            <h2 id="profile-manager-title">Profiles</h2>
+            <p>Exact provider versions, archive hashes, configuration and load order.</p>
+        </div>
+        <div class="product-profile-actions">
+            <button type="button" id="profile-create">Save current setup</button>
+            <button type="button" id="profile-import">Import lockfile</button>
+            <input id="profile-import-file" type="file" accept="application/json,.json" hidden>
+        </div>
+        <div id="profile-list" class="product-profile-list" aria-live="polite">
+            <p>Loading profiles…</p>
+        </div>
+    </section>
+
+    <main id="installed-mods-v2-root" aria-busy="true" aria-live="polite">
+        <section class="product-state" role="status" data-state="loading">
+            <span class="product-state-marker" aria-hidden="true">◇</span>
+            <div class="product-state-copy">
+                <h2>Loading installed mods</h2>
+                <p>Reading the local mod catalogue.</p>
+            </div>
+        </section>
+    </main>
+</div>
+JSL
+AUDIO[mainTheme.mp3]
+STYLESHEET[../main/main]
+TITLE[$$allModsTitle$$]

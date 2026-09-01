@@ -1,0 +1,11 @@
+{
+  "name": "Ruins",
+  "background": "undertale-ruins.png",
+  "description": "A theme based on the Ruins from UNDERTALE.",
+  "mainSong": "undertale-ruins.ogg",
+  "musicTrack": "Ruins - Toby Fox",
+  "id": "undertale-ruins",
+  "color": "rgb(121, 80, 165)",
+  "soulColor": "#FF0000",
+  "backgroundSize": "cover"
+}

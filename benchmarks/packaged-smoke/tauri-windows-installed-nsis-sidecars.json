@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "ok": true,
+  "platform": "windows",
+  "target": "x86_64-pc-windows-msvc",
+  "checks": {
+    "fiveInstalledSidecars": true,
+    "archiveTreeValidated": true,
+    "importPublishedAtomically": true,
+    "importedContentHashed": true,
+    "patchPlanValidated": true,
+    "patchRollbackRestoredExactly": true
+  },
+  "sidecars": {
+    "hash-worker": {
+      "sha256": "47e2578eaf1d9721625dcf6ef39f2cb27a0bcd0f2dc8cae4e2d43180913cb243"
+    },
+    "security-worker": {
+      "sha256": "d5447e4e55d894a94ba167b7d732cce00c311b21ad06332ae9bed548de98be24"
+    },
+    "copy-worker": {
+      "sha256": "b58edd622833a6f416de97b6de7fa03c39fee058f9d5483f1136f86b72a30767"
+    },
+    "patch-plan-worker": {
+      "sha256": "a4b0bd49274410e641a2526cd26b42e7eefc3d2fc018d0ac965c637233f2aede"
+    },
+    "patch-transaction-worker": {
+      "sha256": "bd6935ec20b0d8b62948ccc455701113c1be96b300bf8bc00d31c5e3a32a3426"
+    }
+  }
+}

@@ -11,10 +11,39 @@
         'AND NOW...\nIT HAS NOTICED YOU.',
         'SHALL WE MAKE\nTHIS THEME OURS?'
     ]);
+    const CHARA_UNLOCK_FLAG = 'CHARA_THEME_UNLOCKED';
+    const UNDERTALE_THEME_IDS = new Set([
+        'chara',
+        'undertale',
+        'undertale-core',
+        'undertale-hotland',
+        'undertale-new-home',
+        'undertale-ruins',
+        'undertale-snowdin',
+        'undertale-true-lab',
+        'undertale-void',
+        'undertale-waterfall'
+    ]);
+    let charaBuffer = '';
+    let charaDetected = false;
+    let charaUnlocked = false;
+    let pendingCharaToken = null;
+    const charaSessionGate = window.DeltamodCharaEncounterSession.createSessionGate();
+    const charaUnlockReady = window.deltamodBackend
+        .invoke('getUniqueFlag', [CHARA_UNLOCK_FLAG])
+        .then(value => {
+            charaUnlocked = Boolean(value);
+            charaDetected = charaUnlocked;
+            return charaUnlocked;
+        })
+        .catch(() => false);
     const t = (key, fallback, ...args) => window.Localization?.t(key, fallback, ...args)
         ?? String(fallback).replace(/{(\d+)}/g, (match, index) => (
             args[index] === undefined ? match : String(args[index])
         ));
+    const themeFilterPlaceholder = () => charaUnlocked
+        ? t('theme_filter_placeholder', 'Name, description, or music')
+        : 'THE TRUE NAME';
 
     function createCrossfadedAudioLoop(url, volume, crossfadeSeconds = 0.15) {
         let audioContext = null;
@@ -114,7 +143,7 @@
     }
 
     function safeThemeBackground(theme) {
-        const fileName = String(theme?.background || '');
+        const fileName = String(theme?.previewBackground || theme?.background || '');
         if (!/^[a-z0-9._-]+$/i.test(fileName)) return '';
         const url = theme?.builtIn
             ? window.deltamodBackend.assetUrl('app', `web/themes/img/${fileName}`)
@@ -135,7 +164,12 @@
     }
 
     (async () => {
-        const themes = (await window.deltamodBackend.invoke('getThemes', [])).sort((a, b) => {
+        const [availableThemes, currentTheme] = await Promise.all([
+            window.deltamodBackend.invoke('getThemes', []),
+            window.deltamodBackend.invoke('getTheme', []),
+            charaUnlockReady
+        ]);
+        const themes = availableThemes.sort((a, b) => {
             if (a.builtIn && !b.builtIn) return -1;
             if (!a.builtIn && b.builtIn) return 1;
             if (a.timed && !b.timed) return -1;
@@ -146,19 +180,25 @@
             if (aExpired && !bExpired) return 1;
             return a.name.localeCompare(b.name);
         });
-        let currentTheme = await window.deltamodBackend.invoke('getTheme', []);
+        let selectedTheme = currentTheme;
         const themeGrid = document.getElementById('themes');
         const filterInput = document.getElementById('theme-filter');
         const countLabel = document.getElementById('theme-count');
         const emptyState = document.getElementById('theme-empty');
+        const categoryButtons = [...document.querySelectorAll('[data-theme-category]')];
         const themeCards = [];
+        let selectedCategory = 'all';
 
         for (const theme of themes) {
-            if (theme.hiddenByDefault && theme.id !== currentTheme) continue;
+            const isUnlockedChara = theme.id === 'chara' && charaUnlocked;
+            if (theme.hiddenByDefault && theme.id !== selectedTheme && !isUnlockedChara) continue;
 
             const card = document.createElement('article');
             card.className = 'theme-card';
             card.dataset.themeId = theme.id;
+            card.dataset.category = theme.builtIn
+                ? (UNDERTALE_THEME_IDS.has(theme.id) ? 'undertale' : 'deltarune')
+                : 'custom';
             card.dataset.search = [
                 theme.name,
                 theme.description,
@@ -168,7 +208,7 @@
                     : []),
                 theme.builtIn ? 'built-in' : 'custom'
             ].join(' ').toLocaleLowerCase();
-            if (theme.id === currentTheme) card.classList.add('is-current');
+            if (theme.id === selectedTheme) card.classList.add('is-current');
 
             const preview = document.createElement('div');
             preview.className = 'theme-card-preview';
@@ -276,15 +316,15 @@
             actions.className = 'theme-card-actions';
             const selectButton = document.createElement('button');
             selectButton.type = 'button';
-            selectButton.className = 'theme-select-button';
-            selectButton.textContent = theme.id === currentTheme
+            selectButton.className = 'theme-select-button noScaleBTN';
+            selectButton.textContent = theme.id === selectedTheme
                 ? t('theme_in_use', 'In use')
                 : t('theme_use', 'Use theme');
-            selectButton.disabled = theme.id === currentTheme;
-            selectButton.setAttribute('aria-pressed', String(theme.id === currentTheme));
+            selectButton.disabled = theme.id === selectedTheme;
+            selectButton.setAttribute('aria-pressed', String(theme.id === selectedTheme));
             selectButton.addEventListener('click', async () => {
                 await window.deltamodBackend.invoke('setTheme', [theme.id]);
-                currentTheme = theme.id;
+                selectedTheme = theme.id;
                 for (const candidate of themeCards) {
                     const active = candidate.dataset.themeId === theme.id;
                     candidate.classList.toggle('is-current', active);
@@ -302,7 +342,7 @@
             if (!theme.builtIn) {
                 const deleteButton = document.createElement('button');
                 deleteButton.type = 'button';
-                deleteButton.className = 'theme-delete-button';
+                deleteButton.className = 'theme-delete-button secondary-action noScaleBTN';
                 deleteButton.appendChild(staticIcon('delete', '19px'));
                 const deleteLabel = document.createElement('span');
                 deleteLabel.textContent = t('theme_delete', 'Delete');
@@ -313,7 +353,7 @@
                         'Delete "{0}"? This cannot be undone.',
                         theme.name
                     ))) return;
-                    if (theme.id === currentTheme) {
+                    if (theme.id === selectedTheme) {
                         await window.deltamodBackend.invoke('setTheme', ['base']);
                         await themeRefresh(true);
                     }
@@ -332,7 +372,10 @@
             const query = filterInput.value.trim().toLocaleLowerCase();
             let visible = 0;
             for (const card of themeCards) {
-                const matches = !query || card.dataset.search.includes(query);
+                const matchesQuery = !query || card.dataset.search.includes(query);
+                const matchesCategory = selectedCategory === 'all'
+                    || card.dataset.category === selectedCategory;
+                const matches = matchesQuery && matchesCategory;
                 card.hidden = !matches;
                 if (matches) visible += 1;
             }
@@ -345,16 +388,33 @@
             emptyState.hidden = visible !== 0;
         };
         filterInput.addEventListener('input', updateFilter);
+        for (const button of categoryButtons) {
+            button.addEventListener('click', () => {
+                selectedCategory = button.dataset.themeCategory;
+                for (const candidate of categoryButtons) {
+                    const active = candidate === button;
+                    candidate.classList.toggle('is-active', active);
+                    candidate.setAttribute('aria-pressed', String(active));
+                }
+                updateFilter();
+            });
+        }
         const updateDynamicTranslations = () => {
-            filterInput.placeholder = t(
-                'theme_filter_placeholder',
-                'Name, description, or music'
-            );
+            filterInput.placeholder = themeFilterPlaceholder();
             importName.placeholder = t('theme_name_placeholder', 'My theme');
             importDescription.placeholder = t(
                 'theme_description_placeholder',
                 'What is this theme based on?'
             );
+            const categoryLabels = {
+                all: t('theme_category_all', 'All'),
+                deltarune: 'DELTARUNE',
+                undertale: 'UNDERTALE',
+                custom: t('theme_custom', 'Custom')
+            };
+            for (const button of categoryButtons) {
+                button.textContent = categoryLabels[button.dataset.themeCategory];
+            }
             for (const card of themeCards) {
                 const theme = themes.find(candidate => candidate.id === card.dataset.themeId);
                 card.querySelector('.theme-card-preview').setAttribute(
@@ -485,8 +545,13 @@
         genbtnstyles();
     })();
 
-    let charaBuffer = '';
-    let charaDetected = false;
+    const cancelPendingCharaStart = () => {
+        const token = pendingCharaToken;
+        if (!token || !charaSessionGate.cancel(token)) return false;
+        pendingCharaToken = null;
+        charaDetected = false;
+        return true;
+    };
 
     function createElement(tagName, className, text) {
         const element = document.createElement(tagName);
@@ -496,17 +561,44 @@
     }
 
     async function startCharaEasterEgg() {
-        if (charaDetected) return;
+        await charaUnlockReady;
+        if (charaUnlocked) return;
+        const sessionToken = charaSessionGate.begin();
+        if (!sessionToken) return;
         charaDetected = true;
+        pendingCharaToken = sessionToken;
+        const previouslyFocusedElement = document.activeElement;
+        const prefersReducedMotion = Boolean(
+            window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
+        );
+        window._onClosePage = window._onClosePage || [];
+        window._onClosePage.push(() => {
+            if (!charaSessionGate.cancel(sessionToken)) return;
+            if (pendingCharaToken === sessionToken) pendingCharaToken = null;
+            charaDetected = false;
+        });
         const [musicEnabled, sfxEnabled] = await Promise.all([
             window.deltamodBackend.invoke('getUniqueFlag', ['AUDIO']),
             window.deltamodBackend.invoke('getUniqueFlag', ['SFX'])
         ]).catch(() => [true, true]);
+        if (!charaSessionGate.isCurrent(sessionToken)) return;
+        try {
+            await window.deltamodBackend.invoke('setUniqueFlag', [CHARA_UNLOCK_FLAG, true]);
+        } catch (error) {
+            console.error('Unable to persist the Chara theme unlock:', error);
+            charaSessionGate.cancel(sessionToken);
+            charaDetected = false;
+            pendingCharaToken = null;
+            return;
+        }
+        if (!charaSessionGate.isCurrent(sessionToken)) return;
+        charaUnlocked = true;
+        pendingCharaToken = null;
 
         const themeFilter = document.getElementById('theme-filter');
         if (themeFilter) {
             themeFilter.value = '';
-            themeFilter.placeholder = 'THE TRUE NAME';
+            themeFilter.placeholder = themeFilterPlaceholder();
             themeFilter.dispatchEvent(new Event('input', { bubbles: true }));
         }
 
@@ -517,6 +609,7 @@
         overlay.setAttribute('aria-modal', 'true');
         overlay.setAttribute('aria-label', 'A hidden encounter');
         overlay.dataset.phase = 'dialogue';
+        overlay.dataset.reducedMotion = String(prefersReducedMotion);
 
         const stage = createElement('div', 'chara-stage');
         const portraitFrame = createElement('div', 'chara-portrait-frame');
@@ -527,11 +620,15 @@
         portraitFrame.appendChild(portrait);
 
         const dialogue = createElement('div', 'chara-dialogue');
-        dialogue.setAttribute('aria-live', 'polite');
         const dialogueText = createElement('p', 'chara-dialogue-text');
         const continueIndicator = createElement('span', 'chara-continue-indicator', '▼');
         continueIndicator.setAttribute('aria-hidden', 'true');
         dialogue.append(dialogueText, continueIndicator);
+
+        const dialogueAnnouncer = createElement('span', 'chara-dialogue-announcer');
+        dialogueAnnouncer.setAttribute('role', 'status');
+        dialogueAnnouncer.setAttribute('aria-live', 'polite');
+        dialogueAnnouncer.setAttribute('aria-atomic', 'true');
 
         const choices = createElement('div', 'chara-choices');
         choices.hidden = true;
@@ -551,7 +648,7 @@
 
         const numberScreen = createElement('div', 'chara-number-screen');
         numberScreen.setAttribute('aria-hidden', 'true');
-        overlay.append(stage, slash, numberScreen);
+        overlay.append(stage, slash, numberScreen, dialogueAnnouncer);
         document.body.appendChild(overlay);
         document.body.classList.add('chara-sequence-active');
 
@@ -577,6 +674,7 @@
         let typingPosition = 0;
         let afterTyping = null;
         let laughFrameTimer = null;
+        let shakeRequestGeneration = 0;
         let disposed = false;
         const timeouts = new Set();
 
@@ -590,6 +688,13 @@
         };
 
         const setWindowShake = phase => {
+            const requestGeneration = phase === 'stop'
+                ? ++shakeRequestGeneration
+                : shakeRequestGeneration;
+            if (prefersReducedMotion && phase !== 'stop') {
+                overlay.classList.remove('is-window-shake-fallback');
+                return;
+            }
             const shakeWindow = window.communityAPI?.app?.shakeForEasterEgg;
             if (typeof shakeWindow !== 'function') {
                 overlay.classList.toggle('is-window-shake-fallback', phase !== 'stop');
@@ -597,12 +702,18 @@
             }
             shakeWindow(phase)
                 .then(result => {
+                    if (!charaSessionGate.isCurrent(sessionToken)) return;
+                    if (requestGeneration !== shakeRequestGeneration) {
+                        if (phase !== 'stop') shakeWindow('stop').catch(() => {});
+                        return;
+                    }
                     overlay.classList.toggle(
                         'is-window-shake-fallback',
                         phase !== 'stop' && !result.native
                     );
                 })
                 .catch(() => {
+                    if (!charaSessionGate.isCurrent(sessionToken)) return;
                     overlay.classList.toggle('is-window-shake-fallback', phase !== 'stop');
                 });
         };
@@ -612,7 +723,11 @@
             sound.currentTime = 0;
         };
 
-        const cleanup = ({ restoreMenuAudio = true } = {}) => {
+        const cleanup = ({
+            restoreMenuAudio = true,
+            restoreFocus = true,
+            refreshUnlockedTheme = false
+        } = {}) => {
             if (disposed) return;
             disposed = true;
             clearInterval(typingTimer);
@@ -625,27 +740,39 @@
             overlay.remove();
             document.body.classList.remove('chara-sequence-active');
             if (themeFilter) {
-                themeFilter.placeholder = t(
-                    'theme_filter_placeholder',
-                    'Name, description, or music'
-                );
+                themeFilter.placeholder = themeFilterPlaceholder();
             }
             if (restoreMenuAudio && menuAudioWasPlaying && typeof audio !== 'undefined' && audio?.src) {
                 audio.play().catch(() => {});
             }
+            charaSessionGate.cancel(sessionToken);
+            charaDetected = true;
+            charaBuffer = '';
+            if (restoreFocus) {
+                const focusTarget = previouslyFocusedElement?.isConnected
+                    ? previouslyFocusedElement
+                    : themeFilter;
+                focusTarget?.focus?.();
+            }
+            if (refreshUnlockedTheme) page('themesel').catch(() => {});
         };
         window._onClosePage = window._onClosePage || [];
-        window._onClosePage.push(() => cleanup());
+        window._onClosePage.push(() => cleanup({ restoreFocus: false }));
+
+        const presentCompletedLine = () => {
+            dialogueText.textContent = typingText;
+            dialogueAnnouncer.textContent = typingText;
+            continueIndicator.classList.add('is-ready');
+            const callback = afterTyping;
+            afterTyping = null;
+            callback?.();
+        };
 
         const finishTyping = () => {
             if (!typingTimer) return false;
             clearInterval(typingTimer);
             typingTimer = null;
-            dialogueText.textContent = typingText;
-            continueIndicator.classList.add('is-ready');
-            const callback = afterTyping;
-            afterTyping = null;
-            callback?.();
+            presentCompletedLine();
             return true;
         };
 
@@ -655,7 +782,12 @@
             typingPosition = 0;
             afterTyping = onComplete;
             dialogueText.textContent = '';
+            dialogueAnnouncer.textContent = '';
             continueIndicator.classList.remove('is-ready');
+            if (prefersReducedMotion) {
+                presentCompletedLine();
+                return;
+            }
             typingTimer = setInterval(() => {
                 typingPosition += 1;
                 dialogueText.textContent = typingText.slice(0, typingPosition);
@@ -665,8 +797,10 @@
 
         const showChoices = () => {
             phase = 'choice';
+            overlay.dataset.phase = phase;
             choices.hidden = false;
             continueIndicator.classList.remove('is-ready');
+            dialogueAnnouncer.textContent = 'Choose an answer.';
             proceedButton.focus();
         };
 
@@ -698,7 +832,7 @@
                 } catch {
                     window.close();
                 }
-            }, 2800);
+            }, prefersReducedMotion ? 1100 : 2800);
         };
 
         const playSlash = () => {
@@ -713,6 +847,11 @@
             if (sfxEnabled) {
                 slashAudio.currentTime = 0;
                 slashAudio.play().catch(() => {});
+            }
+            if (prefersReducedMotion) {
+                slash.src = `${CHARA_ASSET_ROOT}/strike-3.png`;
+                later(showNumberScreen, 420);
+                return;
             }
             let strikeFrame = 0;
             const nextStrike = () => {
@@ -738,10 +877,15 @@
                 laughAudio.currentTime = 0;
                 laughAudio.play().catch(() => {});
             }
-            overlay.classList.add('is-red-flashing');
+            if (!prefersReducedMotion) overlay.classList.add('is-red-flashing');
             later(() => {
                 portraitFrame.classList.remove('is-weird');
                 portraitFrame.classList.add('is-lunging');
+                if (prefersReducedMotion) {
+                    portrait.src = `${CHARA_ASSET_ROOT}/chara-laugh-1.png`;
+                    later(playSlash, 420);
+                    return;
+                }
                 let laughFrame = 0;
                 const renderLaughFrame = () => {
                     portrait.src = `${CHARA_ASSET_ROOT}/chara-laugh-${laughFrame}.png`;
@@ -757,7 +901,7 @@
                     { once: true }
                 );
                 later(playSlash, 2800);
-            }, 520);
+            }, prefersReducedMotion ? 180 : 520);
         };
 
         proceedButton.addEventListener('click', () => {
@@ -765,18 +909,19 @@
             phase = 'proceed';
             overlay.dataset.phase = phase;
             choices.hidden = true;
+            overlay.focus();
             typeLine('VERY WELL.\nLET US BEGIN.');
             later(async () => {
-                cleanup({ restoreMenuAudio: false });
+                cleanup({ restoreMenuAudio: false, restoreFocus: false });
                 try {
                     await invoke('setTheme', ['chara']);
                     await themeRefresh(false);
                     await page('main');
                 } catch (error) {
-                    console.error('Unable to activate the Chara theme:', error);
+                    console.error('Unable to activate the unlocked Chara theme:', error);
                     openAudio();
                 }
-            }, 1500);
+            }, prefersReducedMotion ? 800 : 1500);
         });
 
         goBackButton.addEventListener('click', () => {
@@ -784,8 +929,9 @@
             phase = 'refusal';
             overlay.dataset.phase = phase;
             choices.hidden = true;
+            overlay.focus();
             typeLine('SINCE WHEN WERE YOU\nTHE ONE IN CONTROL?', () => {
-                later(playScare, 620);
+                later(playScare, prefersReducedMotion ? 240 : 620);
             });
         });
 
@@ -794,6 +940,25 @@
             advanceDialogue();
         });
         overlay.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                cleanup({ refreshUnlockedTheme: true });
+                return;
+            }
+            if (event.key === 'Tab') {
+                event.preventDefault();
+                const focusCycle = phase === 'choice'
+                    ? [proceedButton, goBackButton]
+                    : [overlay];
+                const currentIndex = focusCycle.indexOf(document.activeElement);
+                const direction = event.shiftKey ? -1 : 1;
+                const nextIndex = currentIndex === -1
+                    ? 0
+                    : (currentIndex + direction + focusCycle.length) % focusCycle.length;
+                focusCycle[nextIndex].focus();
+                return;
+            }
             if (phase === 'choice') {
                 if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
                     event.preventDefault();
@@ -821,6 +986,7 @@
             }
         } else if (['Backspace', 'Delete', 'Escape'].includes(event.key)) {
             charaBuffer = '';
+            if (event.key === 'Escape') cancelPendingCharaStart();
         }
     };
     elisten(document, 'keydown', handleSecretKeydown);

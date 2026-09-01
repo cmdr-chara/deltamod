@@ -78,11 +78,12 @@ jobs:
       - run: npm run build:tauri:resources -- ${{ matrix.target }}
       - run: cargo fmt --all --check --manifest-path native/Cargo.toml
       - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
-      - run: cargo test --workspace --locked --manifest-path native/Cargo.toml
+      - run: cargo test --workspace --all-targets --locked --manifest-path native/Cargo.toml
       - run: cargo build --workspace --locked --manifest-path native/Cargo.toml
       - run: cargo fmt --all --check --manifest-path src-tauri/Cargo.toml
       - run: cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml -- -D warnings
-      - run: cargo test --workspace --locked --manifest-path src-tauri/Cargo.toml
+      - run: cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml
+      - run: npm run verify:tauri:contract
       - run: npm test
       - run: npm run typecheck
       - run: npm run security:audit

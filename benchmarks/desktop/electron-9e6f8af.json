@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "runtime": "electron",
+  "sourceRevision": "9e6f8af45bff52e7e2c710a92bb18e826fc897dd",
+  "includesRevision": "a882423",
+  "capturedAt": "2026-08-30",
+  "environment": {
+    "operatingSystem": "Windows 11 Pro 10.0.26200",
+    "processor": "Intel Core i7-10700",
+    "logicalProcessors": 16,
+    "physicalMemoryBytes": 16995786752,
+    "node": "v24.19.0",
+    "npm": "11.17.0",
+    "rustc": "1.97.1",
+    "cargo": "1.97.1"
+  },
+  "protocol": {
+    "warmupLaunches": 1,
+    "measuredLaunches": 7,
+    "profilePolicy": "fresh-per-launch",
+    "fileCache": "warm",
+    "readiness": "first-window-and-main-route-guard-cleared",
+    "memorySampleWindowMs": 2000,
+    "memorySampleIntervalMs": 100,
+    "memoryAggregation": "sum-of-application-process-working-sets"
+  },
+  "samples": [
+    { "readyMs": 1578.9535, "peakWorkingSetBytes": 769310720 },
+    { "readyMs": 1509.3666, "peakWorkingSetBytes": 762138624 },
+    { "readyMs": 1513.5137, "peakWorkingSetBytes": 756396032 },
+    { "readyMs": 1513.9619, "peakWorkingSetBytes": 763990016 },
+    { "readyMs": 1520.8538, "peakWorkingSetBytes": 773283840 },
+    { "readyMs": 1536.9521, "peakWorkingSetBytes": 763912192 },
+    { "readyMs": 1478.1602, "peakWorkingSetBytes": 768135168 }
+  ],
+  "summary": {
+    "readyMs": {
+      "minimum": 1478.1602,
+      "median": 1513.9619,
+      "p95NearestRank": 1578.9535
+    },
+    "peakWorkingSetBytes": {
+      "median": 763990016,
+      "medianMiB": 728.6,
+      "p95NearestRank": 773283840,
+      "p95MiB": 737.46
+    }
+  },
+  "artifact": {
+    "unpackedFileCount": 496,
+    "unpackedBytes": 924419772,
+    "unpackedMiB": 881.6,
+    "appAsarBytes": 267009759,
+    "appAsarMiB": 254.64,
+    "executableBytes": 235533824,
+    "executableMiB": 224.62,
+    "nativeTargetEntriesInAsar": 408
+  },
+  "postRewriteComparison": null
+}

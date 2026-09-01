@@ -1,3 +1,48 @@
+# Deltamod Community 2.0.18
+
+Planned stable release.
+
+This release completes the Community roadmap foundations around transactional
+mod management, recoverable profiles, the Tauri/Rust runtime, and a more useful
+player-facing interface.
+
+## Highlights
+
+- Add transactional install, update, uninstall, verify, repair, profile switch,
+  and restore-last-working-state operations with durable journals and idempotent
+  operation identities.
+- Publish patch output exclusively through the Rust lifecycle filesystem boundary,
+  with staging, rollback, cancellation, timeout, process-tree cleanup, and
+  traversal/link/reparse-point protection.
+- Turn Installed Mods into a control center with health, source, version, hash,
+  files, conflicts, operations, recovery, diagnostics, and profile actions.
+- Normalize GameBanana, Nexus Mods, ModDB, and local archives behind bounded
+  provider contracts, caching, offline fallback, and structured errors.
+- Bundle four additional DELTARUNE themes and eight UNDERTALE location themes,
+  including New Home, with fixed manifests and recorded provenance.
+- Improve the Chara encounter, startup flow, contrast, keyboard/focus handling,
+  reduced-motion behavior, game selection, and game-aware mod filtering.
+- Complete the Tauri command/event bridge, native protocol forwarding, installed
+  package smoke contracts, five Rust worker protocols, and cross-platform release
+  gates while retaining the fast shared renderer/domain tests.
+
+## Reliability and release evidence
+
+- Keep active and unfinished recovery state protected while enforcing bounded
+  archive/cache, recovery-generation, and operation-history retention.
+- Add a packaged capability probe that verifies persistence, theme loading, an
+  actually resolvable game installation, and bounded unknown-command errors.
+- Record the post-rewrite Windows benchmark at 1,664.31 ms median readiness and
+  422.67 MiB median peak working set versus Electron's 1,513.96 ms and 728.60 MiB.
+- Require target-native Rust tests for Windows, Linux, Intel macOS, and Apple
+  Silicon macOS packages before installed-package smoke tests run.
+
+## Remaining publication prerequisite
+
+- Stable Windows/macOS publication remains fail-closed until the repository has
+  publisher certificates and Apple notarization credentials. Linux remains a
+  signed-checksum manual-download package without automatic updater artifacts.
+
 # Deltamod Community 2.0.10
 
 Released 2026-08-14.

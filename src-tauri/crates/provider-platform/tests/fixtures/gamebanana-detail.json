@@ -1,0 +1,50 @@
+{
+  "_idRow": 42,
+  "_sModelName": "Mod",
+  "_sName": "Fixture Mod",
+  "_sDescription": "Detailed fixture",
+  "_bHasFiles": true,
+  "_bHasContentRatings": true,
+  "_aContentRatings": {
+    "Violence": "Mild"
+  },
+  "_aSubmitter": {
+    "_idRow": 7,
+    "_sName": "Fixture Author"
+  },
+  "_aFiles": [
+    {
+      "_idRow": 1001,
+      "_sVersion": "2.0.0",
+      "_sFile": "fixture-v2.zip",
+      "_nFilesize": 4096,
+      "_tsDateAdded": 1751329000,
+      "_bIsPrimary": true,
+      "_sSha256Checksum": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "_sDownloadUrl": "https://gamebanana.com/dl/1001?token=gamebanana-secret&expires=9999999999",
+      "_aModManagerIntegrations": [
+        { "_idToolRow": 20575 }
+      ]
+    },
+    {
+      "_idRow": 1001,
+      "_sVersion": "2.0.0",
+      "_sFile": "duplicate-v2.zip",
+      "_nFilesize": 4096,
+      "_sDownloadUrl": "https://gamebanana.com/dl/1001?token=duplicate-secret",
+      "_aModManagerIntegrations": [
+        { "_idToolRow": 20575 }
+      ]
+    },
+    {
+      "_idRow": 1002,
+      "_sVersion": "1.0 beta",
+      "_sFile": "fixture-v1.zip",
+      "_nFilesize": 2048,
+      "_tsDateAdded": 1750000000,
+      "_sSha256Checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "_sDownloadUrl": "https://gamebanana.com/dl/1002",
+      "_aModManagerIntegrations": []
+    }
+  ]
+}

@@ -7,6 +7,10 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
+const withoutThemeSceneEffects = source => source.replace(
+    /\/\* theme-scene-effects:start[\s\S]*?theme-scene-effects:end \*\//,
+    ''
+);
 
 describe('motion system', () => {
     it('uses shared timing tokens and respects reduced motion', () => {
@@ -29,11 +33,25 @@ describe('motion system', () => {
             'web/haAlignments/Top.css',
             'web/haAlignments/Bottom.css',
             'web/haAlignments/Center.css'
-        ].map(read).join('\n');
+        ].map(relativePath => {
+            const source = read(relativePath);
+            return relativePath === 'web/index.css'
+                ? withoutThemeSceneEffects(source)
+                : source;
+        }).join('\n');
 
         expect(interactiveSources).not.toMatch(/\bscale(?:3d|X|Y)?\s*\(/i);
         expect(interactiveSources).not.toMatch(/\bscale\s*:/i);
         expect(interactiveSources).not.toMatch(/translate[XY]\([+-]?200px\)/i);
+    });
+
+    it('isolates decorative theme motion and disables it for reduced motion', () => {
+        const shellCss = read('web/index.css');
+
+        expect(shellCss).toContain('theme-scene-effects:start');
+        expect(shellCss).toContain('theme-scene-effects:end');
+        expect(shellCss).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.theme-transition-overlay[\s\S]*display: none !important/);
+        expect(shellCss).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.theme-environment-sprite[\s\S]*animation: none !important/);
     });
 
     it('mounts section content without a navigation fade', () => {

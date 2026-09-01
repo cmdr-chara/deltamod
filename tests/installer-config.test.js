@@ -67,4 +67,24 @@ describe('Windows installer branding', () => {
         expect(shell).toContain('Moving Deltamod Community to the selected folder');
         expect(workflow).toContain('Build Deltamod-themed setup shell');
     });
+
+    it('tests the installed Tauri packages rather than only build-tree executables', () => {
+        const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'tauri-release.yml'), 'utf8');
+        const ci = fs.readFileSync(path.join(root, '.github', 'workflows', 'ci.yml'), 'utf8');
+
+        expect(workflow).toContain('Install, smoke, and uninstall Windows NSIS package');
+        expect(workflow).toContain('Install, smoke, and uninstall Linux deb package');
+        expect(workflow).toContain('Install, smoke, and uninstall macOS app bundle');
+        expect(workflow).toContain('--executable $installedExecutable.FullName');
+        expect(workflow).toContain('--executable "$installed_executable"');
+        expect(workflow.match(/--capability-probe/g)).toHaveLength(3);
+        expect(workflow).toContain('sudo dpkg --remove "$package_name"');
+        expect(workflow).toContain('hdiutil detach "$mount_root"');
+        expect(workflow).toContain('cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml');
+        expect(workflow).toContain('cargo test --workspace --all-targets --locked --target ${{ matrix.target }} --manifest-path native/Cargo.toml');
+        expect(workflow).toContain('cargo test --workspace --all-targets --locked --target ${{ matrix.target }} --manifest-path src-tauri/Cargo.toml');
+        expect(workflow).toContain('npm run verify:tauri:contract');
+        expect(ci).toContain('cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml');
+        expect(ci).toContain('npm run verify:tauri:contract');
+    });
 });

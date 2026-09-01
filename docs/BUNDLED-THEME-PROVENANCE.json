@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 2,
+  "generator": "scripts/generate-bundled-game-themes.ps1",
+  "themes": [
+    {
+      "id": "card-castle",
+      "sourceWork": "DELTARUNE",
+      "sceneSources": [
+        {
+          "identifier": "deltarune-ch1/Sprites/bg_cardcastle_outside_0.png",
+          "sha256": "730a959fff464d2baf373f164ae4ee928fbfc55f2de980f8151b863e474cd241"
+        }
+      ],
+      "musicIdentifier": "mus/card_castle.ogg",
+      "musicSha256": "fbcdf4c29e14a2ab1566d3179faee537551effbed89e554cfbf1de63c953170c",
+      "backgroundSha256": "bd0cd089a2a3f8aab210dcc53950bb63f720aced1eb2ac311a57b41091c44c26",
+      "bundledMusicSha256": "fbcdf4c29e14a2ab1566d3179faee537551effbed89e554cfbf1de63c953170c"
+    },
+    {
+      "id": "noelle",
+      "sourceWork": "DELTARUNE",
+      "sceneSources": [
+        {
+          "identifier": "deltarune-ch2/Sprites/bg_dw_noelle_room_0.png",
+          "sha256": "bf8d72afa6d0a5c97bc704941b620b6adf8c48eb3de3c1cf01469f31e7c2adca"
+        },
+        {
+          "identifier": "deltarune-ch2/Sprites/spr_noelleb_spell_4.png",
+          "sha256": "ca460f8d3ca06e47ec6d48dee39eb094d70d6599b1b97c60e6dd1ac4c1a76d84"
+        }
+      ],
+      "musicIdentifier": "mus/noelle.ogg",
+      "musicSha256": "e88229201c37ca4ce9ca0b9efe3b37a755bb767ad59301f8c4f5f811843e774d",
+      "backgroundSha256": "9bc0df217d0b9aaeda9c92871264606cf20b47390cf4f7da86e0e9b0b7fec03f",
+      "bundledMusicSha256": "e88229201c37ca4ce9ca0b9efe3b37a755bb767ad59301f8c4f5f811843e774d"
+    },
+    {
+      "id": "tv-world",
+      "sourceWork": "DELTARUNE",
+      "sceneSources": [
+        {
+          "identifier": "deltarune-ch3/Sprites/spr_dw_gameshow_bg_0.png",
+          "sha256": "78afcbe0deb3fcfc9fa91f6666003088dfac075c94ec2d45b1d4f70289dd3961"
+        },
+        {
+          "identifier": "deltarune-ch3/Sprites/spr_gameshow_screen_city_0.png",
+          "sha256": "c2d5eadeb940c2fc29fb38e0effb40c7a53f43c0316628772e96dfc6ae73425c"
+        },
+        {
+          "identifier": "deltarune-ch3/Sprites/spr_dw_gameshow_tv_frame_0.png",
+          "sha256": "41ebe462e4331813d44d0b9b085dd1fbf910932320051d9f913b8d4540bbf3d7"
+        },
+        {
+          "identifier": "deltarune-ch3/Sprites/spr_gameshow_screen_logo_0.png",
+          "sha256": "e7fe2cbff83e8c4840497e69243e9801049f555acaebd6709fd55943b69e2d06"
+        },
+        {
+          "identifier": "deltarune-ch3/Sprites/spr_dw_gameshow_podium_0.png",
+          "sha256": "4c1578aedff9e0bf686a8ec202947f380fefb6a3c595d91083fc171de3e82580"
+        },
+        {
+          "identifier": "deltarune-ch3/Sprites/spr_dw_gameshow_podium_1.png",
+          "sha256": "8c454e622c462a272554417b617ea5b6b36f7b86374ee041abd57e00ac430cb5"
+        },
+        {
+          "identifier": "deltarune-ch3/Sprites/spr_dw_gameshow_podium_2.png",
+          "sha256": "7883452ace924ed92fc8ea1f3c7c28fe249d54c941e933dec0390cfa94a51875"
+        },
+        {
+          "identifier": "deltarune-ch3/Sprites/spr_gameshow_crowd_a_0.png",
+          "sha256": "cef6afe22a1af14c4a37486d6f8ded532a484764ee1d30c0c6500cb934c88858"
+        },
+        {
+          "identifier": "deltarune-ch3/Sprites/spr_gameshow_crowd_b_0.png",
+          "sha256": "4928568950439b1d3d8a5b98567e705541cdd324b265047a2699c4efefd29976"
+        },
+        {
+          "identifier": "deltarune-ch3/Sprites/spr_tenna_armsup_annoyed_0.png",
+          "sha256": "7df2e47f5f190c0463de7fca5f324b81ac04b186ba9b1d47b823ea0976cb812b"
+        }
+      ],
+      "musicIdentifier": "mus/tv_world.ogg",
+      "musicSha256": "a692ffa6eac0a3347513a0515bdd1ed833d8782d5d85972abaa20f116b127b57",
+      "backgroundSha256": "789d913af2ea1d29aa3bbc835ee7d3b490494c282f10fc9c5117cedd44526a66",
+      "bundledMusicSha256": "a692ffa6eac0a3347513a0515bdd1ed833d8782d5d85972abaa20f116b127b57"
+    },
+    {
+      "id": "the-knight",
+      "sourceWork": "DELTARUNE",
+      "sceneSources": [
+        {
+          "identifier": "deltarune-ch4/Sprites/spr_roaringknight_ball_transition_pose_4.png",
+          "sha256": "02e9d3f00d8cdbf9e378031d45fbdc817de7cb4ed6f506b413f3674a1b898b46"
+        },
+        {
+          "identifier": "deltarune-ch4/Sprites/spr_titan_star_centered_0.png",
+          "sha256": "c4b41dff44b1e26cc3010a20f74182594fe87fd67bdb86f1f071cb76ab184ba9"
+        }
+      ],
+      "musicIdentifier": "mus/knight.ogg",
+      "musicSha256": "e34eca856216e6b257bc253309fd51ccb969b0668b8a31d61a35c68cfd3fd554",
+      "backgroundSha256": "16c388f9a3a6c8e9e83b007ca00b17ee9c8a973000ffb82b299b9df64ffb046e",
+      "bundledMusicSha256": "e34eca856216e6b257bc253309fd51ccb969b0668b8a31d61a35c68cfd3fd554",
+      "backgroundVideo": "the-knight.mp4",
+      "backgroundVideoSha256": "859761f8e1db95fbce0dd4db19d246ccb0e5d70dd4c20f07f431343805dc8d86"
+    },
+    {
+      "id": "undertale-ruins",
+      "sourceWork": "UNDERTALE",
+      "sceneSources": [
+        {
+          "identifier": "selected-scenes/undertale-ruins.png",
+          "sha256": "84d43cca7cf180b89777add0b25544be1f2e22191436ca17b0e6d6510da29915"
+        }
+      ],
+      "musicIdentifier": "mus_ruins.ogg",
+      "musicSha256": "2d2cedf5f6acc9f2107dd1c8b01c0744032b6cf122643e4fbfe47f393112f00a",
+      "backgroundSha256": "84d43cca7cf180b89777add0b25544be1f2e22191436ca17b0e6d6510da29915",
+      "bundledMusicSha256": "2d2cedf5f6acc9f2107dd1c8b01c0744032b6cf122643e4fbfe47f393112f00a"
+    },
+    {
+      "id": "undertale-snowdin",
+      "sourceWork": "UNDERTALE",
+      "sceneSources": [
+        {
+          "identifier": "selected-scenes/undertale-snowdin.png",
+          "sha256": "09328aa6b573fde9aa8173b84533e50a287e0e6aaddffc5a19c782ffdf5647eb"
+        }
+      ],
+      "musicIdentifier": "mus_snowy.ogg",
+      "musicSha256": "a865726e361b2348b7d49ab2478ae74d41c7470b11f94c8d26bc67e7589eeb99",
+      "backgroundSha256": "09328aa6b573fde9aa8173b84533e50a287e0e6aaddffc5a19c782ffdf5647eb",
+      "bundledMusicSha256": "a865726e361b2348b7d49ab2478ae74d41c7470b11f94c8d26bc67e7589eeb99"
+    },
+    {
+      "id": "undertale-waterfall",
+      "sourceWork": "UNDERTALE",
+      "sceneSources": [
+        {
+          "identifier": "selected-scenes/undertale-waterfall.png",
+          "sha256": "94bcd72c5c655de304dc89dbd87adf0fd91d2660879140b58d49520d289c1fde"
+        }
+      ],
+      "musicIdentifier": "mus_waterfall.ogg",
+      "musicSha256": "7e52077ca00c217c5cee919830252782498cdfa1dab55a2fbba4b8c562da70a4",
+      "backgroundSha256": "94bcd72c5c655de304dc89dbd87adf0fd91d2660879140b58d49520d289c1fde",
+      "bundledMusicSha256": "7e52077ca00c217c5cee919830252782498cdfa1dab55a2fbba4b8c562da70a4"
+    },
+    {
+      "id": "undertale-void",
+      "sourceWork": "UNDERTALE",
+      "sceneSources": [
+        {
+          "identifier": "selected-scenes/undertale-barrier.png",
+          "sha256": "8010943bbdac5dc9162e4c2f5bbd911a8bff2f7cd4dd315675bfd40839d0755e"
+        }
+      ],
+      "musicIdentifier": "mus_barrier.ogg",
+      "musicSha256": "fcf4fc4ba69ce23537b985c531f599241b33c9859a96dd4c6d3ea4628edc4f8c",
+      "backgroundSha256": "8010943bbdac5dc9162e4c2f5bbd911a8bff2f7cd4dd315675bfd40839d0755e",
+      "bundledMusicSha256": "fcf4fc4ba69ce23537b985c531f599241b33c9859a96dd4c6d3ea4628edc4f8c"
+    },
+    {
+      "id": "undertale-hotland",
+      "sourceWork": "UNDERTALE",
+      "sceneSources": [
+        {
+          "identifier": "selected-scenes/undertale-hotland.png",
+          "sha256": "ca456c5bcb1ac6a4b4b320b6cd76b2381047faa4397999574ba45c8e3b54bcf6"
+        }
+      ],
+      "musicIdentifier": "mus_anothermedium.ogg",
+      "musicSha256": "90c658a788c25b8474216a544068e589fafebbb735cdee47faf195578cdf03cb",
+      "backgroundSha256": "ca456c5bcb1ac6a4b4b320b6cd76b2381047faa4397999574ba45c8e3b54bcf6",
+      "bundledMusicSha256": "90c658a788c25b8474216a544068e589fafebbb735cdee47faf195578cdf03cb"
+    },
+    {
+      "id": "undertale-core",
+      "sourceWork": "UNDERTALE",
+      "sceneSources": [
+        {
+          "identifier": "selected-scenes/undertale-core.png",
+          "sha256": "62dbd2f4ff72a77f9dfe6536b72bc1c6d78924f66a6dc41fe7bd483dcffbeb93"
+        }
+      ],
+      "musicIdentifier": "mus_core.ogg",
+      "musicSha256": "b3da2b94c458369882cfc6281b173dbb489f13a3cd53836da72f4b29df3b9c1a",
+      "backgroundSha256": "62dbd2f4ff72a77f9dfe6536b72bc1c6d78924f66a6dc41fe7bd483dcffbeb93",
+      "bundledMusicSha256": "b3da2b94c458369882cfc6281b173dbb489f13a3cd53836da72f4b29df3b9c1a"
+    },
+    {
+      "id": "undertale-true-lab",
+      "sourceWork": "UNDERTALE",
+      "sceneSources": [
+        {
+          "identifier": "selected-scenes/undertale-true-lab.png",
+          "sha256": "bd4a958af6a80367fb721e7b621aa8e27eefd16e52c445eac3c2afa6a3dc2b1f"
+        }
+      ],
+      "musicIdentifier": "mus_hereweare.ogg",
+      "musicSha256": "fd7aa07a8e0afb148c8ac515867055719693b0c389698f8d69f756bdb9ad71b9",
+      "backgroundSha256": "bd4a958af6a80367fb721e7b621aa8e27eefd16e52c445eac3c2afa6a3dc2b1f",
+      "bundledMusicSha256": "fd7aa07a8e0afb148c8ac515867055719693b0c389698f8d69f756bdb9ad71b9"
+    },
+    {
+      "id": "undertale-new-home",
+      "sourceWork": "UNDERTALE",
+      "sceneSources": [
+        {
+          "identifier": "selected-scenes/undertale-new-home.png",
+          "sha256": "5e20709a6338556866beeb44edc75391c59f53ee6a5dfacbefa3bac2d869e970"
+        }
+      ],
+      "musicIdentifier": "mus_endarea_parta.ogg",
+      "musicSha256": "8e0f89e5784ea7bd3eea703fce77583920ca8127769a4128baa2fe952c65943b",
+      "backgroundSha256": "5e20709a6338556866beeb44edc75391c59f53ee6a5dfacbefa3bac2d869e970",
+      "bundledMusicSha256": "8e0f89e5784ea7bd3eea703fce77583920ca8127769a4128baa2fe952c65943b"
+    }
+  ]
+}

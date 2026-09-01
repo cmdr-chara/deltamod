@@ -74,12 +74,13 @@ jobs:
         shell: bash
         env:
           RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.release_mode || 'stable' }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           if [ "$RELEASE_MODE" = rehearsal ]; then
             test "$GITHUB_EVENT_NAME" = workflow_dispatch
             test "$GITHUB_REF_TYPE" = branch
-            test "$GITHUB_REF_NAME" = feature/2.1-secure-updates
+            test "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH"
             release_version="$(node -p "require('./package.json').version")"
             release_tag="updater-rehearsal-v${release_version}-run-${GITHUB_RUN_ID}"
             rehearsal=true
@@ -122,19 +123,49 @@ jobs:
           echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
           echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
           echo "rehearsal=$rehearsal" >> "$GITHUB_OUTPUT"
+      - name: Require release-signing credentials
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          required=(
+            TAURI_SIGNING_PRIVATE_KEY
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+            WINDOWS_CERTIFICATE
+            WINDOWS_CERTIFICATE_PASSWORD
+            APPLE_CERTIFICATE
+            APPLE_CERTIFICATE_PASSWORD
+            KEYCHAIN_PASSWORD
+            APPLE_ID
+            APPLE_PASSWORD
+            APPLE_TEAM_ID
+          )
+          for name in "${required[@]}"; do
+            test -n "${!name:-}" || { printf 'Missing required release credential: %s\n' "$name" >&2; exit 1; }
+          done
       - run: cargo fmt --all --check --manifest-path native/Cargo.toml
       - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
-      - run: cargo test --workspace --locked --manifest-path native/Cargo.toml
+      - run: cargo test --workspace --all-targets --locked --manifest-path native/Cargo.toml
       - run: cargo build --workspace --locked --manifest-path native/Cargo.toml
       - run: cargo fmt --all --check --manifest-path src-tauri/Cargo.toml
       - run: cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml -- -D warnings
-      - run: cargo test --workspace --locked --manifest-path src-tauri/Cargo.toml
+      - run: cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml
       - run: npm test
       - run: npm run typecheck
       - run: npm run security:audit
       - run: npm run verify:g3mtool-manifest
       - run: npm run verify:undertale-mod-tool-manifest
-      - run: npm run parity:report
+      - run: npm run verify:tauri:contract
 
   package:
     needs: validate
@@ -146,20 +177,24 @@ jobs:
             target: x86_64-pc-windows-msvc
             artifact: windows-nsis
             bundles: nsis
+            smoke_executable: src-tauri/target/x86_64-pc-windows-msvc/release/deltamod-tauri-shell.exe
           # Ubuntu 22.04 provides the FUSE/runtime baseline expected by
           # linuxdeploy's AppImage bundle on GitHub-hosted runners.
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             artifact: linux-deb
             bundles: deb
+            smoke_executable: src-tauri/target/x86_64-unknown-linux-gnu/release/deltamod-tauri-shell
           - os: macos-15-intel
             target: x86_64-apple-darwin
             artifact: macos-x64-dmg
             bundles: app,dmg
+            smoke_executable: src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Deltamod Community.app/Contents/MacOS/Deltamod Community
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: macos-arm64-dmg
             bundles: app,dmg
+            smoke_executable: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Deltamod Community.app/Contents/MacOS/Deltamod Community
     runs-on: ${{ matrix.os }}
     env:
       RUST_TARGET: ${{ matrix.target }}
@@ -199,7 +234,7 @@ jobs:
             -o Acquire::http::Timeout=20 \
             -o Acquire::https::Timeout=20 \
             install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
       - run: npm ci
       - run: npm run acquire:g3mtool
       - run: npm run verify:g3mtool-manifest
@@ -212,6 +247,70 @@ jobs:
       - run: npm run build:tauri:resources -- ${{ matrix.target }}
       - run: npm run build:tauri:butler -- ${{ matrix.target }}
       - run: npm run verify:tauri-staging -- ${{ matrix.target }}
+      - name: Run target-native worker boundary tests
+        run: cargo test --workspace --all-targets --locked --target ${{ matrix.target }} --manifest-path native/Cargo.toml
+      - name: Run target-native Tauri lifecycle and shell tests
+        run: cargo test --workspace --all-targets --locked --target ${{ matrix.target }} --manifest-path src-tauri/Cargo.toml
+      - name: Prepare platform signing configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          config="$RUNNER_TEMP/deltamod-platform-signing.json"
+          printf '%s\n' '{}' > "$config"
+          printf 'TAURI_PLATFORM_SIGNING_CONFIG=%s\n' "$config" >> "$GITHUB_ENV"
+      - name: Import Windows publisher certificate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'deltamod-publisher.pfx'
+          try {
+            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+            $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+            $imported = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation 'Cert:\CurrentUser\My' -Password $password
+            $certificate = $imported | Where-Object {
+              $_.HasPrivateKey -and ($_.EnhancedKeyUsageList.ObjectId.Value -contains '1.3.6.1.5.5.7.3.3')
+            } | Select-Object -First 1
+            if (-not $certificate) { throw 'The imported PFX has no code-signing private key.' }
+            [ordered]@{
+              bundle = [ordered]@{
+                windows = [ordered]@{
+                  certificateThumbprint = $certificate.Thumbprint
+                  digestAlgorithm = 'sha256'
+                  timestampUrl = 'http://timestamp.digicert.com'
+                }
+              }
+            } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $env:TAURI_PLATFORM_SIGNING_CONFIG -Encoding utf8
+            "DELTAMOD_WINDOWS_CERT_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          finally {
+            if (Test-Path -LiteralPath $pfxPath) { Remove-Item -LiteralPath $pfxPath -Force }
+          }
+      - name: Import Apple Developer ID certificate
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          certificate="$RUNNER_TEMP/deltamod-developer-id.p12"
+          keychain="$RUNNER_TEMP/deltamod-release.keychain-db"
+          trap 'rm -f -- "$certificate"' EXIT
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security default-keychain -s "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -t 3600 -u "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -n 1)"
+          test -n "$identity" || { printf '%s\n' 'No Developer ID Application identity was imported.' >&2; exit 1; }
+          printf 'APPLE_SIGNING_IDENTITY=%s\n' "$identity" >> "$GITHUB_ENV"
       - name: Build signed update-capable bundle
         if: runner.os != 'Linux'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
@@ -219,9 +318,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: .
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config ${{ env.TAURI_PLATFORM_SIGNING_CONFIG }}
       - name: Build Linux manual-download bundle
         if: runner.os == 'Linux'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
@@ -231,6 +336,154 @@ jobs:
           projectPath: .
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
       - run: node scripts/verify-tauri-package.js "src-tauri/target/${{ matrix.target }}/release/bundle" "${{ matrix.target }}"
+      - name: Verify Windows publisher signatures
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $targets = @(
+            Get-Item -LiteralPath "src-tauri/target/${{ matrix.target }}/release/deltamod-tauri-shell.exe"
+            Get-ChildItem -LiteralPath "src-tauri/target/${{ matrix.target }}/release/bundle/nsis" -Filter '*.exe' -File | Select-Object -First 1
+          )
+          if ($targets.Count -ne 2 -or $targets -contains $null) { throw 'Windows signing targets are incomplete.' }
+          foreach ($target in $targets) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $target.FullName
+            if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $env:DELTAMOD_WINDOWS_CERT_THUMBPRINT) {
+              throw "Publisher signature verification failed for $($target.Name)."
+            }
+          }
+      - name: Verify macOS signature and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Deltamod Community.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          xcrun stapler validate "$app"
+      - name: Install, smoke, and uninstall Windows NSIS package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = Get-ChildItem -LiteralPath "src-tauri/target/${{ matrix.target }}/release/bundle/nsis" -Filter '*.exe' -File | Select-Object -First 1
+          if (-not $bundle) { throw 'The Windows NSIS bundle was not found.' }
+          $installRoot = Join-Path $env:RUNNER_TEMP 'deltamod-installed-windows'
+          $dataRoot = Join-Path $env:RUNNER_TEMP "deltamod-smoke-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $installRoot, $dataRoot | Out-Null
+          $installer = Start-Process -FilePath $bundle.FullName -ArgumentList '/S', "/D=$installRoot" -Wait -PassThru -WindowStyle Hidden
+          if ($installer.ExitCode -ne 0) { throw "NSIS installation failed with exit code $($installer.ExitCode)" }
+          $installedExecutable = Get-ChildItem -LiteralPath $installRoot -Filter 'deltamod-tauri-shell.exe' -File -Recurse | Select-Object -First 1
+          if (-not $installedExecutable) { throw 'The installed Tauri executable was not found.' }
+          node scripts/tauri-parity/run-packaged-smoke.js `
+            --executable $installedExecutable.FullName `
+            --data-root $dataRoot `
+            --timeout-ms 30000 `
+            --ready-for-ms 1500 `
+            --capability-probe `
+            --expected-version "${{ needs.validate.outputs.release_version }}" `
+            --evidence-file "packaged-smoke-${{ matrix.target }}.json"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged smoke failed with exit code $LASTEXITCODE" }
+          $protocolDataRoot = Join-Path $env:RUNNER_TEMP "deltamod-protocol-${{ matrix.target }}"
+          pwsh -NoLogo -NoProfile -NonInteractive -File scripts/tauri-parity/run-installed-protocol-smoke.ps1 `
+            -Executable $installedExecutable.FullName `
+            -DataRoot $protocolDataRoot `
+            -TimeoutMs 30000 `
+            -ExpectedVersion "${{ needs.validate.outputs.release_version }}" `
+            -EvidenceFile "packaged-protocol-${{ matrix.target }}.json"
+          if ($LASTEXITCODE -ne 0) { throw "Installed protocol smoke failed with exit code $LASTEXITCODE" }
+          node scripts/tauri-parity/run-installed-sidecar-smoke.js `
+            --install-root $installRoot `
+            --target "${{ matrix.target }}" `
+            --evidence-file "packaged-sidecars-${{ matrix.target }}.json"
+          if ($LASTEXITCODE -ne 0) { throw "Installed sidecar smoke failed with exit code $LASTEXITCODE" }
+          $uninstaller = Get-ChildItem -LiteralPath $installRoot -Filter 'uninstall*.exe' -File -Recurse | Select-Object -First 1
+          if (-not $uninstaller) { throw 'The NSIS uninstaller was not found.' }
+          $uninstall = Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden
+          if ($uninstall.ExitCode -ne 0) { throw "NSIS uninstall failed with exit code $($uninstall.ExitCode)" }
+          if (-not (Test-Path -LiteralPath $dataRoot -PathType Container)) { throw 'Uninstall removed the disposable user-data root.' }
+      - name: Install, smoke, and uninstall Linux deb package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_path="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/deb" -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$package_path"
+          package_name="$(dpkg-deb --field "$package_path" Package)"
+          data_root="$RUNNER_TEMP/deltamod-smoke-${{ matrix.target }}"
+          mkdir -p "$data_root"
+          sudo dpkg --install "$package_path"
+          installed_executable="$(command -v deltamod-tauri-shell)"
+          test -x "$installed_executable"
+          xvfb-run -a node scripts/tauri-parity/run-packaged-smoke.js \
+            --executable "$installed_executable" \
+            --data-root "$data_root" \
+            --timeout-ms 30000 \
+            --ready-for-ms 1500 \
+            --capability-probe \
+            --expected-version "${{ needs.validate.outputs.release_version }}" \
+            --evidence-file "packaged-smoke-${{ matrix.target }}.json"
+          protocol_data_root="$RUNNER_TEMP/deltamod-protocol-${{ matrix.target }}"
+          mkdir -p "$protocol_data_root"
+          xvfb-run -a node scripts/tauri-parity/run-installed-unix-protocol-smoke.js \
+            --platform linux \
+            --executable "$installed_executable" \
+            --data-root "$protocol_data_root" \
+            --timeout-ms 30000 \
+            --expected-version "${{ needs.validate.outputs.release_version }}" \
+            --evidence-file "packaged-protocol-${{ matrix.target }}.json"
+          node scripts/tauri-parity/run-installed-sidecar-smoke.js \
+            --install-root "$(dirname "$installed_executable")" \
+            --target "${{ matrix.target }}" \
+            --evidence-file "packaged-sidecars-${{ matrix.target }}.json"
+          sudo dpkg --remove "$package_name"
+          test -d "$data_root"
+      - name: Install, smoke, and uninstall macOS app bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          test -n "$dmg"
+          mount_root="$RUNNER_TEMP/deltamod-dmg-${{ matrix.target }}"
+          installed_app="/Applications/Deltamod Community.app"
+          data_root="$RUNNER_TEMP/deltamod-smoke-${{ matrix.target }}"
+          protocol_data_root="$RUNNER_TEMP/deltamod-protocol-${{ matrix.target }}"
+          mkdir -p "$mount_root" "$data_root" "$protocol_data_root"
+          test ! -e "$installed_app"
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_root"
+          cleanup() {
+            hdiutil detach "$mount_root" >/dev/null 2>&1 || true
+            sudo rm -rf -- "$installed_app"
+          }
+          trap cleanup EXIT
+          sudo ditto "$mount_root/Deltamod Community.app" "$installed_app"
+          installed_executable="$installed_app/Contents/MacOS/Deltamod Community"
+          test -x "$installed_executable"
+          node scripts/tauri-parity/run-packaged-smoke.js \
+            --executable "$installed_executable" \
+            --data-root "$data_root" \
+            --timeout-ms 30000 \
+            --ready-for-ms 1500 \
+            --capability-probe \
+            --expected-version "${{ needs.validate.outputs.release_version }}" \
+            --evidence-file "packaged-smoke-${{ matrix.target }}.json"
+          node scripts/tauri-parity/run-installed-unix-protocol-smoke.js \
+            --platform macos \
+            --app-bundle "$installed_app" \
+            --executable "$installed_executable" \
+            --data-root "$protocol_data_root" \
+            --timeout-ms 30000 \
+            --expected-version "${{ needs.validate.outputs.release_version }}" \
+            --evidence-file "packaged-protocol-${{ matrix.target }}.json"
+          node scripts/tauri-parity/run-installed-sidecar-smoke.js \
+            --install-root "$(dirname "$installed_executable")" \
+            --target "${{ matrix.target }}" \
+            --evidence-file "packaged-sidecars-${{ matrix.target }}.json"
+          hdiutil detach "$mount_root"
+          sudo rm -rf -- "$installed_app"
+          trap - EXIT
+          test -d "$data_root"
       - name: Stage uniquely named updater release asset
         if: runner.os != 'Linux'
         shell: bash
@@ -264,6 +517,21 @@ jobs:
       - name: Build Deltamod-themed setup shell
         if: runner.os == 'Windows'
         run: npm run build:installer
+      - name: Sign and verify Deltamod-themed setup shell
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $signtool = Get-ChildItem -LiteralPath "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter 'signtool.exe' -File -Recurse |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw 'signtool.exe was not found.' }
+          $setup = (Resolve-Path -LiteralPath 'dist/Deltamod Community Setup.exe').Path
+          & $signtool.FullName sign /sha1 $env:DELTAMOD_WINDOWS_CERT_THUMBPRINT /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /v $setup
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit code $LASTEXITCODE" }
+          $signature = Get-AuthenticodeSignature -LiteralPath $setup
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $env:DELTAMOD_WINDOWS_CERT_THUMBPRINT) {
+            throw 'The branded setup publisher signature is invalid.'
+          }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact }}
@@ -271,6 +539,9 @@ jobs:
           path: |
             updater-release/*
             dist/Deltamod Community Setup.exe
+            packaged-smoke-${{ matrix.target }}.json
+            packaged-protocol-${{ matrix.target }}.json
+            packaged-sidecars-${{ matrix.target }}.json
             src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
             src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
 
@@ -318,7 +589,7 @@ jobs:
         shell: bash
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
-          test "${#artifacts[@]}" -eq 13
+          test "${#artifacts[@]}" -eq 25
           (
             cd release-artifacts
             while IFS= read -r -d '' artifact; do
@@ -359,7 +630,7 @@ jobs:
         shell: bash
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
-          test "${#artifacts[@]}" -eq 14
+          test "${#artifacts[@]}" -eq 26
           gh release create "$RELEASE_TAG" "${artifacts[@]}" --verify-tag --latest --notes-file release-notes.md --title "Deltamod Community ${RELEASE_TAG#community-v}"
       - name: Publish isolated signed updater rehearsal
         if: needs.validate.outputs.rehearsal == 'true'
@@ -370,7 +641,7 @@ jobs:
         shell: bash
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
-          test "${#artifacts[@]}" -eq 14
+          test "${#artifacts[@]}" -eq 26
           gh release create "$RELEASE_TAG" "${artifacts[@]}" \
             --target "$GITHUB_SHA" \
             --prerelease \

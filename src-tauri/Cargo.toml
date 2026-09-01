@@ -1,6 +1,6 @@
 [package]
 name = "deltamod-tauri-shell"
-version = "2.0.13"
+version = "2.0.18"
 edition = "2021"
 publish = false
 
@@ -24,6 +24,12 @@ members = [
     "crates/patching-runtime",
     "crates/tauri-protocol-adapter",
     "crates/game-download-runtime",
+    "crates/product-contracts",
+    "crates/lifecycle-runtime",
+    "crates/provider-platform",
+    "crates/theme-recipes",
+    "crates/theme-recipes-runtime",
+    "crates/windows-taskbar-icon",
 ]
 resolver = "2"
 
@@ -48,6 +54,8 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 sha2 = "0.11"
 tauri-plugin-opener = "2.5.4"
 tauri-plugin-dialog = "2.7.2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-updater = "=2.10.1"
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -58,6 +66,9 @@ deltamod-mods-themes-runtime = { path = "crates/mods-themes-runtime" }
 deltamod-native-core = { path = "../native/core" }
 deltamod-archive-import-runtime = { path = "crates/archive-import-runtime" }
 deltamod-game-download-runtime = { path = "crates/game-download-runtime" }
+deltamod-product-contracts = { path = "crates/product-contracts" }
+deltamod-lifecycle-runtime = { path = "crates/lifecycle-runtime" }
+deltamod-provider-platform = { path = "crates/provider-platform" }
 deltamod-patching-runtime = { path = "crates/patching-runtime" }
 deltamod-network-domain = { path = "crates/network" }
 deltamod-network-runtime = { path = "crates/network-runtime" }
@@ -69,6 +80,12 @@ deltamod-tools-runtime = { path = "crates/tools-runtime" }
 deltamod-updater-launch-runtime = { path = "crates/updater-launch-runtime", features = ["tauri-adapter"] }
 deltamod-credentials-adapter = { path = "crates/credentials" }
 deltamod-tauri-os-adapters = { path = "crates/os-adapters", features = ["tauri-adapter"] }
+
+[target.'cfg(windows)'.dependencies]
+deltamod-windows-taskbar-icon = { path = "crates/windows-taskbar-icon" }
+
+[dev-dependencies]
+zip = { version = "=8.6.0", default-features = false, features = ["deflate"] }
 
 [profile.release]
 codegen-units = 1

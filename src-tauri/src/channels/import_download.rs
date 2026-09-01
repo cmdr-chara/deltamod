@@ -14,6 +14,16 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::watch;
 use uuid::Uuid;
 
+const PROTOCOL_DOWNLOAD_FAILED: &str = "The GameBanana one-click download failed.";
+const PROTOCOL_IMPORT_FAILED: &str = "The downloaded GameBanana mod could not be imported.";
+const MAX_PROTOCOL_ID: u32 = 2_000_000_000;
+
+pub(crate) struct ProtocolImportRequest<'a> {
+    pub item_id: u32,
+    pub file_id: u32,
+    pub source_url: &'a str,
+}
+
 fn valid_operation_id(value: &str) -> bool {
     (1..=32).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_alphanumeric())
 }
@@ -235,6 +245,147 @@ fn download_mod<D: ChoiceBackend>(
             Err(message)
         }
     }
+}
+
+fn protocol_operation_id() -> String {
+    Uuid::new_v4().to_string()
+}
+
+fn protocol_current_item(item_id: u32, file_id: u32) -> String {
+    format!("GameBanana item {item_id}, file {file_id}")
+}
+
+pub(crate) fn protocol_source_file_id(source_url: &str) -> Option<u32> {
+    validate_download_url(source_url, HostAllowlist::GAMEBANANA).ok()?;
+    let authority_and_path = source_url.strip_prefix("https://")?;
+    let (authority, path) = authority_and_path.split_once('/')?;
+    if authority.contains([':', '@'])
+        || !authority
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
+    {
+        return None;
+    }
+    let file = path.strip_prefix("mmdl/")?;
+    if file.is_empty()
+        || file.contains(['/', '?', '#'])
+        || !file.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    file.parse::<u32>()
+        .ok()
+        .filter(|file_id| *file_id > 0 && *file_id <= MAX_PROTOCOL_ID)
+}
+
+pub(crate) fn protocol_source_matches_file_id(source_url: &str, file_id: u32) -> bool {
+    protocol_source_file_id(source_url) == Some(file_id)
+}
+
+fn validate_protocol_import_request(
+    item_id: u32,
+    file_id: u32,
+    source_url: &str,
+) -> Result<(), String> {
+    if item_id == 0
+        || item_id > MAX_PROTOCOL_ID
+        || file_id == 0
+        || file_id > MAX_PROTOCOL_ID
+        || !protocol_source_matches_file_id(source_url, file_id)
+    {
+        return Err(PROTOCOL_DOWNLOAD_FAILED.into());
+    }
+    Ok(())
+}
+
+fn protocol_percentage(completed: u64, total: Option<u64>) -> Option<u64> {
+    total
+        .filter(|total| *total > 0)
+        .map(|total| ((u128::from(completed) * 100) / u128::from(total)) as u64)
+}
+
+fn protocol_download_progress_payload(
+    operation_id: &str,
+    completed: u64,
+    total: Option<u64>,
+    current_item: &str,
+) -> Value {
+    json!({
+        "operationId": operation_id,
+        "phase": "download",
+        "completed": completed,
+        "total": total.unwrap_or(0),
+        "currentItem": current_item,
+        "percentage": protocol_percentage(completed, total)
+    })
+}
+
+pub(crate) fn run_protocol_import<D: ChoiceBackend>(
+    app: &AppHandle,
+    state: &AppState,
+    dialogs: &D,
+    request: ProtocolImportRequest<'_>,
+    cancel: &watch::Receiver<bool>,
+    with_current_generation: &(dyn Fn(&mut dyn FnMut()) + Sync),
+) -> Result<Value, String> {
+    let ProtocolImportRequest {
+        item_id,
+        file_id,
+        source_url,
+    } = request;
+    validate_protocol_import_request(item_id, file_id, source_url)?;
+    if *cancel.borrow() {
+        return Err(PROTOCOL_DOWNLOAD_FAILED.into());
+    }
+    let source = LegacySourceMetadata::new(item_id.to_string(), "Mod")
+        .map_err(|_| PROTOCOL_IMPORT_FAILED.to_owned())?;
+    let operation_id = protocol_operation_id();
+    let current_item = protocol_current_item(item_id, file_id);
+    let runtime = state
+        .network_runtime
+        .lock()
+        .map_err(|_| PROTOCOL_DOWNLOAD_FAILED.to_owned())?;
+    let downloaded = runtime.block_on(state.network.download_allowlisted(
+        operation_id,
+        source_url,
+        HostAllowlist::GAMEBANANA,
+        DownloadPolicy::mods(),
+        cancel,
+        |progress| {
+            if *cancel.borrow() {
+                return;
+            }
+            let payload = protocol_download_progress_payload(
+                &progress.operation_id,
+                progress.completed,
+                progress.total,
+                &current_item,
+            );
+            let mut emit = || {
+                if !*cancel.borrow() {
+                    let _ = app.emit("protocol-download-progress", &payload);
+                }
+            };
+            with_current_generation(&mut emit);
+        },
+    ));
+    drop(runtime);
+    let downloaded = downloaded.map_err(|_| PROTOCOL_DOWNLOAD_FAILED.to_owned())?;
+    if *cancel.borrow() {
+        return Err(PROTOCOL_DOWNLOAD_FAILED.into());
+    }
+    let imported = run_import(
+        dialogs,
+        &downloaded.path,
+        &state.data_root.root.join("packets"),
+        Some(&source),
+        || *cancel.borrow(),
+    )
+    .map_err(|_| PROTOCOL_IMPORT_FAILED.to_owned())?;
+    if *cancel.borrow() {
+        return Err(PROTOCOL_IMPORT_FAILED.into());
+    }
+    Ok(imported)
 }
 
 fn emit_game_progress(app: &AppHandle, event: &deltamod_game_download_runtime::ProgressEvent) {
@@ -467,6 +618,107 @@ mod tests {
         .unwrap();
         assert_eq!(source.gamebanana_id, "42");
         assert_eq!(source.gamebanana_model, "Mod");
+    }
+
+    #[test]
+    fn protocol_source_identity_is_bound_to_the_exact_mmdl_file_path() {
+        assert_eq!(
+            protocol_source_file_id("https://gamebanana.com/mmdl/456"),
+            Some(456)
+        );
+        assert_eq!(
+            protocol_source_file_id("https://files.gamebanana.com/mmdl/456"),
+            Some(456)
+        );
+        assert!(protocol_source_matches_file_id(
+            "https://gamebanana.com/mmdl/456",
+            456
+        ));
+        assert!(!protocol_source_matches_file_id(
+            "https://gamebanana.com/mmdl/456",
+            457
+        ));
+    }
+
+    #[test]
+    fn protocol_source_identity_rejects_arbitrary_or_ambiguous_urls_before_download() {
+        for source in [
+            "http://gamebanana.com/mmdl/456",
+            "https://gamebanana.com.evil.example/mmdl/456",
+            "https://gamebanana.com/dl/456",
+            "https://gamebanana.com/mods/123",
+            "https://gamebanana.com/mmdl/456/extra",
+            "https://gamebanana.com/mmdl/456?download=1",
+            "https://gamebanana.com/mmdl/456#download",
+            "https://gamebanana.com/mmdl/%34%35%36",
+            "https://gamebanana.com:443/mmdl/456",
+            "https://gamebanana.com\\evil/mmdl/456",
+            "https://gamebanana.com%2fevil/mmdl/456",
+        ] {
+            assert_eq!(protocol_source_file_id(source), None, "{source}");
+        }
+        assert_eq!(
+            validate_protocol_import_request(123, 457, "https://gamebanana.com/mmdl/456"),
+            Err(PROTOCOL_DOWNLOAD_FAILED.into())
+        );
+        assert_eq!(
+            validate_protocol_import_request(0, 456, "https://gamebanana.com/mmdl/456"),
+            Err(PROTOCOL_DOWNLOAD_FAILED.into())
+        );
+    }
+
+    #[test]
+    fn protocol_progress_matches_the_electron_shape_and_flooring() {
+        assert_eq!(
+            protocol_download_progress_payload(
+                "4b9ff748-39df-4a4d-9402-d29e8ca8c8b2",
+                1,
+                Some(3),
+                "GameBanana item 12, file 13",
+            ),
+            json!({
+                "operationId": "4b9ff748-39df-4a4d-9402-d29e8ca8c8b2",
+                "phase": "download",
+                "completed": 1,
+                "total": 3,
+                "currentItem": "GameBanana item 12, file 13",
+                "percentage": 33
+            })
+        );
+    }
+
+    #[test]
+    fn protocol_progress_uses_null_percentage_when_total_is_unknown() {
+        let payload = protocol_download_progress_payload(
+            "4b9ff748-39df-4a4d-9402-d29e8ca8c8b2",
+            512,
+            None,
+            "GameBanana item 12, file 13",
+        );
+        assert_eq!(payload["total"], json!(0));
+        assert_eq!(payload["percentage"], Value::Null);
+        assert_eq!(payload.as_object().unwrap().len(), 6);
+    }
+
+    #[test]
+    fn protocol_progress_does_not_expose_remote_urls() {
+        let current_item = protocol_current_item(u32::MAX, u32::MAX);
+        assert!(current_item.len() <= 64);
+        assert!(current_item
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b' ' | b',')));
+        assert!(!current_item.contains("://"));
+        assert!(!PROTOCOL_DOWNLOAD_FAILED.contains("://"));
+        assert!(!PROTOCOL_IMPORT_FAILED.contains("://"));
+    }
+
+    #[test]
+    fn protocol_operation_ids_are_unique_uuid_values() {
+        let first = protocol_operation_id();
+        let second = protocol_operation_id();
+        assert_ne!(first, second);
+        assert!(Uuid::parse_str(&first).is_ok());
+        assert!(Uuid::parse_str(&second).is_ok());
     }
 
     #[test]

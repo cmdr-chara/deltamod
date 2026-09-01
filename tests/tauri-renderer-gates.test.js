@@ -41,5 +41,17 @@ describe('Tauri renderer capability gates', () => {
         expect(deleteAll).toContain("isCommandAvailable('initialize')");
         expect(patching).toContain("invokeOptional('npsCallback'");
         expect(patching).toContain("isCommandAvailable('npsCallback')");
+        expect(patching).toContain("await page('main')");
+        expect(patching).not.toContain('nextButton.disabled = true');
+    });
+
+    it('keeps cache and recovery deletion separate and danger-confirmed', () => {
+        const options = read('web/views/options/index.js');
+
+        expect(options).toContain("invoke('storage:clearCache', [])");
+        expect(options).toContain("isCommandAvailable('storage:deleteRecoveryData')");
+        expect(options).toContain("invoke('storage:deleteRecoveryData', [])");
+        expect(options).toContain("if (choice !== 'delete') return");
+        expect(options).toContain('Active and required recovery data will be preserved.');
     });
 });

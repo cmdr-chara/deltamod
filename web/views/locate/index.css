@@ -1,5 +1,17 @@
+.game-option {
+    display: block;
+    flex: 0 0 50px;
+    width: 50px;
+    height: 50px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--control-radius);
+    background: transparent;
+    cursor: pointer;
+}
+
 .gameIco {
-    flex: 0 0 30px;
+    display: block;
     width: 30px;
     height: 30px;
     object-fit: contain;
@@ -7,22 +19,27 @@
     padding: 10px;
     border-radius: var(--control-radius);
     background: transparent;
-    cursor: pointer;
+    pointer-events: none;
     transition:
         background-color var(--motion-fast) var(--motion-ease-out),
         box-shadow var(--motion-fast) var(--motion-ease-out),
         opacity var(--motion-fast) linear;
 }
 
-.gameIco:hover {
+.game-option:hover .gameIco {
     opacity: 0.8;
     background: rgba(255, 255, 255, 0.08);
 }
 
-.gameIco.selectedGameIco {
+.game-option.selectedGameIco .gameIco {
     opacity: 1;
     background: var(--theme-color-point2);
     box-shadow: inset 0 0 0 2px var(--theme-color);
+}
+
+.game-option:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
 .copyAnyways {
@@ -54,11 +71,11 @@ input[type="checkbox"] {
 }
 
 .folder-picker-button {
+    display: grid;
     flex: 0 0 40px;
     width: 40px;
     min-height: 36px;
     padding: 0;
-    display: grid;
     place-items: center;
     line-height: 0;
 }
@@ -77,18 +94,18 @@ input[type="checkbox"] {
 }
 
 .gOptions {
+    display: flex;
     box-sizing: content-box;
     width: auto;
     min-height: 50px;
-    padding: 10px;
-    overflow-x: auto;
-    background: rgba(0, 0, 0, 0.5);
-    border-radius: 10px;
-    display: flex;
     justify-content: left;
     align-items: center;
     gap: 20px;
+    overflow-x: auto;
+    padding: 10px;
     border: 1px solid var(--theme-color);
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.5);
 }
 
 .importProgress {
@@ -96,6 +113,10 @@ input[type="checkbox"] {
     padding: 12px;
     border-radius: 8px;
     background: rgba(0, 0, 0, 0.72);
+}
+
+.importProgress[hidden] {
+    display: none;
 }
 
 .importProgress progress {
@@ -108,4 +129,11 @@ input[type="checkbox"] {
     display: block;
     overflow-wrap: anywhere;
     margin-bottom: 8px;
+}
+
+@media (forced-colors: active) {
+    .game-option:focus-visible {
+        outline: 2px solid Highlight;
+        outline-offset: 2px;
+    }
 }

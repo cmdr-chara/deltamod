@@ -1,10 +1,20 @@
 # Migration Boundary
 
-The Tauri shell links only the EUPL-1.2 Deltamod domain and runtime crates in `src-tauri`. Native file hashing, archive security, staged copy, patch-plan validation, and patch transactions are shipped as five target-specific sidecars and are invoked through the existing backend adapter. This preserves process isolation and prevents a native worker failure from becoming an unsafe in-process library call.
+The Tauri shell links only EUPL-1.2 Deltamod domain/runtime crates and the EUPL
+native core. The authoritative Tauri lifecycle, profile-install, and patch
+publication paths use that Rust code in-process so no Electron/Node publisher sits
+inside the filesystem trust boundary. File hashing, archive security, staged copy,
+patch-plan validation, and patch transactions are also shipped as five
+target-specific compatibility workers and must pass their installed bounded-protocol
+smoke on every release target.
 
 G3MTool and UndertaleModTool are never Cargo dependencies and never linked into the shell. Their complete, checksum-verified release trees are Tauri resources, including upstream license files and the corresponding source archives in the GitHub release. On Apple Silicon, UndertaleModTool is intentionally absent because the pinned upstream release has no arm64 CLI; the UI must report CSX unavailable for that target.
 
 The current Electron package remains the reference implementation and rollback artifact until `docs/RELEASE-GATE.md` passes. Do not remove Electron scripts, assets, or release jobs as part of the first stable Tauri release.
+
+Tauri-only means the native shell and privileged backend capabilities are Rust and
+the Electron/Node runtime is absent. The existing web renderer remains shared
+HTML/CSS/JavaScript so its fast renderer tests survive the migration.
 
 ## Stable packaging boundary
 

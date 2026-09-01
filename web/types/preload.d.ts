@@ -82,6 +82,7 @@ declare global {
                 shakeForEasterEgg(phase: 'slash' | 'numbers' | 'stop'): Promise<{
                     phase: 'slash' | 'numbers' | 'stop';
                     native: boolean;
+                    restored?: boolean;
                 }>;
                 quitForEasterEgg(): Promise<{ closing: boolean }>;
             };
@@ -161,9 +162,7 @@ declare global {
             onAudio(callback: (enabled: boolean) => void): Unsubscribe;
             onGPL(callback: (message: string) => void): Unsubscribe;
             onUpdateAvailable(callback: (details: unknown) => void): Unsubscribe;
-            onDDS(callback: (progress: unknown) => void): Unsubscribe;
             onThemeChange(callback: (theme: unknown) => void): Unsubscribe;
-            onUpdateProgress(callback: (progress: unknown) => void): Unsubscribe;
             onRefresh(callback: () => void): Unsubscribe;
             onFinishedPatch(callback: (mods: unknown) => void): Unsubscribe;
             onDLMODProgress(callback: (progress: unknown) => void): Unsubscribe;
@@ -171,7 +170,7 @@ declare global {
             onProfileImportProgress(callback: (event: ProgressEvent) => void): Unsubscribe;
             onGameImportProgress(callback: (event: ProgressEvent) => void): Unsubscribe;
             onHashProgress(callback: (event: ProgressEvent) => void): Unsubscribe;
-            onWRA(callback: (message: string) => void): Unsubscribe;
+            onWRA(callback: (payload: []) => void): Unsubscribe;
             onLeaveControllerMode(callback: () => void): Unsubscribe;
         };
     }

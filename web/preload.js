@@ -22,7 +22,6 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'restartCommunity',
     'shakeCommunityWindowForEasterEgg',
     'quitCommunityForEasterEgg',
-    'sampleError',
     'log',
     'showWindow',
     'minimizeMe',
@@ -38,7 +37,6 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'importTheme',
     'renameCustomTheme',
     'deleteCustomTheme',
-    'setSponsor',
     'getSponsor',
     'loginGamebanana',
     'logoutGamebanana',
@@ -63,6 +61,19 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'getModState',
     'getModList',
     'getModListFull',
+    'lifecycle:getInstalledMods',
+    'lifecycle:getOperationStatus',
+    'lifecycle:listProfiles',
+    'lifecycle:importProfileLockfile',
+    'lifecycle:exportProfileLockfile',
+    'lifecycle:createProfileFromCurrent',
+    'lifecycle:getActiveProfile',
+    'lifecycle:switchProfile',
+    'lifecycle:updateMod',
+    'lifecycle:verifyMod',
+    'lifecycle:repairMod',
+    'lifecycle:restoreLastWorkingState',
+    'lifecycle:uninstallMod',
     'howManyMods',
     'dlmodURL',
     'setModVariant',
@@ -102,22 +113,22 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'openModFolder',
     'getUniqueFlag',
     'setUniqueFlag',
+    'benchmark:rendererReady',
+    'storage:getUsage',
+    'storage:clearCache',
+    'storage:deleteRecoveryData',
     'fetchSharedVariable',
     'isBaked',
     'npsCallback',
     'executeArgumentCmd',
     'openFlagDatabase',
-    'deltamoddersDiscord',
     'browseFile',
     'locateDelta',
-    'canReportError',
     'fireUpdate',
     'start-update',
     'ignore-update',
     'updater-status',
     'initialize',
-    'modalTest',
-    'openElectronTracer',
     'installDeltamodCLI'
 ]);
 
@@ -126,9 +137,7 @@ const ALLOWED_EVENT_CHANNELS = new Set([
     'audio',
     'gplog',
     'updateAvailable',
-    'du-progress',
     'themeChange',
-    'updateProgress',
     'refresh',
     'finishedPatch',
     'dlmodURL-progress',
@@ -142,6 +151,21 @@ const ALLOWED_EVENT_CHANNELS = new Set([
     'installer-progress',
     'updater-status',
     'updater-progress'
+]);
+
+// Commands introduced by the Rust lifecycle remain visible in the shared
+// contract, but Electron has no authoritative implementation for them.
+const TAURI_ONLY_CHANNELS = new Set([
+    'lifecycle:listProfiles',
+    'lifecycle:importProfileLockfile',
+    'lifecycle:exportProfileLockfile',
+    'lifecycle:createProfileFromCurrent',
+    'lifecycle:getActiveProfile',
+    'lifecycle:switchProfile',
+    'benchmark:rendererReady',
+    'storage:getUsage',
+    'storage:clearCache',
+    'storage:deleteRecoveryData'
 ]);
 
 const ASSET_SCHEMES = Object.freeze({
@@ -164,7 +188,7 @@ function invokeOptional(channel, data = [], fallback = undefined) {
 }
 
 function isCommandAvailable(channel) {
-    return ALLOWED_INVOKE_CHANNELS.has(channel);
+    return ALLOWED_INVOKE_CHANNELS.has(channel) && !TAURI_ONLY_CHANNELS.has(channel);
 }
 
 function on(channel, callback) {
@@ -284,9 +308,7 @@ contextBridge.exposeInMainWorld('preloadAPI', {
     onUpdateAvailable: callback => on('updateAvailable', callback),
     onUpdaterStatus: callback => on('updater-status', callback),
     onUpdaterProgress: callback => on('updater-progress', callback),
-    onDDS: callback => on('du-progress', callback),
     onThemeChange: callback => on('themeChange', callback),
-    onUpdateProgress: callback => on('updateProgress', callback),
     onRefresh: callback => on('refresh', callback),
     onFinishedPatch: callback => on('finishedPatch', callback),
     onDLMODProgress: callback => on('dlmodURL-progress', callback),

@@ -1,0 +1,28 @@
+{
+  "provider": "moddb",
+  "catalogScope": "recent-rss",
+  "feedLimit": 10,
+  "hasMore": false,
+  "attribution": "ModDB RSS exposes only its 10 most recent downloads.",
+  "catalogUrl": "https://www.moddb.com/games/deltarune/downloads",
+  "items": [
+    {
+      "provider": "moddb",
+      "id": "downloads291264",
+      "title": "Gendered Kris",
+      "summary": "A ModDB fixture",
+      "author": "ModDB contributor",
+      "updatedAt": "Sun, 30 Aug 2026 10:00:00 GMT",
+      "imageUrl": "https://media.moddb.com/images/fixture.png?tracking=remove-me",
+      "sourceUrl": "https://www.moddb.com/games/deltarune/downloads/gendered-kris",
+      "contentRating": "unknown"
+    },
+    {
+      "provider": "moddb",
+      "id": "different-legacy-id",
+      "title": "Duplicate Gendered Kris",
+      "summary": "Duplicate URL identity",
+      "sourceUrl": "https://www.moddb.com/games/deltarune/downloads/gendered-kris"
+    }
+  ]
+}

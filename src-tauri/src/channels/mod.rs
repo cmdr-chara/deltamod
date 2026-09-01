@@ -3,6 +3,7 @@ pub mod dialogs;
 pub mod game;
 pub mod import_download;
 pub mod installations;
+pub mod lifecycle;
 pub mod mods;
 pub mod nexus_download;
 pub mod nexus_oauth;

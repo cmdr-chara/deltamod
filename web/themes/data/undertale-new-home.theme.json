@@ -1,0 +1,11 @@
+{
+  "name": "New Home",
+  "background": "undertale-new-home.png",
+  "description": "A theme based on New Home from UNDERTALE.",
+  "mainSong": "undertale-new-home.ogg",
+  "musicTrack": "Undertale - Toby Fox",
+  "id": "undertale-new-home",
+  "color": "rgb(155, 106, 29)",
+  "soulColor": "#FFFF00",
+  "backgroundSize": "cover"
+}

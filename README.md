@@ -47,6 +47,17 @@ You can:
 
 If you only want to play with mods, you do **not** need Node.js, Rust, Git, or any development tools.
 
+### What this community fork adds
+
+This is not a cosmetic mirror of the original project. The community fork has grown across the application, native layer, security model, tests, and release system. Its engineering work includes:
+
+- isolated installations, profiles, and collections with staged migration;
+- transactional patching and safer recovery paths;
+- Nexus Mods authorization and bounded catalogue integration;
+- checksum-verified tools and downloadable release artifacts;
+- Rust/Tauri native integration alongside the TypeScript application;
+- automated tests, security audits, and gated Windows, Linux, and macOS releases.
+
 ## Download and install
 
 Get the newest stable build from the official GitHub release page:

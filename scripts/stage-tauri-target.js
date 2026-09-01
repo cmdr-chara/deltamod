@@ -1,11 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { resolveTauriTarget } = require('./lib/tauri-target');
 
 const root = path.resolve(__dirname, '..');
-const target = process.argv[2] || process.env.TAURI_BUILD_TARGET || process.env.RUST_TARGET;
-const targets = new Set(['x86_64-pc-windows-msvc', 'x86_64-unknown-linux-gnu', 'x86_64-apple-darwin', 'aarch64-apple-darwin']);
-if (!targets.has(target)) throw new Error('Target must be x86_64-pc-windows-msvc, x86_64-unknown-linux-gnu, x86_64-apple-darwin, or aarch64-apple-darwin.');
+const target = resolveTauriTarget(process.argv[2]);
 
 const workspace = path.join(root, 'native');
 const tauri = path.join(root, 'src-tauri');

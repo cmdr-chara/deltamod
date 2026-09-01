@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use tempfile::Builder;
+use tempfile::{Builder, TempDir};
 use thiserror::Error;
 
 const COPY_BUFFER_BYTES: usize = 64 * 1024;
@@ -68,6 +68,47 @@ pub struct ImportResult {
     pub files: usize,
     pub expanded_bytes: u64,
     pub replaced_existing: bool,
+}
+
+pub struct StagedModArchive {
+    _staging: TempDir,
+    content_root: PathBuf,
+    package_id: String,
+    version: Option<String>,
+    pub format: ArchiveFormat,
+    pub files: usize,
+    pub expanded_bytes: u64,
+}
+
+impl StagedModArchive {
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.content_root
+    }
+
+    #[must_use]
+    pub fn package_id(&self) -> &str {
+        &self.package_id
+    }
+
+    #[must_use]
+    pub fn version(&self) -> Option<&str> {
+        self.version.as_deref()
+    }
+
+    pub fn bind_identity(&self, unique_id: &str) -> Result<(), ImportError> {
+        if unique_id.is_empty() || unique_id.len() > 256 || unique_id.chars().any(char::is_control)
+        {
+            return Err(ImportError::Manifest("installed identity is invalid"));
+        }
+        let identity = serde_json::to_vec(&serde_json::json!({
+            "uniqueId": unique_id,
+            "new": false
+        }))
+        .map_err(|_| ImportError::Manifest("identity metadata is invalid"))?;
+        fs::write(self.content_root.join("__deltaID.json"), identity)?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -252,6 +293,68 @@ where
     D: FnOnce(ExistingMod<'_>) -> DuplicateDecision,
 {
     import_archive_with_source(archive, packet_root, limits, None, cancelled, duplicate)
+}
+
+/// Extracts and validates a mod archive without publishing it. The returned
+/// private staging directory is deleted automatically unless the caller keeps
+/// the object alive while a transactional publisher consumes its files.
+pub fn stage_mod_archive<C: Fn() -> bool>(
+    archive: &Path,
+    staging_parent: &Path,
+    limits: Limits,
+    cancelled: C,
+) -> Result<StagedModArchive, ImportError> {
+    check_cancelled(&cancelled)?;
+    validate_limits(limits)?;
+    let source = fs::symlink_metadata(archive).map_err(|_| ImportError::InvalidSource)?;
+    if !source.file_type().is_file()
+        || source.file_type().is_symlink()
+        || source.len() == 0
+        || source.len() > limits.max_archive_bytes
+    {
+        return Err(ImportError::InvalidSource);
+    }
+    fs::create_dir_all(staging_parent)?;
+    let parent_metadata = fs::symlink_metadata(staging_parent)?;
+    if !parent_metadata.is_dir() || parent_metadata.file_type().is_symlink() {
+        return Err(ImportError::Destination("archive staging parent is unsafe"));
+    }
+    let staging_parent = fs::canonicalize(staging_parent)?;
+    let format = detect_format(archive)?;
+    let inventory = inventory(archive, format, source.len(), limits, &cancelled)?;
+    let source_after_inventory = fs::metadata(archive)?;
+    if source_after_inventory.len() != source.len()
+        || source_after_inventory.modified().ok() != source.modified().ok()
+    {
+        return Err(ImportError::InvalidSource);
+    }
+    let staging = Builder::new()
+        .prefix(".mod-lifecycle-")
+        .tempdir_in(staging_parent)?;
+    extract(
+        archive,
+        format,
+        &inventory,
+        staging.path(),
+        limits,
+        &cancelled,
+    )?;
+    validate_tree(staging.path(), limits, &cancelled)?;
+    let content_root = identify_content_root(staging.path())?;
+    let manifest = read_manifest(&content_root, limits.max_manifest_bytes)?;
+    if !content_root.join("modding.xml").is_file() {
+        return Err(ImportError::Manifest("root modding.xml is missing"));
+    }
+    check_cancelled(&cancelled)?;
+    Ok(StagedModArchive {
+        _staging: staging,
+        content_root,
+        package_id: manifest.package_id,
+        version: manifest.version,
+        format,
+        files: inventory.files,
+        expanded_bytes: inventory.expanded,
+    })
 }
 
 /// Extracts a downloaded game into a missing private destination and publishes it

@@ -3,9 +3,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const sevenZip = require('7zip-min');
+const { resolveTauriTarget } = require('./lib/tauri-target');
 
 const root = path.resolve(__dirname, '..');
-const rustTarget = process.argv[2] || process.env.TAURI_BUILD_TARGET || process.env.RUST_TARGET;
+const rustTarget = resolveTauriTarget(process.argv[2]);
 const targets = {
   'x86_64-pc-windows-msvc': ['windows-amd64', 'f6d06ff12a7e1c7d4a5bd7465aa000283528e3ae2ec354448454e6fff1f0f744', 'butler.exe', '1099ebacba44c5e781babdc0cc409ba91010e284e9ca000e61753e8aa0e84be2'],
   'x86_64-unknown-linux-gnu': ['linux-amd64', '05b9b0ddf98f9c592ea340302b246ad0e8d5afe4f35ff2d03fd6d7f5591647e6', 'butler', 'f32d1d932528c3a0c4c0471d721dfe0c7c24fb16a0fc4e3e81f5a118e0b6d790'],

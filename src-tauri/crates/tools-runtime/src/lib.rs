@@ -1,5 +1,13 @@
 #![forbid(unsafe_code)]
 
+mod secure_path;
+
+pub use secure_path::{
+    copy_relative_regular_file_to_open_file_verified, copy_relative_regular_file_verified,
+    inspect_directory_identity, inspect_regular_file, SecurePathError, StablePathIdentity,
+    VerifiedFile,
+};
+
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -8,7 +16,10 @@ use std::{
     io::{self, Read},
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -16,6 +27,8 @@ use thiserror::Error;
 
 pub const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const EXECUTABLE_IDENTITY_ENV: &str = "__DELTAMOD_TOOLS_RUNTIME_EXECUTABLE_IDENTITY";
+const EXECUTABLE_SHA256_ENV: &str = "__DELTAMOD_TOOLS_RUNTIME_EXECUTABLE_SHA256";
 
 #[derive(Debug, Error)]
 pub enum RuntimeError {
@@ -35,11 +48,31 @@ pub enum RuntimeError {
     },
     #[error("{kind} timed out")]
     Timeout { kind: &'static str },
+    #[error("{kind} execution was cancelled")]
+    Cancelled { kind: &'static str },
+    #[error("{kind} exceeded the aggregate stdout/stderr limit of {limit} bytes")]
+    OutputOverflow { kind: &'static str, limit: usize },
+    #[error("{kind} executable is not pinned to a stable identity and SHA-256 digest")]
+    UnpinnedExecutable { kind: &'static str },
+    #[error("{kind} executable changed while it was being launched")]
+    ExecutableChanged { kind: &'static str },
     #[error("{kind} failed to start: {source}")]
     Start {
         kind: &'static str,
         source: io::Error,
     },
+    #[error("{kind} output capture failed: {source}")]
+    Output {
+        kind: &'static str,
+        source: io::Error,
+    },
+    #[error("{kind} process could not be reaped: {source}")]
+    Reap {
+        kind: &'static str,
+        source: io::Error,
+    },
+    #[error("{kind} process containment failed: {detail}")]
+    Containment { kind: &'static str, detail: String },
     #[error("{kind} exited unsuccessfully: {status}; output: {output}")]
     Failed {
         kind: &'static str,
@@ -76,6 +109,39 @@ pub struct CommandSpec {
     pub argv: Vec<OsString>,
     pub cwd: PathBuf,
     pub env: BTreeMap<OsString, OsString>,
+}
+
+impl CommandSpec {
+    pub fn pin_to(&mut self, tool: &ToolPath) -> Result<(), RuntimeError> {
+        if self.kind != tool.kind || self.executable != tool.path {
+            return Err(RuntimeError::InvalidExecutable {
+                kind: self.kind.name(),
+                path: self.executable.clone(),
+            });
+        }
+        let sha256 = tool
+            .sha256
+            .as_deref()
+            .filter(|value| valid_sha256(value))
+            .ok_or(RuntimeError::UnpinnedExecutable {
+                kind: self.kind.name(),
+            })?;
+        let inspected = inspect_regular_file(&tool.path, u64::MAX)
+            .map_err(|error| executable_inspection_error(tool.kind, &tool.path, error))?;
+        if !inspected.sha256().eq_ignore_ascii_case(sha256) {
+            return Err(RuntimeError::HashMismatch {
+                kind: self.kind.name(),
+                expected: sha256.to_owned(),
+                actual: inspected.sha256().to_owned(),
+            });
+        }
+        self.env.insert(
+            EXECUTABLE_IDENTITY_ENV.into(),
+            inspected.identity().token().into(),
+        );
+        self.env.insert(EXECUTABLE_SHA256_ENV.into(), sha256.into());
+        Ok(())
+    }
 }
 
 fn regular_file(path: &Path, kind: &'static str) -> Result<PathBuf, RuntimeError> {
@@ -140,7 +206,9 @@ pub fn verify_tool(
 ) -> Result<ToolPath, RuntimeError> {
     let name = kind.name();
     let canonical = regular_file(path, name)?;
-    let actual = sha256_file(&canonical)?;
+    let inspected = inspect_regular_file(&canonical, u64::MAX)
+        .map_err(|error| executable_inspection_error(kind, &canonical, error))?;
+    let actual = inspected.sha256().to_owned();
     if let Some(expected) = expected_sha256 {
         if !actual.eq_ignore_ascii_case(expected) {
             return Err(RuntimeError::HashMismatch {
@@ -218,7 +286,7 @@ pub fn g3m_apply(
             target_relative.as_os_str().to_owned(),
         ],
         cwd: game_root.to_owned(),
-        env: scrubbed_env(),
+        env: pinned_env(tool),
     }
 }
 pub fn g3m_merge(
@@ -236,7 +304,7 @@ pub fn g3m_merge(
         executable: tool.path.clone(),
         argv,
         cwd: game_root.to_owned(),
-        env: scrubbed_env(),
+        env: pinned_env(tool),
     }
 }
 pub fn undertale_mod_cli(
@@ -260,16 +328,17 @@ pub fn undertale_mod_cli(
         executable: tool.path.clone(),
         argv,
         cwd,
-        env: scrubbed_env(),
+        env: pinned_env(tool),
     }
 }
+
 pub fn winui_launch(tool: &ToolPath, data_file: &Path) -> CommandSpec {
     CommandSpec {
         kind: ToolKind::WinUi,
         executable: tool.path.clone(),
         argv: vec!["--open".into(), data_file.to_owned().into()],
         cwd: tool.path.parent().unwrap_or(Path::new(".")).to_owned(),
-        env: scrubbed_env(),
+        env: pinned_env(tool),
     }
 }
 
@@ -279,7 +348,7 @@ pub fn controller_mode_launch(tool: &ToolPath) -> CommandSpec {
         executable: tool.path.clone(),
         argv: Vec::new(),
         cwd: tool.path.parent().unwrap_or(Path::new(".")).to_owned(),
-        env: scrubbed_env(),
+        env: pinned_env(tool),
     }
 }
 
@@ -303,6 +372,20 @@ pub fn scrubbed_env() -> BTreeMap<OsString, OsString> {
     env
 }
 
+fn pinned_env(tool: &ToolPath) -> BTreeMap<OsString, OsString> {
+    let mut env = scrubbed_env();
+    if let Some(sha256) = tool.sha256.as_deref().filter(|value| valid_sha256(value)) {
+        if let Ok(inspected) = inspect_regular_file(&tool.path, u64::MAX) {
+            env.insert(
+                EXECUTABLE_IDENTITY_ENV.into(),
+                inspected.identity().token().into(),
+            );
+            env.insert(EXECUTABLE_SHA256_ENV.into(), sha256.into());
+        }
+    }
+    env
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessOutput {
     pub status: ExitStatus,
@@ -312,27 +395,133 @@ pub struct ProcessOutput {
     pub timed_out: bool,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct CancellationToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl CancellationToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+}
+
+struct ManagedProcess {
+    kind: &'static str,
+    child: Mutex<Child>,
+    reaped: AtomicBool,
+    #[cfg(windows)]
+    job: Mutex<Option<fence_windows::KillOnCloseJob>>,
+}
+
+impl ManagedProcess {
+    fn try_wait(&self) -> Result<Option<ExitStatus>, RuntimeError> {
+        self.child
+            .lock()
+            .map_err(|_| RuntimeError::Registry)?
+            .try_wait()
+            .map_err(|source| RuntimeError::Reap {
+                kind: self.kind,
+                source,
+            })
+    }
+
+    fn terminate_and_reap(&self) -> Result<(), RuntimeError> {
+        if self.reaped.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        let mut child = self.child.lock().map_err(|_| RuntimeError::Registry)?;
+        if self.reaped.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        #[cfg(unix)]
+        let mut containment_error = None;
+        #[cfg(not(unix))]
+        let containment_error: Option<String> = None;
+        #[cfg(windows)]
+        {
+            let job = self.job.lock().map_err(|_| RuntimeError::Registry)?.take();
+            drop(job);
+        }
+        #[cfg(unix)]
+        {
+            if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
+                if let Err(error) =
+                    rustix::process::kill_process_group(pid, rustix::process::Signal::KILL)
+                {
+                    if error != rustix::io::Errno::SRCH {
+                        containment_error = Some(error.to_string());
+                    }
+                }
+            }
+        }
+        let _ = child.kill();
+        child.wait().map_err(|source| RuntimeError::Reap {
+            kind: self.kind,
+            source,
+        })?;
+
+        #[cfg(unix)]
+        if containment_error.is_none() {
+            if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
+                let mut group_gone = false;
+                for _ in 0..100 {
+                    match rustix::process::test_kill_process_group(pid) {
+                        Err(rustix::io::Errno::SRCH) => {
+                            group_gone = true;
+                            break;
+                        }
+                        Ok(()) => thread::sleep(Duration::from_millis(1)),
+                        Err(error) => {
+                            containment_error = Some(error.to_string());
+                            break;
+                        }
+                    }
+                }
+                if containment_error.is_none() && !group_gone {
+                    containment_error =
+                        Some("process group remained live after termination".into());
+                }
+            }
+        }
+
+        if let Some(detail) = containment_error {
+            return Err(RuntimeError::Containment {
+                kind: self.kind,
+                detail,
+            });
+        }
+        self.reaped.store(true, Ordering::Release);
+        Ok(())
+    }
+}
+
 pub struct OwnedProcess {
     id: u64,
-    child: Arc<Mutex<Child>>,
+    process: Arc<ManagedProcess>,
     registry: ProcessRegistry,
-    #[cfg(windows)]
-    job: Option<Arc<fence_windows::KillOnCloseJob>>,
 }
 impl OwnedProcess {
     pub fn id(&self) -> u64 {
         self.id
     }
     pub fn terminate(self) -> Result<(), RuntimeError> {
-        let mut child = self.child.lock().map_err(|_| RuntimeError::Registry)?;
-        terminate_child(&mut child);
-        child.wait().map(|_| ()).map_err(|_| RuntimeError::Registry)
+        self.process.terminate_and_reap()
     }
 }
 impl Drop for OwnedProcess {
     fn drop(&mut self) {
-        #[cfg(windows)]
-        let _job = &self.job;
+        let _ = self.process.terminate_and_reap();
         if let Ok(mut processes) = self.registry.inner.lock() {
             processes.remove(&self.id);
         }
@@ -341,7 +530,7 @@ impl Drop for OwnedProcess {
 
 #[derive(Clone, Default)]
 pub struct ProcessRegistry {
-    inner: Arc<Mutex<BTreeMap<u64, Arc<Mutex<Child>>>>>,
+    inner: Arc<Mutex<BTreeMap<u64, Arc<ManagedProcess>>>>,
 }
 impl ProcessRegistry {
     pub fn spawn(&self, spec: &CommandSpec) -> Result<OwnedProcess, RuntimeError> {
@@ -357,9 +546,19 @@ impl ProcessRegistry {
         spec: &CommandSpec,
         capture_output: bool,
     ) -> Result<OwnedProcess, RuntimeError> {
-        let mut command = Command::new(&spec.executable);
+        let (executable, command_env) = pin_command_executable(spec)?;
+        #[cfg(windows)]
+        let executable_identity = executable.verified().clone();
+        let launch_path = executable
+            .launch_path(&spec.executable)
+            .map_err(|error| executable_inspection_error(spec.kind, &spec.executable, error))?;
+        #[cfg(windows)]
+        drop(executable);
+        #[cfg(not(windows))]
+        let mut executable = executable;
+        let mut command = Command::new(launch_path);
         command.args(&spec.argv).current_dir(&spec.cwd).env_clear();
-        for (k, v) in &spec.env {
+        for (k, v) in &command_env {
             command.env(k, v);
         }
         command.stdin(Stdio::null());
@@ -373,43 +572,74 @@ impl ProcessRegistry {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
         }
-        let child = Arc::new(Mutex::new(command.spawn().map_err(|source| {
-            RuntimeError::Start {
-                kind: spec.kind.name(),
-                source,
-            }
-        })?));
         #[cfg(windows)]
-        let job = {
-            let job =
-                Arc::new(fence_windows::KillOnCloseJob::new().map_err(|_| RuntimeError::Registry)?);
-            {
-                let guard = child.lock().map_err(|_| RuntimeError::Registry)?;
-                job.assign(&guard).map_err(|_| RuntimeError::Registry)?;
+        let job =
+            fence_windows::KillOnCloseJob::new().map_err(|error| RuntimeError::Containment {
+                kind: spec.kind.name(),
+                detail: error.to_string(),
+            })?;
+        let mut child = command.spawn().map_err(|source| RuntimeError::Start {
+            kind: spec.kind.name(),
+            source,
+        })?;
+        #[cfg(windows)]
+        if let Err(error) = job.assign(&child) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(RuntimeError::Containment {
+                kind: spec.kind.name(),
+                detail: error.to_string(),
+            });
+        }
+        let id = u64::from(child.id());
+        let process = Arc::new(ManagedProcess {
+            kind: spec.kind.name(),
+            child: Mutex::new(child),
+            reaped: AtomicBool::new(false),
+            #[cfg(windows)]
+            job: Mutex::new(Some(job)),
+        });
+        #[cfg(windows)]
+        let executable_verification =
+            inspect_regular_file(&spec.executable, u64::MAX).and_then(|current| {
+                if current == executable_identity {
+                    Ok(())
+                } else {
+                    Err(SecurePathError::Changed)
+                }
+            });
+        #[cfg(not(windows))]
+        let executable_verification = executable.verify_unchanged(u64::MAX);
+        if let Err(error) = executable_verification {
+            let launch_error = executable_inspection_error(spec.kind, &spec.executable, error);
+            process.terminate_and_reap()?;
+            return Err(launch_error);
+        }
+        let mut processes = match self.inner.lock() {
+            Ok(processes) => processes,
+            Err(_) => {
+                process.terminate_and_reap()?;
+                return Err(RuntimeError::Registry);
             }
-            Some(job)
         };
-        let id = u64::from(child.lock().map_err(|_| RuntimeError::Registry)?.id());
-        self.inner
-            .lock()
-            .map_err(|_| RuntimeError::Registry)?
-            .insert(id, Arc::clone(&child));
+        processes.insert(id, Arc::clone(&process));
+        drop(processes);
         Ok(OwnedProcess {
             id,
-            child,
+            process,
             registry: self.clone(),
-            #[cfg(windows)]
-            job,
         })
     }
     pub fn terminate_all(&self) {
-        if let Ok(mut processes) = self.inner.lock() {
-            for child in processes.values_mut() {
-                if let Ok(mut child) = child.lock() {
-                    terminate_child(&mut child);
-                }
-            }
-            processes.clear();
+        let processes = if let Ok(mut registry) = self.inner.lock() {
+            let processes = registry.values().cloned().collect::<Vec<_>>();
+            registry.clear();
+            processes
+        } else {
+            Vec::new()
+        };
+        for process in processes {
+            let _ = process.terminate_and_reap();
         }
     }
 }
@@ -419,90 +649,264 @@ pub fn run_bounded(
     timeout: Duration,
     max_output: usize,
 ) -> Result<ProcessOutput, RuntimeError> {
+    run_bounded_with_cancel_probe(spec, timeout, max_output, || false)
+}
+
+pub fn run_bounded_with_cancel(
+    spec: &CommandSpec,
+    timeout: Duration,
+    max_output: usize,
+    cancellation: &CancellationToken,
+) -> Result<ProcessOutput, RuntimeError> {
+    run_bounded_with_cancel_probe(spec, timeout, max_output, || cancellation.is_cancelled())
+}
+
+pub fn run_bounded_with_cancel_probe(
+    spec: &CommandSpec,
+    timeout: Duration,
+    max_output: usize,
+    mut cancellation_requested: impl FnMut() -> bool,
+) -> Result<ProcessOutput, RuntimeError> {
+    if cancellation_requested() {
+        return Err(RuntimeError::Cancelled {
+            kind: spec.kind.name(),
+        });
+    }
     let registry = ProcessRegistry::default();
     let owned = registry.spawn(spec)?;
     let (stdout_pipe, stderr_pipe) = {
-        let mut child = owned.child.lock().map_err(|_| RuntimeError::Registry)?;
+        let mut child = owned
+            .process
+            .child
+            .lock()
+            .map_err(|_| RuntimeError::Registry)?;
         (child.stdout.take(), child.stderr.take())
     };
-    let stdout_thread = thread::spawn(move || {
-        stdout_pipe
-            .map(|pipe| read_bounded(pipe, max_output))
-            .transpose()
-    });
-    let stderr_thread = thread::spawn(move || {
-        stderr_pipe
-            .map(|pipe| read_bounded(pipe, max_output))
-            .transpose()
-    });
-    let start = Instant::now();
-    loop {
-        let mut child = owned.child.lock().map_err(|_| RuntimeError::Registry)?;
-        if let Some(status) = child.try_wait().map_err(|_| RuntimeError::Registry)? {
-            drop(child);
-            let stdout = join_output(stdout_thread)?;
-            let stderr = join_output(stderr_thread)?;
-            let truncated = stdout.len() + stderr.len() > max_output;
-            let split = stdout.len().min(max_output);
-            return Ok(ProcessOutput {
-                status,
-                stdout: String::from_utf8_lossy(&stdout[..split]).into_owned(),
-                stderr: String::from_utf8_lossy(
-                    &stderr[..stderr.len().min(max_output.saturating_sub(split))],
-                )
-                .into_owned(),
-                truncated,
-                timed_out: false,
+    let output_state = Arc::new(OutputState::new(max_output));
+    let stdout_state = Arc::clone(&output_state);
+    let stdout_thread = thread::Builder::new()
+        .name("tools-runtime-stdout".into())
+        .spawn(move || {
+            stdout_pipe
+                .map(|pipe| read_bounded(pipe, &stdout_state))
+                .transpose()
+        })
+        .map_err(|source| RuntimeError::Output {
+            kind: spec.kind.name(),
+            source,
+        })?;
+    let stderr_state = Arc::clone(&output_state);
+    let stderr_thread = match thread::Builder::new()
+        .name("tools-runtime-stderr".into())
+        .spawn(move || {
+            stderr_pipe
+                .map(|pipe| read_bounded(pipe, &stderr_state))
+                .transpose()
+        }) {
+        Ok(handle) => handle,
+        Err(source) => {
+            let reap_result = owned.process.terminate_and_reap();
+            let stdout_result = join_output(stdout_thread, spec.kind.name());
+            reap_result?;
+            stdout_result?;
+            return Err(RuntimeError::Output {
+                kind: spec.kind.name(),
+                source,
             });
+        }
+    };
+    let start = Instant::now();
+    let outcome = loop {
+        if cancellation_requested() {
+            break RunOutcome::Stopped(StopReason::Cancelled);
+        }
+        if output_state.overflowed.load(Ordering::Acquire) {
+            break RunOutcome::Stopped(StopReason::OutputOverflow);
+        }
+        if output_state.read_failed.load(Ordering::Acquire) {
+            break RunOutcome::Stopped(StopReason::OutputRead);
         }
         if start.elapsed() >= timeout {
-            terminate_child(&mut child);
-            let status = child.wait().map_err(|_| RuntimeError::Registry)?;
-            drop(child);
-            let stdout = join_output(stdout_thread)?;
-            let stderr = join_output(stderr_thread)?;
-            return Ok(ProcessOutput {
-                status,
-                stdout: String::from_utf8_lossy(&stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&stderr).into_owned(),
-                truncated: stdout.len() >= max_output || stderr.len() >= max_output,
-                timed_out: true,
-            });
+            break RunOutcome::Stopped(StopReason::Timeout);
         }
-        drop(child);
-        thread::sleep(Duration::from_millis(10));
+        match owned.process.try_wait() {
+            Ok(Some(status)) => break RunOutcome::Completed(status),
+            Ok(None) => {}
+            Err(error) => break RunOutcome::Failed(error),
+        }
+        thread::sleep(Duration::from_millis(5));
+    };
+
+    let reap_result = owned.process.terminate_and_reap();
+    let output_result = join_outputs(stdout_thread, stderr_thread, spec.kind.name());
+    reap_result?;
+    let (stdout, stderr) = output_result?;
+
+    if output_state.overflowed.load(Ordering::Acquire) {
+        return Err(RuntimeError::OutputOverflow {
+            kind: spec.kind.name(),
+            limit: max_output,
+        });
+    }
+
+    match outcome {
+        RunOutcome::Completed(status) => Ok(ProcessOutput {
+            status,
+            stdout: String::from_utf8_lossy(&stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
+            truncated: false,
+            timed_out: false,
+        }),
+        RunOutcome::Stopped(reason) => Err(reason.error(spec.kind.name(), max_output)),
+        RunOutcome::Failed(error) => Err(error),
     }
 }
-fn read_bounded(mut reader: impl Read, limit: usize) -> io::Result<Vec<u8>> {
+
+struct OutputState {
+    remaining: Mutex<usize>,
+    overflowed: AtomicBool,
+    read_failed: AtomicBool,
+}
+
+impl OutputState {
+    fn new(limit: usize) -> Self {
+        Self {
+            remaining: Mutex::new(limit),
+            overflowed: AtomicBool::new(false),
+            read_failed: AtomicBool::new(false),
+        }
+    }
+}
+
+enum RunOutcome {
+    Completed(ExitStatus),
+    Stopped(StopReason),
+    Failed(RuntimeError),
+}
+
+enum StopReason {
+    Cancelled,
+    Timeout,
+    OutputOverflow,
+    OutputRead,
+}
+
+impl StopReason {
+    fn error(self, kind: &'static str, limit: usize) -> RuntimeError {
+        match self {
+            Self::Cancelled => RuntimeError::Cancelled { kind },
+            Self::Timeout => RuntimeError::Timeout { kind },
+            Self::OutputOverflow => RuntimeError::OutputOverflow { kind, limit },
+            Self::OutputRead => RuntimeError::Registry,
+        }
+    }
+}
+
+fn read_bounded(mut reader: impl Read, state: &OutputState) -> io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     let mut buffer = [0u8; 8192];
-    while bytes.len() < limit {
-        let read_limit = buffer.len().min(limit - bytes.len());
-        let amount = reader.read(&mut buffer[..read_limit])?;
+    loop {
+        let amount = match reader.read(&mut buffer) {
+            Ok(amount) => amount,
+            Err(error) => {
+                state.read_failed.store(true, Ordering::Release);
+                return Err(error);
+            }
+        };
         if amount == 0 {
             break;
         }
-        bytes.extend_from_slice(&buffer[..amount]);
+        let kept = {
+            let mut remaining = state
+                .remaining
+                .lock()
+                .map_err(|_| io::Error::other("output budget lock poisoned"))?;
+            let kept = amount.min(*remaining);
+            *remaining -= kept;
+            kept
+        };
+        bytes.extend_from_slice(&buffer[..kept]);
+        if kept != amount {
+            state.overflowed.store(true, Ordering::Release);
+        }
     }
     Ok(bytes)
 }
+
+fn join_outputs(
+    stdout: thread::JoinHandle<io::Result<Option<Vec<u8>>>>,
+    stderr: thread::JoinHandle<io::Result<Option<Vec<u8>>>>,
+    kind: &'static str,
+) -> Result<(Vec<u8>, Vec<u8>), RuntimeError> {
+    let stdout = join_output(stdout, kind);
+    let stderr = join_output(stderr, kind);
+    Ok((stdout?, stderr?))
+}
+
 fn join_output(
     handle: thread::JoinHandle<io::Result<Option<Vec<u8>>>>,
+    kind: &'static str,
 ) -> Result<Vec<u8>, RuntimeError> {
     handle
         .join()
         .map_err(|_| RuntimeError::Registry)?
-        .map_err(|_| RuntimeError::Registry)
+        .map_err(|source| RuntimeError::Output { kind, source })
         .map(|value| value.unwrap_or_default())
 }
-fn terminate_child(child: &mut Child) {
-    #[cfg(unix)]
-    {
-        if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
-            let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+
+fn pin_command_executable(
+    spec: &CommandSpec,
+) -> Result<(secure_path::PinnedRegularFile, BTreeMap<OsString, OsString>), RuntimeError> {
+    let mut command_env = spec.env.clone();
+    let expected_identity = command_env
+        .remove(std::ffi::OsStr::new(EXECUTABLE_IDENTITY_ENV))
+        .and_then(|value| value.into_string().ok())
+        .filter(|value| !value.is_empty())
+        .ok_or(RuntimeError::UnpinnedExecutable {
+            kind: spec.kind.name(),
+        })?;
+    let expected = command_env
+        .remove(std::ffi::OsStr::new(EXECUTABLE_SHA256_ENV))
+        .and_then(|value| value.into_string().ok())
+        .filter(|value| valid_sha256(value))
+        .ok_or(RuntimeError::UnpinnedExecutable {
+            kind: spec.kind.name(),
+        })?;
+    let pinned = secure_path::pin_regular_file(&spec.executable, u64::MAX)
+        .map_err(|error| executable_inspection_error(spec.kind, &spec.executable, error))?;
+    if pinned.verified().identity().token() != expected_identity {
+        return Err(RuntimeError::ExecutableChanged {
+            kind: spec.kind.name(),
+        });
+    }
+    let actual = pinned.verified().sha256();
+    if !actual.eq_ignore_ascii_case(&expected) {
+        return Err(RuntimeError::HashMismatch {
+            kind: spec.kind.name(),
+            expected,
+            actual: actual.to_owned(),
+        });
+    }
+    Ok((pinned, command_env))
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn executable_inspection_error(
+    kind: ToolKind,
+    path: &Path,
+    error: SecurePathError,
+) -> RuntimeError {
+    if matches!(error, SecurePathError::Changed) {
+        RuntimeError::ExecutableChanged { kind: kind.name() }
+    } else {
+        RuntimeError::InvalidExecutable {
+            kind: kind.name(),
+            path: path.to_owned(),
         }
     }
-    let _ = child.kill();
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

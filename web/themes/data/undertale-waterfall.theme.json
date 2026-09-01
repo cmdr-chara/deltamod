@@ -1,0 +1,11 @@
+{
+  "name": "Waterfall",
+  "background": "undertale-waterfall.png",
+  "description": "A theme based on Waterfall from UNDERTALE.",
+  "mainSong": "undertale-waterfall.ogg",
+  "musicTrack": "Waterfall - Toby Fox",
+  "id": "undertale-waterfall",
+  "color": "rgb(56, 97, 199)",
+  "soulColor": "#42FCFF",
+  "backgroundSize": "cover"
+}

@@ -1,0 +1,36 @@
+[package]
+name = "deltamod-theme-recipes-runtime"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.97"
+description = "Disabled-by-default host-local executor and synthetic QA metadata for Deltamod theme recipes"
+license = "EUPL-1.2"
+publish = false
+
+[features]
+default = []
+theme-recipes-local-executor = [
+    "dep:deltamod-mods-themes-runtime",
+    "dep:fence-windows",
+    "dep:rustix",
+    "dep:sha2",
+]
+
+[dependencies]
+deltamod-theme-recipes = { path = "../theme-recipes" }
+deltamod-mods-themes-runtime = { path = "../mods-themes-runtime", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = { version = "0.11", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+fence-windows = { version = "0.1.0-alpha.2", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"

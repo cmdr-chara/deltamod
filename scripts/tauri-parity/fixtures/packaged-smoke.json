@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "name": "Deltamod Tauri capability smoke",
+  "requiredModes": ["dev", "packaged"],
+  "executable": {
+    "argument": "--executable",
+    "environmentVariable": "DELTAMOD_TAURI_EXECUTABLE",
+    "requiredForPackagedMode": true
+  },
+  "isolation": {
+    "dataRootArgument": "--data-root",
+    "dataRootEnvironmentVariable": "DELTAMOD_SMOKE_DATA_ROOT",
+    "disposableOnly": true,
+    "fixtureGameRequired": true,
+    "realInstallationForbidden": true
+  },
+  "capture": ["invoke", "arguments", "result", "error", "events", "uiState"],
+  "steps": [
+    {
+      "id": "launch-runtime-identity",
+      "area": "launch",
+      "channel": "diagnosticInfo",
+      "data": [],
+      "expected": {
+        "result": "bounded runtime, version, platform, packaging, and data-root diagnostics",
+        "event": "none",
+        "ui": "main window labeled main renders without a fatal error"
+      }
+    },
+    {
+      "id": "mods-import-list-remove",
+      "area": "mods",
+      "channel": "importMod",
+      "data": ["fixture://mods/smoke-mod.zip"],
+      "expected": {
+        "result": "fixture mod can be listed, toggled, configured, and removed",
+        "event": "refresh after each persisted mutation",
+        "ui": "installed-mod state matches the persisted fixture record"
+      }
+    },
+    {
+      "id": "themes-import-activate-delete",
+      "area": "themes",
+      "channel": "importTheme",
+      "data": ["fixture://themes/smoke-theme.zip"],
+      "expected": {
+        "result": "fixture theme can be imported, renamed, activated, and deleted",
+        "event": "themeChange after each persisted theme mutation",
+        "ui": "active theme and theme list match persisted state"
+      }
+    },
+    {
+      "id": "install-disposable-profile",
+      "area": "install",
+      "channel": "importInstallation",
+      "data": ["fixture://games/deltarune"],
+      "expected": {
+        "result": "disposable installation can be imported, renamed, selected, and removed",
+        "event": "installer-progress is bounded and monotonic when emitted",
+        "ui": "no path outside the disposable data root is displayed or changed"
+      }
+    },
+    {
+      "id": "patch-success",
+      "area": "patch",
+      "channel": "patchAndRun",
+      "data": ["fixture-installation", "fixture-mod-set"],
+      "expected": {
+        "result": "validated fixture output is published atomically",
+        "event": "hash-progress, gplog, then finishedPatch",
+        "ui": "operation reaches a verified success state"
+      }
+    },
+    {
+      "id": "patch-forced-rollback",
+      "area": "patch",
+      "channel": "patchAndRun",
+      "data": ["fixture-installation", "fixture-forced-failure"],
+      "expected": {
+        "result": "structured failure with the previous fixture state restored",
+        "event": "bounded gplog failure without finishedPatch",
+        "ui": "recovery action is shown and the prior installation remains usable"
+      }
+    },
+    {
+      "id": "game-fixture-lifecycle",
+      "area": "game",
+      "channel": "startGame",
+      "data": ["fixture-installation"],
+      "expected": {
+        "result": "mock game process starts and exits without touching a real installation",
+        "event": "audio and page lifecycle events",
+        "ui": "main window hides and returns according to fixture process state"
+      }
+    },
+    {
+      "id": "provider-deterministic-browse",
+      "area": "network",
+      "channel": "modSources:browse",
+      "data": [{ "provider": "fixture", "query": "smoke" }],
+      "expected": {
+        "result": "normalized provider response or bounded structured provider error",
+        "event": "mod-source-progress for fixture downloads",
+        "ui": "no raw HTTP exception reaches the renderer"
+      }
+    },
+    {
+      "id": "updater-signed-fixture",
+      "area": "updater",
+      "channel": "fireUpdate",
+      "data": [],
+      "expected": {
+        "result": "signed local update fixture is accepted and invalid signature fixture is rejected",
+        "event": "updateAvailable, updater-status, and updater-progress as applicable",
+        "ui": "check, ignore, install, and failure states are distinguishable"
+      }
+    },
+    {
+      "id": "unsupported-command-explicit-failure",
+      "area": "launch",
+      "channel": "undertaleModTool:openInstallation",
+      "data": [0],
+      "expected": {
+        "result": "TAURI_COMMAND_UNAVAILABLE:undertaleModTool:openInstallation",
+        "event": "none",
+        "ui": "unsupported control is hidden or disabled and never reports success"
+      }
+    }
+  ]
+}

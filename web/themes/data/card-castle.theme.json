@@ -1,0 +1,10 @@
+{
+  "name": "Card Castle",
+  "background": "card-castle.png",
+  "description": "A theme based on Card Castle from DELTARUNE.",
+  "mainSong": "card-castle.ogg",
+  "musicTrack": "Card Castle - Toby Fox",
+  "id": "card-castle",
+  "color": "rgb(101, 84, 192)",
+  "soulColor": "#FF0000"
+}

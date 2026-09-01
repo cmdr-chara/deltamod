@@ -1,0 +1,101 @@
+{
+  "capability": {
+    "evidence": {
+      "checks": {
+        "baseThemeActive": true,
+        "baseThemeAvailable": true,
+        "flagPersisted": true,
+        "flagRead": true,
+        "flagSet": true,
+        "installationListed": true,
+        "packaged": true,
+        "unknownChannelRejected": true
+      },
+      "diagnostic": "Deltamod Community 2.0.13 - Tauri shell on win32 - packaged mode",
+      "installationCount": 1,
+      "ok": true,
+      "packageVersion": "2.0.13",
+      "platform": "win32",
+      "schemaVersion": 1,
+      "status": "passed",
+      "themeCount": 26,
+      "unknownChannelError": "TAURI_COMMAND_UNAVAILABLE:unknown"
+    },
+    "file": "C:\\Users\\CHARAD~1\\AppData\\Local\\Temp\\deltamod-smoke-7a94a0ccdf9440f8be189c6b2501ce0c\\.deltamod-capability-evidence.json",
+    "observed": true,
+    "required": true
+  },
+  "command": {
+    "args": [
+      "--data-root",
+      "C:\\Users\\CHARAD~1\\AppData\\Local\\Temp\\deltamod-smoke-7a94a0ccdf9440f8be189c6b2501ce0c"
+    ],
+    "cwd": "C:\\Users\\CharaDreemurr\\Documents\\Deltamod\\implementation",
+    "dataRoot": "C:\\Users\\CHARAD~1\\AppData\\Local\\Temp\\deltamod-smoke-7a94a0ccdf9440f8be189c6b2501ce0c",
+    "executable": "C:\\Users\\CHARAD~1\\AppData\\Local\\Temp\\deltamod-installed-7a94a0ccdf9440f8be189c6b2501ce0c\\deltamod-tauri-shell.exe"
+  },
+  "configuration": {
+    "outputLimitBytes": 65536,
+    "platform": "win32",
+    "pollMs": 25,
+    "readinessCriterion": "capability-evidence-and-process-live",
+    "readinessMs": 1500,
+    "terminationTimeoutMs": 3000,
+    "timeoutMs": 30000
+  },
+  "durationMs": 11901,
+  "failure": null,
+  "isolation": {
+    "dataRootObserved": true,
+    "dataRootRequired": true,
+    "entryCount": 17
+  },
+  "ok": true,
+  "output": {
+    "stderr": {
+      "capturedBytes": 110,
+      "limitBytes": 65536,
+      "text": "[LOG] [renderer] No intervals to clear\n[LOG] [renderer] Audio source found:AUDIO[mainTheme.mp3],mainTheme.mp3\n",
+      "totalBytes": 110,
+      "truncated": false
+    },
+    "stdout": {
+      "capturedBytes": 0,
+      "limitBytes": 65536,
+      "text": "",
+      "totalBytes": 0,
+      "truncated": false
+    }
+  },
+  "process": {
+    "closed": true,
+    "error": null,
+    "exitCode": 1,
+    "exited": true,
+    "pid": 9192,
+    "signal": null,
+    "spawnAttempted": true,
+    "spawned": true
+  },
+  "readiness": {
+    "checks": 189,
+    "criterion": "capability-evidence-and-process-live",
+    "firstObservedAfterMs": 10249,
+    "observedForMs": 1504,
+    "reached": true,
+    "requiredForMs": 1500
+  },
+  "runner": "tauri-packaged-smoke",
+  "schemaVersion": 1,
+  "status": "passed",
+  "termination": {
+    "completed": true,
+    "error": null,
+    "forced": true,
+    "graceful": false,
+    "method": "taskkill",
+    "requested": true,
+    "timedOut": false,
+    "tree": true
+  }
+}

@@ -1,0 +1,218 @@
+{
+  "claimsLedger": {
+    "claims": [
+      {
+        "owners": ["fixture-instance"],
+        "path": "mods/fixture.dat",
+        "pathIdentityKey": "mods/fixture.dat",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "documentKind": "claims_ledger",
+    "installationId": "fixture-installation",
+    "manifestGeneration": 1,
+    "schemaVersion": 1,
+    "updatedAtMs": 1700000000000
+  },
+  "conflictReport": {
+    "conflicts": [
+      {
+        "actualSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "existingOwners": ["fixture-instance"],
+        "expectedSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "mods/fixture.dat",
+        "pathIdentityKey": "mods/fixture.dat",
+        "proposedSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "reason": "different_content",
+        "requestingOwner": "other-instance"
+      }
+    ],
+    "documentKind": "conflict_report",
+    "installationId": "fixture-installation",
+    "schemaVersion": 1
+  },
+  "gameHealthReport": {
+    "checkedAtMs": 1700000000300,
+    "documentKind": "game_health_report",
+    "installationId": "fixture-installation",
+    "interruptedOperations": [],
+    "lifecycleOwnedFiles": 1,
+    "schemaVersion": 1,
+    "state": "healthy",
+    "unknownModifiedFiles": 0
+  },
+  "installedMod": {
+    "archiveSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "displayName": "Fixture Mod",
+    "documentKind": "installed_mod",
+    "filePlanFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "files": [
+      {
+        "expectedSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "mods/fixture.dat",
+        "pathIdentityKey": "mods/fixture.dat"
+      }
+    ],
+    "installationId": "fixture-installation",
+    "installedAtMs": 1700000000000,
+    "instanceId": "fixture-instance",
+    "manifestGeneration": 1,
+    "modId": "fixture-mod",
+    "provider": {
+      "artifactId": "5678",
+      "artifactKind": "file",
+      "canonicalUrl": "https://gamebanana.com/mods/1234",
+      "itemKind": "mod",
+      "providerId": "gamebanana",
+      "resourceId": "1234",
+      "scope": null,
+      "versionId": "1.0.0"
+    },
+    "schemaVersion": 1,
+    "updatedAtMs": 1700000000000,
+    "version": "1.0.0"
+  },
+  "lifecycleJournal": {
+    "backupRoot": {
+      "canonicalPathSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "fileId": "file-backup",
+      "volumeId": "volume-backup"
+    },
+    "documentKind": "lifecycle_journal",
+    "fencingToken": 1,
+    "idempotencyKey": "request-1",
+    "installationId": "fixture-installation",
+    "journalSequence": 7,
+    "leaseId": "lease-1",
+    "manifestCommitState": "published",
+    "manifestGenerationAfter": 2,
+    "manifestGenerationBefore": 1,
+    "mutations": [
+      {
+        "action": "replace",
+        "backupPath": "backups/fixture.dat",
+        "backupSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "checkpoint": "output_verified",
+        "expectedSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "index": 0,
+        "path": "mods/fixture.dat",
+        "pathIdentityKey": "mods/fixture.dat",
+        "previousSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "stagingPath": "staged/fixture.dat",
+        "stagingSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "operation": "install",
+    "operationId": "operation-1",
+    "operationRevision": 2,
+    "phase": "complete",
+    "pinned": false,
+    "recoveryAttempts": 0,
+    "recoveryChainSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "recoveryGenerationId": "recovery-1",
+    "requestFingerprint": "af1ba1dbb5846018f33f353445d9b9f9a74ddae373c6c67cc52268b67bee9702",
+    "schemaVersion": 1,
+    "stagingRoot": {
+      "canonicalPathSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "fileId": "file-staging",
+      "volumeId": "volume-staging"
+    },
+    "startedAtMs": 1700000000000,
+    "transactionRoot": {
+      "canonicalPathSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "fileId": "file-transaction",
+      "volumeId": "volume-transaction"
+    },
+    "updatedAtMs": 1700000000100
+  },
+  "operationProgress": {
+    "cancellable": false,
+    "completed": 1,
+    "currentItem": null,
+    "documentKind": "operation_progress",
+    "installationId": "fixture-installation",
+    "kind": "install",
+    "operationId": "operation-1",
+    "phase": "complete",
+    "schemaVersion": 1,
+    "state": "succeeded",
+    "total": 1,
+    "updatedAtMs": 1700000000400
+  },
+  "operationRecord": {
+    "createdAtMs": 1700000000000,
+    "documentKind": "operation_record",
+    "error": null,
+    "fencingToken": 1,
+    "phase": "complete",
+    "request": {
+      "idempotencyKey": "request-1",
+      "intent": {
+        "archiveSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "filePlanFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "installationId": "fixture-installation",
+        "kind": "install",
+        "modInstanceId": "fixture-instance",
+        "profileId": null,
+        "provider": {
+          "artifactId": "5678",
+          "artifactKind": "file",
+          "canonicalUrl": "https://gamebanana.com/mods/1234",
+          "itemKind": "mod",
+          "providerId": "gamebanana",
+          "resourceId": "1234",
+          "scope": null,
+          "versionId": "1.0.0"
+        }
+      },
+      "operationId": "operation-1",
+      "requestFingerprint": "af1ba1dbb5846018f33f353445d9b9f9a74ddae373c6c67cc52268b67bee9702"
+    },
+    "resultFingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "revision": 2,
+    "schemaVersion": 1,
+    "state": "succeeded",
+    "updatedAtMs": 1700000000400
+  },
+  "productError": {
+    "code": "installation_busy",
+    "documentKind": "product_error",
+    "messageKey": "operation.installation_busy",
+    "operationId": "operation-1",
+    "phase": "preflight",
+    "recoveryAction": "no_action",
+    "retryable": false,
+    "safeDetails": {
+      "activeOperation": "operation-0"
+    },
+    "schemaVersion": 1
+  },
+  "providerDescriptor": {
+    "authentication": "optional",
+    "capabilities": ["search", "details", "direct_download"],
+    "displayName": "GameBanana",
+    "documentKind": "provider_descriptor",
+    "providerId": "gamebanana",
+    "schemaVersion": 1
+  },
+  "retentionDecision": {
+    "bytesAfter": 12,
+    "bytesBefore": 16,
+    "documentKind": "retention_decision",
+    "evictGenerationIds": ["g1"],
+    "keepGenerationIds": ["g2", "g3", "g4"],
+    "limitBytes": 12,
+    "overLimit": false,
+    "schemaVersion": 1
+  },
+  "verificationResult": {
+    "checkedFiles": 1,
+    "documentKind": "verification_result",
+    "installationId": "fixture-installation",
+    "issues": [],
+    "modInstanceId": "fixture-instance",
+    "schemaVersion": 1,
+    "state": "healthy",
+    "verifiedAtMs": 1700000000200
+  }
+}

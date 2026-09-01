@@ -7,9 +7,9 @@ const setInterval = (handler, delay, ...args) => {
 };
 window.currentPageStack = {};
 const nextButton = document.getElementById('next');
-if (nextButton && !window.deltamodBackend.isCommandAvailable('npsCallback')) {
-    nextButton.disabled = true;
-    nextButton.title = 'Continuing from this legacy patch flow is unavailable in this app build';
+const hasLegacyNextPatchStep = window.deltamodBackend.isCommandAvailable('npsCallback');
+if (nextButton && !hasLegacyNextPatchStep) {
+    nextButton.title = 'Return to the mod list';
 }
 window.currentPageStack.gpl = function (obj) {
     var message = obj.log;
@@ -26,8 +26,12 @@ window.currentPageStack.gpl = function (obj) {
     }
 }
 
-window.currentPageStack.next = function () {
-    window.deltamodBackend.invokeOptional('npsCallback', [], false);
+window.currentPageStack.next = async function () {
+    if (hasLegacyNextPatchStep) {
+        await window.deltamodBackend.invokeOptional('npsCallback', [], false);
+        return;
+    }
+    await page('main');
 }
 
 window.currentPageStack.fp = async function () {

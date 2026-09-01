@@ -1,8 +1,9 @@
 use crate::{error, state::AppState};
 use deltamod_patching_runtime::{Compatibility, RequiredFile};
+use deltamod_profile_install_runtime::MAX_LEGACY_INSTALLATION_INDEX;
 use deltamod_tools_runtime::{verify_tool, ToolKind};
 use serde_json::{json, Value};
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{collections::BTreeSet, ffi::OsStr, fs, path::Path};
 
 const MAX_MOD_METADATA_BYTES: u64 = 1024 * 1024;
 
@@ -16,6 +17,67 @@ fn arg_string(data: &[Value], index: usize, channel: &'static str) -> Result<Str
         .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| error::invalid(channel))
+}
+
+fn should_go_install_manager<I, S>(arguments: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    arguments
+        .into_iter()
+        .any(|argument| argument.as_ref() == OsStr::new("---im"))
+}
+
+fn legacy_installation_index(data: &[Value], channel: &'static str) -> Result<u32, String> {
+    let raw = data.first().ok_or_else(|| error::invalid(channel))?;
+    let parsed = match raw {
+        Value::String(value) if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) => {
+            value.parse::<u32>().ok()
+        }
+        Value::Number(value) => value.as_u64().and_then(|value| u32::try_from(value).ok()),
+        _ => None,
+    };
+    parsed
+        .filter(|index| *index <= MAX_LEGACY_INSTALLATION_INDEX)
+        .ok_or_else(|| error::invalid(channel))
+}
+
+fn json_value_is_truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(value) => *value,
+        Value::Number(value) => value.as_f64().is_some_and(|value| value != 0.0),
+        Value::String(value) => !value.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
+}
+
+pub(crate) fn active_game_id(state: &AppState) -> Option<String> {
+    let index = state
+        .profile_runtime
+        .legacy_system_index()
+        .ok()?
+        .as_u64()
+        .and_then(|value| u32::try_from(value).ok())?;
+    state
+        .profile_runtime
+        .legacy_store(index)
+        .ok()?
+        .get("gamePid")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+fn game_name(state: &AppState, id: &str) -> String {
+    let path = state._assets.app.join("games").join(format!("{id}.json"));
+    fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|game| game.get("name").and_then(Value::as_str).map(str::to_owned))
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| id.to_owned())
 }
 
 fn packaged_themes(root: &Path) -> Result<Vec<Value>, String> {
@@ -233,7 +295,7 @@ fn legacy_mod_records(state: &AppState) -> Vec<Value> {
     records
 }
 
-fn mod_list(state: &AppState, channel: &str) -> Result<Value, String> {
+pub(crate) fn mod_list(state: &AppState, channel: &str) -> Result<Value, String> {
     let mut list = state
         .mods_themes
         .mods()
@@ -287,7 +349,7 @@ fn mod_list(state: &AppState, channel: &str) -> Result<Value, String> {
     }
     if enabled && !requirements.is_empty() {
         let checked = state.patching.check_required_files(&requirements);
-        for record in records {
+        for record in records.iter_mut() {
             let object = record.as_object_mut().ok_or_else(error::internal)?;
             let id = object
                 .get("uid")
@@ -326,11 +388,49 @@ fn mod_list(state: &AppState, channel: &str) -> Result<Value, String> {
             }
         }
     }
+    if let Some(active_game) = active_game_id(state) {
+        let active_game_name = game_name(state, &active_game);
+        for record in records.iter_mut() {
+            let object = record.as_object_mut().ok_or_else(error::internal)?;
+            let Some(mod_game) = object
+                .get("game")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            if mod_game != active_game {
+                object.insert("isIncompatible".into(), json!(true));
+                object.insert(
+                    "incompatibilityReason".into(),
+                    json!(format!(
+                        "Mod is for {} but your current game is {}",
+                        game_name(state, &mod_game),
+                        active_game_name
+                    )),
+                );
+            }
+        }
+    }
     Ok(list)
 }
 
 pub fn dispatch(state: &AppState, channel: &str, data: &[Value]) -> Result<Option<Value>, String> {
     match channel {
+        "shouldGoIM" => Ok(Some(json!(should_go_install_manager(std::env::args_os())))),
+        "executeArgumentCmd" => Ok(Some(Value::Null)),
+        "getEditionByIndex" => {
+            let index = legacy_installation_index(data, "getEditionByIndex")?;
+            let game_pid = state
+                .profile_runtime
+                .legacy_store(index)
+                .ok()
+                .and_then(|store| store.get("gamePid").cloned())
+                .filter(json_value_is_truthy)
+                .unwrap_or_else(|| json!("Unknown"));
+            Ok(Some(game_pid))
+        }
         "getModListFull" => Ok(Some(mod_list(state, channel)?)),
         "getModList" => {
             let list = mod_list(state, channel)?;
@@ -567,6 +667,93 @@ mod tests {
     }
 
     #[test]
+    fn should_go_install_manager_matches_exact_argument_membership() {
+        assert!(should_go_install_manager(["deltamod", "---im"]));
+        assert!(should_go_install_manager(["---im", "--developer"]));
+        for arguments in [
+            &["deltamod"][..],
+            &["deltamod", "--im"][..],
+            &["deltamod", "---IM"][..],
+            &["deltamod", "prefix---im"][..],
+            &["deltamod", "---im=true"][..],
+        ] {
+            assert!(!should_go_install_manager(arguments));
+        }
+    }
+
+    #[test]
+    fn execute_argument_command_is_an_explicit_json_null_noop() {
+        let (state, root) = state();
+        assert_eq!(
+            dispatch(&state, "executeArgumentCmd", &[]).unwrap(),
+            Some(Value::Null)
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn get_edition_by_index_returns_the_legacy_game_pid_or_unknown() {
+        let (state, root) = state();
+        let source = root.join("legacy-game");
+        fs::create_dir_all(&source).unwrap();
+
+        let mut known_store = serde_json::Map::new();
+        known_store.insert("gamePid".into(), json!("toby.deltarune"));
+        state
+            .profile_runtime
+            .legacy_create_installation(4, &source, "Known".into(), false, known_store)
+            .unwrap();
+        state
+            .profile_runtime
+            .legacy_create_installation(5, &source, "Missing".into(), false, serde_json::Map::new())
+            .unwrap();
+
+        assert_eq!(
+            dispatch(&state, "getEditionByIndex", &[json!(4)]).unwrap(),
+            Some(json!("toby.deltarune"))
+        );
+        assert_eq!(
+            dispatch(&state, "getEditionByIndex", &[json!("5")]).unwrap(),
+            Some(json!("Unknown"))
+        );
+        assert_eq!(
+            dispatch(
+                &state,
+                "getEditionByIndex",
+                &[json!(MAX_LEGACY_INSTALLATION_INDEX)]
+            )
+            .unwrap(),
+            Some(json!("Unknown"))
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn get_edition_by_index_rejects_invalid_indices_without_leaking_paths() {
+        let (state, root) = state();
+        let invalid_payloads = [
+            Vec::new(),
+            vec![Value::Null],
+            vec![json!(true)],
+            vec![json!(-1)],
+            vec![json!(1.5)],
+            vec![json!("")],
+            vec![json!("-1")],
+            vec![json!("../1")],
+            vec![json!(MAX_LEGACY_INSTALLATION_INDEX + 1)],
+            vec![json!((MAX_LEGACY_INSTALLATION_INDEX + 1).to_string())],
+            vec![json!("999999999999999999999999999999999999")],
+        ];
+        for payload in invalid_payloads {
+            assert_eq!(
+                dispatch(&state, "getEditionByIndex", &payload),
+                Err("TAURI_INVALID_PAYLOAD:getEditionByIndex".into())
+            );
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn mod_channels_preserve_legacy_shapes() {
         let (state, root) = state();
         assert!(state.credentials.is_none());
@@ -630,6 +817,58 @@ gamebanana_model = "Mod"
         assert_eq!(record["description"], json!("Imported packet"));
         assert_eq!(record["author"], json!(["Tester"]));
         assert_eq!(record["gamebanana"]["supports"], json!(true));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn mod_list_hides_packets_for_a_different_active_game() {
+        let (state, root) = state();
+        let game_source = root.join("undertale-game");
+        fs::create_dir_all(&game_source).unwrap();
+        let mut store = serde_json::Map::new();
+        store.insert("gamePid".into(), json!("toby.undertale"));
+        state
+            .profile_runtime
+            .legacy_create_installation(0, &game_source, "UNDERTALE".into(), false, store)
+            .unwrap();
+
+        for (folder, uid, game) in [
+            ("undertale.mod", "undertale-mod", "toby.undertale"),
+            ("deltarune.mod", "deltarune-mod", "toby.deltarune"),
+        ] {
+            let packet = state.data_root.root.join("packets").join(folder);
+            fs::create_dir_all(&packet).unwrap();
+            fs::write(
+                packet.join("meta.toml"),
+                format!(
+                    "[metadata]\nname = '{uid}'\nversion = '1.0'\ngame = '{game}'\npackageID = '{uid}'\n"
+                ),
+            )
+            .unwrap();
+            fs::write(
+                packet.join("__deltaID.json"),
+                format!(r#"{{"uniqueId":"{uid}"}}"#),
+            )
+            .unwrap();
+            fs::write(packet.join("modding.xml"), "<mod/>").unwrap();
+        }
+
+        let result = dispatch(&state, "getModList", &[]).unwrap().unwrap();
+        let records = result["modList"].as_array().unwrap();
+        let undertale = records
+            .iter()
+            .find(|record| record["uid"] == "undertale-mod")
+            .unwrap();
+        let deltarune = records
+            .iter()
+            .find(|record| record["uid"] == "deltarune-mod")
+            .unwrap();
+        assert_eq!(undertale["isIncompatible"], json!(false));
+        assert_eq!(deltarune["isIncompatible"], json!(true));
+        assert!(deltarune["incompatibilityReason"]
+            .as_str()
+            .unwrap()
+            .contains("toby.undertale"));
         let _ = fs::remove_dir_all(root);
     }
 

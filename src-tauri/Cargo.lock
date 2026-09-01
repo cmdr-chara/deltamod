@@ -941,6 +941,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "deltamod-lifecycle-runtime"
+version = "0.1.0"
+dependencies = [
+ "deltamod-product-contracts",
+ "deltamod-tools-runtime",
+ "fence-windows",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.20",
+ "winapi-util",
+]
+
+[[package]]
 name = "deltamod-mods-themes-domain"
 version = "0.1.0"
 
@@ -994,7 +1010,9 @@ name = "deltamod-patching-runtime"
 version = "0.1.0"
 dependencies = [
  "deltamod-hash-worker",
+ "deltamod-lifecycle-runtime",
  "deltamod-native-core",
+ "deltamod-product-contracts",
  "deltamod-tools-runtime",
  "deltamod-updater-launch-runtime",
  "hex",
@@ -1005,6 +1023,18 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "toml 1.1.4+spec-1.1.0",
+]
+
+[[package]]
+name = "deltamod-product-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.20",
+ "url",
 ]
 
 [[package]]
@@ -1025,6 +1055,19 @@ name = "deltamod-protocol-domain"
 version = "0.1.0"
 dependencies = [
  "tempfile",
+]
+
+[[package]]
+name = "deltamod-provider-platform"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "deltamod-product-contracts",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "url",
 ]
 
 [[package]]
@@ -1062,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "deltamod-tauri-shell"
-version = "2.0.13"
+version = "2.0.18"
 dependencies = [
  "base64 0.23.1",
  "deltamod-archive-import-runtime",
@@ -1070,18 +1113,22 @@ dependencies = [
  "deltamod-credentials-adapter",
  "deltamod-game-download-runtime",
  "deltamod-installations-domain",
+ "deltamod-lifecycle-runtime",
  "deltamod-mods-themes-domain",
  "deltamod-mods-themes-runtime",
  "deltamod-native-core",
  "deltamod-network-domain",
  "deltamod-network-runtime",
  "deltamod-patching-runtime",
+ "deltamod-product-contracts",
  "deltamod-profile-install-runtime",
  "deltamod-protocol-domain",
+ "deltamod-provider-platform",
  "deltamod-storage-domain",
  "deltamod-tauri-os-adapters",
  "deltamod-tools-runtime",
  "deltamod-updater-launch-runtime",
+ "deltamod-windows-taskbar-icon",
  "http",
  "os_info",
  "reqwest 0.12.28",
@@ -1090,13 +1137,43 @@ dependencies = [
  "sha2 0.11.0",
  "tauri",
  "tauri-build",
+ "tauri-plugin-deep-link",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tokio",
  "toml 1.1.4+spec-1.1.0",
  "url",
  "uuid",
+ "zip 8.6.0",
+]
+
+[[package]]
+name = "deltamod-theme-recipes"
+version = "0.1.0"
+dependencies = [
+ "deltamod-mods-themes-runtime",
+ "deltamod-product-contracts",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "deltamod-theme-recipes-runtime"
+version = "0.1.0"
+dependencies = [
+ "deltamod-mods-themes-runtime",
+ "deltamod-theme-recipes",
+ "fence-windows",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
 ]
 
 [[package]]
@@ -1116,6 +1193,13 @@ name = "deltamod-updater-launch-runtime"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "deltamod-windows-taskbar-icon"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4731,6 +4815,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tauri",
+ "tauri-plugin-deep-link",
  "thiserror 2.0.20",
  "tokio",
  "tracing",

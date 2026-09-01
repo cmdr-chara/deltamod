@@ -4,36 +4,34 @@
     <hr>
     <div>
         <p style="display: flex; justify-content: left; align-items: center; gap: 10px;">
-        <span class="material-symbols-outlined">gamepad_up</span>
-        $$locate_selectgame$$
+            <span class="material-symbols-outlined" aria-hidden="true">gamepad_up</span>
+            $$locate_selectgame$$
         </p>
-        <div class="gOptions">
-
-        </div>
+        <div class="gOptions" role="group" aria-label="$$locate_selectgame$$"></div>
         <p style="display: flex; justify-content: left; align-items: center; gap: 10px;">
-        <span class="material-symbols-outlined">folder</span>
-        $$locate_selectfolder$$
+            <span class="material-symbols-outlined" aria-hidden="true">folder</span>
+            $$locate_selectfolder$$
         </p>
         <div class="fileInput" style="display: flex; justify-content: left; align-items: stretch; gap: 5px;">
-            <input type="text" name="" id="dpath" placeholder="$$locate_path_placeholder$$" style="width: 100%;">
-            <button class="folder-picker-button" onclick="window.currentPageStack.locateDelta()" aria-label="Select game folder">
-                <span class="material-symbols-outlined">folder_open</span>
+            <input type="text" id="dpath" placeholder="$$locate_path_placeholder$$" style="width: 100%;" autocomplete="off">
+            <button class="folder-picker-button" type="button" onclick="window.currentPageStack.locateDelta()" aria-label="$$locate_selectfolder$$">
+                <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
             </button>
         </div>
         <p class="smaller">$$locate_other_methods$$</p>
         <div class="otherImports">
-            <button onclick="window.currentPageStack.steam()" id="feat_steam">
-                <brand-icon style="font-size: 14px;">S</brand-icon> $$locate_steam_import$$
+            <button type="button" onclick="window.currentPageStack.steam()" id="feat_steam">
+                <brand-icon style="font-size: 14px;" aria-hidden="true">S</brand-icon> $$locate_steam_import$$
             </button>
-            <button onclick="window.currentPageStack.downloadDelta()" id="feat_autodownload">
-                <span class="material-symbols-outlined" style="font-size: 14px;">cloud_download</span> $$locate_autodownload$$
+            <button type="button" onclick="window.currentPageStack.downloadDelta()" id="feat_autodownload">
+                <span class="material-symbols-outlined" style="font-size: 14px;" aria-hidden="true">cloud_download</span> $$locate_autodownload$$
             </button>
         </div>
     </div>
     <br>
     <hr>
     <div class="copyAnyways">
-        <input type="checkbox" name="" id="copyAnyways">
+        <input type="checkbox" id="copyAnyways">
         <label for="copyAnyways">$$locate_copyanyways$$</label>
     </div>
     <section id="gameImportProgress" class="importProgress" hidden aria-live="polite">
@@ -43,7 +41,7 @@
         <button id="cancelGameImport" type="button">Cancel import</button>
     </section>
     <br>
-    <button onclick="window.currentPageStack.id()">$$save_and_close$$</button>
+    <button type="button" onclick="window.currentPageStack.id()">$$save_and_close$$</button>
     <br><br>
 </div>
 STYLESHEET[index]

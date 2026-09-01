@@ -69,6 +69,65 @@ async function addCheckboxOption(name, description, flagid, requiresRestart = fa
     table.appendChild(tr);
 }
 
+function addRangeOption(name, description, {
+    min = 0,
+    max = 100,
+    step = 1,
+    value = 50,
+    unit = '%',
+    changeHandler = () => {}
+} = {}) {
+    name = localizeKnown(name);
+    description = localizeKnown(description);
+    const table = document.querySelector('tbody');
+    const tr = document.createElement('tr');
+
+    const tdLabel = document.createElement('td');
+    const title = document.createElement('span');
+    title.className = 'setting-title';
+    title.innerText = name;
+    tdLabel.appendChild(title);
+    tdLabel.appendChild(document.createElement('br'));
+
+    const help = document.createElement('small');
+    help.className = 'calibri';
+    help.innerText = description;
+    tdLabel.appendChild(help);
+
+    const { td: tdInput, control } = createSettingControlCell();
+    tdInput.classList.add('setting-range-cell');
+    control.classList.add('setting-range-control');
+
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.value = String(value);
+    input.className = 'setting-range';
+    input.id = 'MUSIC-VOLUME';
+    input.setAttribute('aria-label', name);
+
+    const output = document.createElement('output');
+    output.className = 'setting-range-value';
+    output.htmlFor = input.id;
+
+    const updateValue = () => {
+        const numericValue = Number(input.value);
+        output.value = `${numericValue}${unit}`;
+        output.textContent = output.value;
+        changeHandler(numericValue);
+    };
+    input.addEventListener('input', updateValue);
+    output.value = `${input.value}${unit}`;
+    output.textContent = output.value;
+
+    control.append(input, output);
+    tr.append(tdLabel, tdInput);
+    table.appendChild(tr);
+    return input;
+}
+
 window.deltamodBackend.invoke('isDevMode', []).then((devmode) => {
     const devBtn = document.getElementById('b_dev');
     if (!devBtn) return;
@@ -494,6 +553,14 @@ window.currentPageStack.cat = async function(cat) {
                     setThemeVideoAudioEnabled(false);
                 }
             });
+            addRangeOption(
+                localize('community_music_volume_title', 'Music volume'),
+                localize('community_music_volume_desc', 'Adjusts the volume of menu and theme music.'),
+                {
+                    value: Math.round((window.DeltamodAudioSettings?.getVolume() ?? 0.5) * 100),
+                    changeHandler: value => window.DeltamodAudioSettings?.setVolume(value / 100)
+                }
+            );
             await addCheckboxOption("Enable SFX in menus", "Plays sound effects in the main menus.", 'sfx', false, (enabled) => {
                 if (enabled) {
                     var a = new Audio();
@@ -651,6 +718,59 @@ window.currentPageStack.cat = async function(cat) {
                     hashButton.innerText = 'Build cache';
                 }
             }, "Build cache");
+
+            if (window.deltamodBackend.isCommandAvailable('storage:getUsage')) {
+                const usage = await window.deltamodBackend.invoke('storage:getUsage', []);
+                await addInfoRow('Provider cache', formatProfileBytes(usage.cacheBytes),
+                    'Re-downloadable catalogue metadata and images.');
+                await addInfoRow('Recovery data', formatProfileBytes(usage.recoveryBytes),
+                    'Protected rollback generations; Clear cache never removes these files.');
+                await addInfoRow('Lifecycle journals', formatProfileBytes(usage.journalBytes),
+                    'Transactional records used for deterministic crash recovery.');
+            }
+            await addButton(
+                'Clear provider cache',
+                'Removes only re-downloadable provider catalogue data. Recovery generations and journals are preserved.',
+                async () => {
+                    const result = await window.deltamodBackend.invoke('storage:clearCache', []);
+                    await htmlAlert(
+                        'Cache cleared',
+                        `Removed ${formatProfileBytes(result.removedBytes)}. Recovery data was not changed.`,
+                        [{ text: 'OK', resolveWith: '' }]
+                    );
+                },
+                'Clear cache',
+                window.deltamodBackend.isCommandAvailable('storage:clearCache'),
+                'Cache cleanup is unavailable in this app build.'
+            );
+            await addButton(
+                'Delete recovery data',
+                'Removes only completed recovery generations that are not active, pinned, journal-referenced, among the latest three, or the sole viable recovery for an installation.',
+                async () => {
+                    const choice = await htmlAlert(
+                        'Delete recovery data?',
+                        'Older removable rollback generations will be permanently deleted. Active and required recovery data will be preserved.',
+                        [
+                            { text: 'Delete removable data', resolveWith: 'delete' },
+                            { text: 'Cancel', resolveWith: 'cancel' }
+                        ],
+                        'error'
+                    );
+                    if (choice !== 'delete') return;
+                    const result = await window.deltamodBackend.invoke('storage:deleteRecoveryData', []);
+                    await htmlAlert(
+                        'Recovery cleanup complete',
+                        `Removed ${result.removedGenerations} generation(s), freeing ${formatProfileBytes(result.removedBytes)}. ${result.protectedGenerations} protected generation(s) remain.`,
+                        [{ text: 'OK', resolveWith: '' }]
+                    );
+                    window._pageArguments = { cat: 'adv' };
+                    page('options');
+                },
+                'Delete recovery data',
+                window.deltamodBackend.isCommandAvailable('storage:deleteRecoveryData'),
+                'Recovery cleanup is unavailable in this app build.',
+                'red'
+            );
 
             await addButton(
                 "DeltamodCLI releases",

@@ -63,6 +63,17 @@ describe('theme sprite recoloring', () => {
         expect([...output.slice(8, 11)]).toEqual([255, 255, 255]);
     });
 
+    it('preserves an explicit monochrome SOUL for the Roaring Knight taskbar icon', () => {
+        const cyanSoulPixel = new Uint8ClampedArray([15, 183, 214, 255]);
+        const output = ThemeSprites.recolorAppIconPixels(
+            cyanSoulPixel,
+            [198, 203, 209],
+            [255, 255, 255]
+        );
+
+        expect([...output]).toEqual([255, 255, 255, 255]);
+    });
+
     it('snaps theme colors to the exact Undertale SOUL palette', () => {
         expect(ThemeSprites.canonicalSoulColor([205, 68, 81])).toEqual([255, 0, 0]);
         expect(ThemeSprites.canonicalSoulColor([145, 75, 0])).toEqual([252, 166, 0]);
