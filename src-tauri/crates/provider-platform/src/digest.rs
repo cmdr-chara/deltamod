@@ -90,10 +90,12 @@ pub(crate) fn sha256_hex(input: &[u8]) -> String {
     padded.extend_from_slice(&bit_length.to_be_bytes());
 
     let mut state = INITIAL_STATE;
-    for chunk in padded.chunks_exact(64) {
+    let (chunks, remainder) = padded.as_chunks::<64>();
+    debug_assert!(remainder.is_empty());
+    for chunk in chunks {
         let mut schedule = [0_u32; 64];
-        for (index, bytes) in chunk.chunks_exact(4).take(16).enumerate() {
-            schedule[index] = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        for (index, bytes) in chunk.as_chunks::<4>().0.iter().enumerate() {
+            schedule[index] = u32::from_be_bytes(*bytes);
         }
         for index in 16..64 {
             let sigma0 = schedule[index - 15].rotate_right(7)
