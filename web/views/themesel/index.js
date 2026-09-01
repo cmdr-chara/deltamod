@@ -27,13 +27,13 @@
     let charaBuffer = '';
     let charaDetected = false;
     let charaUnlocked = false;
+    let charaEncounterActive = false;
     let pendingCharaToken = null;
     const charaSessionGate = window.DeltamodCharaEncounterSession.createSessionGate();
     const charaUnlockReady = window.deltamodBackend
         .invoke('getUniqueFlag', [CHARA_UNLOCK_FLAG])
         .then(value => {
             charaUnlocked = Boolean(value);
-            charaDetected = charaUnlocked;
             return charaUnlocked;
         })
         .catch(() => false);
@@ -41,9 +41,13 @@
         ?? String(fallback).replace(/{(\d+)}/g, (match, index) => (
             args[index] === undefined ? match : String(args[index])
         ));
-    const themeFilterPlaceholder = () => charaUnlocked
-        ? t('theme_filter_placeholder', 'Name, description, or music')
-        : 'THE TRUE NAME';
+    const themeFilterPlaceholder = () => charaEncounterActive
+        ? 'THE TRUE NAME'
+        : t('theme_filter_placeholder', 'Name, description, or music');
+    const refreshThemeFilterPlaceholder = () => {
+        const filter = document.getElementById('theme-filter');
+        if (filter) filter.placeholder = themeFilterPlaceholder();
+    };
 
     function createCrossfadedAudioLoop(url, volume, crossfadeSeconds = 0.15) {
         let audioContext = null;
@@ -164,6 +168,7 @@
     }
 
     (async () => {
+        refreshThemeFilterPlaceholder();
         const [availableThemes, currentTheme] = await Promise.all([
             window.deltamodBackend.invoke('getThemes', []),
             window.deltamodBackend.invoke('getTheme', []),
@@ -561,11 +566,14 @@
     }
 
     async function startCharaEasterEgg() {
-        await charaUnlockReady;
-        if (charaUnlocked) return;
-        const sessionToken = charaSessionGate.begin();
-        if (!sessionToken) return;
+        if (charaDetected) return;
         charaDetected = true;
+        await charaUnlockReady;
+        const sessionToken = charaSessionGate.begin();
+        if (!sessionToken) {
+            charaDetected = false;
+            return;
+        }
         pendingCharaToken = sessionToken;
         const previouslyFocusedElement = document.activeElement;
         const prefersReducedMotion = Boolean(
@@ -582,17 +590,20 @@
             window.deltamodBackend.invoke('getUniqueFlag', ['SFX'])
         ]).catch(() => [true, true]);
         if (!charaSessionGate.isCurrent(sessionToken)) return;
-        try {
-            await window.deltamodBackend.invoke('setUniqueFlag', [CHARA_UNLOCK_FLAG, true]);
-        } catch (error) {
-            console.error('Unable to persist the Chara theme unlock:', error);
-            charaSessionGate.cancel(sessionToken);
-            charaDetected = false;
-            pendingCharaToken = null;
-            return;
+        if (!charaUnlocked) {
+            try {
+                await window.deltamodBackend.invoke('setUniqueFlag', [CHARA_UNLOCK_FLAG, true]);
+            } catch (error) {
+                console.error('Unable to persist the Chara theme unlock:', error);
+                charaSessionGate.cancel(sessionToken);
+                charaDetected = false;
+                pendingCharaToken = null;
+                return;
+            }
         }
         if (!charaSessionGate.isCurrent(sessionToken)) return;
         charaUnlocked = true;
+        charaEncounterActive = true;
         pendingCharaToken = null;
 
         const themeFilter = document.getElementById('theme-filter');
@@ -739,14 +750,13 @@
             setWindowShake('stop');
             overlay.remove();
             document.body.classList.remove('chara-sequence-active');
-            if (themeFilter) {
-                themeFilter.placeholder = themeFilterPlaceholder();
-            }
+            charaEncounterActive = false;
+            refreshThemeFilterPlaceholder();
             if (restoreMenuAudio && menuAudioWasPlaying && typeof audio !== 'undefined' && audio?.src) {
                 audio.play().catch(() => {});
             }
             charaSessionGate.cancel(sessionToken);
-            charaDetected = true;
+            charaDetected = false;
             charaBuffer = '';
             if (restoreFocus) {
                 const focusTarget = previouslyFocusedElement?.isConnected
