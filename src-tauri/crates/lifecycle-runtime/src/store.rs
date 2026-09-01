@@ -775,7 +775,14 @@ impl DurableLifecycleStore {
         let mut log_options = OpenOptions::new();
         log_options.read(true).write(true);
         configure_no_follow(&mut log_options);
-        let log = log_options.open(&self.log_path)?;
+        let log = log_options.open(&self.log_path).map_err(|error| {
+            map_store_object_open_error(
+                error,
+                &self.log_path,
+                StoreObjectKind::RegularFile,
+                "store log",
+            )
+        })?;
         let old_identity = self.verify_and_bind_log(&log)?;
         let bytes_before = log.metadata()?.len();
         drop(log);
@@ -816,7 +823,14 @@ impl DurableLifecycleStore {
 
         self.verify_root_identity()?;
         self.verify_and_bind_lock(&lock)?;
-        let current_log = log_options.open(&self.log_path)?;
+        let current_log = log_options.open(&self.log_path).map_err(|error| {
+            map_store_object_open_error(
+                error,
+                &self.log_path,
+                StoreObjectKind::RegularFile,
+                "store log",
+            )
+        })?;
         if self.verify_and_bind_log(&current_log)? != old_identity {
             return Err(StoreError::StoreIdentityChanged("store log"));
         }
@@ -838,7 +852,14 @@ impl DurableLifecycleStore {
             fs::rename(&temporary_path, &self.log_path)?;
         }
         sync_store_directory(&self.root)?;
-        let compacted = log_options.open(&self.log_path)?;
+        let compacted = log_options.open(&self.log_path).map_err(|error| {
+            map_store_object_open_error(
+                error,
+                &self.log_path,
+                StoreObjectKind::RegularFile,
+                "store log",
+            )
+        })?;
         let observed = verify_opened_path(&self.log_path, &compacted, StoreObjectKind::RegularFile)
             .map_err(|error| map_identity_error(error, "compacted store log"))?;
         if observed != new_identity {
@@ -946,7 +967,14 @@ impl DurableLifecycleStore {
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
         configure_no_follow(&mut options);
-        let lock = options.open(&self.lock_path)?;
+        let lock = options.open(&self.lock_path).map_err(|error| {
+            map_store_object_open_error(
+                error,
+                &self.lock_path,
+                StoreObjectKind::RegularFile,
+                "store lock",
+            )
+        })?;
         self.verify_and_bind_lock(&lock)?;
         lock.lock()?;
         self.verify_root_identity()?;
@@ -980,7 +1008,14 @@ impl DurableLifecycleStore {
                 }
                 return Ok((PersistedState::default(), 0, None));
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => {
+                return Err(map_store_object_open_error(
+                    error,
+                    &self.log_path,
+                    StoreObjectKind::RegularFile,
+                    "store log",
+                ));
+            }
         };
         self.verify_and_bind_log(&file)?;
         let mut bytes = Vec::new();
@@ -1002,7 +1037,14 @@ impl DurableLifecycleStore {
         let mut options = OpenOptions::new();
         options.create(true).append(true);
         configure_no_follow(&mut options);
-        let mut file = options.open(&self.log_path)?;
+        let mut file = options.open(&self.log_path).map_err(|error| {
+            map_store_object_open_error(
+                error,
+                &self.log_path,
+                StoreObjectKind::RegularFile,
+                "store log",
+            )
+        })?;
         let log_identity = self.verify_and_bind_log(&file)?;
         state.store_identity = Some(self.current_store_identity(log_identity)?);
         state.store_sequence = next_store_sequence(state.store_sequence)?;
@@ -3080,6 +3122,22 @@ fn replay_frames(
         expected_sequence = sequence + 1;
     }
     Ok((latest, offset))
+}
+
+fn map_store_object_open_error(
+    error: std::io::Error,
+    path: &Path,
+    expected_kind: StoreObjectKind,
+    label: &'static str,
+) -> StoreError {
+    match inspect_path(path, expected_kind) {
+        Err(IdentityError::Unsafe | IdentityError::WrongKind | IdentityError::Replaced) => {
+            StoreError::StoreIdentityChanged(label)
+        }
+        #[cfg(not(any(unix, windows)))]
+        Err(IdentityError::Unavailable) => StoreError::StoreIdentityChanged(label),
+        Ok(_) | Err(IdentityError::Io(_)) => StoreError::Io(error),
+    }
 }
 
 fn map_identity_error(error: IdentityError, label: &'static str) -> StoreError {
