@@ -1582,7 +1582,8 @@ fn create_safe_parents(root: &Path, relative: &Path) -> Result<(), FilesystemBou
                         (error == rustix::io::Errno::EXIST)
                             .then_some(())
                             .ok_or(error)
-                    })?;
+                    })
+                    .map_err(|_| FilesystemBoundaryError::UnsafeAlias)?;
                     rustix::fs::openat(&current, component, flags, rustix::fs::Mode::empty())
                         .map_err(|_| FilesystemBoundaryError::UnsafeAlias)?
                 }

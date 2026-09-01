@@ -780,7 +780,7 @@ impl DurableLifecycleStore {
         let bytes_before = log.metadata()?.len();
         drop(log);
 
-        let (temporary_path, temporary_name, mut temporary) = (0_u8..32)
+        let (temporary_path, _temporary_name, mut temporary) = (0_u8..32)
             .find_map(|attempt| {
                 let name = format!(
                     ".lifecycle-state-compact-{}-{}-{attempt}.tmp",
@@ -828,7 +828,7 @@ impl DurableLifecycleStore {
                 .map_err(|_| StoreError::StoreIdentityChanged("store root"))?;
             root.into_directory()
                 .replace_child(
-                    std::ffi::OsStr::new(&temporary_name),
+                    std::ffi::OsStr::new(&_temporary_name),
                     std::ffi::OsStr::new("lifecycle-state.log"),
                 )
                 .map_err(|_| StoreError::StoreIdentityChanged("store log"))?;
