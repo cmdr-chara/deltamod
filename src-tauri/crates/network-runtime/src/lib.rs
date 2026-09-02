@@ -739,8 +739,7 @@ fn parse_moddb_feed(text: &str) -> Result<Vec<ModEntry>, RuntimeError> {
                     pubd = None;
                     summary = None;
                     image_url = None;
-                } else if inside_item
-                    && matches!(e.name().as_ref(), "enclosure" | "media:content")
+                } else if inside_item && matches!(e.name().as_ref(), "enclosure" | "media:content")
                 {
                     image_url = e
                         .attributes()
