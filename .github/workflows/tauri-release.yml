@@ -529,7 +529,10 @@ jobs:
           }
           trap cleanup EXIT
           sudo ditto "$mount_root/Deltamod Community.app" "$installed_app"
-          installed_executable="$installed_app/Contents/MacOS/Deltamod Community"
+          bundle_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$installed_app/Contents/Info.plist")"
+          test -n "$bundle_executable"
+          test "$(basename "$bundle_executable")" = "$bundle_executable"
+          installed_executable="$installed_app/Contents/MacOS/$bundle_executable"
           test -x "$installed_executable"
           node scripts/tauri-parity/run-packaged-smoke.js \
             --executable "$installed_executable" \

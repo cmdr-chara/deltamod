@@ -82,6 +82,8 @@ describe('Windows installer branding', () => {
         expect(workflow.match(/--capability-probe/g)).toHaveLength(3);
         expect(workflow).toContain('sudo dpkg --remove "$package_name"');
         expect(workflow).toContain('hdiutil detach "$mount_root"');
+        expect(workflow).toContain("PlistBuddy -c 'Print :CFBundleExecutable'");
+        expect(workflow).toContain('test "$(basename "$bundle_executable")" = "$bundle_executable"');
         expect(workflow).toContain('cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml');
         expect(workflow).toContain('cargo test --workspace --all-targets --locked --target ${{ matrix.target }} --manifest-path native/Cargo.toml');
         expect(workflow).toContain('cargo test --workspace --all-targets --locked --target ${{ matrix.target }} --manifest-path src-tauri/Cargo.toml');
