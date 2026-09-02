@@ -1,0 +1,10 @@
+name: Agent patch runner
+
+on:
+  push:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "agent patch runner is valid"
