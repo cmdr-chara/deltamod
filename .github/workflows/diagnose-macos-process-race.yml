@@ -14,32 +14,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - name: Add diagnostic assertion locally
+      - name: Add diagnostic output locally
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path('src-tauri/crates/tools-runtime/tests/fake_process.rs')
           text = path.read_text()
-          old = '''    assert!(matches!(
-              error,
-              RuntimeError::OutputOverflow {
-                  kind: "G3MTool",
-                  limit: 1000
-              }
-          ));'''.replace('              ', '        ', 1).replace('              RuntimeError', '        RuntimeError').replace('                  kind', '            kind').replace('                  limit', '            limit').replace('              }', '        }').replace('          ));', '    ));')
-          new = '''    assert!(
-              matches!(
-                  error,
-                  RuntimeError::OutputOverflow {
-                      kind: "G3MTool",
-                      limit: 1000
-                  }
-              ),
-              "unexpected overflow result: {error:?}"
-          );'''.replace('              matches!', '        matches!').replace('                  error', '            error').replace('                  RuntimeError', '            RuntimeError').replace('                      kind', '                kind').replace('                      limit', '                limit').replace('                  }', '            }').replace('              ),', '        ),').replace('              "unexpected', '        "unexpected').replace('          );', '    );')
+          old = '    let error = run_bounded(&spec, Duration::from_secs(5), 1000).unwrap_err();\n'
+          new = old + '    eprintln!("observed overflow result: {error:?}");\n'
           if text.count(old) != 1:
-              raise SystemExit(f'expected exactly one target assertion, found {text.count(old)}')
+              raise SystemExit(f'expected exactly one target line, found {text.count(old)}')
           path.write_text(text.replace(old, new))
           PY
       - name: Stress focused overflow test
