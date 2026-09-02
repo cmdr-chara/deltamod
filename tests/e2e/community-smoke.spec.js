@@ -1287,8 +1287,8 @@ test('launches securely and keeps Options categories inside their column', async
         });
         expect(healthBeforeOperation).toBe(true);
         const lifecycleActions = preview.locator('[data-lifecycle-action]');
-        await expect(lifecycleActions).toHaveCount(4);
-        for (let actionIndex = 0; actionIndex < 4; actionIndex += 1) {
+        await expect(lifecycleActions).toHaveCount(5);
+        for (let actionIndex = 0; actionIndex < 5; actionIndex += 1) {
             await expect(lifecycleActions.nth(actionIndex)).toBeDisabled();
         }
         const conflictTrigger = preview.getByRole('button', { name: 'Review conflicts' });
