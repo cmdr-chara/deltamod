@@ -7,6 +7,16 @@
         root.DeltamodCharaEncounterSession = api;
     }
 })(typeof globalThis === 'object' ? globalThis : this, root => {
+    async function restoreFocusAfterRefresh(refresh, resolveTarget) {
+        if (typeof refresh !== 'function' || typeof resolveTarget !== 'function') {
+            throw new TypeError('refresh and resolveTarget must be functions');
+        }
+        await refresh();
+        const target = resolveTarget();
+        target?.focus?.();
+        return target || null;
+    }
+
     function handOffFocusToReplacement(element) {
         const document = element?.ownerDocument;
         const elementId = element?.id;
@@ -67,12 +77,12 @@
             isCurrent(token) {
                 return token !== null && token === activeToken;
             },
-            cancel(token) {
+            cancel(token, { handoffFocus = true } = {}) {
                 if (token === null || token !== activeToken) return false;
                 const previousFocusOrigin = focusOrigin;
                 activeToken = null;
                 focusOrigin = null;
-                if (previousFocusOrigin?.id) {
+                if (handoffFocus && previousFocusOrigin?.id) {
                     handOffFocusToReplacement(previousFocusOrigin);
                 }
                 return true;
@@ -80,5 +90,5 @@
         });
     }
 
-    return Object.freeze({ createSessionGate });
+    return Object.freeze({ createSessionGate, restoreFocusAfterRefresh });
 });
