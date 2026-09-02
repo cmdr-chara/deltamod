@@ -80,7 +80,7 @@ describe('Chara theme-selector encounter', () => {
         );
     });
 
-    test('reveals the true name once and persists the Chara theme unlock', () => {
+    test('scopes the true name to an encounter and persists the Chara theme unlock once', () => {
         const rendererSource = fs.readFileSync(
             path.join(projectRoot, 'web', 'views', 'themesel', 'index.js'),
             'utf8'
@@ -93,7 +93,8 @@ describe('Chara theme-selector encounter', () => {
         );
         expect(rendererSource).toContain('filterInput.placeholder = themeFilterPlaceholder()');
         expect(rendererSource).toContain("const isUnlockedChara = theme.id === 'chara' && charaUnlocked");
-        expect(rendererSource).toContain('if (charaUnlocked) return;');
+        expect(rendererSource).toContain('if (!charaUnlocked) {');
+        expect(rendererSource).toContain('charaEncounterActive = false;');
         expect(rendererSource).toContain("invoke('setTheme', ['chara'])");
     });
 
