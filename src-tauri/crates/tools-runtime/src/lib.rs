@@ -459,7 +459,25 @@ impl ManagedProcess {
                 if let Err(error) =
                     rustix::process::kill_process_group(pid, rustix::process::Signal::KILL)
                 {
-                    if error != rustix::io::Errno::SRCH {
+                    // A short-lived Darwin parent can exit between the run loop and killpg().
+                    // If that leaves a zombie or a reused foreign PGID, BSD killpg reports EPERM.
+                    // Only tolerate EPERM after try_wait proves our parent already exited;
+                    // EPERM while the parent is live remains a hard containment failure.
+                    #[cfg(target_os = "macos")]
+                    let stale_darwin_group = if error == rustix::io::Errno::PERM {
+                        child
+                            .try_wait()
+                            .map_err(|source| RuntimeError::Reap {
+                                kind: self.kind,
+                                source,
+                            })?
+                            .is_some()
+                    } else {
+                        false
+                    };
+                    #[cfg(not(target_os = "macos"))]
+                    let stale_darwin_group = false;
+                    if error != rustix::io::Errno::SRCH && !stale_darwin_group {
                         containment_error = Some(error.to_string());
                     }
                 }

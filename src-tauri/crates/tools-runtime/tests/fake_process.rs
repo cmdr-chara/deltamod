@@ -230,13 +230,16 @@ fn aggregate_output_overflow_is_structured_and_terminates() {
         vec!["output".into(), "600".into(), "600".into()],
     );
     let error = run_bounded(&spec, Duration::from_secs(5), 1000).unwrap_err();
-    assert!(matches!(
-        error,
-        RuntimeError::OutputOverflow {
-            kind: "G3MTool",
-            limit: 1000
-        }
-    ));
+    assert!(
+        matches!(
+            error,
+            RuntimeError::OutputOverflow {
+                kind: "G3MTool",
+                limit: 1000
+            }
+        ),
+        "unexpected overflow result: {error:?}"
+    );
 }
 
 #[test]
