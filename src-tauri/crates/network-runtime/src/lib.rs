@@ -708,11 +708,10 @@ fn strip_markup(value: &str) -> String {
         .unwrap_or(compact)
 }
 
-fn decode_xml_text(value: &[u8]) -> String {
-    let value = String::from_utf8_lossy(value);
-    quick_xml::escape::unescape(&value)
+fn decode_xml_text(value: &str) -> String {
+    quick_xml::escape::unescape(value)
         .map(|value| value.into_owned())
-        .unwrap_or_else(|_| value.into_owned())
+        .unwrap_or_else(|_| value.to_owned())
 }
 
 pub struct ModDb<'a> {
@@ -732,8 +731,8 @@ fn parse_moddb_feed(text: &str) -> Result<Vec<ModEntry>, RuntimeError> {
     loop {
         match reader.read_event() {
             Ok(quick_xml::events::Event::Start(e)) => {
-                tag = String::from_utf8_lossy(e.name().as_ref()).into();
-                if e.name().as_ref() == b"item" {
+                tag = e.name().as_ref().to_owned();
+                if e.name().as_ref() == "item" {
                     inside_item = true;
                     title = None;
                     link = None;
@@ -741,27 +740,23 @@ fn parse_moddb_feed(text: &str) -> Result<Vec<ModEntry>, RuntimeError> {
                     summary = None;
                     image_url = None;
                 } else if inside_item
-                    && matches!(e.name().as_ref(), b"enclosure" | b"media:content")
+                    && matches!(e.name().as_ref(), "enclosure" | "media:content")
                 {
                     image_url = e
                         .attributes()
                         .flatten()
-                        .find(|attribute| attribute.key.as_ref() == b"url")
-                        .map(|attribute| {
-                            String::from_utf8_lossy(attribute.value.as_ref()).into_owned()
-                        });
+                        .find(|attribute| attribute.key.as_ref() == "url")
+                        .map(|attribute| attribute.value.into_owned());
                 }
             }
             Ok(quick_xml::events::Event::Empty(e))
-                if inside_item && matches!(e.name().as_ref(), b"enclosure" | b"media:content") =>
+                if inside_item && matches!(e.name().as_ref(), "enclosure" | "media:content") =>
             {
                 image_url = e
                     .attributes()
                     .flatten()
-                    .find(|attribute| attribute.key.as_ref() == b"url")
-                    .map(|attribute| {
-                        String::from_utf8_lossy(attribute.value.as_ref()).into_owned()
-                    });
+                    .find(|attribute| attribute.key.as_ref() == "url")
+                    .map(|attribute| attribute.value.into_owned());
             }
             Ok(quick_xml::events::Event::Text(e)) if inside_item => {
                 let v = decode_xml_text(e.as_ref());
@@ -774,9 +769,9 @@ fn parse_moddb_feed(text: &str) -> Result<Vec<ModEntry>, RuntimeError> {
                 }
             }
             Ok(quick_xml::events::Event::CData(e)) if inside_item && tag == "description" => {
-                summary = Some(strip_markup(&String::from_utf8_lossy(e.as_ref())));
+                summary = Some(strip_markup(e.as_ref()));
             }
-            Ok(quick_xml::events::Event::End(e)) if e.name().as_ref() == b"item" => {
+            Ok(quick_xml::events::Event::End(e)) if e.name().as_ref() == "item" => {
                 if let (Some(t), Some(l)) = (title.take(), link.take()) {
                     out.push(ModEntry {
                         title: t,
@@ -917,12 +912,13 @@ mod tests {
     #[test]
     fn moddb_feed_reads_self_closing_media_thumbnails() {
         let feed = r#"<rss xmlns:media="http://search.yahoo.com/mrss/"><channel><item>
-            <title>Example mod</title><link>https://www.moddb.com/mods/example</link>
+            <title>Example &amp; mod</title><link>https://www.moddb.com/mods/example</link>
             <media:content url="https://media.moddb.com/images/example.png" />
         </item></channel></rss>"#;
 
         let entries = parse_moddb_feed(feed).unwrap();
         assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].title, "Example & mod");
         assert_eq!(
             entries[0].image_url.as_deref(),
             Some("https://media.moddb.com/images/example.png")
