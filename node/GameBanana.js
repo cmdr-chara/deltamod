@@ -17,10 +17,189 @@ const {
     isAuthenticatedUiConfig,
     serializeGameBananaCookies
 } = require('./gamebanana/LoginValidation');
+const { fetchWithValidatedRedirects } = require('./security/RemoteSecurity');
 
 const GAMEBANANA_ORIGIN = 'https://gamebanana.com';
 const GAMEBANANA_LOGIN_URL = `${GAMEBANANA_ORIGIN}/members/account/login`;
 const GAMEBANANA_UI_CONFIG_URL = `${GAMEBANANA_ORIGIN}/apiv12/Member/UiConfig?_sUrl=/`;
+const GAMEBANANA_CATALOG_MAX_BYTES = 4 * 1024 * 1024;
+const GAMEBANANA_CATALOG_CACHE_TTL_MS = 60 * 1000;
+const GAMEBANANA_CATALOG_CACHE_MAX_ENTRIES = 64;
+const catalogCache = new Map();
+const catalogInFlight = new Map();
+
+function catalogError(message, code, metadata = {}) {
+    const error = new Error(message);
+    error.code = code;
+    Object.assign(error, metadata);
+    return error;
+}
+
+function validateGameBananaCatalogUrl(gameId, rawUrl) {
+    const numericGameId = Number(gameId);
+    if (!Number.isSafeInteger(numericGameId) || numericGameId <= 0) {
+        throw catalogError(
+            'GameBanana is not mapped for the selected game.',
+            'MOD_SOURCE_UNAVAILABLE'
+        );
+    }
+
+    let parsed;
+    try {
+        parsed = new URL(String(rawUrl || ''));
+    } catch {
+        throw catalogError('The GameBanana catalogue URL is invalid.', 'INVALID_MOD_SOURCE_URL');
+    }
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password
+        || parsed.hostname.toLowerCase() !== 'gamebanana.com') {
+        throw catalogError('The GameBanana catalogue URL is not approved.', 'INVALID_MOD_SOURCE_URL');
+    }
+
+    const gameIdText = String(numericGameId);
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const gameFeed = segments.length === 4
+        && segments[0] === 'apiv11'
+        && segments[1] === 'Game'
+        && segments[2] === gameIdText
+        && (segments[3] === 'Subfeed' || segments[3] === 'TopSubs');
+    const searchString = parsed.searchParams.get('_sSearchString');
+    const search = parsed.pathname === '/apiv11/Util/Search/Results'
+        && parsed.searchParams.get('_idGameRow') === gameIdText
+        && parsed.searchParams.get('_sModelName') === 'Mod'
+        && typeof searchString === 'string'
+        && searchString.length > 0
+        && Buffer.byteLength(searchString, 'utf8') <= 256
+        && !/[\u0000-\u001F\u007F]/.test(searchString);
+
+    if (!gameFeed && !search) {
+        throw catalogError(
+            'The GameBanana catalogue URL does not match the selected game.',
+            'INVALID_MOD_SOURCE_URL'
+        );
+    }
+    return parsed.toString();
+}
+
+function pruneCatalogCache() {
+    while (catalogCache.size > GAMEBANANA_CATALOG_CACHE_MAX_ENTRIES) {
+        catalogCache.delete(catalogCache.keys().next().value);
+    }
+}
+
+function clearCatalogCache() {
+    catalogCache.clear();
+    catalogInFlight.clear();
+}
+
+async function readCatalogJson(response) {
+    const advertisedBytes = Number(response.headers.get('content-length')) || 0;
+    if (advertisedBytes > GAMEBANANA_CATALOG_MAX_BYTES) {
+        throw catalogError(
+            'The GameBanana catalogue response is too large.',
+            'MOD_SOURCE_RESPONSE_TOO_LARGE'
+        );
+    }
+    const text = await response.text();
+    if (Buffer.byteLength(text, 'utf8') > GAMEBANANA_CATALOG_MAX_BYTES) {
+        throw catalogError(
+            'The GameBanana catalogue response is too large.',
+            'MOD_SOURCE_RESPONSE_TOO_LARGE'
+        );
+    }
+    try {
+        return JSON.parse(text);
+    } catch {
+        throw catalogError(
+            'GameBanana returned an invalid catalogue response.',
+            'MOD_SOURCE_INVALID_RESPONSE'
+        );
+    }
+}
+
+async function fetchCatalogPayload(url) {
+    const { response } = await fetchWithValidatedRedirects(url, {
+        maximumRedirects: 0,
+        allowedHosts: hostname => String(hostname || '').toLowerCase() === 'gamebanana.com',
+        headers: {
+            Accept: 'application/json',
+            'User-Agent': require('electron').app.userAgentFallback
+        }
+    });
+    if (!response.ok) {
+        throw catalogError(
+            `GameBanana catalogue request failed with HTTP ${response.status}.`,
+            'MOD_SOURCE_REQUEST_FAILED',
+            { status: response.status }
+        );
+    }
+    return readCatalogJson(response);
+}
+
+async function browseCatalog({ gameId, url, offline = false } = {}) {
+    const safeUrl = validateGameBananaCatalogUrl(gameId, url);
+    const now = Date.now();
+    const cached = catalogCache.get(safeUrl);
+
+    if (offline === true) {
+        if (!cached) {
+            throw catalogError(
+                'The GameBanana catalogue is unavailable while offline.',
+                'MOD_SOURCE_OFFLINE'
+            );
+        }
+        return {
+            provider: 'gamebanana',
+            payload: cached.payload,
+            cached: true,
+            stale: true,
+            cachedAtMs: cached.cachedAtMs
+        };
+    }
+
+    if (cached && now - cached.cachedAtMs <= GAMEBANANA_CATALOG_CACHE_TTL_MS) {
+        return {
+            provider: 'gamebanana',
+            payload: cached.payload,
+            cached: true,
+            stale: false,
+            cachedAtMs: cached.cachedAtMs
+        };
+    }
+
+    if (catalogInFlight.has(safeUrl)) return catalogInFlight.get(safeUrl);
+
+    const pending = (async () => {
+        try {
+            const payload = await fetchCatalogPayload(safeUrl);
+            const cachedAtMs = Date.now();
+            catalogCache.delete(safeUrl);
+            catalogCache.set(safeUrl, { payload, cachedAtMs });
+            pruneCatalogCache();
+            return {
+                provider: 'gamebanana',
+                payload,
+                cached: false,
+                stale: false,
+                cachedAtMs
+            };
+        } catch (error) {
+            if (cached) {
+                return {
+                    provider: 'gamebanana',
+                    payload: cached.payload,
+                    cached: true,
+                    stale: true,
+                    cachedAtMs: cached.cachedAtMs
+                };
+            }
+            throw error;
+        } finally {
+            catalogInFlight.delete(safeUrl);
+        }
+    })();
+    catalogInFlight.set(safeUrl, pending);
+    return pending;
+}
 
 async function requestGameBananaUiConfig(token) {
     const cookieHeader = String(token || '').trim();
@@ -170,6 +349,7 @@ async function getGBUIConf() {
 
 function clearCache() {
     uiConfCache = null;
+    clearCatalogCache();
 }
 
 async function clearLoginSession() {
@@ -395,6 +575,9 @@ module.exports = {
     getGBUIConf,
     leaveComment,
     likeMod,
+    browseCatalog,
+    validateGameBananaCatalogUrl,
+    clearCatalogCache,
     collections: {
         create: createDeltamodBackup,
         delete: deleteCollection,
