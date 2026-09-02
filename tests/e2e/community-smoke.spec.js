@@ -695,113 +695,92 @@ test('launches securely and keeps Options categories inside their column', async
         await sendZoomShortcut('0');
         await expect.poll(getZoomFactor).toBeCloseTo(1, 5);
 
-        await window.evaluate(() => {
-            window.__deltamodOriginalRendererFetch = window.fetch;
-            window.fetch = async (input, options) => {
-                const url = String(input);
-                if (url.includes('/Subfeed')) {
-                    return new Response(JSON.stringify({
-                        _aMetadata: { _bIsComplete: true },
-                        _aRecords: [{
-                            _idRow: 41,
-                            _sModelName: 'Mod',
-                            _sName: 'Regular test mod',
-                            _sDescription: 'A regular GameBanana card.',
-                            _sProfileUrl: 'https://gamebanana.com/mods/41',
-                            _bHasFiles: true,
-                            _bHasContentRatings: false,
-                            _tsDateAdded: 1751328001,
-                            _tsDateModified: 1751328001,
-                            _aSubmitter: {
-                                _idRow: 8,
-                                _sName: 'Regular author',
-                                _sProfileUrl: 'https://gamebanana.com/members/8',
-                                _sAvatarUrl: './img/mod-placeholder.png'
-                            },
-                            _aPreviewMedia: {
-                                _aImages: [{
-                                    _sBaseUrl: './img',
-                                    _sFile: 'mod-placeholder.png',
-                                    _sFile100: 'mod-placeholder.png',
-                                    _sFile220: 'mod-placeholder.png',
-                                    _sFile530: 'mod-placeholder.png'
-                                }]
-                            }
-                        }, {
-                            _idRow: 42,
-                            _sModelName: 'Mod',
-                            _sName: 'Gallery test mod',
-                            _sDescription: 'A GameBanana card using the shared shop layout.',
-                            _sProfileUrl: 'https://gamebanana.com/mods/42',
-                            _bHasFiles: true,
-                            _bHasContentRatings: false,
-                            _tsDateAdded: 1751328000,
-                            _tsDateModified: 1751328000,
-                            _aSubmitter: {
-                                _idRow: 7,
-                                _sName: 'Test author',
-                                _sProfileUrl: 'https://gamebanana.com/members/7',
-                                _sAvatarUrl: './img/mod-placeholder.png'
-                            },
-                            _aPreviewMedia: {
-                                _aImages: [
-                                    {
-                                        _sBaseUrl: './img',
-                                        _sFile: 'mod-placeholder.png',
-                                        _sFile100: 'mod-placeholder.png',
-                                        _sFile220: 'mod-placeholder.png',
-                                        _sFile530: 'mod-placeholder.png'
-                                    },
-                                    {
-                                        _sBaseUrl: './img',
-                                        _sFile: 'mod-placeholder.png',
-                                        _sFile100: 'mod-placeholder.png',
-                                        _sFile220: 'mod-placeholder.png',
-                                        _sFile530: 'mod-placeholder.png'
-                                    }
-                                ]
-                            }
-                        }].filter(mod => url.includes('_nPage=2') ? mod._idRow === 42 : mod._idRow === 41)
-                    }), { status: 200, headers: { 'content-type': 'application/json' } });
+        await application.evaluate(({ ipcMain }) => {
+            const makeGameBananaMod = ({ id, name, description, authorId, authorName, imageCount }) => ({
+                _idRow: id,
+                _sModelName: 'Mod',
+                _sName: name,
+                _sDescription: description,
+                _sProfileUrl: `https://gamebanana.com/mods/${id}`,
+                _bHasFiles: true,
+                _bHasContentRatings: false,
+                _tsDateAdded: 1751328000 + (id === 41 ? 1 : 0),
+                _tsDateModified: 1751328000 + (id === 41 ? 1 : 0),
+                _aSubmitter: {
+                    _idRow: authorId,
+                    _sName: authorName,
+                    _sProfileUrl: `https://gamebanana.com/members/${authorId}`,
+                    _sAvatarUrl: './img/mod-placeholder.png'
+                },
+                _aPreviewMedia: {
+                    _aImages: Array.from({ length: imageCount }, () => ({
+                        _sBaseUrl: './img',
+                        _sFile: 'mod-placeholder.png',
+                        _sFile100: 'mod-placeholder.png',
+                        _sFile220: 'mod-placeholder.png',
+                        _sFile530: 'mod-placeholder.png'
+                    }))
                 }
-                if (url.includes('/TopSubs')) {
-                    return new Response(JSON.stringify([{
-                        _idRow: 42,
-                        _sModelName: 'Mod',
-                        _sName: 'Gallery test mod',
-                        _sDescription: 'A GameBanana card using the shared shop layout.',
-                        _sProfileUrl: 'https://gamebanana.com/mods/42',
-                        _sPeriod: 'alltime',
-                        _bHasFiles: true,
-                        _bHasContentRatings: false,
-                        _aSubmitter: {
-                            _idRow: 7,
-                            _sName: 'Test author',
-                            _sProfileUrl: 'https://gamebanana.com/members/7',
-                            _sAvatarUrl: './img/mod-placeholder.png'
-                        },
-                        _aPreviewMedia: {
-                            _aImages: [{
-                                _sBaseUrl: './img',
-                                _sFile: 'mod-placeholder.png',
-                                _sFile100: 'mod-placeholder.png',
-                                _sFile220: 'mod-placeholder.png',
-                                _sFile530: 'mod-placeholder.png'
-                            }, {
-                                _sBaseUrl: './img',
-                                _sFile: 'mod-placeholder.png',
-                                _sFile100: 'mod-placeholder.png',
-                                _sFile220: 'mod-placeholder.png',
-                                _sFile530: 'mod-placeholder.png'
-                            }]
+            });
+            const regularMod = makeGameBananaMod({
+                id: 41,
+                name: 'Regular test mod',
+                description: 'A regular GameBanana card.',
+                authorId: 8,
+                authorName: 'Regular author',
+                imageCount: 1
+            });
+            const galleryMod = makeGameBananaMod({
+                id: 42,
+                name: 'Gallery test mod',
+                description: 'A GameBanana card using the shared shop layout.',
+                authorId: 7,
+                authorName: 'Test author',
+                imageCount: 2
+            });
+
+            ipcMain.removeHandler('modSources:browse');
+            ipcMain.handle('modSources:browse', (_event, args) => {
+                const request = args?.[0] || {};
+                if (request.provider !== 'gamebanana') {
+                    return {
+                        ok: false,
+                        error: {
+                            code: 'TEST_UNEXPECTED_PROVIDER',
+                            message: `Unexpected provider in E2E fixture: ${request.provider || 'unknown'}`
                         }
-                    }]), {
-                        status: 200,
-                        headers: { 'content-type': 'application/json' }
-                    });
+                    };
                 }
-                return window.__deltamodOriginalRendererFetch(input, options);
-            };
+
+                const url = String(request.url || '');
+                let payload;
+                if (url.includes('/Subfeed')) {
+                    payload = {
+                        _aMetadata: { _bIsComplete: true },
+                        _aRecords: url.includes('_nPage=2') ? [galleryMod] : [regularMod]
+                    };
+                } else if (url.includes('/TopSubs')) {
+                    payload = [{ ...galleryMod, _sPeriod: 'alltime' }];
+                } else {
+                    return {
+                        ok: false,
+                        error: {
+                            code: 'TEST_UNEXPECTED_GAMEBANANA_URL',
+                            message: `Unexpected GameBanana URL in E2E fixture: ${url}`
+                        }
+                    };
+                }
+
+                return {
+                    ok: true,
+                    result: {
+                        provider: 'gamebanana',
+                        payload,
+                        cached: false,
+                        stale: false
+                    }
+                };
+            });
         });
 
         for (const [route, selector] of [
