@@ -24,6 +24,8 @@ describe('packaged Tauri protocol registration', () => {
             path.join(root, 'src-tauri', 'src', 'controller.rs'),
             'utf8'
         );
+        expect(controller).toContain('app.deep_link()');
+        expect(controller).toContain('.register_all()');
         expect(controller).toContain('args.into_iter().skip(1).map(OsString::from)');
         expect(controller).toContain('match classify_handoff_argument(arg)');
     });

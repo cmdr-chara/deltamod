@@ -514,7 +514,7 @@ jobs:
           protocol_data_root="$RUNNER_TEMP/deltamod-protocol-${{ matrix.target }}"
           mkdir -p "$mount_root" "$data_root" "$protocol_data_root"
           test ! -e "$installed_app"
-          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_root"
+          printf 'Y\n' | hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_root"
           cleanup() {
             hdiutil detach "$mount_root" >/dev/null 2>&1 || true
             sudo rm -rf -- "$installed_app"

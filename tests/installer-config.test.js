@@ -97,6 +97,7 @@ describe('Windows installer branding', () => {
         expect(workflow).toContain('{"bundle":{"createUpdaterArtifacts":false}}');
         expect(workflow).toContain('Verify Windows preview is intentionally unsigned');
         expect(workflow).toContain('Verify macOS preview is not notarized');
+        expect(workflow).toContain("printf 'Y\\n' | hdiutil attach");
         expect(workflow).toContain('Stage unsigned Windows manual-download installer');
         expect(workflow).toContain('manual-release/*');
         expect(workflow).toContain('test ! -e release-artifacts/latest.json');
