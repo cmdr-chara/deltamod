@@ -250,6 +250,7 @@ jobs:
             -o Acquire::http::Timeout=20 \
             -o Acquire::https::Timeout=20 \
             install -y --no-install-recommends \
+            desktop-file-utils xdg-utils \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
       - run: npm ci
       - run: npm run acquire:g3mtool
@@ -514,7 +515,14 @@ jobs:
           protocol_data_root="$RUNNER_TEMP/deltamod-protocol-${{ matrix.target }}"
           mkdir -p "$mount_root" "$data_root" "$protocol_data_root"
           test ! -e "$installed_app"
-          printf 'Y\n' | hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_root"
+          # `yes` is expected to receive SIGPIPE after hdiutil accepts the
+          # embedded licence. Inspect hdiutil's status instead of failing the
+          # whole pipe under `set -o pipefail` after a successful mount.
+          set +o pipefail
+          yes | hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_root"
+          attach_status="${PIPESTATUS[1]}"
+          set -o pipefail
+          test "$attach_status" -eq 0
           cleanup() {
             hdiutil detach "$mount_root" >/dev/null 2>&1 || true
             sudo rm -rf -- "$installed_app"

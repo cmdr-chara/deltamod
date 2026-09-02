@@ -72,6 +72,8 @@ describe('Windows installer branding', () => {
         const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'tauri-release.yml'), 'utf8');
         const ci = fs.readFileSync(path.join(root, '.github', 'workflows', 'ci.yml'), 'utf8');
 
+        expect(config.bundle.linux.deb.depends).toEqual(['desktop-file-utils', 'xdg-utils']);
+        expect(workflow).toContain('desktop-file-utils xdg-utils');
         expect(workflow).toContain('Install, smoke, and uninstall Windows NSIS package');
         expect(workflow).toContain('Install, smoke, and uninstall Linux deb package');
         expect(workflow).toContain('Install, smoke, and uninstall macOS app bundle');
@@ -97,7 +99,8 @@ describe('Windows installer branding', () => {
         expect(workflow).toContain('{"bundle":{"createUpdaterArtifacts":false}}');
         expect(workflow).toContain('Verify Windows preview is intentionally unsigned');
         expect(workflow).toContain('Verify macOS preview is not notarized');
-        expect(workflow).toContain("printf 'Y\\n' | hdiutil attach");
+        expect(workflow).toContain('yes | hdiutil attach');
+        expect(workflow).toContain('attach_status="${PIPESTATUS[1]}"');
         expect(workflow).toContain('Stage unsigned Windows manual-download installer');
         expect(workflow).toContain('manual-release/*');
         expect(workflow).toContain('test ! -e release-artifacts/latest.json');
