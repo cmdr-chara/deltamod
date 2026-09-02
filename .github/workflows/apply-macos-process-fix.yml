@@ -2,8 +2,7 @@ name: Apply macOS process cleanup fix
 
 on:
   push:
-    branches:
-      - release/2.0.18-macos-process-fix
+    branches: [release/2.0.18-macos-process-fix]
 
 permissions:
   contents: write
@@ -17,76 +16,10 @@ jobs:
           ref: release/2.0.18-macos-process-fix
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
-      - name: Apply bounded Darwin containment fix
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          lib = Path('src-tauri/crates/tools-runtime/src/lib.rs')
-          text = lib.read_text()
-          old = '''            if let Err(error) =
-                  rustix::process::kill_process_group(pid, rustix::process::Signal::KILL)
-              {
-                  if error != rustix::io::Errno::SRCH {
-                      containment_error = Some(error.to_string());
-                  }
-              }
-'''.replace('                  rustix', '                rustix').replace('              {', '            {').replace('                  if error', '                if error').replace('                      containment', '                    containment').replace('                  }', '                }').replace('              }\n', '            }\n')
-          new = '''            if let Err(error) =
-                  rustix::process::kill_process_group(pid, rustix::process::Signal::KILL)
-              {
-                  // A short-lived Darwin parent can exit between the run loop and killpg().
-                  // If that leaves a zombie or a reused foreign PGID, BSD killpg reports EPERM.
-                  // Only tolerate EPERM after try_wait proves our parent already exited;
-                  // EPERM while the parent is live remains a hard containment failure.
-                  #[cfg(target_os = "macos")]
-                  let stale_darwin_group = if error == rustix::io::Errno::PERM {
-                      child
-                          .try_wait()
-                          .map_err(|source| RuntimeError::Reap {
-                              kind: self.kind,
-                              source,
-                          })?
-                          .is_some()
-                  } else {
-                      false
-                  };
-                  #[cfg(not(target_os = "macos"))]
-                  let stale_darwin_group = false;
-                  if error != rustix::io::Errno::SRCH && !stale_darwin_group {
-                      containment_error = Some(error.to_string());
-                  }
-              }
-'''.replace('                  rustix', '                rustix', 1).replace('              {', '            {', 1).replace('                  //', '                //').replace('                  #[cfg', '                #[cfg').replace('                  let stale', '                let stale').replace('                      child', '                    child').replace('                          .try', '                        .try').replace('                          .map', '                        .map').replace('                              kind', '                            kind').replace('                              source', '                            source').replace('                          })?', '                        })?').replace('                          .is', '                        .is').replace('                  } else', '                } else').replace('                      false', '                    false').replace('                  };', '                };').replace('                  if error', '                if error').replace('                      containment', '                    containment').replace('                  }\n', '                }\n').replace('              }\n', '            }\n')
-          if text.count(old) != 1:
-              raise SystemExit(f'expected exactly one killpg block, found {text.count(old)}')
-          lib.write_text(text.replace(old, new))
-
-          test = Path('src-tauri/crates/tools-runtime/tests/fake_process.rs')
-          text = test.read_text()
-          old_assert = '''    assert!(matches!(
-              error,
-              RuntimeError::OutputOverflow {
-                  kind: "G3MTool",
-                  limit: 1000
-              }
-          ));'''.replace('              error', '        error').replace('              RuntimeError', '        RuntimeError').replace('                  kind', '            kind').replace('                  limit', '            limit').replace('              }', '        }').replace('          ));', '    ));')
-          new_assert = '''    assert!(
-              matches!(
-                  error,
-                  RuntimeError::OutputOverflow {
-                      kind: "G3MTool",
-                      limit: 1000
-                  }
-              ),
-              "unexpected overflow result: {error:?}"
-          );'''.replace('              matches!', '        matches!').replace('                  error', '            error').replace('                  RuntimeError', '            RuntimeError').replace('                      kind', '                kind').replace('                      limit', '                limit').replace('                  }', '            }').replace('              ),', '        ),').replace('              "unexpected', '        "unexpected').replace('          );', '    );')
-          if text.count(old_assert) != 1:
-              raise SystemExit(f'expected exactly one overflow assertion, found {text.count(old_assert)}')
-          test.write_text(text.replace(old_assert, new_assert))
-          PY
-          cargo fmt --all --manifest-path src-tauri/Cargo.toml
+      - name: Apply bounded fix
+        run: python3 .github/apply-macos-process-fix.py
+      - name: Format
+        run: cargo fmt --all --manifest-path src-tauri/Cargo.toml
       - name: Stress short-lived overflow cleanup
         shell: bash
         run: |
@@ -95,16 +28,17 @@ jobs:
             cargo test --locked --manifest-path src-tauri/Cargo.toml -p deltamod-tools-runtime --test fake_process aggregate_output_overflow_is_structured_and_terminates -- --exact
           done
       - name: Run complete process containment suite
-        shell: bash
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml -p deltamod-tools-runtime --test fake_process
       - name: Commit verified fix
         shell: bash
         run: |
           set -euo pipefail
-          rm -f .github/workflows/diagnose-macos-process-race.yml .github/workflows/apply-macos-process-fix.yml
+          rm -f .github/workflows/diagnose-macos-process-race.yml
+          rm -f .github/workflows/apply-macos-process-fix.yml
+          rm -f .github/apply-macos-process-fix.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src-tauri/crates/tools-runtime/src/lib.rs src-tauri/crates/tools-runtime/tests/fake_process.rs .github/workflows
+          git add -A
           test -n "$(git status --porcelain)"
           git commit -m 'fix(runtime): stabilize short-lived Darwin process cleanup'
           git push origin HEAD:release/2.0.18-macos-process-fix
