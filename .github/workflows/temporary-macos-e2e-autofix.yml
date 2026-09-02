@@ -1,17 +1,15 @@
-# One-shot autofix workflow; the second push triggers it after registration.
 name: Temporary macOS E2E Autofix
 
-on:
+'on':
   push:
     branches:
-      - cmdr-chara/roadmap-contract-freeze
+      - 'cmdr-chara/roadmap-contract-freeze'
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -79,12 +77,11 @@ jobs:
               'standalone Chara session dependency'
           )
           PY
-
           node --check web/views/themesel/index.js
           node --check tests/e2e/tauri-themes.spec.js
           git diff --check
 
-      - name: Validate standalone Tauri theme catalogue
+      - name: Validate targeted browser regression
         shell: bash
         run: |
           set -euo pipefail
