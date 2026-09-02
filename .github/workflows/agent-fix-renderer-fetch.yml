@@ -1,0 +1,38 @@
+name: Fix renderer fetch regression
+
+on:
+  push:
+    branches:
+      - cmdr-chara/roadmap-contract-freeze
+    paths:
+      - .github/workflows/agent-fix-renderer-fetch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: cmdr-chara/roadmap-contract-freeze
+          fetch-depth: 0
+
+      - name: Remove stale renderer fetch teardown
+        run: python scripts/agent-fix-renderer-fetch.py
+
+      - name: Validate focused fix
+        run: |
+          node --check tests/e2e/community-smoke.spec.js
+          git diff --check
+          ! grep -q '__deltamodOriginalRendererFetch' tests/e2e/community-smoke.spec.js
+
+      - name: Commit focused fix and remove temporary files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/agent-fix-renderer-fetch.yml scripts/agent-fix-renderer-fetch.py
+          git add tests/e2e/community-smoke.spec.js
+          git commit -m "test: preserve renderer fetch after provider fixture"
+          git push origin HEAD:cmdr-chara/roadmap-contract-freeze
