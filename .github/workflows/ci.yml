@@ -103,10 +103,10 @@ jobs:
       - name: Acquire UndertaleModTool
         run: node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
         if: matrix.target != 'aarch64-apple-darwin'
-      - name: Run platform-sensitive JavaScript tests
-        run: npm test
       - run: npm run build:native-sidecars:target -- ${{ matrix.target }}
       - run: npm run build:tauri:resources -- ${{ matrix.target }}
+      - name: Run platform-sensitive JavaScript tests
+        run: npm test
       - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
       - run: cargo test --workspace --all-targets --locked --manifest-path native/Cargo.toml
       - run: cargo build --workspace --locked --manifest-path native/Cargo.toml
@@ -116,10 +116,11 @@ jobs:
         if: runner.os == 'macOS'
         run: node scripts/retry-command.js --label "Playwright Chromium installation" -- npx playwright install chromium
       - name: Electron workflow smoke test
+        id: electron_e2e
         if: runner.os == 'macOS'
         run: npm run test:e2e
       - name: Upload Playwright failure diagnostics
-        if: failure() && runner.os == 'macOS'
+        if: failure() && steps.electron_e2e.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-failure-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
