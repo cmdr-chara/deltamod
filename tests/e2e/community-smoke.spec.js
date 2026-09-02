@@ -954,10 +954,7 @@ test('launches securely and keeps Options categories inside their column', async
             }
         }
 
-        await window.evaluate(() => {
-            window.fetch = window.__deltamodOriginalRendererFetch;
-            delete window.__deltamodOriginalRendererFetch;
-        });
+        expect(await window.evaluate(() => typeof window.fetch)).toBe('function');
 
         await window.evaluate(() => window.electronAPI.invoke('setTheme', ['base']));
         await expect.poll(() => window.evaluate(() => window.electronAPI.invoke('getTheme', []))).toBe('base');
