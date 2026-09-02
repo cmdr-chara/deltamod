@@ -13,7 +13,29 @@ permissions:
   contents: read
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Install npm dependencies
+        run: node scripts/retry-command.js --label "npm ci" -- npm ci
+      - run: npm run typecheck
+      - run: npm run security:audit
+      - run: npm run verify:g3mtool-manifest
+      - run: npm run verify:undertale-mod-tool-manifest
+      - run: npm run verify:tauri:contract
+      - run: cargo fmt --all --check --manifest-path native/Cargo.toml
+      - run: cargo fmt --all --check --manifest-path src-tauri/Cargo.toml
+
   verify:
+    needs: quality
     strategy:
       fail-fast: false
       matrix:
@@ -36,6 +58,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Restore Rust dependency build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            native -> target
+            src-tauri -> target
+          save-if: ${{ github.ref == 'refs/heads/DeltaMaster' }}
       - name: Install Linux Tauri dependencies
         if: runner.os == 'Linux'
         shell: bash
@@ -74,27 +103,29 @@ jobs:
       - name: Acquire UndertaleModTool
         run: node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
         if: matrix.target != 'aarch64-apple-darwin'
+      - name: Run platform-sensitive JavaScript tests
+        run: npm test
       - run: npm run build:native-sidecars:target -- ${{ matrix.target }}
       - run: npm run build:tauri:resources -- ${{ matrix.target }}
-      - run: cargo fmt --all --check --manifest-path native/Cargo.toml
       - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
       - run: cargo test --workspace --all-targets --locked --manifest-path native/Cargo.toml
       - run: cargo build --workspace --locked --manifest-path native/Cargo.toml
-      - run: cargo fmt --all --check --manifest-path src-tauri/Cargo.toml
       - run: cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml -- -D warnings
       - run: cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml
-      - run: npm run verify:tauri:contract
-      - run: npm test
-      - run: npm run typecheck
-      - run: npm run security:audit
-      - run: npm run verify:g3mtool-manifest
-      - run: npm run verify:undertale-mod-tool-manifest
       - name: Install Playwright Chromium
         if: runner.os == 'macOS'
         run: node scripts/retry-command.js --label "Playwright Chromium installation" -- npx playwright install chromium
       - name: Electron workflow smoke test
         if: runner.os == 'macOS'
         run: npm run test:e2e
+      - name: Upload Playwright failure diagnostics
+        if: failure() && runner.os == 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-failure-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: test-results/
       - name: Package smoke build
         shell: bash
         run: |
@@ -126,6 +157,7 @@ jobs:
           fi
 
   verify-csx-macos-intel:
+    needs: quality
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v6
