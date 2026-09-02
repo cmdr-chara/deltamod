@@ -1,13 +1,32 @@
 #![forbid(unsafe_code)]
 
+mod staging;
+
+pub use staging::{
+    PatchMechanism, PatchTargetIdentity, StagedArtifact, StagedPatchSet, StagingDiagnostic,
+    StagingError, StagingErrorCode, MAX_STAGED_ARTIFACT_BYTES, MAX_STAGED_TOTAL_BYTES,
+};
+
 use deltamod_hash_worker::Event as NativeHashEvent;
+#[cfg(any(unix, windows))]
+use deltamod_lifecycle_runtime::{
+    file_plan_fingerprint, DurableLifecycleStore, ExecutionIdentity, InstallFilePlan,
+    InstallMetadata, LifecycleOutcome, OsLifecycleWorkspace, ReleaseARuntime, StagingSource,
+    StartupRecoveryOutcome, ValidatedInstallPlan,
+};
 use deltamod_native_core::{
     patch_plan::{validate_patch_plan, PatchCandidate, PatchPlanRequest, PatchPlatform, PatchType},
     patch_transaction::{backup, load_journal, restore, write_journal, Journal},
 };
+#[cfg(any(unix, windows))]
+use deltamod_product_contracts::{
+    LifecycleOperationKind, OperationIntent, OperationRequest, ProviderArtifactKind, ProviderId,
+    ProviderItemKind, ProviderRef, ProviderResourceId, ValidatedRelativePath,
+};
 use deltamod_tools_runtime::{
-    g3m_apply, g3m_merge, run_bounded, sha256_file, undertale_mod_cli, verify_tool, ToolKind,
-    ToolPath, DEFAULT_TIMEOUT, MAX_OUTPUT_BYTES,
+    g3m_apply, g3m_merge, inspect_regular_file, run_bounded_with_cancel_probe, sha256_file,
+    undertale_mod_cli, verify_tool, RuntimeError as ToolRuntimeError, ToolKind, ToolPath,
+    DEFAULT_TIMEOUT, MAX_OUTPUT_BYTES,
 };
 use deltamod_updater_launch_runtime::GameRuntime;
 use roxmltree::Document;
@@ -58,6 +77,10 @@ pub enum Error {
     Cancelled,
     #[error("Patch transaction failed: {0}")]
     Transaction(String),
+    #[error("The transactional lifecycle filesystem boundary is unavailable on this platform.")]
+    LifecycleBoundaryUnavailable,
+    #[error("Patch staging failed: {0}")]
+    Staging(String),
     #[error("Game hashing failed: {0}")]
     Hash(String),
     #[error("Selected mod \"{mod_name}\" is incompatible: {reason}")]
@@ -175,6 +198,12 @@ pub struct PatchResult {
     pub patched: bool,
     pub log: String,
     pub full_log: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LifecycleStorageRoots {
+    pub store: PathBuf,
+    pub workspace: PathBuf,
 }
 
 pub struct Runtime {
@@ -322,6 +351,76 @@ impl Runtime {
     }
 
     pub fn build_plan(&self, selected: &[String]) -> Result<PatchPlan, Error> {
+        self.build_plan_inner(selected, true)
+    }
+
+    fn build_staging_plan(&self, selected: &[String]) -> Result<PatchPlan, Error> {
+        self.build_plan_inner(selected, false)
+    }
+
+    fn unsupported_staging_mechanism(
+        &self,
+        selected: &[String],
+    ) -> Result<Option<PatchMechanism>, Error> {
+        validate_selection(selected)?;
+        require_directory(&self.game_root, Error::GameUnavailable)?;
+        require_directory(&self.mod_root, Error::ModStoreUnavailable)?;
+        let selected = selected.iter().map(String::as_str).collect::<HashSet<_>>();
+        for entry in fs::read_dir(&self.mod_root)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let root = entry.path();
+            let identity = read_bounded_json(&root.join("__deltaID.json"))?;
+            let Some(id) = identity.get("uniqueId").and_then(Value::as_str) else {
+                continue;
+            };
+            if !selected.contains(id) {
+                continue;
+            }
+            let name =
+                read_mod_name(&root).unwrap_or_else(|| entry.file_name().to_string_lossy().into());
+            let manifest = variant_manifest(&root)?;
+            if !manifest.is_file() {
+                return Err(Error::MissingManifest(name));
+            }
+            let xml = fs::read_to_string(&manifest)?;
+            let wrapped;
+            let document = match Document::parse(&xml) {
+                Ok(document) => document,
+                Err(_) => {
+                    wrapped = format!("<deltamod>{xml}</deltamod>");
+                    Document::parse(&wrapped).map_err(|_| Error::InvalidManifest(name.clone()))?
+                }
+            };
+            for node in document
+                .descendants()
+                .filter(|node| node.has_tag_name("patch"))
+            {
+                let kind = node.attribute("type").unwrap_or("").to_ascii_lowercase();
+                let patch_type =
+                    parse_patch_type(&kind).ok_or_else(|| Error::UnsupportedPatch {
+                        mod_name: name.clone(),
+                        patch_type: kind,
+                    })?;
+                match patch_type {
+                    PatchType::Override | PatchType::Copy => {}
+                    PatchType::Xdelta | PatchType::G3mPatch => {
+                        return Ok(Some(PatchMechanism::G3m));
+                    }
+                    PatchType::Csx => return Ok(Some(PatchMechanism::Csx)),
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn build_plan_inner(
+        &self,
+        selected: &[String],
+        snapshot_csx_resources: bool,
+    ) -> Result<PatchPlan, Error> {
         validate_selection(selected)?;
         require_directory(&self.game_root, Error::GameUnavailable)?;
         require_directory(&self.mod_root, Error::ModStoreUnavailable)?;
@@ -379,7 +478,7 @@ impl Runtime {
                 patches.push(Patch {
                     source_sha256: sha256_file(&source)
                         .map_err(|error| Error::Plan(error.to_string()))?,
-                    mod_tree_sha256: (patch_type == PatchType::Csx)
+                    mod_tree_sha256: (patch_type == PatchType::Csx && snapshot_csx_resources)
                         .then(|| tree_sha256(&root))
                         .transpose()?,
                     source,
@@ -455,6 +554,23 @@ impl Runtime {
         restore_existing(&self.game_root)
     }
 
+    /// Builds validated patch outputs in an owned temporary workspace.
+    ///
+    /// This API never writes, renames, or deletes a path below `game_root`. The
+    /// returned value owns the workspace. Automatic pathname-based deletion is
+    /// deliberately disabled: callers keep it alive until a separate lifecycle
+    /// transaction has published and re-verified every artifact, then hand the
+    /// retained path to the parent-owned identity-bound retention cleaner.
+    pub fn stage_patch_outputs(
+        &self,
+        selected: &[String],
+        operation_id: &str,
+        emit: impl FnMut(Progress),
+        cancelled: impl Fn() -> bool,
+    ) -> Result<StagedPatchSet, StagingError> {
+        staging::stage_patch_outputs(self, selected, operation_id, emit, cancelled)
+    }
+
     pub fn precalc_game_hashes(
         &self,
         operation_id: &str,
@@ -524,6 +640,8 @@ impl Runtime {
         })
     }
 
+    /// Legacy compatibility publisher. New integrations must use
+    /// [`Runtime::stage_patch_outputs`] and publish through lifecycle ownership.
     pub fn patch(
         &self,
         selected: &[String],
@@ -620,22 +738,498 @@ impl Runtime {
         &self,
         selected: &[String],
         operation_id: &str,
+        lifecycle: &LifecycleStorageRoots,
         game: &GameRuntime,
         emit: impl FnMut(Progress),
         cancelled: impl Fn() -> bool,
     ) -> Result<PatchResult, Error> {
-        let result = self.patch(selected, operation_id, emit, cancelled)?;
+        let result = self.patch_staged_lifecycle(
+            selected,
+            operation_id,
+            &lifecycle.store,
+            &lifecycle.workspace,
+            emit,
+            cancelled,
+        )?;
         game.dispatch("startGame", &[]).map_err(|error| {
-            let _ = self.restore();
+            let _ = self.uninstall_active_patch_set(
+                operation_id,
+                &lifecycle.store,
+                &lifecycle.workspace,
+            );
             Error::Launch(error.to_string())
         })?;
         // GameRuntime owns and reaps the child; keeping this operation alive ensures
-        // originals are restored after exit even before shell lifecycle wiring lands.
+        // the lifecycle recovery generation restores originals after exit.
         while game.is_running() {
             thread::sleep(Duration::from_millis(50));
         }
-        self.restore()?;
+        let startup_recovery_id = format!(
+            "patch-startup-{}",
+            &sha2_digest(operation_id.as_bytes())[..32]
+        );
+        self.uninstall_active_patch_set(
+            &startup_recovery_id,
+            &lifecycle.store,
+            &lifecycle.workspace,
+        )?;
         Ok(result)
+    }
+
+    #[cfg(any(unix, windows))]
+    pub fn recover_startup_lifecycle(
+        &self,
+        lifecycle: &LifecycleStorageRoots,
+    ) -> Result<usize, Error> {
+        if !self.game_root.is_dir() {
+            return Ok(0);
+        }
+        fs::create_dir_all(&lifecycle.store)?;
+        fs::create_dir_all(&lifecycle.workspace)?;
+        let store = DurableLifecycleStore::open(&lifecycle.store)
+            .map_err(|error| Error::Transaction(error.to_string()))?;
+        let installation_id = lifecycle_installation_id(&self.game_root);
+        let mut workspace =
+            OsLifecycleWorkspace::open(self.game_root.clone(), lifecycle.workspace.clone())
+                .map_err(|error| Error::Transaction(error.to_string()))?;
+        let mut runtime = ReleaseARuntime::new(store);
+        let outcomes = runtime.recover_startup_installation(
+            &format!("patch-startup-{}", std::process::id()),
+            &installation_id,
+            now_millis() as u64,
+            5 * 60 * 1_000,
+            |operation| {
+                format!(
+                    "patch-startup-lease-{}",
+                    &sha2_digest(operation.request.operation_id().as_bytes())[..32]
+                )
+            },
+            &mut workspace,
+        );
+        let mut recovered = 0;
+        let mut active = false;
+        for outcome in outcomes {
+            match outcome {
+                StartupRecoveryOutcome::Recovered { .. } => recovered += 1,
+                StartupRecoveryOutcome::Active { .. } => active = true,
+                StartupRecoveryOutcome::Blocked { .. }
+                | StartupRecoveryOutcome::StoreBlocked { .. } => {
+                    return Err(Error::Transaction("startup recovery blocked".into()));
+                }
+            }
+        }
+        if active {
+            return Ok(recovered);
+        }
+        let operation_id = format!(
+            "patch-startup-{}",
+            &sha2_digest(installation_id.as_bytes())[..32]
+        );
+        self.uninstall_active_patch_set(&operation_id, &lifecycle.store, &lifecycle.workspace)?;
+        Ok(recovered)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    pub fn recover_startup_lifecycle(
+        &self,
+        _lifecycle: &LifecycleStorageRoots,
+    ) -> Result<usize, Error> {
+        Err(Error::LifecycleBoundaryUnavailable)
+    }
+
+    #[cfg(any(unix, windows))]
+    fn patch_staged_lifecycle(
+        &self,
+        selected: &[String],
+        operation_id: &str,
+        lifecycle_store_root: &Path,
+        lifecycle_workspace_root: &Path,
+        mut emit: impl FnMut(Progress),
+        cancelled: impl Fn() -> bool,
+    ) -> Result<PatchResult, Error> {
+        self.restore()?;
+        fs::create_dir_all(lifecycle_store_root)?;
+        fs::create_dir_all(lifecycle_workspace_root)?;
+        self.uninstall_active_patch_set(
+            operation_id,
+            lifecycle_store_root,
+            lifecycle_workspace_root,
+        )?;
+        let staged = self
+            .stage_patch_outputs(selected, operation_id, &mut emit, &cancelled)
+            .map_err(|error| Error::Staging(error.to_string()))?;
+        staged
+            .verify()
+            .map_err(|error| Error::Staging(error.to_string()))?;
+        let store = DurableLifecycleStore::open(lifecycle_store_root)
+            .map_err(|error| Error::Transaction(error.to_string()))?;
+        let existing = store
+            .manifest(&lifecycle_installation_id(&self.game_root))
+            .map_err(|error| Error::Transaction(error.to_string()))?
+            .is_some_and(|manifest| {
+                manifest
+                    .records
+                    .iter()
+                    .any(|record| record.instance_id == "active-patch-set")
+            });
+        let mut runtime = ReleaseARuntime::new(store);
+        let mut workspace =
+            OsLifecycleWorkspace::open(self.game_root.clone(), lifecycle_workspace_root.to_owned())
+                .map_err(|error| Error::Transaction(error.to_string()))?;
+        let mut files = Vec::with_capacity(staged.artifacts().len());
+        let mut baseline_files = Vec::with_capacity(staged.artifacts().len());
+        for (index, artifact) in staged.artifacts().iter().enumerate() {
+            let source_id = format!("patch-artifact-{index:08}");
+            workspace
+                .register_artifact_source(&source_id, artifact.path())
+                .map_err(|error| Error::Transaction(error.to_string()))?;
+            let path = ValidatedRelativePath::parse(artifact.target().relative_path())
+                .map_err(|_| Error::InvalidTarget)?;
+            if !existing {
+                let destination = self.game_root.join(path.as_str());
+                if destination.exists() {
+                    let original = inspect_regular_file(&destination, MAX_STAGED_ARTIFACT_BYTES)
+                        .map_err(|error| Error::Transaction(error.to_string()))?;
+                    let baseline_source_id = format!("patch-baseline-{index:08}");
+                    workspace
+                        .register_artifact_source(&baseline_source_id, &destination)
+                        .map_err(|error| Error::Transaction(error.to_string()))?;
+                    baseline_files.push(InstallFilePlan {
+                        path: path.clone(),
+                        path_identity_key: lifecycle_path_key(path.as_str(), self.platform),
+                        sha256: original.sha256().to_owned(),
+                        size_bytes: original.size(),
+                        expected_previous_sha256: Some(original.sha256().to_owned()),
+                        source: StagingSource::Artifact {
+                            source_id: baseline_source_id,
+                        },
+                    });
+                }
+            }
+            files.push(InstallFilePlan {
+                path,
+                path_identity_key: lifecycle_path_key(
+                    artifact.target().relative_path(),
+                    self.platform,
+                ),
+                sha256: artifact.sha256().to_owned(),
+                size_bytes: artifact.size(),
+                expected_previous_sha256: None,
+                source: StagingSource::Artifact { source_id },
+            });
+        }
+        if files.is_empty() {
+            staged
+                .discard_verified()
+                .map_err(|error| Error::Staging(error.to_string()))?;
+            return Ok(PatchResult {
+                patched: true,
+                log: String::new(),
+                full_log: String::new(),
+            });
+        }
+        let provider = local_patch_provider()?;
+        let installation_id = lifecycle_installation_id(&self.game_root);
+        let baseline_created = !existing && !baseline_files.is_empty();
+        if baseline_created {
+            let baseline_operation = format!(
+                "patch-baseline-{}",
+                &sha2_digest(operation_id.as_bytes())[..32]
+            );
+            let baseline_request = OperationRequest::new(
+                &baseline_operation,
+                &baseline_operation,
+                OperationIntent {
+                    installation_id: installation_id.clone(),
+                    kind: LifecycleOperationKind::Install,
+                    mod_instance_id: Some("active-patch-set".into()),
+                    provider: Some(provider.clone()),
+                    archive_sha256: None,
+                    file_plan_fingerprint: Some(file_plan_fingerprint(&baseline_files)),
+                    profile_id: None,
+                },
+            )
+            .map_err(|error| Error::Transaction(error.to_string()))?;
+            let baseline_plan = ValidatedInstallPlan::new(
+                baseline_request,
+                InstallMetadata {
+                    instance_id: "active-patch-set".into(),
+                    mod_id: "active-patch-set".into(),
+                    display_name: "Patch session baseline".into(),
+                    version: Some("baseline".into()),
+                    provider: provider.clone(),
+                    archive_sha256: None,
+                },
+                baseline_files,
+            )
+            .map_err(|error| Error::Transaction(error.to_string()))?;
+            require_lifecycle_success(runtime.install(
+                baseline_plan,
+                lifecycle_identity(&baseline_operation, "adopt"),
+                &mut workspace,
+            ))?;
+        }
+        let is_update = existing || baseline_created;
+        let kind = if is_update {
+            LifecycleOperationKind::Update
+        } else {
+            LifecycleOperationKind::Install
+        };
+        let intent = OperationIntent {
+            installation_id,
+            kind,
+            mod_instance_id: Some("active-patch-set".into()),
+            provider: Some(provider.clone()),
+            archive_sha256: None,
+            file_plan_fingerprint: Some(file_plan_fingerprint(&files)),
+            profile_id: None,
+        };
+        let request = OperationRequest::new(operation_id, operation_id, intent)
+            .map_err(|error| Error::Transaction(error.to_string()))?;
+        let plan = ValidatedInstallPlan::new(
+            request,
+            InstallMetadata {
+                instance_id: "active-patch-set".into(),
+                mod_id: "active-patch-set".into(),
+                display_name: "Active patch set".into(),
+                version: Some(operation_id.into()),
+                provider,
+                archive_sha256: None,
+            },
+            files,
+        )
+        .map_err(|error| Error::Transaction(error.to_string()))?;
+        let identity = lifecycle_identity(operation_id, "apply");
+        let outcome = if is_update {
+            runtime.update(plan, identity, &mut workspace)
+        } else {
+            runtime.install(plan, identity, &mut workspace)
+        };
+        require_lifecycle_success(outcome)?;
+        staged
+            .discard_verified()
+            .map_err(|error| Error::Staging(error.to_string()))?;
+        emit(progress_event(operation_id, "patching", 1, 1, None, None));
+        Ok(PatchResult {
+            patched: true,
+            log: String::new(),
+            full_log: String::new(),
+        })
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn patch_staged_lifecycle(
+        &self,
+        _selected: &[String],
+        _operation_id: &str,
+        _lifecycle_store_root: &Path,
+        _lifecycle_workspace_root: &Path,
+        _emit: impl FnMut(Progress),
+        _cancelled: impl Fn() -> bool,
+    ) -> Result<PatchResult, Error> {
+        Err(Error::LifecycleBoundaryUnavailable)
+    }
+
+    #[cfg(any(unix, windows))]
+    fn uninstall_active_patch_set(
+        &self,
+        operation_id: &str,
+        lifecycle_store_root: &Path,
+        lifecycle_workspace_root: &Path,
+    ) -> Result<(), Error> {
+        let store = DurableLifecycleStore::open(lifecycle_store_root)
+            .map_err(|error| Error::Transaction(error.to_string()))?;
+        let installation_id = lifecycle_installation_id(&self.game_root);
+        let installed_version = store
+            .manifest(&installation_id)
+            .map_err(|error| Error::Transaction(error.to_string()))?
+            .and_then(|manifest| {
+                manifest
+                    .records
+                    .into_iter()
+                    .find(|record| record.instance_id == "active-patch-set")
+                    .and_then(|record| record.version.clone())
+            });
+        let Some(installed_version) = installed_version else {
+            return Ok(());
+        };
+        if installed_version == "baseline" {
+            return Ok(());
+        }
+        let mut runtime = ReleaseARuntime::new(store);
+        let mut workspace =
+            OsLifecycleWorkspace::open(self.game_root.clone(), lifecycle_workspace_root.to_owned())
+                .map_err(|error| Error::Transaction(error.to_string()))?;
+        let restore_operation = format!(
+            "patch-restore-{}",
+            &sha2_digest(operation_id.as_bytes())[..32]
+        );
+        let request = OperationRequest::new(
+            &restore_operation,
+            &restore_operation,
+            OperationIntent {
+                installation_id,
+                kind: LifecycleOperationKind::Recover,
+                mod_instance_id: None,
+                provider: None,
+                archive_sha256: None,
+                file_plan_fingerprint: None,
+                profile_id: None,
+            },
+        )
+        .map_err(|error| Error::Transaction(error.to_string()))?;
+        require_lifecycle_success(runtime.restore_last_working_state(
+            request,
+            lifecycle_identity(&restore_operation, "restore"),
+            &mut workspace,
+        ))
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn uninstall_active_patch_set(
+        &self,
+        _operation_id: &str,
+        _lifecycle_store_root: &Path,
+        _lifecycle_workspace_root: &Path,
+    ) -> Result<(), Error> {
+        Err(Error::LifecycleBoundaryUnavailable)
+    }
+
+    /// Migration bridge for the Tauri shell: output construction and approval
+    /// use the hardened staging path, while the existing journal remains the
+    /// temporary publisher/rollback adapter. External patch tools therefore
+    /// fail closed until their sandboxed staging implementation lands.
+    pub fn patch_staged_compatibility(
+        &self,
+        selected: &[String],
+        operation_id: &str,
+        mut emit: impl FnMut(Progress),
+        cancelled: impl Fn() -> bool,
+    ) -> Result<PatchResult, Error> {
+        self.restore()?;
+        let staged = self
+            .stage_patch_outputs(selected, operation_id, &mut emit, &cancelled)
+            .map_err(|error| Error::Staging(error.to_string()))?;
+        staged
+            .verify()
+            .map_err(|error| Error::Staging(error.to_string()))?;
+        if staged.artifacts().is_empty() {
+            staged
+                .discard_verified()
+                .map_err(|error| Error::Staging(error.to_string()))?;
+            emit(progress_event(operation_id, "patching", 0, 0, None, None));
+            return Ok(PatchResult {
+                patched: true,
+                log: String::new(),
+                full_log: String::new(),
+            });
+        }
+
+        let journal_path = self.game_root.join(JOURNAL_NAME);
+        let mut journal = new_journal();
+        if let Err(error) = write_journal(&journal_path, &journal) {
+            let _ = staged.discard_verified();
+            return Err(Error::Transaction(error.to_string()));
+        }
+        let result = self.commit_staged_compatibility(
+            &staged,
+            &journal_path,
+            &mut journal,
+            operation_id,
+            &mut emit,
+            &cancelled,
+        );
+        match result {
+            Ok(()) => {
+                journal.state = "patched".into();
+                journal.completed_at = Some(now_millis().to_string());
+                if let Err(error) = write_journal(&journal_path, &journal) {
+                    let restore_error = restore(&self.game_root, &journal_path, &mut journal).err();
+                    let _ = staged.discard_verified();
+                    return Err(Error::Transaction(match restore_error {
+                        Some(restore_error) => {
+                            format!("{error}; rollback failed: {restore_error}")
+                        }
+                        None => error.to_string(),
+                    }));
+                }
+                if let Err(error) = staged.discard_verified() {
+                    let restore_error = restore(&self.game_root, &journal_path, &mut journal).err();
+                    return Err(Error::Transaction(match restore_error {
+                        Some(restore_error) => {
+                            format!("{error}; rollback failed: {restore_error}")
+                        }
+                        None => error.to_string(),
+                    }));
+                }
+                Ok(PatchResult {
+                    patched: true,
+                    log: String::new(),
+                    full_log: String::new(),
+                })
+            }
+            Err(error) => {
+                let restore_error = restore(&self.game_root, &journal_path, &mut journal).err();
+                let _ = staged.discard_verified();
+                if let Some(restore_error) = restore_error {
+                    Err(Error::Transaction(format!(
+                        "{error}; rollback failed: {restore_error}"
+                    )))
+                } else {
+                    Err(error)
+                }
+            }
+        }
+    }
+
+    fn commit_staged_compatibility(
+        &self,
+        staged: &StagedPatchSet,
+        journal_path: &Path,
+        journal: &mut Journal,
+        operation_id: &str,
+        emit: &mut impl FnMut(Progress),
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<(), Error> {
+        let total = staged.artifacts().len();
+        for (index, artifact) in staged.artifacts().iter().enumerate() {
+            check_cancel(cancelled)?;
+            let relative = checked_relative(artifact.target().relative_path())
+                .map_err(|_| Error::InvalidTarget)?;
+            let destination = self.game_root.join(&relative);
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            backup(
+                &self.game_root,
+                journal_path,
+                journal,
+                artifact.target().relative_path(),
+            )
+            .map_err(|error| Error::Transaction(error.to_string()))?;
+            let source = inspect_regular_file(artifact.path(), MAX_STAGED_ARTIFACT_BYTES)
+                .map_err(|error| Error::Staging(error.to_string()))?;
+            if source.sha256() != artifact.sha256() || source.size() != artifact.size() {
+                return Err(Error::Staging("staged artifact changed".into()));
+            }
+            fs::copy(artifact.path(), &destination)?;
+            let published = inspect_regular_file(&destination, MAX_STAGED_ARTIFACT_BYTES)
+                .map_err(|error| Error::Transaction(error.to_string()))?;
+            if published.sha256() != artifact.sha256() || published.size() != artifact.size() {
+                return Err(Error::Transaction(
+                    "published output failed verification".into(),
+                ));
+            }
+            emit(progress_event(
+                operation_id,
+                "patching",
+                index + 1,
+                total,
+                Some(artifact.target().relative_path().to_owned()),
+                None,
+            ));
+        }
+        Ok(())
     }
 
     fn tool(&self, kind: ToolKind) -> Result<ToolPath, Error> {
@@ -696,7 +1290,10 @@ impl Runtime {
                 Some(target.clone()),
                 None,
             ));
-            let tool_log = run_tool(&undertale_mod_cli(tool, &input, &output, &staged))?;
+            let tool_log = run_tool(
+                &undertale_mod_cli(tool, &input, &output, &staged),
+                cancelled,
+            )?;
             if !tool_log.is_empty() {
                 emit(progress_event(
                     operation_id,
@@ -780,7 +1377,7 @@ impl Runtime {
                     &patch.target,
                 )
             };
-            let output = run_tool(&spec)?;
+            let output = run_tool(&spec, cancelled)?;
             let event_output = (!output.is_empty()).then(|| format!("[G3MTOOL] {output}"));
             full_log.push_str(&output);
             completed += 1;
@@ -1044,9 +1641,15 @@ fn backup_target(
     )
     .map_err(|e| Error::Transaction(e.to_string()))
 }
-fn run_tool(spec: &deltamod_tools_runtime::CommandSpec) -> Result<String, Error> {
-    let output = run_bounded(spec, DEFAULT_TIMEOUT, MAX_OUTPUT_BYTES)
-        .map_err(|e| Error::Tool(e.to_string()))?;
+fn run_tool(
+    spec: &deltamod_tools_runtime::CommandSpec,
+    cancelled: &impl Fn() -> bool,
+) -> Result<String, Error> {
+    let output = run_bounded_with_cancel_probe(spec, DEFAULT_TIMEOUT, MAX_OUTPUT_BYTES, cancelled)
+        .map_err(|error| match error {
+            ToolRuntimeError::Cancelled { .. } => Error::Cancelled,
+            other => Error::Tool(other.to_string()),
+        })?;
     let combined = format!("{}{}", output.stdout, output.stderr);
     if output.timed_out {
         return Err(Error::Tool("tool timed out".into()));
@@ -1181,6 +1784,74 @@ fn now_millis() -> u128 {
         .unwrap_or_default()
         .as_millis()
 }
+
+#[cfg(any(unix, windows))]
+fn lifecycle_installation_id(game_root: &Path) -> String {
+    #[cfg(windows)]
+    let identity = game_root.to_string_lossy().to_lowercase().into_bytes();
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::{ffi::OsStrExt as _, fs::MetadataExt as _};
+
+        let canonical = fs::canonicalize(game_root).unwrap_or_else(|_| game_root.to_owned());
+        let mut bytes = canonical.as_os_str().as_bytes().to_vec();
+        if let Ok(metadata) = fs::metadata(&canonical) {
+            bytes.extend_from_slice(&metadata.dev().to_le_bytes());
+            bytes.extend_from_slice(&metadata.ino().to_le_bytes());
+        }
+        bytes
+    };
+    format!("game-{}", &sha2_digest(&identity)[..32])
+}
+
+#[cfg(any(unix, windows))]
+fn lifecycle_path_key(path: &str, platform: PatchPlatform) -> String {
+    let normalized = path.replace('\\', "/");
+    if platform == PatchPlatform::Win32 {
+        normalized.to_lowercase()
+    } else {
+        normalized
+    }
+}
+
+#[cfg(any(unix, windows))]
+fn local_patch_provider() -> Result<ProviderRef, Error> {
+    ProviderRef::new(
+        ProviderId::parse("local").map_err(|error| Error::Transaction(error.to_string()))?,
+        ProviderItemKind::LocalArchive,
+        ProviderResourceId::parse("active-patch-set")
+            .map_err(|error| Error::Transaction(error.to_string()))?,
+        None,
+        None,
+        ProviderArtifactKind::Unknown,
+        None,
+        None,
+    )
+    .map_err(|error| Error::Transaction(error.to_string()))
+}
+
+#[cfg(any(unix, windows))]
+fn lifecycle_identity(operation_id: &str, phase: &str) -> ExecutionIdentity {
+    ExecutionIdentity {
+        owner_instance_id: format!("tauri-{}", std::process::id()),
+        lease_id: format!("{operation_id}-{phase}-lease"),
+        recovery_generation_id: format!("{operation_id}-{phase}-generation"),
+        now_ms: u64::try_from(now_millis()).unwrap_or(u64::MAX),
+        lease_ttl_ms: 5 * 60 * 1_000,
+    }
+}
+
+#[cfg(any(unix, windows))]
+fn require_lifecycle_success(outcome: LifecycleOutcome) -> Result<(), Error> {
+    match outcome {
+        LifecycleOutcome::Succeeded { .. } | LifecycleOutcome::Existing { .. } => Ok(()),
+        LifecycleOutcome::Busy { error, .. }
+        | LifecycleOutcome::Rejected { error, .. }
+        | LifecycleOutcome::RecoveryRequired { error, .. } => {
+            Err(Error::Transaction(error.code.as_str().into()))
+        }
+    }
+}
 fn percent(completed: usize, total: usize) -> f64 {
     if total == 0 {
         100.0
@@ -1217,6 +1888,32 @@ fn check_cancel(cancelled: &impl Fn() -> bool) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_recovery_is_a_noop_before_a_game_is_configured() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = Runtime {
+            game_root: root.path().join("missing-game"),
+            mod_root: root.path().join("mods"),
+            tools_root: root.path().join("tools"),
+            hash_cache_path: root.path().join("hashes.json"),
+            platform: PatchPlatform::Win32,
+            platform_name: "win32".into(),
+            arch: "x64".into(),
+            definition: PlatformDefinition {
+                data_files: vec!["data.win".into()],
+                patch_layout: "windows-root".into(),
+                content_root: None,
+            },
+        };
+        let lifecycle = LifecycleStorageRoots {
+            store: root.path().join("store"),
+            workspace: root.path().join("workspace"),
+        };
+        assert_eq!(runtime.recover_startup_lifecycle(&lifecycle).unwrap(), 0);
+        assert!(!lifecycle.store.exists());
+        assert!(!lifecycle.workspace.exists());
+    }
 
     #[test]
     fn platform_mapping_matches_node_contract() {
@@ -1463,5 +2160,179 @@ name = "Test"
         assert!(game.join(JOURNAL_NAME).is_file());
         runtime.restore().unwrap();
         assert_eq!(fs::read(game.join("data.win")).unwrap(), b"original");
+    }
+
+    #[test]
+    fn tauri_compatibility_path_publishes_only_verified_staged_output() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("game");
+        let mods = root.path().join("mods");
+        let packet = mods.join("one");
+        fs::create_dir_all(&game).unwrap();
+        fs::create_dir_all(&packet).unwrap();
+        fs::write(game.join("data.win"), b"original").unwrap();
+        fs::write(packet.join("new.bin"), b"patched").unwrap();
+        fs::write(packet.join("__deltaID.json"), r#"{"uniqueId":"id"}"#).unwrap();
+        fs::write(packet.join("meta.toml"), "[metadata]\nname='Test'\n").unwrap();
+        fs::write(
+            packet.join("modding.xml"),
+            r#"<root><patch type="override" patch="new.bin" to="data.win"/></root>"#,
+        )
+        .unwrap();
+        let runtime = Runtime {
+            game_root: game.clone(),
+            mod_root: mods,
+            tools_root: root.path().join("tools"),
+            hash_cache_path: root.path().join("hash.json"),
+            platform: PatchPlatform::Linux,
+            platform_name: "linux".into(),
+            arch: "x64".into(),
+            definition: PlatformDefinition {
+                data_files: vec!["data.win".into()],
+                patch_layout: "windows-root".into(),
+                content_root: None,
+            },
+        };
+        let mut events = Vec::new();
+        assert!(
+            runtime
+                .patch_staged_compatibility(
+                    &["id".into()],
+                    "patch-stage-1",
+                    |event| events.push(event),
+                    || false,
+                )
+                .unwrap()
+                .patched
+        );
+        assert_eq!(fs::read(game.join("data.win")).unwrap(), b"patched");
+        assert_eq!(events.last().unwrap().phase, "patching");
+        runtime.restore().unwrap();
+        assert_eq!(fs::read(game.join("data.win")).unwrap(), b"original");
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn tauri_lifecycle_path_publishes_and_restores_without_legacy_journal() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("game");
+        let mods = root.path().join("mods");
+        let packet = mods.join("one");
+        let lifecycle_store = root.path().join("lifecycle-store");
+        let lifecycle_workspaces = root.path().join("lifecycle-workspaces");
+        fs::create_dir_all(&game).unwrap();
+        fs::create_dir_all(&packet).unwrap();
+        fs::write(game.join("data.win"), b"original").unwrap();
+        fs::write(packet.join("new.bin"), b"patched").unwrap();
+        fs::write(packet.join("__deltaID.json"), r#"{"uniqueId":"id"}"#).unwrap();
+        fs::write(packet.join("meta.toml"), "[metadata]\nname='Test'\n").unwrap();
+        fs::write(
+            packet.join("modding.xml"),
+            r#"<root><patch type="override" patch="new.bin" to="data.win"/></root>"#,
+        )
+        .unwrap();
+        let runtime = Runtime {
+            game_root: game.clone(),
+            mod_root: mods,
+            tools_root: root.path().join("tools"),
+            hash_cache_path: root.path().join("hash.json"),
+            platform: PatchPlatform::Win32,
+            platform_name: "win32".into(),
+            arch: "x64".into(),
+            definition: PlatformDefinition {
+                data_files: vec!["data.win".into()],
+                patch_layout: "windows-root".into(),
+                content_root: None,
+            },
+        };
+
+        assert!(
+            runtime
+                .patch_staged_lifecycle(
+                    &["id".into()],
+                    "patch-lifecycle-1",
+                    &lifecycle_store,
+                    &lifecycle_workspaces,
+                    |_| {},
+                    || false,
+                )
+                .unwrap()
+                .patched
+        );
+        assert_eq!(fs::read(game.join("data.win")).unwrap(), b"patched");
+        assert!(!game.join(JOURNAL_NAME).exists());
+
+        // A second delivery simulates a process restart with a patch still
+        // active: startup recovery must restore the baseline before applying
+        // the new session, without ever invoking the compatibility publisher.
+        runtime
+            .uninstall_active_patch_set(
+                "simulated-startup-recovery",
+                &lifecycle_store,
+                &lifecycle_workspaces,
+            )
+            .unwrap();
+        assert_eq!(fs::read(game.join("data.win")).unwrap(), b"original");
+        runtime
+            .patch_staged_lifecycle(
+                &["id".into()],
+                "patch-lifecycle-2",
+                &lifecycle_store,
+                &lifecycle_workspaces,
+                |_| {},
+                || false,
+            )
+            .unwrap();
+        assert_eq!(fs::read(game.join("data.win")).unwrap(), b"patched");
+        assert!(!game.join(JOURNAL_NAME).exists());
+
+        runtime
+            .uninstall_active_patch_set(
+                "patch-lifecycle-2",
+                &lifecycle_store,
+                &lifecycle_workspaces,
+            )
+            .unwrap();
+        assert_eq!(fs::read(game.join("data.win")).unwrap(), b"original");
+        assert!(!game.join(JOURNAL_NAME).exists());
+    }
+
+    #[test]
+    fn tauri_compatibility_path_fails_closed_for_external_patch_tools() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("game");
+        let mods = root.path().join("mods");
+        let packet = mods.join("one");
+        fs::create_dir_all(&game).unwrap();
+        fs::create_dir_all(&packet).unwrap();
+        fs::write(game.join("data.win"), b"original").unwrap();
+        fs::write(packet.join("patch.bin"), b"external").unwrap();
+        fs::write(packet.join("__deltaID.json"), r#"{"uniqueId":"id"}"#).unwrap();
+        fs::write(packet.join("meta.toml"), "[metadata]\nname='Test'\n").unwrap();
+        fs::write(
+            packet.join("modding.xml"),
+            r#"<root><patch type="g3mpatch" patch="patch.bin" to="data.win"/></root>"#,
+        )
+        .unwrap();
+        let runtime = Runtime {
+            game_root: game.clone(),
+            mod_root: mods,
+            tools_root: root.path().join("tools"),
+            hash_cache_path: root.path().join("hash.json"),
+            platform: PatchPlatform::Linux,
+            platform_name: "linux".into(),
+            arch: "x64".into(),
+            definition: PlatformDefinition {
+                data_files: vec!["data.win".into()],
+                patch_layout: "windows-root".into(),
+                content_root: None,
+            },
+        };
+        let error = runtime
+            .patch_staged_compatibility(&["id".into()], "patch-stage-2", |_| {}, || false)
+            .unwrap_err();
+        assert!(matches!(error, Error::Staging(_)));
+        assert_eq!(fs::read(game.join("data.win")).unwrap(), b"original");
+        assert!(!game.join(JOURNAL_NAME).exists());
     }
 }

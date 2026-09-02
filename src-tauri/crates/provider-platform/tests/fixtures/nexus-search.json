@@ -1,0 +1,38 @@
+{
+  "data": {
+    "mods": {
+      "totalCount": 100,
+      "nodes": [
+        {
+          "modId": 42,
+          "gameDomainName": "deltarune",
+          "name": "Nexus Fixture",
+          "summary": "<p>Nexus fixture summary</p>",
+          "author": "Nexus Author",
+          "updatedAt": "2026-08-30T10:00:00Z",
+          "pictureUrl": "https://images.nexusmods.com/mods/1704/images/42.png?token=image-secret",
+          "adultContent": false,
+          "downloads": 120,
+          "endorsements": 12
+        },
+        {
+          "modId": "42",
+          "gameDomainName": "deltarune",
+          "name": "Duplicate Nexus Fixture",
+          "summary": "Duplicate",
+          "author": "Nexus Author"
+        },
+        {
+          "modId": 23,
+          "gameDomainName": "deltarune",
+          "name": "Featured Nexus Fixture",
+          "summary": "Featured",
+          "author": "Featured Author",
+          "adultContent": true,
+          "downloads": 23,
+          "endorsements": 2
+        }
+      ]
+    }
+  }
+}

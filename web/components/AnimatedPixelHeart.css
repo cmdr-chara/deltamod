@@ -34,6 +34,12 @@
 
 .animated-pixel-heart:disabled,
 .animated-pixel-heart[data-interactive="false"] {
+  /* The boot emblem is a disabled button. Override the higher-specificity
+     global disabled-control surface so the pixel canvas stays borderless. */
+  border: 0;
+  background: var(--aph-background, transparent) !important;
+  color: var(--aph-foreground, #ffffff);
+  box-shadow: none;
   opacity: 1;
   cursor: default;
   pointer-events: none;

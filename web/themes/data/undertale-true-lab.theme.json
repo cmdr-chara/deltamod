@@ -1,0 +1,11 @@
+{
+  "name": "True Lab",
+  "background": "undertale-true-lab.png",
+  "description": "A theme based on the True Lab from UNDERTALE.",
+  "mainSong": "undertale-true-lab.ogg",
+  "musicTrack": "Here We Are - Toby Fox",
+  "id": "undertale-true-lab",
+  "color": "rgb(110, 98, 130)",
+  "soulColor": "#FF0000",
+  "backgroundSize": "cover"
+}

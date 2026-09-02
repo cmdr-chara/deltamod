@@ -1,0 +1,13 @@
+{
+  "ssoAvailable": true,
+  "ssoPending": false,
+  "personalKeyFallbackAllowed": false,
+  "authMethod": "oauth-pkce",
+  "configured": true,
+  "connected": true,
+  "valid": true,
+  "name": "Nexus Fixture User",
+  "userId": 9001,
+  "premium": true,
+  "supporter": false
+}

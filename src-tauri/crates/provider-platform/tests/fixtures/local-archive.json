@@ -1,0 +1,12 @@
+{
+  "metadata": {
+    "name": "Local Fixture",
+    "description": "Locally imported fixture archive",
+    "author": "Local Author",
+    "version": "1.2 beta",
+    "game": "toby.deltarune"
+  },
+  "fileName": "local-fixture.zip",
+  "sizeBytes": 8192,
+  "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

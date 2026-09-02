@@ -1,0 +1,23 @@
+{
+  "id": "the-knight-monochrome",
+  "version": 1,
+  "format": "RGBA PNG",
+  "palette": [
+    "#070707",
+    "#373737",
+    "#9E9E9E",
+    "#C6C6C6",
+    "#F6F6F6",
+    "#FFFFFF"
+  ],
+  "assets": {
+    "allmods.png": "sbar/allmods.png",
+    "collections.png": "sbar/collections.png",
+    "credits.png": "sbar/credits.png",
+    "installmanager.png": "sbar/installmanager.png",
+    "main.png": "sbar/main.png",
+    "options.png": "sbar/options.png",
+    "shop.png": "sbar/shop.png",
+    "packIcon.png": "img/packIcon.png"
+  }
+}

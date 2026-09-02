@@ -7,7 +7,9 @@ description = "Transactional legacy-compatible game patching and hash runtime"
 
 [dependencies]
 deltamod-hash-worker = { path = "../../../native/hash-worker" }
+deltamod-lifecycle-runtime = { path = "../lifecycle-runtime" }
 deltamod-native-core = { path = "../../../native/core" }
+deltamod-product-contracts = { path = "../product-contracts" }
 deltamod-tools-runtime = { path = "../tools-runtime" }
 deltamod-updater-launch-runtime = { path = "../updater-launch-runtime" }
 roxmltree = "0.21"

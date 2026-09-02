@@ -13,7 +13,7 @@ async function locateDelta() {
     try {
         var path = await window.deltamodBackend.invoke('locateDelta',[window.gid]);
         if (path != null && path != "Invalid") {
-            document.querySelector('input[type="text"]').value = path;
+            document.getElementById('dpath').value = path;
         }
         else if (path === "Invalid") {
             htmlAlert("Warning","The selected folder is not a valid installation for " + window.gidName + ".", [{text:"Ok",resolveWith:'ok'}]);
@@ -75,7 +75,7 @@ window.currentPageStack.downloadDelta = async function() {
     }
     var path = await window.deltamodBackend.invoke("downloadGame", [window.gid]);
     if (path) {
-        document.querySelector('input[type="text"]').value = path;
+        document.getElementById('dpath').value = path;
     }
 
     document.querySelector('.copyAnyways').style.opacity = 0.5;
@@ -99,6 +99,20 @@ function formatImportBytes(value) {
 function setImportControlsDisabled(disabled) {
     document.querySelectorAll('button:not(#cancelGameImport), input').forEach(element => {
         element.disabled = disabled;
+    });
+    if (!disabled) {
+        updateImportMethods();
+    }
+}
+
+let selectedImportFeatures = new Set();
+
+function updateImportMethods() {
+    ['steam', 'autodownload'].forEach(feature => {
+        const button = document.getElementById('feat_' + feature);
+        const available = selectedImportFeatures.has(feature);
+        button.disabled = !available;
+        button.style.opacity = available ? 1 : 0.4;
     });
 }
 
@@ -132,48 +146,41 @@ document.getElementById('cancelGameImport').onclick = async () => {
     });
     window.gid = "noid";
 
-    var games = await window.deltamodBackend.invoke('getAvailableGames',[]);
-    var gOptions = document.querySelector('.gOptions');
+    const games = await window.deltamodBackend.invoke('getAvailableGames',[]);
+    const gOptions = document.querySelector('.gOptions');
 
-    var ems = [];
+    for (const game of games) {
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.classList.add('game-option');
+            option.setAttribute('aria-label', game.name);
+            option.setAttribute('aria-pressed', 'false');
 
-    for (l in games) {
-        await (async() => {
-            var game = games[l];
-
-            var img = document.createElement('img');
+            const img = document.createElement('img');
             img.id = game.id;
             img.classList.add('gameIco');
-            img.addEventListener('click', function() {
+            img.alt = '';
+            option.addEventListener('click', function() {
                 window.gid = game.id;
                 window.gidName = game.name;
-                document.querySelectorAll('.gameIco').forEach(x =>{
+                document.querySelectorAll('.game-option').forEach(x => {
                     x.classList.remove('selectedGameIco');
+                    x.setAttribute('aria-pressed', 'false');
                 });
 
-                img.classList.add('selectedGameIco');
+                option.classList.add('selectedGameIco');
+                option.setAttribute('aria-pressed', 'true');
 
-                var allFeat = ['steam','autodownload'];
-                allFeat.forEach(f => {
-                    if (game.availableFeatures.map(x => x.feat).includes(f)) {
-                        document.getElementById('feat_' + f).disabled = false;
-                        document.getElementById('feat_' + f).style.opacity = 1;
-                    }
-                    else {
-                        document.getElementById('feat_' + f).disabled = true;
-                        document.getElementById('feat_' + f).style.opacity = 0.4;
-                    }
-                });
-            })
+                selectedImportFeatures = new Set(game.availableFeatures.map(feature => feature.feat));
+                updateImportMethods();
+            });
             img.src = './gamesIco/' + game.id+'.png';
-            gOptions.appendChild(img);
+            option.appendChild(img);
+            gOptions.appendChild(option);
 
-            ems.push({id:game.id,em:img});
-
-            tippy(img, {
+            tippy(option, {
                 content: game.name
             });
-        })();
     }
 })();
 })();

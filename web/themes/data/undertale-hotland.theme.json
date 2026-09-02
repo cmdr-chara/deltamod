@@ -1,0 +1,11 @@
+{
+  "name": "Hotland",
+  "background": "undertale-hotland.png",
+  "description": "A theme based on Hotland from UNDERTALE.",
+  "mainSong": "undertale-hotland.ogg",
+  "musicTrack": "Another Medium - Toby Fox",
+  "id": "undertale-hotland",
+  "color": "rgb(178, 59, 31)",
+  "soulColor": "#FCA600",
+  "backgroundSize": "cover"
+}

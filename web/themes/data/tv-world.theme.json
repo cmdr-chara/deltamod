@@ -1,0 +1,10 @@
+{
+  "name": "TV World",
+  "background": "tv-world.png",
+  "description": "A theme based on TV World from DELTARUNE.",
+  "mainSong": "tv-world.ogg",
+  "musicTrack": "TV World - Toby Fox",
+  "id": "tv-world",
+  "color": "rgb(164, 48, 145)",
+  "soulColor": "#D535D9"
+}

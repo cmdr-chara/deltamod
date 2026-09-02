@@ -17,6 +17,7 @@
 
     <script src="./tauri-adapter.js"></script>
     <script src="./media-compat.js"></script>
+    <script src="./modules/chara-encounter-session.js"></script>
     <script src="./modules/tippy/popper.min.js"></script>
     <script src="./modules/tippy/tippy-bundle.umd.js"></script>
 </head>
@@ -44,6 +45,12 @@
         aria-hidden="true"
         hidden
     ></video>
+    <div
+        id="theme-sprite-layer"
+        class="theme-sprite-layer"
+        aria-hidden="true"
+        hidden
+    ></div>
     <div class="dmodicon" aria-hidden="true">
         <img
             src="./img/packIcon.png"
@@ -66,13 +73,19 @@
         </div>
         <div class="barbtns">
             <button onclick="toggleMinimize()" class="bar-button minimize-button" title="Minimize" aria-label="Minimize">
-                <span class="material-symbols-outlined">minimize</span>
+                <svg class="window-control-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                    <path d="M3 11.5h10" />
+                </svg>
             </button>
             <button onclick="toggleFullscreen()" class="bar-button maximize-button" title="Maximize" aria-label="Maximize">
-                <span class="material-symbols-outlined">crop_square</span>
+                <svg class="window-control-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                    <rect x="3.5" y="3.5" width="9" height="9" rx="1" />
+                </svg>
             </button>
             <button onclick="closeCommunity()" class="bar-button close-button" title="Close" aria-label="Close">
-                <span class="material-symbols-outlined">close</span>
+                <svg class="window-control-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                    <path d="m4 4 8 8M12 4l-8 8" />
+                </svg>
             </button>
         </div>
     </div>
@@ -83,32 +96,32 @@
     </div>
     <div class="sidebar">
         <div class="sidebar-buttons">
-            <button class="sidebar-button" data-page="main" aria-label="Home" title="Home">
+            <button class="sidebar-button" data-page="main" aria-label="Home">
                 <img src="sbar/main.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/main.png">
             </button>
 
-            <button class="sidebar-button" data-page="allmods" aria-label="Mod library" title="Mod library">
+            <button class="sidebar-button" data-page="allmods" aria-label="Mod library">
                 <img src="sbar/allmods.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/allmods.png">
             </button>
 
-            <button class="sidebar-button" data-page="options" aria-label="Options" title="Options">
+            <button class="sidebar-button" data-page="options" aria-label="Options">
                 <img src="sbar/options.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/options.png">
             </button>
             
-            <button class="sidebar-button" data-page="installmanager" aria-label="Installation manager" title="Installation manager">
+            <button class="sidebar-button" data-page="installmanager" aria-label="Installation manager">
                 <img src="sbar/installmanager.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/installmanager.png">
             </button>
 
             <!-- JS should display this if user toggled GameBanana specific features -->
-            <button class="sidebar-button" id="shopRibbon" data-page="gamebanana-browse" aria-label="Mod Shop" title="Mod Shop">
+            <button class="sidebar-button" id="shopRibbon" data-page="gamebanana-browse" aria-label="Mod Shop">
                 <img src="sbar/shop.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/shop.png">
             </button>
 
-            <button class="sidebar-button" style="display: none;" id="collectionsRibbon" data-page="collections" aria-label="Collections" title="Collections">
+            <button class="sidebar-button" style="display: none;" id="collectionsRibbon" data-page="collections" aria-label="Collections">
                 <img src="sbar/collections.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/collections.png">
             </button>
 
-            <button class="sidebar-button" data-page="credits" aria-label="Information and credits" title="Information and credits">
+            <button class="sidebar-button" data-page="credits" aria-label="Information and credits">
                 <img src="sbar/credits.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/credits.png">
             </button>
         </div>
@@ -178,6 +191,7 @@
           './linux-runtime-polish.js'
         ]) await load(source);
         document.documentElement.classList.remove('deltamod-route-pending');
+        window.dispatchEvent(new Event('deltamod-route-ready'));
       };
       const installerMode = window.deltamodBackend?.invoke
         ? window.deltamodBackend.invoke('isInstallerMode', [])

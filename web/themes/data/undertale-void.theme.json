@@ -1,0 +1,13 @@
+{
+  "name": "Barrier",
+  "background": "undertale-void.png",
+  "description": "A theme based on the Barrier from UNDERTALE.",
+  "mainSong": "undertale-void.ogg",
+  "musicTrack": "Barrier - Toby Fox",
+  "id": "undertale-void",
+  "color": "rgb(105, 86, 132)",
+  "soulColor": "#FFFF00",
+  "backgroundSize": "cover",
+  "backgroundPosition": "center bottom",
+  "backgroundColor": "#bdbdbd"
+}

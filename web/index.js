@@ -14,13 +14,45 @@ const menuAudioPositions = new Map();
 var themeVideoSuspendTimer = null;
 var suspendedThemeVideo = null;
 var themeVideoLoadTimer = null;
+var themeVideoRevealTimer = null;
 var themeVideoFallbackActive = false;
+var themeTransitionCleanupTimer = null;
+var themeTransitionImpactTimer = null;
+var themeTransitionFrameTimer = null;
+var themeTransitionReleaseTimer = null;
+var themeTransitionLastAudioTime = null;
+var themeTransitionSfxTimers = [];
+var themeTransitionActiveSfx = [];
+var themeTransitionCompleted = false;
+var themeSpriteAnimationTimers = [];
+var menuAudioWasPlayingBeforeWindowInactive = false;
 var theme = null;
 var pageN = null;
 var addedStyle = null;
 var currentPageScript = null;
 var update = false;
-var TARGET_MUSIC_VOLUME = 0.5;
+const MUSIC_VOLUME_STORAGE_KEY = 'deltamodMusicVolume';
+const DEFAULT_MUSIC_VOLUME = 0.5;
+
+function normalizeMusicVolume(value) {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue)
+        ? Math.min(1, Math.max(0, numericValue))
+        : DEFAULT_MUSIC_VOLUME;
+}
+
+function loadMusicVolume() {
+    try {
+        const storedValue = localStorage.getItem(MUSIC_VOLUME_STORAGE_KEY);
+        return storedValue === null
+            ? DEFAULT_MUSIC_VOLUME
+            : normalizeMusicVolume(storedValue);
+    } catch {
+        return DEFAULT_MUSIC_VOLUME;
+    }
+}
+
+var TARGET_MUSIC_VOLUME = loadMusicVolume();
 var cmode = false; // Controller Mode
 const MOTION = Object.freeze({
     fast: 140,
@@ -88,6 +120,30 @@ function releaseAudioBuffer() {
     currentAudioSource = "";
 }
 
+function setMenuMusicVolume(value, { persist = true } = {}) {
+    TARGET_MUSIC_VOLUME = normalizeMusicVolume(value);
+    audio.volume = TARGET_MUSIC_VOLUME;
+
+    const themeVideo = getThemeBackgroundVideo();
+    if (themeVideo) {
+        themeVideo.volume = TARGET_MUSIC_VOLUME;
+    }
+
+    if (persist) {
+        try {
+            localStorage.setItem(MUSIC_VOLUME_STORAGE_KEY, String(TARGET_MUSIC_VOLUME));
+        } catch (error) {
+            console.warn('Unable to save the music volume:', error);
+        }
+    }
+    return TARGET_MUSIC_VOLUME;
+}
+
+window.DeltamodAudioSettings = Object.freeze({
+    getVolume: () => TARGET_MUSIC_VOLUME,
+    setVolume: value => setMenuMusicVolume(value)
+});
+
 function rememberMenuAudioPosition() {
     if (currentAudioSource && Number.isFinite(audio.currentTime)) {
         menuAudioPositions.set(currentAudioSource, audio.currentTime);
@@ -119,8 +175,6 @@ function switchMenuAudioSource(source) {
 
     const resumeAt = menuAudioPositions.get(source) || 0;
     currentAudioSource = source;
-    audio.src = source;
-    configureMenuAudioPlayback(source);
 
     const restorePosition = () => {
         if (currentAudioSource !== source) return;
@@ -132,11 +186,13 @@ function switchMenuAudioSource(source) {
         audio.currentTime = Math.min(latestResumeAt, maximumPosition);
     };
 
-    if (audio.readyState >= 1) {
-        restorePosition();
-    } else {
-        audio.addEventListener('loadedmetadata', restorePosition, { once: true });
-    }
+    // Register before loading. WebView2 can briefly retain the previous track's
+    // readyState after assigning src; restoring then is discarded when the new
+    // media pipeline resets currentTime to zero.
+    audio.addEventListener('loadedmetadata', restorePosition, { once: true });
+    audio.src = source;
+    configureMenuAudioPlayback(source);
+    audio.load();
 }
 
 function loopMenuAudio() {
@@ -148,6 +204,7 @@ function loopMenuAudio() {
 }
 
 audio.addEventListener('timeupdate', loopMenuAudio);
+audio.addEventListener('timeupdate', synchronizeThemeTransition);
 
 function themeUsesIntegratedVideoAudio(themeConfig = theme) {
     return Boolean(
@@ -164,6 +221,383 @@ function getThemeBackgroundVideo() {
 function themeVideoUrl(themeConfig = theme) {
     if (!themeConfig?.backgroundVideo) return '';
     return themeAssetUrl(themeConfig, 'video', themeConfig.backgroundVideo);
+}
+
+function themeVideoRevealDelayMs(themeConfig = theme) {
+    const configuredDelay = Number(themeConfig?.backgroundVideoRevealDelay);
+    return Number.isFinite(configuredDelay)
+        ? Math.min(30, Math.max(0, configuredDelay)) * 1000
+        : 0;
+}
+
+const ROARING_KNIGHT_TRANSITION = Object.freeze({
+    id: 'roaring-knight-monochrome-awakening',
+    root: 'the-knight-transition',
+    slashFrames: Object.freeze(Array.from(
+        { length: 6 },
+        (_, index) => `spr_roaringknight_front_slash_${index}.png`
+    )),
+    // The source canvases are identical, but the visible Knight is not centered
+    // consistently inside them. These offsets keep the opaque subject aligned.
+    frameOffsets: Object.freeze([
+        Object.freeze({ x: 4.89, y: -5.32 }),
+        Object.freeze({ x: 10.90, y: 3.90 }),
+        Object.freeze({ x: 10.53, y: 3.19 }),
+        Object.freeze({ x: 0, y: 0 }),
+        Object.freeze({ x: -7.89, y: -10.64 }),
+        Object.freeze({ x: -7.52, y: -10.28 })
+    ])
+});
+
+const ROARING_KNIGHT_AWAKENED_FLAG = 'ROARING_KNIGHT_AWAKENED';
+
+const ROARING_KNIGHT_SFX = Object.freeze({
+    move: 'web/themes/sfx/the-knight-transition/knight-move.wav',
+    impact: 'web/themes/sfx/the-knight-transition/knight-impact.wav',
+    slash: 'web/assets/chara-easter-egg/slash.wav',
+    damage: 'web/assets/chara-easter-egg/damage.wav'
+});
+
+const ROARING_KNIGHT_MONOCHROME_SPRITES = Object.freeze({
+    'sbar/allmods.png': 'allmods.png',
+    'sbar/collections.png': 'collections.png',
+    'sbar/credits.png': 'credits.png',
+    'sbar/installmanager.png': 'installmanager.png',
+    'sbar/main.png': 'main.png',
+    'sbar/options.png': 'options.png',
+    'sbar/shop.png': 'shop.png',
+    'img/packIcon.png': 'packIcon.png'
+});
+
+function clearThemeTransition() {
+    clearTimeout(themeTransitionCleanupTimer);
+    clearTimeout(themeTransitionImpactTimer);
+    clearTimeout(themeTransitionFrameTimer);
+    clearTimeout(themeTransitionReleaseTimer);
+    themeTransitionCleanupTimer = null;
+    themeTransitionImpactTimer = null;
+    themeTransitionFrameTimer = null;
+    themeTransitionReleaseTimer = null;
+    themeTransitionSfxTimers.forEach(timer => clearTimeout(timer));
+    themeTransitionSfxTimers = [];
+    themeTransitionActiveSfx.forEach(sound => {
+        sound.pause();
+        sound.removeAttribute('src');
+        sound.load();
+    });
+    themeTransitionActiveSfx = [];
+    document.documentElement.classList.remove('roaring-knight-blackout');
+    document.getElementById('theme-transition-overlay')?.remove();
+}
+
+function themeTransitionAssetUrl(fileName, themeConfig = theme) {
+    return themeAssetUrl(
+        themeConfig,
+        'img',
+        `${ROARING_KNIGHT_TRANSITION.root}/${fileName}`
+    );
+}
+
+function setRoaringKnightSlashFrame(image, frameIndex) {
+    const safeFrameIndex = Math.max(
+        0,
+        Math.min(ROARING_KNIGHT_TRANSITION.slashFrames.length - 1, frameIndex)
+    );
+    const offset = ROARING_KNIGHT_TRANSITION.frameOffsets[safeFrameIndex];
+    image.src = themeTransitionAssetUrl(
+        ROARING_KNIGHT_TRANSITION.slashFrames[safeFrameIndex]
+    );
+    image.style.setProperty('--frame-offset-x', `${offset.x}%`);
+    image.style.setProperty('--frame-offset-y', `${offset.y}%`);
+}
+
+function roaringKnightSfxUrl(fileName) {
+    return window.deltamodBackend.assetUrl('app', fileName);
+}
+
+function playRoaringKnightSfx(fileName, volume, playbackRate, stopAfterMs = 0) {
+    const sound = new Audio(roaringKnightSfxUrl(fileName));
+    sound.preload = 'auto';
+    sound.volume = Math.min(1, Math.max(0, volume));
+    sound.playbackRate = Math.min(4, Math.max(0.25, playbackRate));
+    themeTransitionActiveSfx.push(sound);
+
+    const releaseSound = () => {
+        themeTransitionActiveSfx = themeTransitionActiveSfx.filter(item => item !== sound);
+    };
+    sound.addEventListener('ended', releaseSound, { once: true });
+    sound.play().catch(error => {
+        releaseSound();
+        console.warn('Unable to play a Roaring Knight sound:', error);
+    });
+
+    if (stopAfterMs > 0) {
+        const stopTimer = setTimeout(() => {
+            sound.pause();
+            releaseSound();
+        }, stopAfterMs);
+        themeTransitionSfxTimers.push(stopTimer);
+    }
+}
+
+function scheduleRoaringKnightSfx(fileName, delay, volume, playbackRate, stopAfterMs = 0) {
+    const timer = setTimeout(() => {
+        playRoaringKnightSfx(fileName, volume, playbackRate, stopAfterMs);
+    }, delay);
+    themeTransitionSfxTimers.push(timer);
+}
+
+async function playRoaringKnightSoundSequence() {
+    // An IPC failure must not silently mute a visual effect. An explicit disabled
+    // SFX preference still wins.
+    const sfxEnabled = await window.deltamodBackend
+        .invoke('getUniqueFlag', ['SFX'])
+        .catch(() => true);
+    if (sfxEnabled === false || document.hidden) return;
+
+    // DELTARUNE layers movement and multiple differently pitched cuts for the
+    // Knight. Keep the same structure while using locally bundled assets.
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.move, 70, 0.48, 0.86);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.move, 390, 0.26, 1.18);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.move, 625, 0.34, 0.72);
+
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.slash, 748, 0.58, 0.72);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.slash, 765, 0.46, 0.94);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.slash, 790, 0.32, 1.22);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.impact, 785, 0.34, 1.12, 950);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.damage, 805, 0.42, 0.78);
+}
+
+function activeThemeVisualConfig() {
+    if (
+        theme?.transitionEffect === ROARING_KNIGHT_TRANSITION.id
+        && (
+            themeTransitionCompleted
+            || document.documentElement.classList.contains('roaring-knight-awakened')
+        )
+    ) {
+        return {
+            ...theme,
+            color: theme.transitionColor || 'rgb(198, 203, 209)',
+            soulColor: theme.transitionSoulColor || '#FFFFFF'
+        };
+    }
+    return theme;
+}
+
+function normalizeThemeSpriteSource(source) {
+    return String(source || '').replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+function setRoaringKnightSpriteSet(awakened) {
+    const selector = '[data-theme-sprite-source], [data-knight-original-sprite-source]';
+    document.querySelectorAll(selector).forEach(image => {
+        if (!(image instanceof HTMLImageElement)) return;
+
+        if (awakened) {
+            const originalSource = image.dataset.knightOriginalSpriteSource
+                || image.dataset.themeSpriteSource;
+            const spriteName = ROARING_KNIGHT_MONOCHROME_SPRITES[
+                normalizeThemeSpriteSource(originalSource)
+            ];
+            if (!spriteName) return;
+
+            if (!image.dataset.knightOriginalSpriteSource) {
+                image.dataset.knightOriginalSpriteSource = originalSource;
+                image.dataset.knightOriginalSpriteMode = image.dataset.themeSprite || 'accent';
+            }
+            delete image.dataset.themeSpriteSource;
+            delete image.dataset.themeSprite;
+            image.src = themeAssetUrl(
+                theme,
+                'img',
+                `the-knight-monochrome/${spriteName}`
+            );
+            return;
+        }
+
+        const originalSource = image.dataset.knightOriginalSpriteSource;
+        if (!originalSource) return;
+        image.dataset.themeSpriteSource = originalSource;
+        image.dataset.themeSprite = image.dataset.knightOriginalSpriteMode || 'accent';
+        delete image.dataset.knightOriginalSpriteSource;
+        delete image.dataset.knightOriginalSpriteMode;
+        image.src = originalSource;
+    });
+}
+
+function applyRoaringKnightPalette(awakened) {
+    if (!theme) return;
+    document.documentElement.classList.toggle('roaring-knight-awakened', awakened);
+    const visualTheme = activeThemeVisualConfig();
+    applyThemeStyles(visualTheme);
+    setRoaringKnightSpriteSet(awakened);
+    if (!awakened) {
+        window.ThemeSprites?.apply(
+            visualTheme.soulColor || visualTheme.color,
+            document
+        ).catch(error => {
+            console.warn('Unable to restore themed sprites:', error);
+        });
+    }
+    window.ThemeSprites?.applyAppIcon(visualTheme, window.deltamodBackend).catch(error => {
+        console.warn('Unable to update the Roaring Knight application icon:', error);
+    });
+}
+
+async function prepareThemeTransition(themeConfig = theme) {
+    clearThemeTransition();
+    setRoaringKnightSpriteSet(false);
+    document.documentElement.classList.remove('roaring-knight-awakened');
+    themeTransitionLastAudioTime = null;
+    themeTransitionCompleted = false;
+    if (themeConfig?.transitionEffect !== ROARING_KNIGHT_TRANSITION.id) return false;
+
+    themeTransitionCompleted = await window.deltamodBackend
+        .invoke('getUniqueFlag', [ROARING_KNIGHT_AWAKENED_FLAG])
+        .catch(() => false) === true;
+
+    ROARING_KNIGHT_TRANSITION.slashFrames.forEach(fileName => {
+        const image = new Image();
+        image.src = themeTransitionAssetUrl(fileName, themeConfig);
+    });
+    return themeTransitionCompleted;
+}
+
+function completeRoaringKnightAwakening() {
+    themeTransitionCompleted = true;
+    applyRoaringKnightPalette(true);
+    window.deltamodBackend
+        .invoke('setUniqueFlag', [ROARING_KNIGHT_AWAKENED_FLAG, true])
+        .catch(error => {
+            console.warn('Unable to persist the Roaring Knight awakening:', error);
+        });
+}
+
+function playRoaringKnightTransition() {
+    if (theme?.transitionEffect !== ROARING_KNIGHT_TRANSITION.id) return;
+    if (themeTransitionCompleted) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+        completeRoaringKnightAwakening();
+        return;
+    }
+
+    clearThemeTransition();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'theme-transition-overlay';
+    overlay.className = 'theme-transition-overlay';
+    overlay.setAttribute('aria-hidden', 'true');
+
+    const blackout = document.createElement('span');
+    blackout.className = 'theme-transition-blackout';
+
+    const sigil = document.createElement('span');
+    sigil.className = 'theme-transition-sigil';
+
+    const knightStage = document.createElement('div');
+    knightStage.className = 'theme-transition-knight-stage';
+    for (let echoIndex = 3; echoIndex >= 0; echoIndex -= 1) {
+        const knight = document.createElement('img');
+        knight.className = `theme-transition-knight ${echoIndex === 0 ? 'is-main' : 'is-echo'}`;
+        knight.alt = '';
+        knight.style.setProperty('--echo-index', String(echoIndex));
+        knight.style.setProperty('--echo-delay', `${echoIndex * 55}ms`);
+        knight.style.setProperty('--echo-shift', `${echoIndex * -12}px`);
+        knight.style.setProperty('--echo-scale', String(0.88 + echoIndex * 0.035));
+        knight.style.setProperty('--echo-opacity', String(
+            echoIndex === 0 ? 1 : Math.max(0.16, 0.56 - echoIndex * 0.12)
+        ));
+        setRoaringKnightSlashFrame(knight, 0);
+        knightStage.appendChild(knight);
+    }
+
+    const soul = document.createElement('span');
+    soul.className = 'theme-transition-soul';
+    soul.textContent = '♥';
+
+    const rift = document.createElement('span');
+    rift.className = 'theme-transition-rift';
+
+    const particles = document.createElement('div');
+    particles.className = 'theme-transition-particles';
+    for (let particleIndex = 0; particleIndex < 12; particleIndex += 1) {
+        const particle = document.createElement('span');
+        particle.style.setProperty('--particle-angle', `${particleIndex * 30}deg`);
+        particle.style.setProperty('--particle-distance', `${20 + (particleIndex % 4) * 5}vmin`);
+        particle.style.setProperty('--particle-delay', `${particleIndex * 18}ms`);
+        particles.appendChild(particle);
+    }
+
+    overlay.append(blackout, sigil, particles, knightStage, soul, rift);
+    document.body.appendChild(overlay);
+    document.documentElement.classList.add('roaring-knight-blackout');
+    requestAnimationFrame(() => overlay.classList.add('is-active'));
+    void playRoaringKnightSoundSequence();
+
+    themeTransitionImpactTimer = setTimeout(() => {
+        if (!overlay.isConnected) return;
+        overlay.classList.add('is-impacting');
+        let frameIndex = 0;
+        const advanceSlashFrame = () => {
+            if (!overlay.isConnected) return;
+            knightStage.querySelectorAll('.theme-transition-knight').forEach(knight => {
+                setRoaringKnightSlashFrame(knight, frameIndex);
+            });
+            frameIndex += 1;
+            if (frameIndex < ROARING_KNIGHT_TRANSITION.slashFrames.length) {
+                themeTransitionFrameTimer = setTimeout(advanceSlashFrame, 64);
+            }
+        };
+        advanceSlashFrame();
+    }, 760);
+
+    themeTransitionReleaseTimer = setTimeout(() => {
+        if (!overlay.isConnected) return;
+        overlay.classList.add('is-releasing');
+        document.documentElement.classList.remove('roaring-knight-blackout');
+        completeRoaringKnightAwakening();
+    }, 1575);
+
+    themeTransitionCleanupTimer = setTimeout(clearThemeTransition, 2100);
+}
+
+function synchronizeThemeTransition() {
+    const cueTime = Number(theme?.transitionCueTime);
+    const expectedAudioSource = theme?.mainSong
+        ? themeAssetUrl(theme, 'mus', theme.mainSong)
+        : '';
+    if (
+        themeTransitionCompleted
+        || theme?.transitionEffect !== ROARING_KNIGHT_TRANSITION.id
+        || !Number.isFinite(cueTime)
+        || currentAudioSource !== expectedAudioSource
+    ) {
+        themeTransitionLastAudioTime = null;
+        return;
+    }
+
+    const currentTime = audio.currentTime;
+    if (!Number.isFinite(currentTime)) return;
+    if (themeTransitionLastAudioTime === null) {
+        themeTransitionLastAudioTime = currentTime;
+        return;
+    }
+    if (currentTime < themeTransitionLastAudioTime) {
+        clearThemeTransition();
+        applyRoaringKnightPalette(false);
+        themeTransitionLastAudioTime = currentTime;
+        return;
+    }
+    if (
+        themeTransitionLastAudioTime < cueTime
+        && currentTime >= cueTime
+        && !document.hidden
+        && document.hasFocus()
+    ) {
+        playRoaringKnightTransition();
+    }
+    themeTransitionLastAudioTime = currentTime;
 }
 
 function setThemeVideoAudioEnabled(enabled) {
@@ -227,19 +661,105 @@ function scheduleThemeVideoSuspension() {
     }
 }
 
+function clearThemeSpriteAnimations() {
+    themeSpriteAnimationTimers.forEach(timer => clearInterval(timer));
+    themeSpriteAnimationTimers = [];
+    const layer = document.getElementById('theme-sprite-layer');
+    if (!layer) return;
+    layer.replaceChildren();
+    layer.hidden = true;
+}
+
+function applyThemeSpriteAnimations() {
+    clearThemeSpriteAnimations();
+    const layer = document.getElementById('theme-sprite-layer');
+    const sprites = Array.isArray(theme?.animatedEnvironment) ? theme.animatedEnvironment : [];
+    if (!layer || sprites.length === 0 || theme?.backgroundVideo) return;
+
+    const stage = document.createElement('div');
+    stage.className = 'theme-sprite-stage';
+    const [ratioWidth, ratioHeight] = String(theme.environmentStageRatio || '16 / 9')
+        .split('/')
+        .map(value => Number(value.trim()));
+    const stageRatio = Number.isFinite(ratioWidth) && Number.isFinite(ratioHeight) && ratioHeight > 0
+        ? ratioWidth / ratioHeight
+        : 16 / 9;
+    stage.style.setProperty('--environment-cover-width', `${stageRatio * 100}vh`);
+    stage.style.setProperty('--environment-cover-height', `${100 / stageRatio}vw`);
+    layer.appendChild(stage);
+
+    sprites.forEach((sprite, spriteIndex) => {
+        const frames = Array.isArray(sprite.frames)
+            ? sprite.frames.filter(frame => typeof frame === 'string' && frame.length > 0)
+            : [];
+        if (frames.length === 0) return;
+
+        const image = document.createElement('img');
+        image.className = `theme-environment-sprite anchor-${sprite.anchor || 'center'} motion-${sprite.motion || 'pulse'}`;
+        image.alt = '';
+        image.decoding = 'async';
+        image.draggable = false;
+        image.style.left = `${Number(sprite.left) || 50}%`;
+        image.style.top = `${Number(sprite.top) || 50}%`;
+        image.style.width = `${Math.max(0.25, Number(sprite.width) || 3)}%`;
+        image.style.opacity = `${Math.min(1, Math.max(0, Number(sprite.opacity) || 1))}`;
+        if (typeof sprite.filter === 'string' && sprite.filter.trim()) {
+            image.style.filter = sprite.filter;
+        }
+        image.style.setProperty(
+            '--sprite-delay',
+            `${Number.isFinite(Number(sprite.delay)) ? Number(sprite.delay) : spriteIndex * -180}ms`
+        );
+
+        const frameUrls = frames.map(frame => themeAssetUrl(theme, 'img', frame));
+        frameUrls.forEach(source => {
+            const preload = new Image();
+            preload.src = source;
+        });
+        image.src = frameUrls[0];
+        stage.appendChild(image);
+
+        if (frameUrls.length > 1 && !prefersReducedMotion()) {
+            const frameDuration = Math.max(70, Math.round(1000 / Math.max(1, Number(sprite.fps) || 5)));
+            let frameIndex = Math.abs(Number(sprite.frameOffset) || 0) % frameUrls.length;
+            image.src = frameUrls[frameIndex];
+            const timer = setInterval(() => {
+                frameIndex = (frameIndex + 1) % frameUrls.length;
+                image.src = frameUrls[frameIndex];
+            }, frameDuration);
+            themeSpriteAnimationTimers.push(timer);
+        }
+    });
+
+    layer.hidden = stage.childElementCount === 0;
+}
+
 function applyThemeBackground() {
     const background = document.querySelector('.bg');
     const video = getThemeBackgroundVideo();
     if (!background || !video) return;
 
-    background.style.backgroundImage = `url("${themeAssetUrl(theme, 'img', theme.background)}")`;
+    const backgroundImage = `url("${themeAssetUrl(theme, 'img', theme.background)}")`;
+    delete background.dataset.themeMotion;
+    background.style.removeProperty('--theme-motion-duration');
+    background.style.backgroundSize = theme.backgroundSize || 'cover';
+    background.style.backgroundPosition = theme.backgroundPosition || 'center';
+    background.style.backgroundColor = theme.backgroundColor || '#050505';
+    applyThemeSpriteAnimations();
+    const showVideoPoster = theme.backgroundVideoPoster !== false;
+    background.style.backgroundImage = !theme.backgroundVideo || showVideoPoster
+        ? backgroundImage
+        : 'none';
     if (!theme.backgroundVideo) {
         clearTimeout(themeVideoSuspendTimer);
         clearTimeout(themeVideoLoadTimer);
+        clearTimeout(themeVideoRevealTimer);
         suspendedThemeVideo = null;
         themeVideoFallbackActive = false;
         video.pause();
         video.hidden = true;
+        video.classList.remove('is-revealed');
+        background.classList.remove('is-covered-by-video');
         video.removeAttribute('src');
         video.removeAttribute('poster');
         video.removeAttribute('data-source');
@@ -248,25 +768,54 @@ function applyThemeBackground() {
     }
 
     const source = themeVideoUrl();
+    const sourceChanged = video.dataset.source !== source;
     clearTimeout(themeVideoLoadTimer);
+    clearTimeout(themeVideoRevealTimer);
     themeVideoFallbackActive = false;
-    video.poster = themeAssetUrl(theme, 'img', theme.background);
-    video.hidden = true;
+    if (showVideoPoster) {
+        video.poster = themeAssetUrl(theme, 'img', theme.background);
+    } else {
+        video.removeAttribute('poster');
+    }
+    if (sourceChanged) {
+        background.classList.remove('is-covered-by-video');
+    }
+    video.hidden = sourceChanged;
     video.loop = true;
     video.onplaying = () => {
         clearTimeout(themeVideoLoadTimer);
         video.hidden = false;
-        background.style.backgroundImage = 'none';
+        if (video.classList.contains('is-revealed')) return;
+
+        const revealVideo = () => {
+            if (video.dataset.source !== source) return;
+            video.removeAttribute('poster');
+            background.classList.add('is-covered-by-video');
+            video.classList.add('is-revealed');
+            background.style.backgroundImage = 'none';
+        };
+        const revealDelay = themeVideoRevealDelayMs();
+        if (revealDelay > 0) {
+            themeVideoRevealTimer = setTimeout(revealVideo, revealDelay);
+        } else {
+            revealVideo();
+        }
     };
     video.onerror = () => {
         void fallBackFromThemeVideo(video, background, `media error ${video.error?.code || 'unknown'}`);
     };
-    if (video.dataset.source !== source) {
+    if (sourceChanged) {
         suspendedThemeVideo = null;
+        video.classList.remove('is-revealed');
         video.muted = true;
         video.volume = 0;
         video.dataset.source = source;
         video.src = source;
+    } else if (video.classList.contains('is-revealed')) {
+        video.hidden = false;
+        video.removeAttribute('poster');
+        background.classList.add('is-covered-by-video');
+        background.style.backgroundImage = 'none';
     }
     video.play().catch(error => {
         void fallBackFromThemeVideo(video, background, error?.name || 'playback rejected');
@@ -286,8 +835,11 @@ async function fallBackFromThemeVideo(video, background, reason) {
     if (themeVideoFallbackActive || video.dataset.source !== themeVideoUrl()) return;
     themeVideoFallbackActive = true;
     clearTimeout(themeVideoLoadTimer);
+    clearTimeout(themeVideoRevealTimer);
     video.pause();
     video.hidden = true;
+    video.classList.remove('is-revealed');
+    background.classList.remove('is-covered-by-video');
     video.removeAttribute('src');
     video.removeAttribute('data-source');
     video.load();
@@ -311,6 +863,7 @@ const PAGE_STYLESHEET_OVERRIDES = Object.freeze({
 
 const PAGE_REGISTRY = Object.freeze(Object.fromEntries([
     'allmods',
+    'allmods-v2',
     'collection-exportchoose',
     'collections',
     'credits',
@@ -691,12 +1244,10 @@ window.preloadAPI.onUpdateAvailable((info) => {
 });
 
 window.preloadAPI.onDLMODProgress((info) => window.currentPageStack.dlmod && window.currentPageStack.dlmod(info));
-window.preloadAPI.onDDS((info) => window.currentPageStack.du && window.currentPageStack.du(info.percentage));
 window.preloadAPI.onProtocolDownloadProgress((info) => window.currentPageStack.onDLP && window.currentPageStack.onDLP(info.percentage));
 window.preloadAPI.onProfileImportProgress((info) => window.currentPageStack.profileImportProgress && window.currentPageStack.profileImportProgress(info));
 window.preloadAPI.onHashProgress((info) => window.currentPageStack.hashProgress && window.currentPageStack.hashProgress(info));
 window.preloadAPI.onRefresh(() => page(pageN));
-window.preloadAPI.onUpdateProgress((info) => window.currentPageStack.u && window.currentPageStack.u(info.perc));
 window.preloadAPI.onFinishedPatch(() => window.currentPageStack.fp && window.currentPageStack.fp());
 window.preloadAPI.onGPL((message) => window.currentPageStack.gpl && window.currentPageStack.gpl(message));
 window.preloadAPI.onPage((title) => page(title));
@@ -777,6 +1328,22 @@ async function invokeOptional(channel, data, fallback) {
     return window.deltamodBackend.invokeOptional(channel, data, fallback);
 }
 
+async function signalBenchmarkReadiness() {
+    if (
+        pageN !== 'main'
+        || document.documentElement.classList.contains('deltamod-route-pending')
+        || !window.deltamodBackend.isCommandAvailable('benchmark:rendererReady')
+    ) return false;
+    return window.deltamodBackend.invoke('benchmark:rendererReady', [{
+        page: 'main',
+        routeGuardCleared: true
+    }]);
+}
+
+window.addEventListener('deltamod-route-ready', () => {
+    signalBenchmarkReadiness().catch(() => {});
+});
+
 // The React boot overlay is optional so the vanilla renderer remains usable if
 // a development build is missing the generated bundle. These helpers also keep
 // loading milestones in one place instead of coupling page code to React.
@@ -844,16 +1411,21 @@ async function themeRefresh(refreshAudio = true) {
         theme.color = theme.color || 'rgb(205, 68, 81)';
         theme.soulColor = theme.soulColor || '#FF0000';
     }
-    bootTheme(theme);
+    await prepareThemeTransition(theme);
+    bootTheme(activeThemeVisualConfig());
     applyThemeBackground();
     applyThemeStyles(theme);
+    if (themeTransitionCompleted) {
+        applyRoaringKnightPalette(true);
+    }
     // The seasonal layer stays hidden until these CSS variables contain the
     // active theme, preventing a default-color flash during startup or swaps.
     window.SeasonalEvents?.setThemeReady(true);
-    window.ThemeSprites?.apply(theme.soulColor || theme.color, document).catch(error => {
+    const visualTheme = activeThemeVisualConfig();
+    window.ThemeSprites?.apply(visualTheme.soulColor || visualTheme.color, document).catch(error => {
         console.warn('Unable to recolor theme sprites:', error);
     });
-    window.ThemeSprites?.applyAppIcon(theme, window.deltamodBackend).catch(error => {
+    window.ThemeSprites?.applyAppIcon(visualTheme, window.deltamodBackend).catch(error => {
         console.warn('Unable to update the themed application icon:', error);
     });
     
@@ -875,7 +1447,10 @@ async function themeRefresh(refreshAudio = true) {
 }
 
 window.preloadAPI.onThemeChange(themeRefresh);
-window.ThemeSprites?.observe(() => theme?.soulColor || theme?.color);
+window.ThemeSprites?.observe(() => {
+    const visualTheme = activeThemeVisualConfig();
+    return visualTheme?.soulColor || visualTheme?.color;
+});
 
 let lockRandoms = false;
 
@@ -1158,9 +1733,18 @@ async function renderPage(name) {
 
     window.Localization?.apply(pageViewport);
 
-    window.ThemeSprites?.apply(theme.soulColor || theme.color, document).catch(error => {
-        console.warn('Unable to recolor page sprites:', error);
-    });
+    const visualTheme = activeThemeVisualConfig();
+    window.ThemeSprites?.apply(visualTheme.soulColor || visualTheme.color, document)
+        .then(() => {
+            if (document.documentElement.classList.contains('roaring-knight-awakened')) {
+                setRoaringKnightSpriteSet(true);
+            }
+        })
+        .catch(error => {
+            console.warn('Unable to recolor page sprites:', error);
+        });
+
+    await signalBenchmarkReadiness();
 
 }
 
@@ -1169,9 +1753,13 @@ async function renderPage(name) {
  * Global Window Listeners
  * ==========================================
  */
-window.addEventListener('blur', () => {
+function suspendApplicationMedia() {
     document.documentElement.classList.add('window-inactive');
     if (audio) {
+        menuAudioWasPlayingBeforeWindowInactive = menuAudioWasPlayingBeforeWindowInactive
+            || (!audio.paused && !audio.ended);
+        rememberMenuAudioPosition();
+        audio.pause();
         audio.volume = 0;
     }
     const themeVideo = getThemeBackgroundVideo();
@@ -1179,18 +1767,34 @@ window.addEventListener('blur', () => {
         themeVideo.volume = 0;
     }
     scheduleThemeVideoSuspension();
-});
+}
 
-window.addEventListener('focus', async () => {
+async function resumeApplicationMedia() {
     clearTimeout(themeVideoSuspendTimer);
     document.documentElement.classList.remove('window-inactive');
     let shouldPlayAudio = await window.deltamodBackend.invoke('getUniqueFlag', ["AUDIO"]);
     if (audio && shouldPlayAudio) {
         audio.volume = TARGET_MUSIC_VOLUME;
+        if (menuAudioWasPlayingBeforeWindowInactive && currentAudioSource) {
+            await audio.play().catch(() => {});
+        }
     }
+    menuAudioWasPlayingBeforeWindowInactive = false;
     const resumedThemeVideo = resumeThemeBackgroundVideo(shouldPlayAudio);
     if (!resumedThemeVideo) {
         setThemeVideoAudioEnabled(shouldPlayAudio);
+    }
+}
+
+window.addEventListener('blur', suspendApplicationMedia);
+window.addEventListener('focus', () => {
+    if (!document.hidden) void resumeApplicationMedia();
+});
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        suspendApplicationMedia();
+    } else if (document.hasFocus()) {
+        void resumeApplicationMedia();
     }
 });
 

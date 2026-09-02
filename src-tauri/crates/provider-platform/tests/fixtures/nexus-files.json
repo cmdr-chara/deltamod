@@ -1,0 +1,38 @@
+{
+  "files": [
+    {
+      "file_id": 99,
+      "name": "Main file",
+      "file_name": "nexus-fixture-v2.zip",
+      "version": "2.0.0",
+      "category_name": "MAIN",
+      "is_primary": true,
+      "size_kb": 16,
+      "uploaded_time": "2026-08-30T10:00:00Z",
+      "sha256": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    },
+    {
+      "file_id": 99,
+      "name": "Duplicate main file",
+      "file_name": "duplicate.zip",
+      "version": "2.0.0",
+      "category_name": "MAIN",
+      "is_primary": true,
+      "size_kb": 16
+    },
+    {
+      "file_id": 98,
+      "name": "Old file",
+      "file_name": "nexus-fixture-v1.zip",
+      "version": "1.0 beta",
+      "category_name": "OLD_VERSION",
+      "size_kb": 8
+    },
+    {
+      "file_id": 97,
+      "name": "Deleted file",
+      "file_name": "deleted.zip",
+      "category_name": "DELETED"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Featured games</title>
+    <item>
+      <title>Example Mod</title>
+      <link>https://creator.itch.io/example-mod</link>
+    </item>
+    <item>
+      <title>Another Project</title>
+      <link>https://another-author.itch.io/another-project/</link>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,75 @@
+{
+  "command": {
+    "args": [
+      "--data-root",
+      "C:\\Users\\CharaDreemurr\\AppData\\Local\\Temp\\deltamod-packaged-smoke-63a21b05e57c492390301e1667fff86c"
+    ],
+    "cwd": "C:\\Users\\CharaDreemurr\\Documents\\Deltamod\\implementation",
+    "dataRoot": "C:\\Users\\CharaDreemurr\\AppData\\Local\\Temp\\deltamod-packaged-smoke-63a21b05e57c492390301e1667fff86c",
+    "executable": "C:\\Users\\CharaDreemurr\\Documents\\Deltamod\\implementation\\src-tauri\\target\\release\\deltamod-tauri-shell.exe"
+  },
+  "configuration": {
+    "outputLimitBytes": 65536,
+    "platform": "win32",
+    "pollMs": 25,
+    "readinessCriterion": "process-live",
+    "readinessMs": 1000,
+    "terminationTimeoutMs": 3000,
+    "timeoutMs": 10000
+  },
+  "durationMs": 9419,
+  "failure": null,
+  "isolation": {
+    "dataRootObserved": true,
+    "dataRootRequired": true,
+    "entryCount": 10
+  },
+  "ok": true,
+  "output": {
+    "stderr": {
+      "capturedBytes": 0,
+      "limitBytes": 65536,
+      "text": "",
+      "totalBytes": 0,
+      "truncated": false
+    },
+    "stdout": {
+      "capturedBytes": 0,
+      "limitBytes": 65536,
+      "text": "",
+      "totalBytes": 0,
+      "truncated": false
+    }
+  },
+  "process": {
+    "closed": true,
+    "error": null,
+    "exitCode": 1,
+    "exited": true,
+    "pid": 23136,
+    "signal": null,
+    "spawnAttempted": true,
+    "spawned": true
+  },
+  "readiness": {
+    "checks": 65,
+    "criterion": "process-live",
+    "firstObservedAfterMs": 8217,
+    "observedForMs": 1008,
+    "reached": true,
+    "requiredForMs": 1000
+  },
+  "runner": "tauri-packaged-smoke",
+  "schemaVersion": 1,
+  "status": "passed",
+  "termination": {
+    "completed": true,
+    "error": null,
+    "forced": true,
+    "graceful": false,
+    "method": "taskkill",
+    "requested": true,
+    "timedOut": false,
+    "tree": true
+  }
+}

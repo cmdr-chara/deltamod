@@ -1,0 +1,11 @@
+{
+  "name": "CORE",
+  "background": "undertale-core.png",
+  "description": "A theme based on the CORE from UNDERTALE.",
+  "mainSong": "undertale-core.ogg",
+  "musicTrack": "CORE - Toby Fox",
+  "id": "undertale-core",
+  "color": "rgb(64, 96, 202)",
+  "soulColor": "#42FCFF",
+  "backgroundSize": "cover"
+}

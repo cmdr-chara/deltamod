@@ -3,6 +3,27 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const preloadSource = fs.readFileSync(path.join(__dirname, '..', 'web', 'preload.js'), 'utf8');
+const PUBLIC_EVENT_CHANNELS = Object.freeze([
+    'page',
+    'audio',
+    'gplog',
+    'updateAvailable',
+    'themeChange',
+    'refresh',
+    'finishedPatch',
+    'dlmodURL-progress',
+    'protocol-download-progress',
+    'profile-import-progress',
+    'game-import-progress',
+    'hash-progress',
+    'winResAlert',
+    'leave-controller-mode',
+    'mod-source-progress',
+    'installer-progress',
+    'updater-status',
+    'updater-progress'
+]);
+const RETIRED_EVENT_CHANNELS = Object.freeze(['du-progress', 'updateProgress']);
 
 function loadPreload() {
     const exposed = {};
@@ -45,6 +66,26 @@ describe('platform-neutral preload backend', () => {
         expect(Object.keys(exposed.electronAPI)).toEqual(['invoke']);
         expect(exposed).not.toHaveProperty('logElectronAPI');
         expect(exposed.communityAPI.modSources).not.toHaveProperty('setNexusKey');
+        expect(Object.keys(exposed.preloadAPI).sort()).toEqual([
+            'onPage',
+            'onAudio',
+            'onGPL',
+            'onUpdateAvailable',
+            'onUpdaterStatus',
+            'onUpdaterProgress',
+            'onThemeChange',
+            'onRefresh',
+            'onFinishedPatch',
+            'onDLMODProgress',
+            'onProtocolDownloadProgress',
+            'onProfileImportProgress',
+            'onGameImportProgress',
+            'onHashProgress',
+            'onWRA',
+            'onLeaveControllerMode'
+        ].sort());
+        expect(exposed.preloadAPI).not.toHaveProperty('onDDS');
+        expect(exposed.preloadAPI).not.toHaveProperty('onUpdateProgress');
     });
 
     it('invokes allowlisted channels and blocks unknown channels', async () => {
@@ -73,18 +114,55 @@ describe('platform-neutral preload backend', () => {
             .rejects.toThrow('login failed');
     });
 
-    it('subscribes only to allowlisted events and returns an unsubscribe function', () => {
+    it('preserves subscriptions and removers for all 18 public events', () => {
         const { exposed, ipcRenderer } = loadPreload();
         const callback = vi.fn();
-        const unsubscribe = exposed.deltamodBackend.on('themeChange', callback);
-        const listener = ipcRenderer.on.mock.calls.find(([channel]) => channel === 'themeChange')[1];
 
-        listener({ sender: 'not exposed' }, { name: 'dark' });
-        expect(callback).toHaveBeenCalledWith({ name: 'dark' });
-        unsubscribe();
-        expect(ipcRenderer.removeListener).toHaveBeenCalledWith('themeChange', listener);
-        expect(() => exposed.deltamodBackend.on('arbitrary-event', callback))
+        for (const channel of PUBLIC_EVENT_CHANNELS) {
+            const unsubscribe = exposed.deltamodBackend.on(channel, callback);
+            const [registeredChannel, listener] = ipcRenderer.on.mock.calls.at(-1);
+            const payload = { channel };
+
+            expect(registeredChannel).toBe(channel);
+            listener({ sender: 'not exposed' }, payload);
+            expect(callback).toHaveBeenLastCalledWith(payload);
+            unsubscribe();
+            expect(ipcRenderer.removeListener).toHaveBeenLastCalledWith(channel, listener);
+        }
+        expect(ipcRenderer.removeListener).toHaveBeenCalledTimes(PUBLIC_EVENT_CHANNELS.length);
+    });
+
+    it('blocks both retired event channels without registering listeners', () => {
+        const { exposed, ipcRenderer } = loadPreload();
+        const callsBefore = ipcRenderer.on.mock.calls.length;
+
+        for (const channel of RETIRED_EVENT_CHANNELS) {
+            expect(() => exposed.deltamodBackend.on(channel, vi.fn()))
+                .toThrow('Blocked unknown IPC event channel');
+        }
+        expect(() => exposed.deltamodBackend.on('arbitrary-event', vi.fn()))
             .toThrow('Blocked unknown IPC event channel');
+        expect(ipcRenderer.on).toHaveBeenCalledTimes(callsBefore);
+    });
+
+    it('keeps live structured progress aliases wired to their original events', () => {
+        const { exposed, ipcRenderer } = loadPreload();
+
+        for (const [method, channel] of [
+            ['onGameImportProgress', 'game-import-progress'],
+            ['onUpdaterProgress', 'updater-progress']
+        ]) {
+            const callback = vi.fn();
+            const unsubscribe = exposed.preloadAPI[method](callback);
+            const [registeredChannel, listener] = ipcRenderer.on.mock.calls.at(-1);
+            const payload = { operationId: channel };
+
+            expect(registeredChannel).toBe(channel);
+            listener({}, payload);
+            expect(callback).toHaveBeenCalledWith(payload);
+            unsubscribe();
+            expect(ipcRenderer.removeListener).toHaveBeenLastCalledWith(channel, listener);
+        }
     });
 
     it('constructs the existing custom-protocol asset URL forms', () => {

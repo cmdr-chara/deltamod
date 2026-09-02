@@ -9,6 +9,13 @@ const path = require('path');
 
 test('launches securely and keeps Options categories inside their column', async () => {
     test.setTimeout(120000);
+    const builtInThemes = fs.readdirSync(path.join(__dirname, '..', '..', 'web', 'themes', 'data'))
+        .filter(fileName => fileName.endsWith('.theme.json'))
+        .map(fileName => JSON.parse(fs.readFileSync(
+            path.join(__dirname, '..', '..', 'web', 'themes', 'data', fileName),
+            'utf8'
+        )));
+    const defaultVisibleThemeCount = builtInThemes.filter(theme => !theme.hiddenByDefault).length;
     const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'deltamod-community-e2e-'));
     // A partially initialized or migrated profile may contain the parent folder
     // before any custom theme assets have been created.
@@ -81,6 +88,27 @@ test('launches securely and keeps Options categories inside their column', async
         });
         await window.waitForLoadState('domcontentloaded');
         await expect(window).toHaveTitle('Deltamod Community');
+        const bootEmblem = window.locator('.animated-pixel-heart');
+        await expect(bootEmblem).toBeVisible({ timeout: 15000 });
+        const bootEmblemSurface = await bootEmblem.evaluate(element => {
+            const canvas = element.querySelector('canvas');
+            const rootStyle = getComputedStyle(element);
+            const canvasStyle = getComputedStyle(canvas);
+            return {
+                disabled: element.disabled,
+                background: rootStyle.backgroundColor,
+                borderWidth: rootStyle.borderTopWidth,
+                boxShadow: rootStyle.boxShadow,
+                canvasBackground: canvasStyle.backgroundColor
+            };
+        });
+        expect(bootEmblemSurface).toEqual({
+            disabled: true,
+            background: 'rgba(0, 0, 0, 0)',
+            borderWidth: '0px',
+            boxShadow: 'none',
+            canvasBackground: 'rgba(0, 0, 0, 0)'
+        });
         const migrationLaterButton = window.getByRole('button', { name: 'Later' });
         await window.waitForFunction(() =>
             window.pageN === 'main' ||
@@ -225,11 +253,17 @@ test('launches securely and keeps Options categories inside their column', async
                 duration: 120,
                 readyState: 1,
                 pause() {},
-                addEventListener() {},
+                addEventListener(type, listener) {
+                    if (type === 'loadedmetadata') this.loadedMetadataListener = listener;
+                },
                 removeAttribute() {
                     this.src = '';
                 },
-                load() {}
+                load() {
+                    const listener = this.loadedMetadataListener;
+                    this.loadedMetadataListener = null;
+                    listener?.();
+                }
             };
 
             audio = silentAudio;
@@ -401,8 +435,11 @@ test('launches securely and keeps Options categories inside their column', async
             expect(transformedAnimations.some(animation =>
                 String(animation.targetClass).includes('ingranaggio')
             )).toBe(true);
+            expect(transformedAnimations.some(animation =>
+                String(animation.targetClass).split(/\s+/).includes('bg')
+            )).toBe(false);
             expect(transformedAnimations.every(animation =>
-                ['ingranaggio', 'dmodicon-ring'].some(className =>
+                ['ingranaggio', 'dmodicon-ring', 'theme-environment-sprite'].some(className =>
                     String(animation.targetClass).includes(className)
                 )
             )).toBe(true);
@@ -451,8 +488,8 @@ test('launches securely and keeps Options categories inside their column', async
 
             await window.evaluate(() => page('themesel'));
             await expect(window.locator('#open-theme-import')).toBeVisible();
-            const expectedThemeCount = await window.evaluate(async () =>
-                (await window.electronAPI.invoke('getTheme', [])) === 'chara' ? 14 : 13
+            const expectedThemeCount = defaultVisibleThemeCount + await window.evaluate(async () =>
+                (await window.electronAPI.invoke('getTheme', [])) === 'chara' ? 1 : 0
             );
             await expect(window.locator('.theme-card')).toHaveCount(expectedThemeCount);
             await expect(window.locator('.theme-card.is-current')).toHaveCount(1);
@@ -480,6 +517,9 @@ test('launches securely and keeps Options categories inside their column', async
                 await expect(themeFilter).toHaveValue('');
                 await expect(themeFilter).toHaveAttribute('placeholder', 'THE TRUE NAME');
                 await expect(charaEncounter).toHaveAttribute('data-phase', 'dialogue');
+                await expect(charaEncounter).toBeFocused();
+                await charaEncounter.press('Tab');
+                await expect(charaEncounter).toBeFocused();
                 await expect(window.locator('.chara-portrait')).toHaveAttribute(
                     'src',
                     /chara-easter-egg\/chara-normal\.png$/
@@ -491,15 +531,33 @@ test('launches securely and keeps Options categories inside their column', async
                     });
                 }
 
+                await charaEncounter.press('Escape');
+                await expect(charaEncounter).toHaveCount(0);
+                await expect(themeFilter).toBeFocused();
+                await expect(themeFilter).toHaveAttribute(
+                    'placeholder',
+                    'Name, description, or music'
+                );
+                await themeFilter.pressSequentially('chara');
+                const replayedCharaEncounter = window.locator('#chara-easter-egg');
+                await expect(replayedCharaEncounter).toBeVisible();
+
                 const charaChoices = window.locator('.chara-choices');
                 for (let keyPress = 0; keyPress < 12 && !(await charaChoices.isVisible()); keyPress += 1) {
-                    await charaEncounter.press('Enter');
+                    await replayedCharaEncounter.press('Enter');
                 }
                 await expect(charaChoices).toBeVisible();
-                await expect(window.getByRole('button', { name: 'PROCEED' })).toBeFocused();
-                await window.getByRole('button', { name: 'PROCEED' }).click();
-                await expect(charaEncounter).toHaveAttribute('data-phase', 'proceed');
-                await expect(charaEncounter).toHaveCount(0, { timeout: 3000 });
+                await expect(replayedCharaEncounter).toHaveAttribute('data-phase', 'choice');
+                const proceedChoice = window.getByRole('button', { name: 'PROCEED' });
+                const goBackChoice = window.getByRole('button', { name: 'GO BACK' });
+                await expect(proceedChoice).toBeFocused();
+                await proceedChoice.press('Tab');
+                await expect(goBackChoice).toBeFocused();
+                await goBackChoice.press('Shift+Tab');
+                await expect(proceedChoice).toBeFocused();
+                await proceedChoice.click();
+                await expect(replayedCharaEncounter).toHaveAttribute('data-phase', 'proceed');
+                await expect(replayedCharaEncounter).toHaveCount(0, { timeout: 3000 });
                 await expect.poll(() =>
                     window.evaluate(() => window.electronAPI.invoke('getTheme', []))
                 ).toBe('chara');
@@ -637,113 +695,92 @@ test('launches securely and keeps Options categories inside their column', async
         await sendZoomShortcut('0');
         await expect.poll(getZoomFactor).toBeCloseTo(1, 5);
 
-        await window.evaluate(() => {
-            window.__deltamodOriginalRendererFetch = window.fetch;
-            window.fetch = async (input, options) => {
-                const url = String(input);
-                if (url.includes('/Subfeed')) {
-                    return new Response(JSON.stringify({
-                        _aMetadata: { _bIsComplete: true },
-                        _aRecords: [{
-                            _idRow: 41,
-                            _sModelName: 'Mod',
-                            _sName: 'Regular test mod',
-                            _sDescription: 'A regular GameBanana card.',
-                            _sProfileUrl: 'https://gamebanana.com/mods/41',
-                            _bHasFiles: true,
-                            _bHasContentRatings: false,
-                            _tsDateAdded: 1751328001,
-                            _tsDateModified: 1751328001,
-                            _aSubmitter: {
-                                _idRow: 8,
-                                _sName: 'Regular author',
-                                _sProfileUrl: 'https://gamebanana.com/members/8',
-                                _sAvatarUrl: './img/mod-placeholder.png'
-                            },
-                            _aPreviewMedia: {
-                                _aImages: [{
-                                    _sBaseUrl: './img',
-                                    _sFile: 'mod-placeholder.png',
-                                    _sFile100: 'mod-placeholder.png',
-                                    _sFile220: 'mod-placeholder.png',
-                                    _sFile530: 'mod-placeholder.png'
-                                }]
-                            }
-                        }, {
-                            _idRow: 42,
-                            _sModelName: 'Mod',
-                            _sName: 'Gallery test mod',
-                            _sDescription: 'A GameBanana card using the shared shop layout.',
-                            _sProfileUrl: 'https://gamebanana.com/mods/42',
-                            _bHasFiles: true,
-                            _bHasContentRatings: false,
-                            _tsDateAdded: 1751328000,
-                            _tsDateModified: 1751328000,
-                            _aSubmitter: {
-                                _idRow: 7,
-                                _sName: 'Test author',
-                                _sProfileUrl: 'https://gamebanana.com/members/7',
-                                _sAvatarUrl: './img/mod-placeholder.png'
-                            },
-                            _aPreviewMedia: {
-                                _aImages: [
-                                    {
-                                        _sBaseUrl: './img',
-                                        _sFile: 'mod-placeholder.png',
-                                        _sFile100: 'mod-placeholder.png',
-                                        _sFile220: 'mod-placeholder.png',
-                                        _sFile530: 'mod-placeholder.png'
-                                    },
-                                    {
-                                        _sBaseUrl: './img',
-                                        _sFile: 'mod-placeholder.png',
-                                        _sFile100: 'mod-placeholder.png',
-                                        _sFile220: 'mod-placeholder.png',
-                                        _sFile530: 'mod-placeholder.png'
-                                    }
-                                ]
-                            }
-                        }].filter(mod => url.includes('_nPage=2') ? mod._idRow === 42 : mod._idRow === 41)
-                    }), { status: 200, headers: { 'content-type': 'application/json' } });
+        await application.evaluate(({ ipcMain }) => {
+            const makeGameBananaMod = ({ id, name, description, authorId, authorName, imageCount }) => ({
+                _idRow: id,
+                _sModelName: 'Mod',
+                _sName: name,
+                _sDescription: description,
+                _sProfileUrl: `https://gamebanana.com/mods/${id}`,
+                _bHasFiles: true,
+                _bHasContentRatings: false,
+                _tsDateAdded: 1751328000 + (id === 41 ? 1 : 0),
+                _tsDateModified: 1751328000 + (id === 41 ? 1 : 0),
+                _aSubmitter: {
+                    _idRow: authorId,
+                    _sName: authorName,
+                    _sProfileUrl: `https://gamebanana.com/members/${authorId}`,
+                    _sAvatarUrl: './img/mod-placeholder.png'
+                },
+                _aPreviewMedia: {
+                    _aImages: Array.from({ length: imageCount }, () => ({
+                        _sBaseUrl: './img',
+                        _sFile: 'mod-placeholder.png',
+                        _sFile100: 'mod-placeholder.png',
+                        _sFile220: 'mod-placeholder.png',
+                        _sFile530: 'mod-placeholder.png'
+                    }))
                 }
-                if (url.includes('/TopSubs')) {
-                    return new Response(JSON.stringify([{
-                        _idRow: 42,
-                        _sModelName: 'Mod',
-                        _sName: 'Gallery test mod',
-                        _sDescription: 'A GameBanana card using the shared shop layout.',
-                        _sProfileUrl: 'https://gamebanana.com/mods/42',
-                        _sPeriod: 'alltime',
-                        _bHasFiles: true,
-                        _bHasContentRatings: false,
-                        _aSubmitter: {
-                            _idRow: 7,
-                            _sName: 'Test author',
-                            _sProfileUrl: 'https://gamebanana.com/members/7',
-                            _sAvatarUrl: './img/mod-placeholder.png'
-                        },
-                        _aPreviewMedia: {
-                            _aImages: [{
-                                _sBaseUrl: './img',
-                                _sFile: 'mod-placeholder.png',
-                                _sFile100: 'mod-placeholder.png',
-                                _sFile220: 'mod-placeholder.png',
-                                _sFile530: 'mod-placeholder.png'
-                            }, {
-                                _sBaseUrl: './img',
-                                _sFile: 'mod-placeholder.png',
-                                _sFile100: 'mod-placeholder.png',
-                                _sFile220: 'mod-placeholder.png',
-                                _sFile530: 'mod-placeholder.png'
-                            }]
+            });
+            const regularMod = makeGameBananaMod({
+                id: 41,
+                name: 'Regular test mod',
+                description: 'A regular GameBanana card.',
+                authorId: 8,
+                authorName: 'Regular author',
+                imageCount: 1
+            });
+            const galleryMod = makeGameBananaMod({
+                id: 42,
+                name: 'Gallery test mod',
+                description: 'A GameBanana card using the shared shop layout.',
+                authorId: 7,
+                authorName: 'Test author',
+                imageCount: 2
+            });
+
+            ipcMain.removeHandler('modSources:browse');
+            ipcMain.handle('modSources:browse', (_event, args) => {
+                const request = args?.[0] || {};
+                if (request.provider !== 'gamebanana') {
+                    return {
+                        ok: false,
+                        error: {
+                            code: 'TEST_UNEXPECTED_PROVIDER',
+                            message: `Unexpected provider in E2E fixture: ${request.provider || 'unknown'}`
                         }
-                    }]), {
-                        status: 200,
-                        headers: { 'content-type': 'application/json' }
-                    });
+                    };
                 }
-                return window.__deltamodOriginalRendererFetch(input, options);
-            };
+
+                const url = String(request.url || '');
+                let payload;
+                if (url.includes('/Subfeed')) {
+                    payload = {
+                        _aMetadata: { _bIsComplete: true },
+                        _aRecords: url.includes('_nPage=2') ? [galleryMod] : [regularMod]
+                    };
+                } else if (url.includes('/TopSubs')) {
+                    payload = [{ ...galleryMod, _sPeriod: 'alltime' }];
+                } else {
+                    return {
+                        ok: false,
+                        error: {
+                            code: 'TEST_UNEXPECTED_GAMEBANANA_URL',
+                            message: `Unexpected GameBanana URL in E2E fixture: ${url}`
+                        }
+                    };
+                }
+
+                return {
+                    ok: true,
+                    result: {
+                        provider: 'gamebanana',
+                        payload,
+                        cached: false,
+                        stale: false
+                    }
+                };
+            });
         });
 
         for (const [route, selector] of [
@@ -917,10 +954,7 @@ test('launches securely and keeps Options categories inside their column', async
             }
         }
 
-        await window.evaluate(() => {
-            window.fetch = window.__deltamodOriginalRendererFetch;
-            delete window.__deltamodOriginalRendererFetch;
-        });
+        expect(await window.evaluate(() => typeof window.fetch)).toBe('function');
 
         await window.evaluate(() => window.electronAPI.invoke('setTheme', ['base']));
         await expect.poll(() => window.evaluate(() => window.electronAPI.invoke('getTheme', []))).toBe('base');
@@ -1175,6 +1209,109 @@ test('launches securely and keeps Options categories inside their column', async
         }
         await window.evaluate(() => localStorage.setItem('modShopProvider', 'gamebanana'));
 
+        const productFixture = JSON.parse(fs.readFileSync(path.join(
+            __dirname,
+            '..',
+            '..',
+            'src-tauri',
+            'crates',
+            'product-contracts',
+            'tests',
+            'fixtures',
+            'contracts-v1.json'
+        ), 'utf8'));
+        await window.evaluate(async fixture => {
+            const loadStyles = () => new Promise((resolve, reject) => {
+                const existing = document.querySelector('link[data-e2e-product-ui]');
+                if (existing) {
+                    resolve();
+                    return;
+                }
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = './modules/product-ui.css';
+                link.setAttribute('data-e2e-product-ui', '');
+                link.addEventListener('load', resolve, { once: true });
+                link.addEventListener('error', reject, { once: true });
+                document.head.appendChild(link);
+            });
+            const loadScript = () => window.DeltamodProductUI
+                ? Promise.resolve()
+                : new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = './modules/product-ui.js';
+                    script.addEventListener('load', resolve, { once: true });
+                    script.addEventListener('error', reject, { once: true });
+                    document.body.appendChild(script);
+                });
+            await Promise.all([loadStyles(), loadScript()]);
+
+            const preview = document.createElement('section');
+            preview.id = 'installed-mods-v2-browser-preview';
+            preview.className = 'content-page installed-mods-page product-ui';
+            Object.assign(preview.style, {
+                position: 'fixed',
+                inset: '24px',
+                zIndex: '5000',
+                boxSizing: 'border-box',
+                maxWidth: 'none',
+                overflow: 'auto',
+                padding: '24px',
+                background: 'rgb(8, 8, 8)'
+            });
+            const root = document.createElement('main');
+            preview.appendChild(root);
+            document.body.appendChild(preview);
+            const model = window.DeltamodProductUI.mapContractsV1Fixture(fixture, {
+                availableVersionByInstanceId: { 'fixture-instance': '1.1.0' }
+            });
+            window.DeltamodProductUI.renderInstalledModsV2(root, model, {
+                locale: document.documentElement.lang || 'en'
+            });
+        }, productFixture);
+        const preview = window.locator('#installed-mods-v2-browser-preview');
+        const healthSummary = preview.locator('.product-health-summary');
+        await expect(healthSummary).toBeVisible();
+        await expect(healthSummary).toHaveAttribute('data-health-state', 'healthy');
+        await expect(healthSummary).toContainText('Managed files1');
+        await expect(healthSummary).toContainText('External changes0');
+        await expect(healthSummary).toContainText('Interrupted operations0');
+        const healthBeforeOperation = await window.evaluate(() => {
+            const health = document.querySelector('.product-health-summary');
+            const operation = document.querySelector('.product-operation-progress');
+            return Boolean(
+                health &&
+                operation &&
+                (health.compareDocumentPosition(operation) & Node.DOCUMENT_POSITION_FOLLOWING)
+            );
+        });
+        expect(healthBeforeOperation).toBe(true);
+        const lifecycleActions = preview.locator('[data-lifecycle-action]');
+        await expect(lifecycleActions).toHaveCount(4);
+        for (let actionIndex = 0; actionIndex < 4; actionIndex += 1) {
+            await expect(lifecycleActions.nth(actionIndex)).toBeDisabled();
+        }
+        const conflictTrigger = preview.getByRole('button', { name: 'Review conflicts' });
+        await conflictTrigger.click();
+        const conflictDialog = preview.locator('.product-conflict-dialog');
+        await expect(conflictDialog).toBeVisible();
+        await expect(conflictDialog).toContainText('mods/fixture.dat');
+        await conflictDialog.press('Escape');
+        await expect(conflictDialog).toBeHidden();
+        await expect(conflictTrigger).toBeFocused();
+        await window.setViewportSize({ width: 640, height: 720 });
+        const installedModsOverflow = await window.evaluate(() => {
+            const page = document.querySelector('.installed-mods-page');
+            return page.scrollWidth - page.clientWidth;
+        });
+        expect(installedModsOverflow).toBeLessThanOrEqual(1);
+        if (process.env.DELTAMOD_SCREENSHOT_DIR) {
+            await window.screenshot({
+                path: path.join(process.env.DELTAMOD_SCREENSHOT_DIR, '09-installed-mods-v2.png')
+            });
+        }
+        await preview.evaluate(element => element.remove());
+
         await window.evaluate(() => page('deleteall'));
         await expect(window.locator('#initbtn')).toBeVisible();
         expect(pageErrors).toEqual([]);
@@ -1206,7 +1343,6 @@ test('launches securely and keeps Options categories inside their column', async
         const windowPositionBeforeStrike = await application.evaluate(({ BrowserWindow }) =>
             BrowserWindow.getAllWindows()[0].getPosition()
         );
-        const applicationClosed = application.waitForEvent('close');
         await window.getByRole('button', { name: 'GO BACK' }).click();
         await expect(finalEncounter).toHaveAttribute('data-phase', 'refusal');
         await expect(finalEncounter).toHaveAttribute('data-phase', 'scare', { timeout: 4000 });
@@ -1222,6 +1358,24 @@ test('launches securely and keeps Options categories inside their column', async
         } else {
             expect(windowPositionDuringNumbers).not.toEqual(windowPositionBeforeStrike);
         }
+        await finalEncounter.press('Escape');
+        await expect(finalEncounter).toHaveCount(0);
+        await expect(finalThemeFilter).toBeFocused();
+        await expect.poll(() => application.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()[0].getPosition()
+        )).toEqual(windowPositionBeforeStrike);
+
+        await finalThemeFilter.pressSequentially('chara');
+        const closingEncounter = window.locator('#chara-easter-egg');
+        await expect(closingEncounter).toBeVisible();
+        const closingChoices = window.locator('.chara-choices');
+        for (let keyPress = 0; keyPress < 12 && !(await closingChoices.isVisible()); keyPress += 1) {
+            await closingEncounter.press('Enter');
+        }
+        await expect(closingChoices).toBeVisible();
+        const applicationClosed = application.waitForEvent('close');
+        await window.getByRole('button', { name: 'GO BACK' }).click();
+        await expect(closingEncounter).toHaveAttribute('data-phase', 'numbers', { timeout: 7000 });
         if (process.env.DELTAMOD_SCREENSHOT_DIR) {
             await window.screenshot({
                 path: path.join(process.env.DELTAMOD_SCREENSHOT_DIR, '10-chara-9999.png')

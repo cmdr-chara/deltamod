@@ -1,0 +1,75 @@
+{
+  "command": {
+    "args": [
+      "--data-root",
+      "C:\\Users\\CharaDreemurr\\AppData\\Local\\Temp\\deltamod-tauri-smoke-25a3874dbf8844629c71d53311fb402c"
+    ],
+    "cwd": "C:\\Users\\CharaDreemurr\\Documents\\Deltamod\\implementation",
+    "dataRoot": "C:\\Users\\CharaDreemurr\\AppData\\Local\\Temp\\deltamod-tauri-smoke-25a3874dbf8844629c71d53311fb402c",
+    "executable": "src-tauri/target/release/deltamod-tauri-shell.exe"
+  },
+  "configuration": {
+    "outputLimitBytes": 65536,
+    "platform": "win32",
+    "pollMs": 25,
+    "readinessCriterion": "process-live",
+    "readinessMs": 3000,
+    "terminationTimeoutMs": 3000,
+    "timeoutMs": 30000
+  },
+  "durationMs": 11286,
+  "failure": null,
+  "isolation": {
+    "dataRootObserved": true,
+    "dataRootRequired": true,
+    "entryCount": 13
+  },
+  "ok": true,
+  "output": {
+    "stderr": {
+      "capturedBytes": 174,
+      "limitBytes": 65536,
+      "text": "[LOG] [renderer] Update check complete. Update available: false\n[LOG] [renderer] No intervals to clear\n[LOG] [renderer] Audio source found:AUDIO[mainTheme.mp3],mainTheme.mp3\n",
+      "totalBytes": 174,
+      "truncated": false
+    },
+    "stdout": {
+      "capturedBytes": 0,
+      "limitBytes": 65536,
+      "text": "",
+      "totalBytes": 0,
+      "truncated": false
+    }
+  },
+  "process": {
+    "closed": true,
+    "error": null,
+    "exitCode": 1,
+    "exited": true,
+    "pid": 7100,
+    "signal": null,
+    "spawnAttempted": true,
+    "spawned": true
+  },
+  "readiness": {
+    "checks": 193,
+    "criterion": "process-live",
+    "firstObservedAfterMs": 8091,
+    "observedForMs": 3011,
+    "reached": true,
+    "requiredForMs": 3000
+  },
+  "runner": "tauri-packaged-smoke",
+  "schemaVersion": 1,
+  "status": "passed",
+  "termination": {
+    "completed": true,
+    "error": null,
+    "forced": true,
+    "graceful": false,
+    "method": "taskkill",
+    "requested": true,
+    "timedOut": false,
+    "tree": true
+  }
+}

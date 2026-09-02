@@ -1,3 +1,5 @@
+use crate::profile_registry::ProfileRegistry;
+use crate::provider_cache::ProviderCatalogCache;
 use deltamod_asset_runtime::{AssetRuntime, Roots as AssetRuntimeRoots};
 use deltamod_credentials_adapter::{CredentialStore, KeyringBackend};
 use deltamod_game_download_runtime::{
@@ -179,6 +181,12 @@ pub struct Preferences {
     pub unique_flags: BTreeMap<String, bool>,
 }
 
+#[derive(Debug, Default)]
+pub struct EasterEggWindowState {
+    pub generation: u64,
+    pub origin: Option<(i32, i32)>,
+}
+
 pub struct AppState {
     pub data_root: DataRoot,
     pub _assets: AssetRoots,
@@ -188,6 +196,8 @@ pub struct AppState {
     pub profile_runtime: ProfileRuntime,
     pub network: NetworkClient,
     pub network_runtime: Mutex<tokio::runtime::Runtime>,
+    pub provider_cache: Mutex<ProviderCatalogCache>,
+    pub profile_registry: Mutex<ProfileRegistry>,
     pub game_download: GameDownloadRuntime,
     pub butlerd: Option<ButlerdAdapter>,
     pub game_download_cancellations: Mutex<HashMap<String, GameDownloadCancellation>>,
@@ -202,6 +212,8 @@ pub struct AppState {
     pub patching: PatchingRuntime,
     pub patch_cancelled: AtomicBool,
     pub patch_sequence: AtomicU64,
+    pub startup_recovery_errors: Mutex<Vec<String>>,
+    pub easter_egg_window: Arc<Mutex<EasterEggWindowState>>,
     pub game_store_path: PathBuf,
     pub updater: Mutex<ShellUpdater>,
 }
@@ -275,6 +287,10 @@ impl AppState {
             .enable_all()
             .build()
             .map_err(|_| "network unavailable")?;
+        let provider_cache = ProviderCatalogCache::open(&data_root.root)
+            .map_err(|_| "provider cache unavailable")?;
+        let profile_registry =
+            ProfileRegistry::open(&data_root.root).map_err(|_| "profile registry unavailable")?;
         let game_download_catalog = if test_mode && !app.join("games").is_dir() {
             GameDownloadCatalog::new(Vec::new()).map_err(|_| "game download unavailable")?
         } else {
@@ -330,6 +346,8 @@ impl AppState {
             profile_runtime,
             network,
             network_runtime: Mutex::new(network_runtime),
+            provider_cache: Mutex::new(provider_cache),
+            profile_registry: Mutex::new(profile_registry),
             game_download,
             butlerd,
             game_download_cancellations: Mutex::new(HashMap::new()),
@@ -343,6 +361,8 @@ impl AppState {
             patching,
             patch_cancelled: AtomicBool::new(false),
             patch_sequence: AtomicU64::new(0),
+            startup_recovery_errors: Mutex::new(Vec::new()),
+            easter_egg_window: Arc::new(Mutex::new(EasterEggWindowState::default())),
             game_store_path,
             updater: Mutex::new(updater),
         })

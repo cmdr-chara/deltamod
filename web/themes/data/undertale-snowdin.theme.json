@@ -1,0 +1,11 @@
+{
+  "name": "Snowdin",
+  "background": "undertale-snowdin.png",
+  "description": "A theme based on Snowdin from UNDERTALE.",
+  "mainSong": "undertale-snowdin.ogg",
+  "musicTrack": "Snowy - Toby Fox",
+  "id": "undertale-snowdin",
+  "color": "rgb(50, 118, 158)",
+  "soulColor": "#003CFF",
+  "backgroundSize": "cover"
+}

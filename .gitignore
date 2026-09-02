@@ -36,3 +36,4 @@ tools/G3MTool
 /src-tauri/target-installer/
 /src-tauri/binaries/
 /src-tauri/resources/third-party/
+/.codex-runtime/

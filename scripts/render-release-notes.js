@@ -22,7 +22,15 @@ const tail = text.slice(start);
 const next = tail.slice(header.length).search(/\n# Deltamod Community \d+\.\d+\.\d+\n/);
 const section = next < 0 ? tail : tail.slice(0, header.length + next);
 
-const lines = section.trim().split(/\r?\n/);
+const rawLines = section.trim().split(/\r?\n/);
+const lines = [];
+for (const line of rawLines) {
+    if (/^\s+\S/.test(line) && lines.at(-1)?.startsWith('- ')) {
+        lines[lines.length - 1] += ` ${line.trim()}`;
+    } else {
+        lines.push(line);
+    }
+}
 const body = [];
 for (const line of lines.slice(1)) {
     if (/^Released \d{4}-\d{2}-\d{2}\.$/.test(line)) continue;

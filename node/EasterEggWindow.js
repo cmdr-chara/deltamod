@@ -47,8 +47,12 @@ class EasterEggWindowShaker {
 
     setPhase(window, phase) {
         if (phase === 'stop') {
-            this.stop();
-            return { phase, native: supportsNativeWindowPosition(this.platform, this.env) };
+            const restored = this.stop();
+            return {
+                phase,
+                native: supportsNativeWindowPosition(this.platform, this.env),
+                restored
+            };
         }
         const config = SHAKE_PHASES[phase];
         if (!config) {
@@ -78,8 +82,12 @@ class EasterEggWindowShaker {
                 timer: null,
                 tick: 0
             };
-        } else if (this.state.timer) {
-            this.clearIntervalFn(this.state.timer);
+        } else if (this.state.timer !== null && this.state.timer !== undefined) {
+            try {
+                this.clearIntervalFn(this.state.timer);
+            } catch {
+                // The state transition must not depend on a host timer shim.
+            }
             this.state.timer = null;
         }
 
@@ -104,8 +112,23 @@ class EasterEggWindowShaker {
     }
 
     stop() {
-        if (this.state?.timer) this.clearIntervalFn(this.state.timer);
+        const state = this.state;
         this.state = null;
+        if (state?.timer !== null && state?.timer !== undefined) {
+            try {
+                this.clearIntervalFn(state.timer);
+            } catch {
+                // Restoration remains independent from timer cancellation.
+            }
+        }
+        if (!state) return false;
+        try {
+            if (state.window.isDestroyed?.()) return false;
+            state.window.setPosition(state.origin[0], state.origin[1]);
+            return true;
+        } catch {
+            return false;
+        }
     }
 }
 

@@ -1,0 +1,46 @@
+{
+  "_aMetadata": {
+    "_bIsComplete": false,
+    "_nRecordCount": 3
+  },
+  "_aRecords": [
+    {
+      "_idRow": 42,
+      "_sModelName": "Mod",
+      "_sName": "Fixture Mod",
+      "_sDescription": "<p>A fixture &amp; description.</p>",
+      "_sProfileUrl": "https://user:password@gamebanana.com/mods/42?token=do-not-persist#fragment",
+      "_bHasFiles": true,
+      "_bHasContentRatings": false,
+      "_tsDateAdded": 1751328000,
+      "_tsDateModified": 1751329000,
+      "_aSubmitter": {
+        "_idRow": 7,
+        "_sName": "Fixture Author"
+      },
+      "_aPreviewMedia": {
+        "_aImages": [
+          {
+            "_sBaseUrl": "https://images.gamebanana.com/img/ss/mods/",
+            "_sFile530": "fixture.png"
+          }
+        ]
+      }
+    },
+    {
+      "_idRow": "42",
+      "_sModelName": "Mod",
+      "_sName": "Duplicate Fixture Mod",
+      "_sDescription": "Duplicate canonical identity",
+      "_bHasFiles": true,
+      "_bHasContentRatings": false
+    },
+    {
+      "_idRow": 43,
+      "_sModelName": "Wip",
+      "_sName": "Undownloadable WIP",
+      "_sDescription": "No files",
+      "_bHasFiles": false
+    }
+  ]
+}

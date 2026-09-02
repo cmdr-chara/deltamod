@@ -1,6 +1,7 @@
 {
     "name": "Chara",
     "background": "chara-theme.jpg",
+    "previewBackground": "chara-theme-preview.jpg",
     "backgroundVideo": "chara-theme.mp4",
     "videoHasAudio": true,
     "bootSyncTime": 5.6,

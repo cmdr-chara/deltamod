@@ -151,6 +151,40 @@ fn choose_theme<D: ChoiceBackend>(dialogs: &D, state: &AppState) -> Result<Value
     Ok(Value::Null)
 }
 
+fn html_alert<D: ChoiceBackend>(dialogs: &D, data: &[Value]) -> Result<Value, String> {
+    let title = data
+        .first()
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty() && value.len() <= 160)
+        .ok_or_else(|| invalid("htmlAlert_outwin"))?;
+    let message = data
+        .get(1)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty() && value.len() <= 8 * 1024)
+        .ok_or_else(|| invalid("htmlAlert_outwin"))?;
+    let buttons = data
+        .get(2)
+        .and_then(Value::as_array)
+        .filter(|buttons| !buttons.is_empty() && buttons.len() <= 32)
+        .ok_or_else(|| invalid("htmlAlert_outwin"))?;
+    let choices = buttons
+        .iter()
+        .map(|button| {
+            button
+                .get("text")
+                .and_then(Value::as_str)
+                .filter(|text| !text.is_empty() && text.len() <= 120)
+                .map(str::to_owned)
+                .ok_or_else(|| invalid("htmlAlert_outwin"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let selected = dialogs
+        .choose(title, message, &choices)
+        .map_err(|_| error::internal())?
+        .unwrap_or(choices.len() - 1);
+    Ok(json!(selected))
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ThemeImportRequest {
@@ -390,7 +424,9 @@ pub fn dispatch<D: DialogBackend + ChoiceBackend>(
     data: &[Value],
 ) -> Result<Option<Value>, String> {
     let value = match channel {
+        "htmlAlert_outwin" => html_alert(dialogs, data)?,
         "browseFile" => browse_file(dialogs, data)?,
+        "lifecycle:updateMod" => super::lifecycle::update_mod(state, dialogs, data)?,
         "locateDelta" => locate_delta(dialogs, state, data)?,
         "chooseTheme" => choose_theme(dialogs, state)?,
         "importTheme" => import_theme(dialogs, state, data)?,
@@ -404,4 +440,55 @@ pub fn dispatch<D: DialogBackend + ChoiceBackend>(
         _ => return Ok(None),
     };
     Ok(Some(value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::html_alert;
+    use deltamod_tauri_os_adapters::{AdapterError, ChoiceBackend};
+    use serde_json::{json, Value};
+
+    struct Choices(Option<usize>);
+
+    impl ChoiceBackend for Choices {
+        fn choose(
+            &self,
+            _title: &str,
+            _message: &str,
+            choices: &[String],
+        ) -> Result<Option<usize>, AdapterError> {
+            assert_eq!(choices, ["Continue", "Cancel"]);
+            Ok(self.0)
+        }
+    }
+
+    fn payload() -> Vec<Value> {
+        vec![
+            json!("Confirm"),
+            json!("Continue with this operation?"),
+            json!([{"text":"Continue"},{"text":"Cancel"}]),
+        ]
+    }
+
+    #[test]
+    fn native_html_alert_returns_the_selected_button_index() {
+        assert_eq!(html_alert(&Choices(Some(0)), &payload()).unwrap(), json!(0));
+    }
+
+    #[test]
+    fn native_html_alert_maps_window_close_to_the_last_button() {
+        assert_eq!(html_alert(&Choices(None), &payload()).unwrap(), json!(1));
+    }
+
+    #[test]
+    fn native_html_alert_rejects_unbounded_or_malformed_buttons() {
+        let malformed = vec![json!("Confirm"), json!("Message"), json!([{}])];
+        assert!(html_alert(&Choices(Some(0)), &malformed).is_err());
+        let oversized = vec![
+            json!("Confirm"),
+            json!("Message"),
+            Value::Array((0..33).map(|_| json!({"text":"Choice"})).collect()),
+        ];
+        assert!(html_alert(&Choices(Some(0)), &oversized).is_err());
+    }
 }

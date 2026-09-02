@@ -1,0 +1,10 @@
+{
+  "name": "Noelle",
+  "background": "noelle.png",
+  "description": "A theme based on Noelle from DELTARUNE.",
+  "mainSong": "noelle.ogg",
+  "musicTrack": "Noelle - Toby Fox",
+  "id": "noelle",
+  "color": "rgb(42, 116, 148)",
+  "soulColor": "#42FCFF"
+}

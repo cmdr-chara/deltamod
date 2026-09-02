@@ -78,6 +78,9 @@ test('Tauri theme catalogue renders, filters, and selects every built-in theme',
         window.communityAPI = { app: {} };
     }, { themeCatalog });
     await page.addScriptTag({
+        path: path.join(root, 'web', 'modules', 'chara-encounter-session.js')
+    });
+    await page.addScriptTag({
         path: path.join(root, 'web', 'views', 'themesel', 'index.js')
     });
 
@@ -99,7 +102,7 @@ test('Tauri theme catalogue renders, filters, and selects every built-in theme',
     expect(previewUrls.filter(url => url.includes('tauri.localhost/themes/img/'))).toHaveLength(visibleThemes.length - 1);
     expect(previewUrls.filter(url => url.includes('themeprot://asset/custom_test/background.png'))).toHaveLength(1);
 
-    await page.locator('#theme-filter').fill('undertale');
+    await page.locator('#theme-filter').fill('Custom Test');
     await expect(page.locator('.theme-card:not([hidden])')).toHaveCount(1);
     await expect(page.locator('#theme-count')).toHaveText(`1 di ${visibleThemes.length} temi`);
 

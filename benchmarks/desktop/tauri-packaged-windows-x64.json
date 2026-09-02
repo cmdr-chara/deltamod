@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "runtime": "tauri",
+  "sourceRevision": "worktree-packaged-candidate-20260831",
+  "includesRevision": "a882423",
+  "capturedAt": "2026-08-31",
+  "environment": {
+    "operatingSystem": "Windows 11 Pro 10.0.26200",
+    "processor": "Intel Core i7-10700",
+    "logicalProcessors": 16,
+    "physicalMemoryBytes": 16995786752,
+    "node": "v24.19.0",
+    "npm": "11.17.0",
+    "rustc": "1.97.1",
+    "cargo": "1.97.1"
+  },
+  "protocol": {
+    "warmupLaunches": 1,
+    "measuredLaunches": 7,
+    "profilePolicy": "fresh-per-launch",
+    "fileCache": "warm",
+    "readiness": "first-window-and-main-route-guard-cleared",
+    "memorySampleWindowMs": 2000,
+    "memorySampleIntervalMs": 100,
+    "memoryAggregation": "sum-of-application-process-working-sets"
+  },
+  "samples": [
+    {
+      "readyMs": 1641.6288000000004,
+      "peakWorkingSetBytes": 446013440
+    },
+    {
+      "readyMs": 1433.5336000000025,
+      "peakWorkingSetBytes": 440688640
+    },
+    {
+      "readyMs": 1528.795299999998,
+      "peakWorkingSetBytes": 444526592
+    },
+    {
+      "readyMs": 1634.8271000000022,
+      "peakWorkingSetBytes": 439152640
+    },
+    {
+      "readyMs": 1631.8742000000057,
+      "peakWorkingSetBytes": 447709184
+    },
+    {
+      "readyMs": 1527.0752999999968,
+      "peakWorkingSetBytes": 441864192
+    },
+    {
+      "readyMs": 1428.054999999993,
+      "peakWorkingSetBytes": 441282560
+    }
+  ],
+  "summary": {
+    "readyMs": {
+      "minimum": 1428.054999999993,
+      "median": 1528.795299999998,
+      "p95NearestRank": 1641.6288000000004
+    },
+    "peakWorkingSetBytes": {
+      "median": 441864192,
+      "medianMiB": 421.39,
+      "p95NearestRank": 447709184,
+      "p95MiB": 426.97
+    }
+  },
+  "artifact": {
+    "artifactPath": "C:\\Users\\CharaDreemurr\\Documents\\Deltamod\\implementation\\src-tauri\\target\\release\\bundle\\nsis\\Deltamod Community_2.0.13_x64-setup.exe",
+    "path": "C:\\Users\\CharaDreemurr\\Documents\\Deltamod\\implementation\\src-tauri\\target\\release\\bundle\\nsis\\Deltamod Community_2.0.13_x64-setup.exe",
+    "unpackedFileCount": 1,
+    "unpackedBytes": 308777833,
+    "unpackedMiB": 294.47,
+    "executablePath": "C:\\Users\\CharaDreemurr\\Documents\\Deltamod\\implementation\\src-tauri\\target\\release\\deltamod-tauri-shell.exe",
+    "executableBytes": 131604480,
+    "executableMiB": 125.51
+  },
+  "postRewriteComparison": null
+}

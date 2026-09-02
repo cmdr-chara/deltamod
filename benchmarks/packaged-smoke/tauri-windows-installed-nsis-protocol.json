@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "ok": true,
+  "packageVersion": "2.0.13",
+  "platform": "windows",
+  "checks": {
+    "registeredToInstalledExecutable": true,
+    "queuedInFirstProcess": true,
+    "forwardedToFirstProcess": true,
+    "rendererReady": true,
+    "strictProtocolAction": true,
+    "expectedAction": true,
+    "firstProcessStillRunning": true
+  },
+  "operationId": 1,
+  "rendererGeneration": 1
+}

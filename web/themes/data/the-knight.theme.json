@@ -1,0 +1,48 @@
+{
+  "name": "The Roaring Knight",
+  "background": "the-knight.png",
+  "description": "An animated Roaring Knight theme with N/A Music's industrial breakcore remix of Black Knife.",
+  "mainSong": "the-roaring-knight-black-knife-remix.mp3",
+  "musicTrack": "Black Knife Industrial Breakcore Remix - N/A Music",
+  "id": "the-knight",
+  "color": "rgb(87, 82, 151)",
+  "soulColor": "#FF0000",
+  "backgroundVideo": "the-knight.mp4",
+  "backgroundVideoRevealDelay": 1.5,
+  "backgroundVideoPoster": false,
+  "transitionEffect": "roaring-knight-monochrome-awakening",
+  "transitionCueTime": 26,
+  "transitionColor": "rgb(198, 203, 209)",
+  "transitionSoulColor": "#FFFFFF",
+  "videoHasAudio": false,
+  "credits": [
+    {
+      "role": "Remix, composition, and VFX",
+      "name": "N/A Music",
+      "url": "https://www.youtube.com/watch?v=IYaRhVJSgs0"
+    },
+    {
+      "role": "Original Black Knife composition and DELTARUNE",
+      "name": "Toby Fox"
+    },
+    {
+      "role": "Game sprites",
+      "name": "Toby Fox and the DELTARUNE Team"
+    },
+    {
+      "role": "Sprite reference and extraction source",
+      "name": "The Device by Radi0Show",
+      "url": "https://github.com/Radi0Show/thedevice"
+    },
+    {
+      "role": "FLP",
+      "name": "PhilRaco",
+      "url": "https://philraco.itch.io"
+    },
+    {
+      "role": "Emotional support",
+      "name": "DustyVA_5295",
+      "url": "https://www.youtube.com/@DustyVA_5295"
+    }
+  ]
+}

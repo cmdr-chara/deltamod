@@ -283,7 +283,11 @@
     function recolorAppIconPixels(source, accentColor, soulColor) {
         const output = new Uint8ClampedArray(source);
         const accent = paletteForColor(accentColor);
-        const soul = paletteForColor(canonicalSoulColor(soulColor));
+        const soulRange = Math.max(...soulColor) - Math.min(...soulColor);
+        const resolvedSoulColor = soulRange <= 8
+            ? soulColor
+            : canonicalSoulColor(soulColor);
+        const soul = paletteForColor(resolvedSoulColor);
 
         for (let index = 0; index < output.length; index += 4) {
             const red = source[index];

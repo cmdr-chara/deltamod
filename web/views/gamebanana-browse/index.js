@@ -323,13 +323,10 @@ function gameBananaRecordKey(record) {
 
 async function getGameBananaFeaturedRecords(gameID) {
     if (!gameBananaFeaturedRecordsPromise) {
-        gameBananaFeaturedRecordsPromise = fetch(
+        gameBananaFeaturedRecordsPromise = browseGameBananaCatalog(
             `https://gamebanana.com/apiv11/Game/${gameID}/TopSubs`
-        ).then(async response => {
-            if (!response.ok) {
-                throw new Error(`GameBanana featured request failed: ${response.status}`);
-            }
-            const records = await response.json();
+        ).then(result => {
+            const records = result.payload;
             return Array.isArray(records) ? records : [];
         }).catch(error => {
             gameBananaFeaturedRecordsPromise = null;
@@ -647,6 +644,22 @@ window.currentPageStack.openImageLightbox = openImageLightbox;
 
 var firstgeneration = true;
 
+async function browseGameBananaCatalog(url) {
+    const response = await requestExternalSource({
+        provider: 'gamebanana',
+        url,
+        offline: navigator.onLine === false
+    });
+    if (!response?.ok || !response.result?.payload) {
+        const failure = new Error(
+            response?.error?.message || 'The GameBanana catalogue could not be loaded.'
+        );
+        failure.code = response?.error?.code || 'provider_unavailable';
+        throw failure;
+    }
+    return response.result;
+}
+
 async function renderMods(table, GB_API, filter, gameID) {
     if (!isCurrentShopPage() || typeof GB_API !== 'string' || !table?.isConnected) {
         return;
@@ -655,11 +668,17 @@ async function renderMods(table, GB_API, filter, gameID) {
         window.PAGE = 1;
     }
     var furl = GB_API.replace('$PAGE', window.PAGE);
-    console.log('Fetching from URL: ' + furl);
-    var response = await fetch(furl);
+    const catalog = await browseGameBananaCatalog(furl);
     if (!isCurrentShopPage()) return;
-    var data = await filter(await response.json());
+    var data = await filter(catalog.payload);
     if (!isCurrentShopPage()) return;
+
+    const status = document.getElementById('contentFilterStatus');
+    if (catalog.stale) {
+        status.innerText = 'Showing saved GameBanana results while the live catalogue is unavailable.';
+    } else if (catalog.cached) {
+        status.innerText = 'Loaded this GameBanana page from the local catalogue cache.';
+    }
 
     var featuredData = await getGameBananaFeaturedRecords(gameID);
     if (!isCurrentShopPage()) return;
@@ -705,6 +724,7 @@ async function renderMods(table, GB_API, filter, gameID) {
         for (const mod of records) {
             await (async () => {
                 var tr = document.createElement('tr');
+                tr.dataset.canonicalIdentity = `gamebanana:${mod._sModelName || 'Submission'}:${mod._idRow || 0}`;
 
                 var td0 = document.createElement('td');
                 td0.style.display = 'flex';
@@ -1135,7 +1155,9 @@ function externalBrowseRequestKey(request) {
     return JSON.stringify([
         request?.provider || '',
         request?.query || '',
-        request?.sort || ''
+        request?.sort || '',
+        request?.url || '',
+        request?.offline === true
     ]);
 }
 
@@ -1341,26 +1363,41 @@ async function downloadNexusSource(item, button) {
     }
 }
 
+const EXTERNAL_SOURCE_LABELS = Object.freeze({
+    moddb: 'ModDB',
+    nexus: 'Nexus Mods'
+});
+
+function externalSourceLabel(provider = SHOP_PROVIDER) {
+    return EXTERNAL_SOURCE_LABELS[provider] || 'External source';
+}
+
 function renderExternalMods(table, result) {
     table.closest('table')?.classList.remove('is-state');
     table.replaceChildren();
     const items = Array.isArray(result?.items) ? result.items : [];
     const status = document.getElementById('contentFilterStatus');
     const attribution = document.getElementById('sourceAttribution');
+    const providerLabel = externalSourceLabel();
     status.innerText = SHOP_PROVIDER === 'moddb'
         ? `Showing all ${items.length} download${items.length === 1 ? '' : 's'} exposed by ModDB's recent RSS feed.`
         : `Showing ${items.length} Nexus mod${items.length === 1 ? '' : 's'}.`;
+    if (result?.stale) {
+        status.innerText += ' Showing saved results because the live catalogue is unavailable.';
+    } else if (result?.cached) {
+        status.innerText += ' Loaded from the local catalogue cache.';
+    }
     attribution.replaceChildren(document.createTextNode(result?.attribution || ''));
     if (SHOP_PROVIDER === 'moddb' && result?.catalogUrl) {
         const browseFullCatalog = document.createElement('a');
         browseFullCatalog.href = result.catalogUrl;
         browseFullCatalog.className = 'source-catalog-link';
-        browseFullCatalog.innerText = 'Browse the full ModDB catalogue';
+        browseFullCatalog.innerText = `Browse the full ${providerLabel} catalogue`;
         browseFullCatalog.onclick = event => {
             event.preventDefault();
             return window.communityAPI.modSources.open({
-            provider: 'moddb',
-            url: result.catalogUrl
+                provider: SHOP_PROVIDER,
+                url: result.catalogUrl
             });
         };
         attribution.append(' ', browseFullCatalog);
@@ -1374,9 +1411,9 @@ function renderExternalMods(table, result) {
                 ? 'The RSS feed contains only recent ModDB downloads. Older entries may still be available in the complete catalogue.'
                 : 'Try another search or change the catalogue sort.',
             SHOP_PROVIDER === 'moddb' && result?.catalogUrl ? {
-                label: 'Browse full ModDB catalogue',
+                label: `Browse full ${providerLabel} catalogue`,
                 run: () => window.communityAPI.modSources.open({
-                    provider: 'moddb',
+                    provider: SHOP_PROVIDER,
                     url: result.catalogUrl
                 })
             } : null
@@ -1386,6 +1423,7 @@ function renderExternalMods(table, result) {
 
     for (const item of items) {
         const tr = document.createElement('tr');
+        tr.dataset.canonicalIdentity = item.canonicalIdentity || `${item.provider}:${item.id}`;
         const info = document.createElement('td');
         info.style.display = 'flex';
         info.style.alignItems = 'center';
@@ -1417,13 +1455,15 @@ function renderExternalMods(table, result) {
         title.innerText = item.title;
         const badge = document.createElement('span');
         badge.className = 'external-source-badge';
-        badge.innerText = SHOP_PROVIDER === 'moddb' ? 'ModDB' : 'Nexus Mods';
+        badge.innerText = externalSourceLabel(item.provider);
         const featured = document.createElement('span');
         featured.className = 'external-featured-badge';
         featured.innerText = 'Featured';
         const meta = document.createElement('div');
         meta.className = 'modOtherInfoSpan calibri';
-        meta.innerText = `${item.author} · ${formatSourceDate(item.updatedAt)}`;
+        meta.innerText = item.updatedAt
+            ? `${item.author || `${badge.innerText} contributor`} · ${formatSourceDate(item.updatedAt)}`
+            : (item.author || `${badge.innerText} contributor`);
         if (item.provider === 'nexus') {
             const popularity = document.createElement('span');
             popularity.className = 'external-source-popularity calibri';
@@ -1450,8 +1490,9 @@ function renderExternalMods(table, result) {
         actionGroup.className = 'external-source-actions';
         const primary = document.createElement('button');
         primary.type = 'button';
-        primary.title = item.actionLabel;
-        primary.setAttribute('aria-label', `${item.actionLabel}: ${item.title}`);
+        const actionLabel = item.actionLabel || 'Open source page';
+        primary.title = actionLabel;
+        primary.setAttribute('aria-label', `${actionLabel}: ${item.title}`);
         primary.innerHTML = shopIcon(item.provider === 'nexus' ? 'download' : 'open');
         const canDownload = item.provider !== 'nexus'
             || window.deltamodBackend.isCommandAvailable('modSources:downloadNexus');
@@ -1497,7 +1538,8 @@ async function initializeExternalSource(table) {
         const request = {
             provider: SHOP_PROVIDER,
             query,
-            sort
+            sort,
+            offline: navigator.onLine === false
         };
         const response = await requestExternalSource(request);
         if (!response?.ok) {
@@ -1573,11 +1615,6 @@ async function plusPage(amt) {
 }
 
 (async () => {
-    if (navigator.onLine === false) {
-        await htmlAlert("You're offline","To access this page, you must have an active Internet connection.",[{text:"Ok",resolveWith:'ok'}], 'cloud_alert');
-        page('main');
-        return;
-    }
     let table = document.getElementById('modsBody');
     const sourceSelect = document.getElementById('modSourceSelect');
     const providers = await window.communityAPI.modSources.providers();
@@ -1592,6 +1629,7 @@ async function plusPage(amt) {
         sourceSelect.appendChild(option);
     }
     sourceSelect.value = SHOP_PROVIDER;
+    const selectedProvider = availableProviders.find(provider => provider.id === SHOP_PROVIDER);
     sourceSelect.addEventListener('change', () => {
         localStorage.setItem('modShopProvider', sourceSelect.value);
         window._pageArguments = { provider: sourceSelect.value };
