@@ -1,0 +1,61 @@
+name: Apply release E2E lifecycle fix
+
+on:
+  push:
+    branches:
+      - release/2.0.18-quick-xml-fix
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: release/2.0.18-quick-xml-fix
+
+      - name: Apply exact lifecycle action assertion fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/e2e/community-smoke.spec.js')
+          text = path.read_text(encoding='utf-8')
+          old = """        const lifecycleActions = preview.locator('[data-lifecycle-action]');
+                  await expect(lifecycleActions).toHaveCount(4);
+                  for (let actionIndex = 0; actionIndex < 4; actionIndex += 1) {
+                      await expect(lifecycleActions.nth(actionIndex)).toBeDisabled();
+                  }
+          """
+          new = """        const lifecycleActions = preview.locator('[data-lifecycle-action]');
+                  await expect(lifecycleActions).toHaveCount(5);
+                  for (let actionIndex = 0; actionIndex < 5; actionIndex += 1) {
+                      await expect(lifecycleActions.nth(actionIndex)).toBeDisabled();
+                  }
+          """
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one lifecycle assertion block, found {text.count(old)}')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+
+          workflow = Path('.github/workflows/apply-release-e2e-lifecycle-fix.yml')
+          workflow.unlink()
+          PY
+
+      - name: Verify patch scope
+        shell: bash
+        run: |
+          git diff --check
+          git diff -- tests/e2e/community-smoke.spec.js .github/workflows/apply-release-e2e-lifecycle-fix.yml
+
+      - name: Commit source-only result
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/e2e/community-smoke.spec.js .github/workflows/apply-release-e2e-lifecycle-fix.yml
+          git commit -m "test(e2e): align lifecycle action count"
+          git push origin HEAD:release/2.0.18-quick-xml-fix
