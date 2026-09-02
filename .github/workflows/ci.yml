@@ -105,11 +105,11 @@ jobs:
         if: matrix.target != 'aarch64-apple-darwin'
       - run: npm run build:native-sidecars:target -- ${{ matrix.target }}
       - run: npm run build:tauri:resources -- ${{ matrix.target }}
-      - name: Run platform-sensitive JavaScript tests
-        run: npm test
       - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
       - run: cargo test --workspace --all-targets --locked --manifest-path native/Cargo.toml
       - run: cargo build --workspace --locked --manifest-path native/Cargo.toml
+      - name: Run platform-sensitive JavaScript tests
+        run: npm test
       - run: cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml -- -D warnings
       - run: cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml
       - name: Install Playwright Chromium
