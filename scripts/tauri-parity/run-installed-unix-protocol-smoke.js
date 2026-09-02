@@ -53,7 +53,19 @@ function runCommand(command, args) {
     return result.stdout.trim();
 }
 
-function verifyRegistration(platform, appBundle) {
+function linuxDesktopEntry(handler) {
+    const dataRoots = [
+        process.env.XDG_DATA_HOME || path.join(process.env.HOME || '', '.local', 'share'),
+        ...(process.env.XDG_DATA_DIRS || '/usr/local/share:/usr/share').split(':')
+    ].filter(Boolean);
+    for (const root of dataRoots) {
+        const candidate = path.join(root, 'applications', handler);
+        if (fs.existsSync(candidate)) return candidate;
+    }
+    throw new Error(`The registered Linux desktop handler ${handler} is not installed.`);
+}
+
+function verifyRegistration(platform, appBundle, executable) {
     if (platform === 'linux') {
         const handler = runCommand('xdg-mime', [
             'query',
@@ -63,7 +75,13 @@ function verifyRegistration(platform, appBundle) {
         if (!handler.endsWith('.desktop')) {
             throw new Error('The installed Linux package did not register a desktop protocol handler.');
         }
-        return handler;
+        const desktopEntry = linuxDesktopEntry(handler);
+        const contents = fs.readFileSync(desktopEntry, 'utf8');
+        const execMatch = contents.match(/^Exec="([^"]+)" %u\s*$/m);
+        if (!execMatch || fs.realpathSync(execMatch[1]) !== executable) {
+            throw new Error('The installed Linux desktop handler does not target the installed executable.');
+        }
+        return { handler, command: execMatch[1] };
     }
 
     const plist = path.join(appBundle, 'Contents', 'Info.plist');
@@ -76,9 +94,13 @@ function verifyRegistration(platform, appBundle) {
     return 'CFBundleURLTypes';
 }
 
-function dispatchProtocol(platform, appBundle) {
+function dispatchProtocol(platform, appBundle, registration) {
     if (platform === 'linux') {
-        runCommand('xdg-open', [PROTOCOL_URI]);
+        // GitHub's headless Linux runner has no desktop session, so xdg-open's
+        // generic fallback cannot route custom URI schemes. The registration
+        // check above resolves and validates the installed desktop entry; run
+        // that exact command to exercise the real second-instance handoff.
+        runCommand(registration.command, [PROTOCOL_URI]);
         return;
     }
     runCommand('open', ['-a', appBundle, PROTOCOL_URI]);
@@ -155,12 +177,12 @@ async function run() {
         }
         await new Promise(resolve => setTimeout(resolve, 1_500));
 
-        const registeredHandler = verifyRegistration(platform, appBundle);
-        dispatchProtocol(platform, appBundle);
+        const registration = verifyRegistration(platform, appBundle, executable);
+        dispatchProtocol(platform, appBundle, registration);
         const queued = await waitForJson(queueFile, application, deadline);
         const protocol = await waitForJson(protocolFile, application, deadline);
         const checks = {
-            registeredHandler: Boolean(registeredHandler),
+            registeredHandler: Boolean(registration),
             queuedInFirstProcess: Number(queued.processId) === application.pid,
             forwardedToFirstProcess: Number(protocol.processId) === application.pid,
             rendererReady: protocol.checks?.rendererReady === true,

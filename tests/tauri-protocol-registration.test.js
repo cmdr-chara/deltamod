@@ -29,4 +29,16 @@ describe('packaged Tauri protocol registration', () => {
         expect(controller).toContain('args.into_iter().skip(1).map(OsString::from)');
         expect(controller).toContain('match classify_handoff_argument(arg)');
     });
+
+    it('validates the Linux desktop entry before invoking its installed command headlessly', () => {
+        const smoke = fs.readFileSync(
+            path.join(root, 'scripts', 'tauri-parity', 'run-installed-unix-protocol-smoke.js'),
+            'utf8'
+        );
+        expect(smoke).toContain("'x-scheme-handler/deltamod-community'");
+        expect(smoke).toContain("path.join(root, 'applications', handler)");
+        expect(smoke).toContain('fs.realpathSync(execMatch[1]) !== executable');
+        expect(smoke).toContain('runCommand(registration.command, [PROTOCOL_URI])');
+        expect(smoke).not.toContain("runCommand('xdg-open'");
+    });
 });
