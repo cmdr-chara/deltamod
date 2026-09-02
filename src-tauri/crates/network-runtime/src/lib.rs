@@ -719,7 +719,7 @@ pub struct ModDb<'a> {
 }
 fn parse_moddb_feed(text: &str) -> Result<Vec<ModEntry>, RuntimeError> {
     let mut reader = quick_xml::Reader::from_str(text);
-    reader.config_mut().trim_text(true);
+    reader.config_mut().trim_text(false);
     let mut out = Vec::new();
     let mut title = None;
     let mut link = None;
@@ -760,10 +760,20 @@ fn parse_moddb_feed(text: &str) -> Result<Vec<ModEntry>, RuntimeError> {
             Ok(quick_xml::events::Event::Text(e)) if inside_item => {
                 let v = decode_xml_text(e.as_ref());
                 match tag.as_str() {
-                    "title" => title = Some(v),
-                    "link" => link = Some(v),
-                    "pubDate" => pubd = Some(v),
-                    "description" => summary = Some(v),
+                    "title" => title.get_or_insert_with(String::new).push_str(&v),
+                    "link" => link.get_or_insert_with(String::new).push_str(&v),
+                    "pubDate" => pubd.get_or_insert_with(String::new).push_str(&v),
+                    "description" => summary.get_or_insert_with(String::new).push_str(&v),
+                    _ => {}
+                }
+            }
+            Ok(quick_xml::events::Event::GeneralRef(e)) if inside_item => {
+                let v = decode_xml_text(&format!("&{};", e.as_ref()));
+                match tag.as_str() {
+                    "title" => title.get_or_insert_with(String::new).push_str(&v),
+                    "link" => link.get_or_insert_with(String::new).push_str(&v),
+                    "pubDate" => pubd.get_or_insert_with(String::new).push_str(&v),
+                    "description" => summary.get_or_insert_with(String::new).push_str(&v),
                     _ => {}
                 }
             }
@@ -773,14 +783,19 @@ fn parse_moddb_feed(text: &str) -> Result<Vec<ModEntry>, RuntimeError> {
             Ok(quick_xml::events::Event::End(e)) if e.name().as_ref() == "item" => {
                 if let (Some(t), Some(l)) = (title.take(), link.take()) {
                     out.push(ModEntry {
-                        title: t,
-                        link: l,
-                        published: pubd.take(),
-                        summary: summary.take(),
+                        title: t.trim().to_owned(),
+                        link: l.trim().to_owned(),
+                        published: pubd.take().map(|value| value.trim().to_owned()),
+                        summary: summary.take().map(|value| value.trim().to_owned()),
                         image_url: image_url.take(),
                     })
                 }
                 inside_item = false;
+            }
+            Ok(quick_xml::events::Event::End(e))
+                if inside_item && e.name().as_ref() == tag.as_str() =>
+            {
+                tag.clear();
             }
             Ok(quick_xml::events::Event::Eof) => break,
             Err(e) => return Err(RuntimeError::Xml(e.to_string())),
