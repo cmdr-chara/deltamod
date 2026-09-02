@@ -1,3 +1,4 @@
+# One-shot autofix workflow; the second push triggers it after registration.
 name: Temporary macOS E2E Autofix
 
 on:
