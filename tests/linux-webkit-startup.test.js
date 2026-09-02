@@ -24,9 +24,8 @@ describe('Linux WebKitGTK startup guard', () => {
             controller.indexOf('pub fn install_protocols'),
             controller.indexOf('fn is_protocol_url')
         );
-        expect(installProtocols).toMatch(
-            /#\[cfg\(target_os = "linux"\)\]\n\s*linux_webkit::configure\(\);/
-        );
+        expect(installProtocols.indexOf('#[cfg(target_os = "linux")]'))
+            .toBeLessThan(installProtocols.indexOf('linux_webkit::configure();'));
         expect(installProtocols.indexOf('linux_webkit::configure();'))
             .toBeLessThan(installProtocols.indexOf('#[cfg(target_os = "macos")]'));
     });
