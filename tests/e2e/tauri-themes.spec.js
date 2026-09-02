@@ -78,6 +78,9 @@ test('Tauri theme catalogue renders, filters, and selects every built-in theme',
         window.communityAPI = { app: {} };
     }, { themeCatalog });
     await page.addScriptTag({
+        path: path.join(root, 'web', 'modules', 'chara-encounter-session.js')
+    });
+    await page.addScriptTag({
         path: path.join(root, 'web', 'views', 'themesel', 'index.js')
     });
 
