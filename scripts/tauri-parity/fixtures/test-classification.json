@@ -69,6 +69,7 @@
     { "path": "tests/staged-copy.test.js", "layer": "lifecycle", "runtime": "shared", "retained": true },
     { "path": "tests/tauri-adapter.test.js", "layer": "shell-tauri", "runtime": "tauri", "retained": true },
     { "path": "tests/tauri-controller-mode.test.js", "layer": "shell-tauri", "runtime": "tauri", "retained": true },
+    { "path": "tests/tauri-package-policy.test.js", "layer": "compatibility", "runtime": "shared", "retained": true },
     { "path": "tests/tauri-packaged-smoke-runner.test.js", "layer": "shell-tauri", "runtime": "tauri", "retained": true },
     { "path": "tests/tauri-protocol-registration.test.js", "layer": "shell-tauri", "runtime": "tauri", "retained": true },
     { "path": "tests/tauri-renderer-gates.test.js", "layer": "shell-tauri", "runtime": "tauri", "retained": true },

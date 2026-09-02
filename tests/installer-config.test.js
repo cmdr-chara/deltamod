@@ -87,4 +87,19 @@ describe('Windows installer branding', () => {
         expect(ci).toContain('cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml');
         expect(ci).toContain('npm run verify:tauri:contract');
     });
+
+    it('keeps unsigned Tauri previews isolated from stable updates', () => {
+        const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'tauri-release.yml'), 'utf8');
+
+        expect(workflow).toContain('community-tauri-preview-v*');
+        expect(workflow).toContain('{"bundle":{"createUpdaterArtifacts":false}}');
+        expect(workflow).toContain('Verify Windows preview is intentionally unsigned');
+        expect(workflow).toContain('Verify macOS preview is not notarized');
+        expect(workflow).toContain('Stage unsigned Windows manual-download installer');
+        expect(workflow).toContain('manual-release/*');
+        expect(workflow).toContain('test ! -e release-artifacts/latest.json');
+        expect(workflow).toContain('--title "Deltamod Community ${RELEASE_VERSION} (Unsigned Tauri Preview)"');
+        expect(workflow).toContain('--prerelease');
+        expect(workflow).not.toContain('--latest --prerelease');
+    });
 });

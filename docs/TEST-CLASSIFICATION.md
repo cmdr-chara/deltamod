@@ -3,7 +3,7 @@
 Deltamod retains the fast test suite during and after the Tauri migration. The
 machine-readable inventory is
 [`scripts/tauri-parity/fixtures/test-classification.json`](../scripts/tauri-parity/fixtures/test-classification.json).
-It classifies all 60 product root Vitest files and all four end-to-end specs. The
+It classifies all 61 product root Vitest files and all four end-to-end specs. The
 remaining root Vitest file, `tauri-parity-classification.test.js`, is listed
 separately as a governance test so it can exhaustively compare that inventory
 with the files on disk without counting itself.
@@ -15,11 +15,11 @@ with the files on disk without counting itself.
 | Provider | 5 | Permanent shared coverage |
 | Renderer | 14 | Permanent shared coverage |
 | Security | 10 | Permanent shared coverage |
-| Compatibility | 10 | Retain while the represented platform behavior exists |
+| Compatibility | 11 | Retain while the represented platform behavior exists |
 | Electron shell | 4 | Remove only after equivalent Tauri capability evidence |
 | Tauri shell | 7 | Permanent Tauri shell coverage |
 
-The inventory contains 64 classified tests: 53 shared, four Electron-specific,
+The inventory contains 65 classified tests: 54 shared, four Electron-specific,
 and seven Tauri-specific. Every entry is explicitly marked `retained: true`.
 
 ## Rules

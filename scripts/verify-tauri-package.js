@@ -3,6 +3,7 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const artifact = process.argv[2] || process.env.TAURI_ARTIFACT;
 const target = process.argv[3] || process.env.TAURI_BUILD_TARGET || process.env.RUST_TARGET;
+const unsignedPreview = process.argv.includes('--unsigned');
 if (!artifact) throw new Error('Pass the unpacked bundle directory with TAURI_ARTIFACT or argv[2].');
 if (!target) throw new Error('Pass the Rust target with TAURI_BUILD_TARGET, RUST_TARGET, or argv[3].');
 const bundle = path.resolve(artifact);
@@ -41,7 +42,11 @@ if (packages.some(file => !path.basename(file).includes(config.version))) throw 
 const updaterSignatures = [];
 const visitSignatures = dir => { for (const entry of fs.readdirSync(dir, { withFileTypes: true })) { const file = path.join(dir, entry.name); if (entry.isDirectory()) visitSignatures(file); else if (entry.name.endsWith('.sig')) updaterSignatures.push(file); } };
 visitSignatures(bundle);
-if (updateCapable) {
+if (unsignedPreview) {
+    if (updaterSignatures.length !== 0) {
+        throw new Error('Unsigned preview package must not contain automatic updater signatures.');
+    }
+} else if (updateCapable) {
     if (updaterSignatures.length !== 1) throw new Error('Update-capable package must contain exactly one Tauri signature.');
     const updaterArtifact = updaterSignatures[0].slice(0, -4);
     if (!fs.existsSync(updaterArtifact) || fs.statSync(updaterArtifact).size > 512 * 1024 * 1024) {
@@ -58,4 +63,4 @@ if (hasVisibleContents) {
   if (!find('butler').length && !find('butler.exe').length) throw new Error('Bundle is missing checksum-verified butler.');
   if (!find('provenance.json').length) throw new Error('Bundle is missing butler provenance.');
 }
-console.log(`Verified ${packages.length} Tauri package artifact(s)${hasVisibleContents ? ' and unpacked contents' : ''}: ${bundle}`);
+console.log(`Verified ${unsignedPreview ? 'unsigned preview ' : ''}${packages.length} Tauri package artifact(s)${hasVisibleContents ? ' and unpacked contents' : ''}: ${bundle}`);
