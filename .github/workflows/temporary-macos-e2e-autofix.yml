@@ -1,0 +1,103 @@
+name: Temporary macOS E2E Autofix
+
+on:
+  push:
+    branches:
+      - cmdr-chara/roadmap-contract-freeze
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: cmdr-chara/roadmap-contract-freeze
+          fetch-depth: 0
+
+      - name: Patch deterministic Chara cleanup and standalone theme test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          renderer = Path('web/views/themesel/index.js')
+          replace_once(
+              renderer,
+              """            if (restoreFocus) {
+                const focusTarget = previouslyFocusedElement?.isConnected
+                    ? previouslyFocusedElement
+                    : themeFilter;
+                focusTarget?.focus?.();
+            }
+            if (refreshUnlockedTheme) page('themesel').catch(() => {});""",
+              """            const restoreEncounterFocus = () => {
+                if (!restoreFocus) return;
+                const currentThemeFilter = document.getElementById('theme-filter');
+                const focusTarget = previouslyFocusedElement?.isConnected
+                    ? previouslyFocusedElement
+                    : currentThemeFilter;
+                focusTarget?.focus?.();
+            };
+            if (refreshUnlockedTheme) {
+                page('themesel')
+                    .then(() => restoreEncounterFocus())
+                    .catch(error => {
+                        console.error('Unable to refresh the unlocked Chara theme:', error);
+                        restoreEncounterFocus();
+                    });
+            } else {
+                restoreEncounterFocus();
+            }""",
+              'post-encounter focus restoration'
+          )
+
+          test = Path('tests/e2e/tauri-themes.spec.js')
+          replace_once(
+              test,
+              """    await page.addScriptTag({
+        path: path.join(root, 'web', 'views', 'themesel', 'index.js')
+    });""",
+              """    await page.addScriptTag({
+        path: path.join(root, 'web', 'modules', 'chara-encounter-session.js')
+    });
+    await page.addScriptTag({
+        path: path.join(root, 'web', 'views', 'themesel', 'index.js')
+    });""",
+              'standalone Chara session dependency'
+          )
+          PY
+
+          node --check web/views/themesel/index.js
+          node --check tests/e2e/tauri-themes.spec.js
+          git diff --check
+
+      - name: Validate standalone Tauri theme catalogue
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install chromium
+          npx playwright test tests/e2e/tauri-themes.spec.js
+
+      - name: Commit fix and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/temporary-macos-e2e-autofix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add web/views/themesel/index.js tests/e2e/tauri-themes.spec.js .github/workflows/temporary-macos-e2e-autofix.yml
+          git commit -m 'fix: stabilize Chara theme E2E state'
+          git push origin HEAD:cmdr-chara/roadmap-contract-freeze
