@@ -83,7 +83,8 @@ jobs:
             test "$GITHUB_EVENT_NAME" = push
             test "$GITHUB_REF_TYPE" = tag
             release_tag="$GITHUB_REF_NAME"
-            release_version="${release_tag#community-tauri-preview-v}"
+            preview_version="${release_tag#community-tauri-preview-v}"
+            release_version="${preview_version%%-run-*}"
             rehearsal=false
             unsigned_preview=true
           elif [ "$RELEASE_MODE" = rehearsal ]; then
@@ -110,9 +111,10 @@ jobs:
             throw new Error(`Release version must be stable semver; received ${releaseVersion}`);
           }
           const stableTag = `community-v${releaseVersion}`;
-          const unsignedPreviewTag = `community-tauri-preview-v${releaseVersion}`;
+          const escapedVersion = releaseVersion.replaceAll('.', '\\.');
+          const unsignedPreviewTag = new RegExp(`^community-tauri-preview-v${escapedVersion}(?:-run-[1-9]\\d*)?$`);
           const rehearsalTag = new RegExp(`^updater-rehearsal-v${releaseVersion.replaceAll('.', '\\.')}-run-\\d+$`);
-          if (releaseTag !== stableTag && releaseTag !== unsignedPreviewTag && !rehearsalTag.test(releaseTag)) {
+          if (releaseTag !== stableTag && !unsignedPreviewTag.test(releaseTag) && !rehearsalTag.test(releaseTag)) {
             throw new Error(`Release tag is not bound to ${releaseVersion}: ${releaseTag}`);
           }
           const packageVersion = require('./package.json').version;

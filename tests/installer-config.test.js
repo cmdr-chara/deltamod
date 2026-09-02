@@ -92,6 +92,8 @@ describe('Windows installer branding', () => {
         const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'tauri-release.yml'), 'utf8');
 
         expect(workflow).toContain('community-tauri-preview-v*');
+        expect(workflow).toContain('release_version="${preview_version%%-run-*}"');
+        expect(workflow).toContain('(?:-run-[1-9]\\\\d*)?');
         expect(workflow).toContain('{"bundle":{"createUpdaterArtifacts":false}}');
         expect(workflow).toContain('Verify Windows preview is intentionally unsigned');
         expect(workflow).toContain('Verify macOS preview is not notarized');
