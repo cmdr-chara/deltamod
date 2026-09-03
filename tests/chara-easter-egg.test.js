@@ -7,7 +7,10 @@ const path = require('path');
 
 const projectRoot = path.resolve(__dirname, '..');
 const assetRoot = path.join(projectRoot, 'web', 'assets', 'chara-easter-egg');
-const { createSessionGate } = require('../web/modules/chara-encounter-session.js');
+const {
+    createSessionGate,
+    restoreFocusAfterRefresh
+} = require('../web/modules/chara-encounter-session.js');
 
 describe('Chara theme-selector encounter', () => {
     test('ships every local asset required by the sequence', () => {
@@ -149,6 +152,45 @@ describe('Chara theme-selector encounter', () => {
         expect(rendererSource).toMatch(
             /\.then\(result => \{\s*if \(!charaSessionGate\.isCurrent\(sessionToken\)\) return;/
         );
+    });
+
+    test('restores replay focus only after the refreshed theme page is ready', async () => {
+        let completeRefresh;
+        const refresh = new Promise(resolve => {
+            completeRefresh = resolve;
+        });
+        const focusEvents = [];
+        const replacementFilter = {
+            focus: () => focusEvents.push('focused')
+        };
+
+        const restoring = restoreFocusAfterRefresh(
+            () => refresh.then(() => focusEvents.push('refreshed')),
+            () => replacementFilter
+        );
+        await Promise.resolve();
+        expect(focusEvents).toEqual([]);
+
+        completeRefresh();
+        await expect(restoring).resolves.toBe(replacementFilter);
+        expect(focusEvents).toEqual(['refreshed', 'focused']);
+    });
+
+    test('suppresses early replacement focus while a page refresh owns the handoff', () => {
+        const gate = createSessionGate();
+        const token = gate.begin();
+
+        expect(gate.cancel(token, { handoffFocus: false })).toBe(true);
+        expect(gate.isCurrent(token)).toBe(false);
+
+        const rendererSource = fs.readFileSync(
+            path.join(projectRoot, 'web', 'views', 'themesel', 'index.js'),
+            'utf8'
+        );
+        expect(rendererSource).toContain(
+            'charaSessionGate.cancel(sessionToken, { handoffFocus: !refreshUnlockedTheme })'
+        );
+        expect(rendererSource).toContain('restoreFocusAfterRefresh(');
     });
 
     test('honors reduced motion across renderer scripting and presentation CSS', () => {

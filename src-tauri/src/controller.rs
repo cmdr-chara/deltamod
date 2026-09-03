@@ -737,10 +737,17 @@ pub fn protocol_shutdown(app: &AppHandle) {
 /// Consume OS file-association handoffs without widening the renderer API.
 pub fn install_protocols(app: &AppHandle) -> Result<(), &'static str> {
     // Tauri runs setup before config-defined windows are created. Configure the
-    // Linux WebKit/EGL environment here so WebKitWebProcess inherits it, while
-    // leaving Windows and macOS untouched.
+    // Linux WebKit/EGL environment here so WebKitWebProcess inherits it, and
+    // ensure the configured deep-link scheme has a user-level desktop handler.
     #[cfg(target_os = "linux")]
-    linux_webkit::configure();
+    {
+        use tauri_plugin_deep_link::DeepLinkExt;
+
+        linux_webkit::configure();
+        app.deep_link()
+            .register_all()
+            .map_err(|_| "desktop protocol registration unavailable")?;
+    }
 
     #[cfg(target_os = "macos")]
     {

@@ -2,6 +2,11 @@
 
 This gate applies to the stable Tauri release. The existing Electron release remains the rollback artifact until every check below is green. The current unsigned Electron release workflow must not be used to publish the stable release.
 
+Unsigned Tauri previews use tags named `community-tauri-preview-v*`. They are
+GitHub prereleases for manual testing only: updater artifacts and `latest.json`
+must be absent, Windows publisher signing is intentionally absent, and macOS
+notarization is intentionally absent. A preview never satisfies this stable gate.
+
 ## Required parity checks
 
 1. `npm ci` succeeds with the committed `package-lock.json`.

@@ -1,9 +1,10 @@
-name: Community Stable Tauri Release
+name: Community Tauri Release
 
 on:
   push:
     tags:
       - community-v*
+      - community-tauri-preview-v*
   workflow_dispatch:
     inputs:
       release_mode:
@@ -19,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: community-stable-${{ github.ref }}
+  group: community-tauri-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -29,6 +30,7 @@ jobs:
       release_tag: ${{ steps.release.outputs.release_tag }}
       release_version: ${{ steps.release.outputs.release_version }}
       rehearsal: ${{ steps.release.outputs.rehearsal }}
+      unsigned_preview: ${{ steps.release.outputs.unsigned_preview }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -77,19 +79,29 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          if [ "$RELEASE_MODE" = rehearsal ]; then
+          if [[ "$GITHUB_REF_NAME" == community-tauri-preview-v* ]]; then
+            test "$GITHUB_EVENT_NAME" = push
+            test "$GITHUB_REF_TYPE" = tag
+            release_tag="$GITHUB_REF_NAME"
+            preview_version="${release_tag#community-tauri-preview-v}"
+            release_version="${preview_version%%-run-*}"
+            rehearsal=false
+            unsigned_preview=true
+          elif [ "$RELEASE_MODE" = rehearsal ]; then
             test "$GITHUB_EVENT_NAME" = workflow_dispatch
             test "$GITHUB_REF_TYPE" = branch
             test "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH"
             release_version="$(node -p "require('./package.json').version")"
             release_tag="updater-rehearsal-v${release_version}-run-${GITHUB_RUN_ID}"
             rehearsal=true
+            unsigned_preview=false
           else
             test "$RELEASE_MODE" = stable
             test "$GITHUB_REF_TYPE" = tag
             release_tag="$GITHUB_REF_NAME"
             release_version="${release_tag#community-v}"
             rehearsal=false
+            unsigned_preview=false
           fi
           RELEASE_TAG="$release_tag" RELEASE_VERSION="$release_version" node <<'NODE'
           const fs = require('node:fs');
@@ -99,8 +111,10 @@ jobs:
             throw new Error(`Release version must be stable semver; received ${releaseVersion}`);
           }
           const stableTag = `community-v${releaseVersion}`;
+          const escapedVersion = releaseVersion.replaceAll('.', '\\.');
+          const unsignedPreviewTag = new RegExp(`^community-tauri-preview-v${escapedVersion}(?:-run-[1-9]\\d*)?$`);
           const rehearsalTag = new RegExp(`^updater-rehearsal-v${releaseVersion.replaceAll('.', '\\.')}-run-\\d+$`);
-          if (releaseTag !== stableTag && !rehearsalTag.test(releaseTag)) {
+          if (releaseTag !== stableTag && !unsignedPreviewTag.test(releaseTag) && !rehearsalTag.test(releaseTag)) {
             throw new Error(`Release tag is not bound to ${releaseVersion}: ${releaseTag}`);
           }
           const packageVersion = require('./package.json').version;
@@ -123,7 +137,9 @@ jobs:
           echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
           echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
           echo "rehearsal=$rehearsal" >> "$GITHUB_OUTPUT"
+          echo "unsigned_preview=$unsigned_preview" >> "$GITHUB_OUTPUT"
       - name: Require release-signing credentials
+        if: steps.release.outputs.unsigned_preview != 'true'
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -234,6 +250,7 @@ jobs:
             -o Acquire::http::Timeout=20 \
             -o Acquire::https::Timeout=20 \
             install -y --no-install-recommends \
+            desktop-file-utils xdg-utils \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
       - run: npm ci
       - run: npm run acquire:g3mtool
@@ -256,10 +273,14 @@ jobs:
         run: |
           set -euo pipefail
           config="$RUNNER_TEMP/deltamod-platform-signing.json"
-          printf '%s\n' '{}' > "$config"
+          if [ "${{ needs.validate.outputs.unsigned_preview }}" = true ]; then
+            printf '%s\n' '{"bundle":{"createUpdaterArtifacts":false}}' > "$config"
+          else
+            printf '%s\n' '{}' > "$config"
+          fi
           printf 'TAURI_PLATFORM_SIGNING_CONFIG=%s\n' "$config" >> "$GITHUB_ENV"
       - name: Import Windows publisher certificate
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -290,7 +311,7 @@ jobs:
             if (Test-Path -LiteralPath $pfxPath) { Remove-Item -LiteralPath $pfxPath -Force }
           }
       - name: Import Apple Developer ID certificate
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && needs.validate.outputs.unsigned_preview != 'true'
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -312,7 +333,7 @@ jobs:
           test -n "$identity" || { printf '%s\n' 'No Developer ID Application identity was imported.' >&2; exit 1; }
           printf 'APPLE_SIGNING_IDENTITY=%s\n' "$identity" >> "$GITHUB_ENV"
       - name: Build signed update-capable bundle
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && needs.validate.outputs.unsigned_preview != 'true'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -328,16 +349,29 @@ jobs:
           projectPath: .
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config ${{ env.TAURI_PLATFORM_SIGNING_CONFIG }}
       - name: Build Linux manual-download bundle
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && needs.validate.outputs.unsigned_preview != 'true'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: .
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
-      - run: node scripts/verify-tauri-package.js "src-tauri/target/${{ matrix.target }}/release/bundle" "${{ matrix.target }}"
+      - name: Build unsigned manual-download bundle
+        if: needs.validate.outputs.unsigned_preview == 'true'
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config ${{ env.TAURI_PLATFORM_SIGNING_CONFIG }}
+      - name: Verify signed release package
+        if: needs.validate.outputs.unsigned_preview != 'true'
+        run: node scripts/verify-tauri-package.js "src-tauri/target/${{ matrix.target }}/release/bundle" "${{ matrix.target }}"
+      - name: Verify unsigned preview package
+        if: needs.validate.outputs.unsigned_preview == 'true'
+        run: node scripts/verify-tauri-package.js "src-tauri/target/${{ matrix.target }}/release/bundle" "${{ matrix.target }}" --unsigned
       - name: Verify Windows publisher signatures
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -353,7 +387,7 @@ jobs:
             }
           }
       - name: Verify macOS signature and notarization
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && needs.validate.outputs.unsigned_preview != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -361,6 +395,36 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app"
           spctl --assess --type execute --verbose=2 "$app"
           xcrun stapler validate "$app"
+      - name: Verify Windows preview is intentionally unsigned
+        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $targets = @(
+            Get-Item -LiteralPath "src-tauri/target/${{ matrix.target }}/release/deltamod-tauri-shell.exe"
+            Get-ChildItem -LiteralPath "src-tauri/target/${{ matrix.target }}/release/bundle/nsis" -Filter '*.exe' -File | Select-Object -First 1
+          )
+          if ($targets.Count -ne 2 -or $targets -contains $null) { throw 'Windows preview targets are incomplete.' }
+          foreach ($target in $targets) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $target.FullName
+            if ($signature.Status -ne 'NotSigned') {
+              throw "Unsigned preview artifact $($target.Name) unexpectedly has signature status $($signature.Status)."
+            }
+          }
+      - name: Verify macOS preview is not notarized
+        if: runner.os == 'macOS' && needs.validate.outputs.unsigned_preview == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Deltamod Community.app"
+          if codesign -dv --verbose=4 "$app" 2>&1 | grep -q '^Authority=Developer ID Application:'; then
+            printf '%s\n' 'Unsigned preview unexpectedly contains a Developer ID signature.' >&2
+            exit 1
+          fi
+          if xcrun stapler validate "$app"; then
+            printf '%s\n' 'Unsigned preview unexpectedly contains a notarization ticket.' >&2
+            exit 1
+          fi
       - name: Install, smoke, and uninstall Windows NSIS package
         if: runner.os == 'Windows'
         shell: pwsh
@@ -451,14 +515,24 @@ jobs:
           protocol_data_root="$RUNNER_TEMP/deltamod-protocol-${{ matrix.target }}"
           mkdir -p "$mount_root" "$data_root" "$protocol_data_root"
           test ! -e "$installed_app"
-          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_root"
+          # `yes` is expected to receive SIGPIPE after hdiutil accepts the
+          # embedded licence. Inspect hdiutil's status instead of failing the
+          # whole pipe under `set -o pipefail` after a successful mount.
+          set +o pipefail
+          yes | hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_root"
+          attach_status="${PIPESTATUS[1]}"
+          set -o pipefail
+          test "$attach_status" -eq 0
           cleanup() {
             hdiutil detach "$mount_root" >/dev/null 2>&1 || true
             sudo rm -rf -- "$installed_app"
           }
           trap cleanup EXIT
           sudo ditto "$mount_root/Deltamod Community.app" "$installed_app"
-          installed_executable="$installed_app/Contents/MacOS/Deltamod Community"
+          bundle_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$installed_app/Contents/Info.plist")"
+          test -n "$bundle_executable"
+          test "$(basename "$bundle_executable")" = "$bundle_executable"
+          installed_executable="$installed_app/Contents/MacOS/$bundle_executable"
           test -x "$installed_executable"
           node scripts/tauri-parity/run-packaged-smoke.js \
             --executable "$installed_executable" \
@@ -485,7 +559,7 @@ jobs:
           trap - EXIT
           test -d "$data_root"
       - name: Stage uniquely named updater release asset
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && needs.validate.outputs.unsigned_preview != 'true'
         shell: bash
         env:
           BUILD_TARGET: ${{ matrix.target }}
@@ -506,8 +580,21 @@ jobs:
           mkdir -p updater-release
           cp "$artifact" "$destination"
           cp "${artifact}.sig" "${destination}.sig"
+      - name: Stage unsigned Windows manual-download installer
+        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview == 'true'
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          shopt -s nullglob
+          installers=(src-tauri/target/"$BUILD_TARGET"/release/bundle/nsis/*.exe)
+          test "${#installers[@]}" -eq 1
+          mkdir -p manual-release
+          cp "${installers[0]}" "manual-release/Deltamod-Community_${version}_${BUILD_TARGET}-setup.exe"
       - name: Pin the setup payload digest
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
         shell: pwsh
         run: |
           $setup = Get-ChildItem -LiteralPath "src-tauri/target/${{ matrix.target }}/release/bundle/nsis" -Filter '*.exe' -File | Select-Object -First 1
@@ -515,10 +602,10 @@ jobs:
           $hash = (Get-FileHash -LiteralPath $setup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "DELTAMOD_INSTALLER_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Build Deltamod-themed setup shell
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
         run: npm run build:installer
       - name: Sign and verify Deltamod-themed setup shell
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -538,6 +625,7 @@ jobs:
           if-no-files-found: error
           path: |
             updater-release/*
+            manual-release/*
             dist/Deltamod Community Setup.exe
             packaged-smoke-${{ matrix.target }}.json
             packaged-protocol-${{ matrix.target }}.json
@@ -580,6 +668,7 @@ jobs:
           path: release-artifacts
           merge-multiple: true
       - name: Prepare signed updater metadata
+        if: needs.validate.outputs.unsigned_preview != 'true'
         shell: bash
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
@@ -589,7 +678,16 @@ jobs:
         shell: bash
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
-          test "${#artifacts[@]}" -eq 25
+          if [ "${{ needs.validate.outputs.unsigned_preview }}" = true ]; then
+            test "${#artifacts[@]}" -eq 18
+            test "$(find release-artifacts -type f -name '*.exe' | wc -l)" -eq 1
+            test "$(find release-artifacts -type f -name '*.deb' | wc -l)" -eq 1
+            test "$(find release-artifacts -type f -name '*.dmg' | wc -l)" -eq 2
+            test "$(find release-artifacts -type f -name '*.sig' | wc -l)" -eq 0
+            test ! -e release-artifacts/latest.json
+          else
+            test "${#artifacts[@]}" -eq 25
+          fi
           (
             cd release-artifacts
             while IFS= read -r -d '' artifact; do
@@ -598,7 +696,7 @@ jobs:
             done < <(find . -type f ! -name SHA256SUMS.txt -print0 | sort -z)
           ) > release-artifacts/SHA256SUMS.txt
       - name: Prepare user-facing release notes
-        if: needs.validate.outputs.rehearsal != 'true'
+        if: needs.validate.outputs.rehearsal != 'true' && needs.validate.outputs.unsigned_preview != 'true'
         shell: bash
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
@@ -618,12 +716,31 @@ jobs:
 
           Rehearsal tag: \`${RELEASE_TAG}\`
           EOF
+      - name: Prepare unsigned preview notes
+        if: needs.validate.outputs.unsigned_preview == 'true'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+        run: |
+          node scripts/render-release-notes.js "community-v${RELEASE_VERSION}" CHANGELOG.txt preview-changes.md
+          cat > release-notes.md <<EOF
+          # Deltamod Community ${RELEASE_VERSION} unsigned Tauri preview
+
+          **Warning:** These Tauri packages are intentionally unsigned and the macOS builds are not notarized. Windows SmartScreen and macOS Gatekeeper warnings are expected.
+
+          This is a manual-download prerelease from commit \`${GITHUB_SHA}\`. Automatic updates are disabled for these artifacts: the release contains no \`latest.json\` and no Tauri updater signatures.
+
+          Preview tag: \`${RELEASE_TAG}\`
+
+          EOF
+          tail -n +2 preview-changes.md | sed "s/community-v${RELEASE_VERSION}/${RELEASE_TAG}/g" >> release-notes.md
       - name: Attest release artifacts
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: release-artifacts/*
       - name: Publish stable signed release
-        if: needs.validate.outputs.rehearsal != 'true'
+        if: needs.validate.outputs.rehearsal != 'true' && needs.validate.outputs.unsigned_preview != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
@@ -647,3 +764,18 @@ jobs:
             --prerelease \
             --notes-file release-notes.md \
             --title "Signed updater rehearsal ${RELEASE_VERSION} (run ${GITHUB_RUN_ID})"
+      - name: Publish unsigned Tauri preview
+        if: needs.validate.outputs.unsigned_preview == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+        shell: bash
+        run: |
+          mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
+          test "${#artifacts[@]}" -eq 19
+          gh release create "$RELEASE_TAG" "${artifacts[@]}" \
+            --verify-tag \
+            --prerelease \
+            --notes-file release-notes.md \
+            --title "Deltamod Community ${RELEASE_VERSION} (Unsigned Tauri Preview)"

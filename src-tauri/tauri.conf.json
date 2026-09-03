@@ -98,6 +98,11 @@
         "startMenuFolder": "Deltamod Community"
       }
     },
+    "linux": {
+      "deb": {
+        "depends": ["desktop-file-utils", "xdg-utils"]
+      }
+    },
     "externalBin": [
       "binaries/deltamod-hash-worker",
       "binaries/deltamod-security-worker",

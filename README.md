@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cmdr-chara/deltamod/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?sort=semver&amp;style=for-the-badge&amp;label=release&amp;color=7c5cff"></a>
+  <a href="https://github.com/cmdr-chara/deltamod/releases/tag/community-tauri-preview-v2.0.18-run-6"><img alt="Current preview: 2.0.18" src="https://img.shields.io/badge/preview-2.0.18-7c5cff?style=for-the-badge"></a>
   <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/cmdr-chara/deltamod/total?style=for-the-badge&amp;color=ef476f"></a>
   <a href="https://github.com/cmdr-chara/deltamod/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/cmdr-chara/deltamod?style=for-the-badge&amp;color=ffd166"></a>
   <a href="https://github.com/cmdr-chara/deltamod/issues"><img alt="Open issues" src="https://img.shields.io/github/issues/cmdr-chara/deltamod?style=for-the-badge&amp;color=06d6a0"></a>
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cmdr-chara/deltamod/releases/latest"><strong>Download Deltamod</strong></a>
+  <a href="https://github.com/cmdr-chara/deltamod/releases/tag/community-tauri-preview-v2.0.18-run-6"><strong>Download Deltamod 2.0.18 Preview</strong></a>
   &nbsp;•&nbsp;
   <a href="#getting-started">Getting started</a>
   &nbsp;•&nbsp;
@@ -60,49 +60,77 @@ This is not a cosmetic mirror of the original project. The community fork has gr
 
 ## Download and install
 
-Get the newest stable build from the official GitHub release page:
+The current desktop build is the **2.0.18 unsigned Tauri preview**. Open its official release page:
 
 <p align="center">
-  <a href="https://github.com/cmdr-chara/deltamod/releases/latest">
-    <img alt="Download the latest Deltamod Community release" src="https://img.shields.io/badge/DOWNLOAD-LATEST-ef476f?style=for-the-badge&amp;logo=github">
+  <a href="https://github.com/cmdr-chara/deltamod/releases/tag/community-tauri-preview-v2.0.18-run-6">
+    <img alt="Download Deltamod Community 2.0.18 preview" src="https://img.shields.io/badge/DOWNLOAD-2.0.18_PREVIEW-ef476f?style=for-the-badge&amp;logo=github">
   </a>
 </p>
 
-Choose the installer for your operating system. Windows and macOS packages are currently unsigned because this community project does not have paid platform-signing credentials.
+### Which file do I download?
+
+Scroll to **Assets** on the release page and choose exactly one installer from this table:
+
+| Your computer | Download this file | Architecture label explained |
+| --- | --- | --- |
+| **Windows PC** with a 64-bit Intel or AMD processor | `Deltamod-Community_2.0.18_x86_64-pc-windows-msvc-setup.exe` | `x86_64` means a normal 64-bit Intel/AMD PC. |
+| **Mac with an Apple chip** | `Deltamod.Community_2.0.18_aarch64.dmg` | `aarch64` means Apple Silicon, such as an M1, M2, M3, M4, or newer M-series chip. |
+| **Mac with an Intel processor** | `Deltamod.Community_2.0.18_x64.dmg` | `x64` means an Intel Mac. |
+| **Ubuntu, Debian, Linux Mint, or another Debian-based x64 Linux distribution** | `Deltamod.Community_2.0.18_amd64.deb` | `amd64` also means 64-bit Intel/AMD; it does not require an AMD processor. |
+
+If your device is not listed—such as Android, iPhone/iPad, Chromebook, 32-bit PC, ARM Linux, or Windows on ARM—this release does not provide a dedicated package for it. Do not download a random architecture and expect it to work.
+
+> [!TIP]
+> The `.json` evidence files, `SHA256SUMS.txt`, tool source ZIPs, and GitHub's **Source code** archives are not Deltamod installers. Most people need only the one `.exe`, `.dmg`, or `.deb` listed above.
+
+Windows and macOS packages are currently unsigned because this community project does not yet have platform-signing certificates. The macOS packages are also not notarized. Operating-system warnings are therefore expected; verify the download before allowing it to run.
 
 > [!IMPORTANT]
-> Download Deltamod only from this repository's official **Releases** page. Each stable release includes `SHA256SUMS.txt` so you can verify your download before installing it. Deltamod does not currently update itself automatically, so install newer releases manually when they are published.
+> Download Deltamod only from this repository's official **Releases** page. The release includes `SHA256SUMS.txt` so you can verify your download before installing it. This preview does not update itself automatically, so install newer releases manually when they are published.
 
 ### Windows
 
-1. Download the Windows setup `.exe` from the latest release.
+1. Download `Deltamod-Community_2.0.18_x86_64-pc-windows-msvc-setup.exe`.
 2. Check its SHA-256 hash against `SHA256SUMS.txt` on the release page.
 3. Run the installer and open **Deltamod Community**.
 
-Windows may show an **Unknown publisher** warning because the installer is not code-signed. Verify that you downloaded it from the official release and that the checksum matches before continuing.
+Windows may show **Windows protected your PC** or **Unknown publisher** because the installer is not code-signed. After verifying the source and checksum, select **More info → Run anyway** if SmartScreen blocks it.
 
 ### macOS
 
-1. Download the DMG matching your Mac: **Apple Silicon** or **Intel**.
-2. Open the DMG and move **Deltamod Community** to Applications.
-3. Launch it from Applications.
+1. Open **Apple menu → About This Mac** and read the **Chip** or **Processor** line.
+2. Download `Deltamod.Community_2.0.18_aarch64.dmg` for an Apple chip, or `Deltamod.Community_2.0.18_x64.dmg` for Intel.
+3. Check its SHA-256 hash against `SHA256SUMS.txt`.
+4. Open the DMG and move **Deltamod Community** to Applications.
+5. Launch it from Applications.
 
-The app is not currently notarized. After verifying the release checksum, macOS may require you to allow the app from **System Settings → Privacy & Security**.
+The app is not currently signed or notarized. If macOS blocks it after you have verified the checksum, try opening it once, then go to **System Settings → Privacy & Security**, find the blocked-app message, and choose **Open Anyway**.
 
-Not sure which Mac you have? Open **Apple menu → About This Mac** and check whether it shows an Apple chip or an Intel processor.
+Do not choose by the macOS version. Choose by whether **About This Mac** says Apple chip or Intel processor.
 
 ### Linux
 
-The official Linux release is a Debian package (`.deb`). Install it with your graphical package manager or from a terminal:
+Download `Deltamod.Community_2.0.18_amd64.deb`. Install it with your graphical package manager or from a terminal in the download directory:
 
 ```console
-sudo apt install ./deltamod-community-*.deb
+sudo apt install ./Deltamod.Community_2.0.18_amd64.deb
 ```
 
 Linux support is currently experimental. The official package targets x64 Debian-based systems.
 
-> [!TIP]
-> Files such as `.blockmap`, `.yml`, source bundles, or GitHub's automatic source archives are not normal installers. Use the `.exe`, `.dmg`, or `.deb` intended for your platform.
+### Optional: verify the SHA-256 checksum
+
+Download `SHA256SUMS.txt` from the same release. Run the command for your system from the folder containing both files, then compare the printed hash with the matching line in `SHA256SUMS.txt`:
+
+| System | Command |
+| --- | --- |
+| Windows PowerShell | `Get-FileHash -Algorithm SHA256 -LiteralPath '.\Deltamod-Community_2.0.18_x86_64-pc-windows-msvc-setup.exe'` |
+| macOS Apple Silicon | `shasum -a 256 Deltamod.Community_2.0.18_aarch64.dmg` |
+| macOS Intel | `shasum -a 256 Deltamod.Community_2.0.18_x64.dmg` |
+| Linux x64 | `sha256sum Deltamod.Community_2.0.18_amd64.deb` |
+
+The two hashes must match exactly. If they do not, delete the installer and download it again from the official release page.
 
 ## Getting started
 

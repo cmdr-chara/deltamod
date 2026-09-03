@@ -723,7 +723,30 @@ fn verify_source_tree(inventory: &CopyInventory) -> Result<(), StagedCopyError> 
     for entry in &inventory.entries {
         verify_source_entry(inventory, entry)?;
     }
+    let current =
+        inspect_source_tree(&inventory.source_root).map_err(|_| StagedCopyError::SourceChanged)?;
+    if !same_source_inventory(&current, inventory) {
+        return Err(StagedCopyError::SourceChanged);
+    }
     Ok(())
+}
+
+#[cfg(not(windows))]
+fn same_source_inventory(current: &CopyInventory, expected: &CopyInventory) -> bool {
+    current.root_snapshot == expected.root_snapshot
+        && current.file_count == expected.file_count
+        && current.total_bytes == expected.total_bytes
+        && current.entries.len() == expected.entries.len()
+        && current
+            .entries
+            .iter()
+            .zip(&expected.entries)
+            .all(|(actual, original)| {
+                actual.kind == original.kind
+                    && actual.relative == original.relative
+                    && actual.size == original.size
+                    && actual.snapshot == original.snapshot
+            })
 }
 
 #[cfg(windows)]

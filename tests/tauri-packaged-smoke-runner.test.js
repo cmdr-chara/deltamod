@@ -223,50 +223,44 @@ describe('packaged Tauri smoke runner', () => {
     });
 
     test('kills the fixture child process tree through the CLI and emits stable JSON', async () => {
-        const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'deltamod-packaged-smoke-'));
-        const pidFile = path.join(temporaryRoot, 'child.pid');
-        try {
-            const childSource = 'setInterval(() => {}, 1000);';
-            const parentSource = [
-                "const fs = require('node:fs');",
-                "const { spawn } = require('node:child_process');",
-                `const child = spawn(process.execPath, ['-e', ${JSON.stringify(childSource)}], { stdio: 'ignore' });`,
-                `fs.writeFileSync(process.env.SMOKE_PID_FILE, String(child.pid));`,
-                'setInterval(() => {}, 1000);'
-            ].join(' ');
-            const result = await execFileAsync(process.execPath, [
-                runnerPath,
-                '--executable', process.execPath,
-                '--timeout-ms', '1000',
-                '--ready-for-ms', '100',
-                '--poll-ms', '10',
-                '--termination-timeout-ms', '3000',
-                '--',
-                '-e', parentSource
-            ], {
-                cwd: path.join(__dirname, '..'),
-                env: { ...process.env, SMOKE_PID_FILE: pidFile },
-                maxBuffer: 1024 * 1024,
-                windowsHide: true
-            }).catch(error => {
-                throw new Error(`unexpected CLI failure: ${error.stdout || error.message}`);
-            });
+        const childSource = [
+            'process.stdout.write(String(process.pid));',
+            'setInterval(() => {}, 1000);'
+        ].join(' ');
+        const parentSource = [
+            "const { spawn } = require('node:child_process');",
+            `spawn(process.execPath, ['-e', ${JSON.stringify(childSource)}], { stdio: ['ignore', 'inherit', 'inherit'] });`,
+            'setInterval(() => {}, 1000);'
+        ].join(' ');
+        const result = await execFileAsync(process.execPath, [
+            runnerPath,
+            '--executable', process.execPath,
+            '--timeout-ms', '1000',
+            '--ready-for-ms', '100',
+            '--poll-ms', '10',
+            '--termination-timeout-ms', '3000',
+            '--',
+            '-e', parentSource
+        ], {
+            cwd: path.join(__dirname, '..'),
+            maxBuffer: 1024 * 1024,
+            windowsHide: true
+        }).catch(error => {
+            throw new Error(`unexpected CLI failure: ${error.stdout || error.message}`);
+        });
 
-            const evidence = JSON.parse(result.stdout);
-            expect(evidence.ok).toBe(true);
-            expect(evidence.status).toBe('passed');
-            expect(evidence.command.args).toContain('-e');
-            expect(evidence.termination).toMatchObject({
-                requested: true,
-                completed: true,
-                method: process.platform === 'win32' ? 'taskkill' : 'process-group'
-            });
-            const childPid = Number(fs.readFileSync(pidFile, 'utf8'));
-            expect(Number.isInteger(childPid)).toBe(true);
-            expect(await waitForProcessGone(childPid)).toBe(true);
-            expect(result.stderr).toBe('');
-        } finally {
-            fs.rmSync(temporaryRoot, { recursive: true, force: true });
-        }
+        const evidence = JSON.parse(result.stdout);
+        expect(evidence.ok).toBe(true);
+        expect(evidence.status).toBe('passed');
+        expect(evidence.command.args).toContain('-e');
+        expect(evidence.termination).toMatchObject({
+            requested: true,
+            completed: true,
+            method: process.platform === 'win32' ? 'taskkill' : 'process-group'
+        });
+        const childPid = Number(evidence.output.stdout.text.trim());
+        expect(Number.isInteger(childPid)).toBe(true);
+        expect(await waitForProcessGone(childPid)).toBe(true);
+        expect(result.stderr).toBe('');
     });
 });

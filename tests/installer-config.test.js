@@ -72,6 +72,8 @@ describe('Windows installer branding', () => {
         const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'tauri-release.yml'), 'utf8');
         const ci = fs.readFileSync(path.join(root, '.github', 'workflows', 'ci.yml'), 'utf8');
 
+        expect(config.bundle.linux.deb.depends).toEqual(['desktop-file-utils', 'xdg-utils']);
+        expect(workflow).toContain('desktop-file-utils xdg-utils');
         expect(workflow).toContain('Install, smoke, and uninstall Windows NSIS package');
         expect(workflow).toContain('Install, smoke, and uninstall Linux deb package');
         expect(workflow).toContain('Install, smoke, and uninstall macOS app bundle');
@@ -80,11 +82,32 @@ describe('Windows installer branding', () => {
         expect(workflow.match(/--capability-probe/g)).toHaveLength(3);
         expect(workflow).toContain('sudo dpkg --remove "$package_name"');
         expect(workflow).toContain('hdiutil detach "$mount_root"');
+        expect(workflow).toContain("PlistBuddy -c 'Print :CFBundleExecutable'");
+        expect(workflow).toContain('test "$(basename "$bundle_executable")" = "$bundle_executable"');
         expect(workflow).toContain('cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml');
         expect(workflow).toContain('cargo test --workspace --all-targets --locked --target ${{ matrix.target }} --manifest-path native/Cargo.toml');
         expect(workflow).toContain('cargo test --workspace --all-targets --locked --target ${{ matrix.target }} --manifest-path src-tauri/Cargo.toml');
         expect(workflow).toContain('npm run verify:tauri:contract');
         expect(ci).toContain('cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml');
         expect(ci).toContain('npm run verify:tauri:contract');
+    });
+
+    it('keeps unsigned Tauri previews isolated from stable updates', () => {
+        const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'tauri-release.yml'), 'utf8');
+
+        expect(workflow).toContain('community-tauri-preview-v*');
+        expect(workflow).toContain('release_version="${preview_version%%-run-*}"');
+        expect(workflow).toContain('(?:-run-[1-9]\\\\d*)?');
+        expect(workflow).toContain('{"bundle":{"createUpdaterArtifacts":false}}');
+        expect(workflow).toContain('Verify Windows preview is intentionally unsigned');
+        expect(workflow).toContain('Verify macOS preview is not notarized');
+        expect(workflow).toContain('yes | hdiutil attach');
+        expect(workflow).toContain('attach_status="${PIPESTATUS[1]}"');
+        expect(workflow).toContain('Stage unsigned Windows manual-download installer');
+        expect(workflow).toContain('manual-release/*');
+        expect(workflow).toContain('test ! -e release-artifacts/latest.json');
+        expect(workflow).toContain('--title "Deltamod Community ${RELEASE_VERSION} (Unsigned Tauri Preview)"');
+        expect(workflow).toContain('--prerelease');
+        expect(workflow).not.toContain('--latest --prerelease');
     });
 });

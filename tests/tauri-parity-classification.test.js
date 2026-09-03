@@ -1,3 +1,4 @@
+const fs = require('node:fs');
 const path = require('node:path');
 
 const { describe, expect, it } = globalThis;
@@ -17,6 +18,26 @@ const paths = {
 };
 
 describe('Tauri renderer event production classification', () => {
+    it('classifies every product test exactly once', () => {
+        const inventory = JSON.parse(fs.readFileSync(
+            path.join(root, 'scripts', 'tauri-parity', 'fixtures', 'test-classification.json'),
+            'utf8'
+        ));
+        const discovered = [
+            ...fs.readdirSync(path.join(root, 'tests'))
+                .filter(name => name.endsWith('.test.js'))
+                .map(name => `tests/${name}`),
+            ...fs.readdirSync(path.join(root, 'tests', 'e2e'))
+                .filter(name => name.endsWith('.spec.js'))
+                .map(name => `tests/e2e/${name}`)
+        ].filter(testPath => !inventory.governanceTests.includes(testPath)).sort();
+        const classified = inventory.tests.map(entry => entry.path).sort();
+
+        expect(new Set(classified).size).toBe(classified.length);
+        expect(classified).toEqual(discovered);
+        expect(inventory.tests.every(entry => entry.retained === true)).toBe(true);
+    });
+
     it('does not treat comments, cfg(test), or unreachable functions as production evidence', () => {
         const fixture = String.raw`
             fn main() {

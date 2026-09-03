@@ -29,7 +29,11 @@
     let charaUnlocked = false;
     let charaEncounterActive = false;
     let pendingCharaToken = null;
-    const charaSessionGate = window.DeltamodCharaEncounterSession.createSessionGate();
+    const {
+        createSessionGate,
+        restoreFocusAfterRefresh
+    } = window.DeltamodCharaEncounterSession;
+    const charaSessionGate = createSessionGate();
     const charaUnlockReady = window.deltamodBackend
         .invoke('getUniqueFlag', [CHARA_UNLOCK_FLAG])
         .then(value => {
@@ -755,16 +759,23 @@
             if (restoreMenuAudio && menuAudioWasPlaying && typeof audio !== 'undefined' && audio?.src) {
                 audio.play().catch(() => {});
             }
-            charaSessionGate.cancel(sessionToken);
+            charaSessionGate.cancel(sessionToken, { handoffFocus: !refreshUnlockedTheme });
             charaDetected = false;
             charaBuffer = '';
-            if (restoreFocus) {
+            if (restoreFocus && !refreshUnlockedTheme) {
                 const focusTarget = previouslyFocusedElement?.isConnected
                     ? previouslyFocusedElement
                     : themeFilter;
                 focusTarget?.focus?.();
             }
-            if (refreshUnlockedTheme) page('themesel').catch(() => {});
+            if (refreshUnlockedTheme) {
+                restoreFocusAfterRefresh(
+                    () => page('themesel'),
+                    () => restoreFocus ? document.getElementById('theme-filter') : null
+                ).catch(error => {
+                    console.error('Unable to refresh the unlocked Chara theme:', error);
+                });
+            }
         };
         window._onClosePage = window._onClosePage || [];
         window._onClosePage.push(() => cleanup({ restoreFocus: false }));
