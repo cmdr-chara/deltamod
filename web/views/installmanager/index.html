@@ -3,7 +3,8 @@
         <h1>$$installmanager_title$$</h1>
         <p>$$community_installmanager_subtitle$$</p>
     </div>
-    <section class="dm-surface dm-interactive">
+    <section class="dm-surface dm-interactive" aria-labelledby="installations-heading">
+        <h2 id="installations-heading" class="product-visually-hidden">$$installation$$</h2>
         <table>
             <colgroup>
                 <col style="width: 85%;">
@@ -15,8 +16,7 @@
                     <th>$$actions$$</th>
                 </tr>
             </thead>
-            <tbody id="installations-list">
-            </tbody>
+            <tbody id="installations-list"></tbody>
         </table>
     </section>
 </div>
