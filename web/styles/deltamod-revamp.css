@@ -1,10 +1,11 @@
 /* Deltamod refined desktop UI layer */
 
 :root {
-  --dm-surface: rgba(12, 14, 20, .86);
-  --dm-surface-raised: rgba(20, 23, 32, .96);
+  --dm-surface: rgba(12, 14, 20, .94);
+  --dm-surface-raised: rgba(20, 23, 32, .97);
   --dm-border: rgba(255,255,255,.12);
   --dm-radius: 14px;
+  --dm-motion: cubic-bezier(.2,.8,.2,1);
 }
 
 .dm-surface {
@@ -17,7 +18,7 @@
 .dm-surface-raised { background: var(--dm-surface-raised); }
 
 .dm-interactive {
-  transition: transform .18s ease, border-color .18s ease, background-color .18s ease;
+  transition: transform .18s var(--dm-motion), border-color .18s ease, background-color .18s ease;
 }
 
 .dm-interactive:hover {
@@ -53,7 +54,78 @@
   border-color: var(--dm-border);
 }
 
-.alertMain { backdrop-filter: none; }
+/* Shared styling for legacy HTML views: mods, shop, install manager, options */
+.viewport .card,
+.viewport .panel,
+.viewport .box,
+.viewport .modCard,
+.viewport .option {
+  background: var(--dm-surface);
+  border: 1px solid var(--dm-border);
+  box-shadow: 0 10px 30px rgba(0,0,0,.2);
+}
+
+.viewport button,
+.viewport input,
+.viewport select {
+  transition: transform .14s ease, border-color .14s ease, background-color .14s ease;
+}
+
+.viewport button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.viewport button:focus-visible,
+.viewport input:focus-visible,
+.viewport select:focus-visible {
+  outline: 2px solid var(--theme-color);
+  outline-offset: 2px;
+}
+
+.product-mod-card,
+.product-profile-manager,
+.product-health-summary,
+.product-library-toolbar,
+.product-operation-progress {
+  background: var(--dm-surface);
+  border-color: var(--dm-border);
+  backdrop-filter: none;
+}
+
+.product-library-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+.product-badge,
+.product-fixture-label,
+.product-profile-active {
+  border-radius: 8px;
+}
+
+progress {
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.alertMain,
+.product-dialog-backdrop {
+  backdrop-filter: none !important;
+}
+
+.theme-background-video {
+  will-change: opacity;
+}
+
+@keyframes dm-view-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.viewport > * {
+  animation: dm-view-enter 220ms var(--dm-motion);
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
