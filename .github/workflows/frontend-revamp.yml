@@ -1,0 +1,60 @@
+# Copyright © 2026 Deltamod contributors. Licensed under the EUPL 1.2.
+name: Frontend revamp checks
+on:
+  push:
+    branches: [frontend-revamp-tauri]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: frontend-revamp-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  review-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Archive tracked sources and small UI assets for offline review
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess, tarfile
+          extensions = {'.js', '.mjs', '.cjs', '.ts', '.tsx', '.html', '.css', '.json', '.rs', '.toml', '.lock', '.md', '.txt', '.yml', '.yaml', '.svg', '.png', '.webp', '.ttf'}
+          paths = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
+          with tarfile.open('/tmp/frontend-review-source.tar.gz', 'w:gz') as archive:
+              for name in paths:
+                  path = pathlib.Path(name)
+                  if name and path.is_file() and not path.is_symlink() and path.suffix in extensions and path.stat().st_size <= 2_000_000:
+                      archive.add(path, arcname=name, recursive=False)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: frontend-review-source
+          path: /tmp/frontend-review-source.tar.gz
+          retention-days: 1
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: node scripts/retry-command.js --label "npm ci" -- npm ci
+      - run: npm run typecheck
+      - run: npm run build:boot
+      - run: npm test
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+      - name: Tauri frontend contracts
+        run: npx playwright test tests/e2e/tauri-themes.spec.js tests/e2e/tauri-localization.spec.js
+      - name: Browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: frontend-revamp-failures
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 3
