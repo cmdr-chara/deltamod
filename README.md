@@ -10,14 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cmdr-chara/deltamod/releases/tag/community-tauri-preview-v2.0.18-run-9"><img alt="Recommended preview: 2.0.18" src="https://img.shields.io/badge/recommended_preview-2.0.18-7c5cff?style=for-the-badge"></a>
-  <a href="https://github.com/cmdr-chara/deltamod/releases/latest"><img alt="Latest stable release" src="https://img.shields.io/github/v/release/cmdr-chara/deltamod?display_name=release&amp;style=for-the-badge&amp;color=06d6a0"></a>
+  <a href="https://github.com/cmdr-chara/deltamod/releases/latest"><img alt="Latest release: 2.0.18" src="https://img.shields.io/badge/latest_release-2.0.18-7c5cff?style=for-the-badge"></a>
   <a href="https://github.com/cmdr-chara/deltamod/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/cmdr-chara/deltamod/total?style=for-the-badge&amp;color=ef476f"></a>
   <a href="./LICENSE.txt"><img alt="License: EUPL 1.2" src="https://img.shields.io/badge/license-EUPL--1.2-4c8bf5?style=for-the-badge"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/cmdr-chara/deltamod/releases/tag/community-tauri-preview-v2.0.18-run-9"><strong>Download the recommended preview</strong></a>
+  <a href="https://github.com/cmdr-chara/deltamod/releases/latest"><strong>Download the latest release</strong></a>
   &nbsp;•&nbsp;
   <a href="#get-started">Get started</a>
   &nbsp;•&nbsp;
@@ -44,7 +43,7 @@ You do **not** need Node.js, Rust, Git, or other development tools to use the ap
 
 ## Download
 
-The recommended build is the **2.0.18 unsigned Tauri preview**. Open the release page, expand **Assets**, and download one installer from this table:
+The current build is the **2.0.18 unsigned Tauri release**. Open the release page, expand **Assets**, and download one installer from this table:
 
 | Your computer | Download this file |
 | --- | --- |
@@ -54,8 +53,8 @@ The recommended build is the **2.0.18 unsigned Tauri preview**. Open the release
 | Debian, Ubuntu, Linux Mint, or another Debian-based x64 distribution | `Deltamod.Community_2.0.18_amd64.deb` |
 
 <p align="center">
-  <a href="https://github.com/cmdr-chara/deltamod/releases/tag/community-tauri-preview-v2.0.18-run-9">
-    <img alt="Download Deltamod Community 2.0.18 preview" src="https://img.shields.io/badge/DOWNLOAD-2.0.18_PREVIEW-ef476f?style=for-the-badge&amp;logo=github">
+  <a href="https://github.com/cmdr-chara/deltamod/releases/latest">
+    <img alt="Download Deltamod Community 2.0.18" src="https://img.shields.io/badge/DOWNLOAD-2.0.18-ef476f?style=for-the-badge&amp;logo=github">
   </a>
 </p>
 
