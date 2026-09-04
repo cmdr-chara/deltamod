@@ -1,65 +1,59 @@
-/*
- * Deltamod frontend refresh foundation
- *
- * Direction: keep UTDR identity through restraint, not a fan-game UI.
- * This layer replaces excessive glass effects with lightweight surfaces,
- * stronger hierarchy and performant motion primitives.
- */
+/* Deltamod refined desktop UI layer */
 
 :root {
-  --dm-bg: #08090d;
-  --dm-surface: rgba(18, 20, 28, 0.92);
-  --dm-surface-raised: rgba(28, 31, 42, 0.96);
-  --dm-border: rgba(255, 255, 255, 0.12);
-  --dm-text: #f4f4f5;
-  --dm-muted: rgba(244, 244, 245, 0.65);
-  --dm-accent: var(--theme-color, #7c5cff);
-  --dm-radius: 12px;
+  --dm-surface: rgba(12, 14, 20, .86);
+  --dm-surface-raised: rgba(20, 23, 32, .96);
+  --dm-border: rgba(255,255,255,.12);
+  --dm-radius: 14px;
 }
 
-/* Lightweight surfaces: avoid expensive full-screen blur stacks. */
 .dm-surface {
   background: var(--dm-surface);
   border: 1px solid var(--dm-border);
   border-radius: var(--dm-radius);
-  box-shadow: 0 12px 35px rgba(0, 0, 0, .28);
+  box-shadow: 0 12px 35px rgba(0,0,0,.28);
 }
 
-.dm-surface-raised {
-  background: var(--dm-surface-raised);
-}
-
-.dm-accent-line {
-  position: relative;
-}
-
-.dm-accent-line::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--dm-accent);
-}
+.dm-surface-raised { background: var(--dm-surface-raised); }
 
 .dm-interactive {
-  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+  transition: transform .18s ease, border-color .18s ease, background-color .18s ease;
 }
 
 .dm-interactive:hover {
   transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--dm-accent) 45%, white 20%);
+  border-color: var(--theme-color);
 }
 
-@keyframes dm-soul-pulse {
-  0%, 100% { box-shadow: 0 0 0 rgba(124,92,255,0); }
-  50% { box-shadow: 0 0 22px color-mix(in srgb, var(--dm-accent) 30%, transparent); }
+.sidebar {
+  width: 86px;
+  background: rgba(8,10,16,.78);
+  border-right: 1px solid var(--dm-border);
+  backdrop-filter: none;
 }
 
-.dm-selected {
-  animation: dm-soul-pulse 2.8s ease-in-out infinite;
+.sidebar-button {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  border: 1px solid transparent;
 }
+
+.sidebar-button:hover,
+.sidebar-button:focus-visible {
+  background: rgba(255,255,255,.08);
+  border-color: var(--dm-border);
+  transform: translateY(-2px);
+}
+
+.viewport {
+  left: 86px;
+  width: calc(100% - 86px);
+  border-radius: var(--dm-radius);
+  border-color: var(--dm-border);
+}
+
+.alertMain { backdrop-filter: none; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
