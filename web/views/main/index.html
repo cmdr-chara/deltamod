@@ -14,19 +14,12 @@
             </div>
         </div>
         <div class="patch-actions" aria-label="Patch actions">
-            <button onclick="window.electronAPI.invoke('importMod',[])" id="importModBtn" title="Import a mod package" aria-label="Import a mod package">
-                <span class="material-symbols-outlined">add_box</span>
-            </button>
-            <button onclick="window.currentPageStack.patchAndRun()" id="par" title="Apply selected mods and launch" aria-label="Apply selected mods and launch">
-                <span class="material-symbols-outlined">arrow_circle_right</span>
-            </button>
+            <button onclick="window.electronAPI.invoke('importMod',[])" id="importModBtn" title="Import a mod package" aria-label="Import a mod package"><span class="material-symbols-outlined">add_box</span></button>
+            <button onclick="window.currentPageStack.patchAndRun()" id="par" title="Apply selected mods and launch" aria-label="Apply selected mods and launch"><span class="material-symbols-outlined">arrow_circle_right</span></button>
         </div>
     </header>
     <div class="mods-scroll dm-surface-raised">
-        <div style="display: none;" class="modlist-error" id="error-banner">
-            <h2>$$modFail_bannerTitle$$</h2>
-            <span class="calibri">$$modFail_bannerClick$$</span>
-        </div>
+        <div style="display: none;" class="modlist-error" id="error-banner"><h2>$$modFail_bannerTitle$$</h2><span class="calibri">$$modFail_bannerClick$$</span></div>
         <table id="modtable">
             <colgroup><col class="patch-mod-column"><col class="patch-enabled-column"></colgroup>
             <thead><tr><th>$$mod$$</th><th class="patch-enabled-heading">$$enabled$$</th></tr></thead>
