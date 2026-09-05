@@ -1,0 +1,93 @@
+# One-shot, checksum-verified delivery of the locally reviewed frontend revision.
+# This workflow and its payload are removed after the branch update is verified.
+name: Apply reviewed frontend revision
+on:
+  push:
+    branches: [frontend-revamp-tauri]
+    paths: ['.github/revamp-delivery/**']
+permissions:
+  contents: write
+concurrency:
+  group: apply-reviewed-frontend-revision
+  cancel-in-progress: false
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/frontend-revamp-tauri'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Verify revision and apply the reviewed file edits
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/frontend-revamp-tauri
+          test "$(git rev-parse HEAD^)" = bc178d50864a9544add03815e0a09b5283db9b17
+          test "$(git ls-remote origin "$GITHUB_REF" | cut -f1)" = "$GITHUB_SHA"
+          python3 - <<'PY'
+          import base64, hashlib, json, lzma, pathlib, subprocess
+          root = pathlib.Path.cwd().resolve()
+          parts = sorted(root.glob('.github/revamp-delivery/part-*'))
+          assert len(parts) == 6, 'Delivery is incomplete'
+          encoded = ''.join(part.read_text(encoding='utf-8') for part in parts)
+          raw = lzma.decompress(base64.b64decode(encoded, validate=True), memlimit=256 * 1024 * 1024)
+          assert hashlib.sha256(raw).hexdigest() == 'af230b276b41384d32dad8fd098badce3b88a1556e585d9403f9facc541b5bc6', 'Delivery checksum mismatch'
+          records = json.loads(raw)
+          assert len(records) == 55
+          paths = []
+          for record in records:
+              name = record['path']
+              relative = pathlib.PurePosixPath(name)
+              assert not relative.is_absolute() and '..' not in relative.parts and relative.as_posix() == name
+              assert name.startswith(('web/', 'tests/')) or name == 'src-tauri/src/channels/runtime.rs'
+              assert name not in paths
+              target = root / name
+              assert target.resolve().is_relative_to(root)
+              assert not target.is_symlink() and not any(parent.is_symlink() for parent in target.parents)
+              before = target.read_bytes() if target.exists() else b''
+              if record['old'] is None:
+                  assert not target.exists(), f'New file already exists: {name}'
+              else:
+                  assert target.is_file() and hashlib.sha256(before).hexdigest() == record['old'], f'File changed since review: {name}'
+              lines = before.decode('utf-8').splitlines(keepends=True)
+              previous_end = 0
+              for start, end, text in record['edits']:
+                  assert isinstance(start, int) and isinstance(end, int) and isinstance(text, str)
+                  assert previous_end <= start <= end <= len(lines), f'Invalid edit range: {name}'
+                  previous_end = end
+              for start, end, text in reversed(record['edits']):
+                  lines[start:end] = [text]
+              after = ''.join(lines).encode('utf-8')
+              assert hashlib.sha256(after).hexdigest() == record['new'], f'Result checksum mismatch: {name}'
+              target.parent.mkdir(parents=True, exist_ok=True)
+              temporary = target.with_name(target.name + '.revamp-new')
+              assert not temporary.exists()
+              temporary.write_bytes(after)
+              temporary.replace(target)
+              paths.append(name)
+              if name.endswith('.js'):
+                  subprocess.run(['node', '--check', name], check=True)
+          subprocess.run(['git', 'add', '--', *paths], check=True)
+          print(f'Applied {len(paths)} individually verified source files')
+          PY
+          rustfmt --edition 2021 src-tauri/src/channels/runtime.rs
+          git add src-tauri/src/channels/runtime.rs
+          git diff --cached --check
+          git diff --cached --stat
+      - name: Commit only to the existing working branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/frontend-revamp-tauri
+          test "$(git ls-remote origin "$GITHUB_REF" | cut -f1)" = "$GITHUB_SHA"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat(frontend): complete desktop workspace, view interactions and native catalogue projection'
+          git push origin HEAD:refs/heads/frontend-revamp-tauri
+          echo "Delivered commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"

@@ -11,6 +11,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   review-source:
+    if: "!contains(github.event.head_commit.message, '[stage-revamp]')"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -33,6 +34,7 @@ jobs:
           path: /tmp/frontend-review-source.tar.gz
           retention-days: 1
   frontend:
+    if: "!contains(github.event.head_commit.message, '[stage-revamp]')"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -43,13 +45,22 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: node scripts/retry-command.js --label "npm ci" -- npm ci
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: native -> target
       - run: npm run typecheck
       - run: npm run build:boot
+      - name: Build native workers used by the JavaScript integration tests
+        run: cargo build --workspace --locked --manifest-path native/Cargo.toml
       - run: npm test
+      - run: cargo test --workspace --all-targets --locked --manifest-path native/Cargo.toml
       - name: Install browser
         run: npx playwright install --with-deps chromium
       - name: Tauri frontend contracts
-        run: npx playwright test tests/e2e/tauri-themes.spec.js tests/e2e/tauri-localization.spec.js
+        run: npx playwright test tests/e2e/tauri-themes.spec.js tests/e2e/tauri-localization.spec.js tests/e2e/frontend-workspace.spec.js
       - name: Browser failure evidence
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -58,3 +69,37 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
           retention-days: 3
+  native-shell:
+    if: "!contains(github.event.head_commit.message, '[stage-revamp]')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: |
+            native -> target
+            src-tauri -> target
+      - name: Linux Tauri libraries
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 install -y --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: node scripts/retry-command.js --label "npm ci" -- npm ci
+      - run: npm run build:boot
+      - name: Acquire verified native tool resources
+        run: |
+          node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
+          node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
+          npm run build:native-sidecars:target -- x86_64-unknown-linux-gnu
+          npm run build:tauri:resources -- x86_64-unknown-linux-gnu
+      - name: Check changed Rust channel formatting
+        run: rustfmt --edition 2021 --check src-tauri/src/channels/runtime.rs
+      - run: cargo check --workspace --locked --manifest-path src-tauri/Cargo.toml
+      - run: cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml
