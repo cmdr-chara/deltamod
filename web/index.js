@@ -1049,168 +1049,133 @@ function enableElem(elem) {
  * Custom HTML Alert System
  * ==========================================
  */
-var alertCache = [];
+let alertQueue = Promise.resolve();
 var isAlertShowing = false;
 
-/**
- * Queues or displays an HTML-based alert dialog.
- */
-async function htmlAlert(title, message, buttons, specialIcon) {
-    if (isAlertShowing) {
-        return new Promise((resolve, reject) => {
-            alertCache.push({ title, message, buttons, resolve, reject, specialIcon: 'info' });
-        });
-    } else {
-        return htmlAlertRaw(title, message, buttons, specialIcon);
-    }
+async function htmlAlert(title, message, buttons, specialIcon = 'info') {
+    // Chain both success and rejection so one dismissed alert never strands the queue.
+    const open = () => htmlAlertRaw(title, message, buttons, specialIcon);
+    const result = alertQueue.then(open, open);
+    alertQueue = result.catch(() => {});
+    return result;
 }
 
-/**
- * Internal function to handle the rendering of the HTML alert.
- */
+/** Preserve the existing themed/aligned alert while fixing lifecycle and keyboard use. */
 async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
-    return new Promise(async (resolve, reject) => {
-        isAlertShowing = true;
-
-        if (
-            localStorage.getItem('alertAlignment') == "Separate"
-            && window.deltamodBackend.isCommandAvailable('htmlAlert_outwin')
-        ) {
-            var index = await window.deltamodBackend.invoke('htmlAlert_outwin', [title, message, buttons]);
-            isAlertShowing = false;
-            var button = buttons[index];
-
-            if (button.resolveWith) {
-                resolve(button.resolveWith);
-                return;
-            }
-
-            if (button.rejectWith) {
-                reject(button.rejectWith);
-                return;
-            }
-
-            return;
+    const choices = Array.isArray(buttons) && buttons.length ? buttons : [{ text: 'OK', resolveWith: 'ok' }];
+    const has = (choice, key) => Object.prototype.hasOwnProperty.call(choice, key);
+    const settle = async choice => {
+        if (has(choice, 'rejectWith')) throw choice.rejectWith;
+        if (has(choice, 'resolveWith')) return choice.resolveWith;
+        if (choice.onClick) choice.onClick();
+        return undefined;
+    };
+    isAlertShowing = true;
+    try {
+        if (localStorage.getItem('alertAlignment') === 'Separate'
+            && window.deltamodBackend.isCommandAvailable('htmlAlert_outwin')) {
+            const index = await window.deltamodBackend.invoke('htmlAlert_outwin', [title, message, choices]);
+            const selected = choices[index];
+            if (!selected) throw new Error('Alert closed without a selection');
+            return await settle(selected);
         }
-
-        var alertMain = document.getElementsByClassName('alertMain')[0];
-        var alertMsgR = alertMain.getElementsByClassName('alertMsg')[0];
-
+        const alertMain = document.querySelector('.alertMain');
+        const alertMsgR = alertMain.querySelector('.alertMsg');
+        const previousFocus = document.activeElement;
         const animationDuration = prefersReducedMotion() ? 0 : MOTION.standard;
         const animationSeconds = animationDuration / 1000;
-        const animOptions = `${MOTION.easeOut} forwards`;
-
-        alertMsgR.innerHTML = '';
-
-        // Container
-        var alertMsg = document.createElement('div');
-        alertMsgR.appendChild(alertMsg);
-
-        // Title
-        var titleElement = document.createElement('h1');
-        titleElement.innerText = title;
-        titleElement.style.opacity = '1';
-        
-        // Message
-        var messageElement = document.createElement('p');
-        messageElement.textContent = String(message);
-        messageElement.style.whiteSpace = 'pre-line';
-        messageElement.style.opacity = '1';
-        
-        alertMsg.appendChild(titleElement);
-        alertMsg.appendChild(messageElement);
-
-        // Buttons
-        var buttonsHTML = document.createElement('div');
-        buttonsHTML.style.textAlign = 'right';
-        buttonsHTML.classList.add('alertButtons');
-        buttonsHTML.style.opacity = '1';
-        buttonsHTML.style.display = 'flex';
-        buttonsHTML.style.gap = '8px';
-        buttonsHTML.style.justifyContent = 'flex-end';
-        
-
-        buttons.forEach((button) => {
-            var btn = document.createElement('button');
-            btn.textContent = button.text;
-            btn.style.flex = '1 1 0';
-            btn.onclick = async function() {
-                buttonsHTML.style.pointerEvents = 'none';
-                // Outro animation
-                alertMsgR.style.animation = animationDuration === 0
-                    ? 'none'
-                    : `${animationSeconds}s alertFadeOut ${MOTION.easeIn} forwards`;
-                setTimeout(() => {
-                    alertMain.style.animation = '';
-                    alertMain.style.display = 'none';
-                    alertMain.hidden = true;
-                    alertMsgR.style.animation = 'none';
-                    alertMsgR.innerHTML = '';
-                }, animationDuration);
-                
-                isAlertShowing = false;
-                
-                // Play dismiss SFX
-                var a = new Audio();
-                a.src = 'audio/booow.mp3';
-                if (await window.deltamodBackend.invoke('getUniqueFlag', ["SFX"]) === true) {
-                    a.play().catch(() => {});
-                }
-
-                // Resolve/Reject
-                if (button.resolveWith) {
-                    resolve(button.resolveWith);
-                    return;
-                }
-                if (button.rejectWith) {
-                    reject(button.rejectWith);
-                    return;
-                }
-                if (button.onClick) button.onClick();
-
-                // Process next alert in cache
-                if (alertCache.length > 0) {
-                    setTimeout(() => {
-                        var nextAlert = alertCache.shift();
-                        htmlAlertRaw(nextAlert.title, nextAlert.message, nextAlert.buttons)
-                            .then(nextAlert.resolve)
-                            .catch(nextAlert.reject);
-                    }, animationDuration);
-                }
-            };
-            buttonsHTML.appendChild(btn);
-        });
-
-        alertMain.hidden = false;
-        alertMain.style.display = 'flex';
-        alertMsg.appendChild(buttonsHTML);
-        alertMsgR.style.animation = 'none';
-        void alertMsgR.offsetWidth;
-        alertMsgR.style.animation = animationDuration === 0
-            ? 'none'
-            : `${animationSeconds}s alertFadeIn ${animOptions}`;
-
-        // Special Background Icon
-        var bigIcon = document.createElement('span');
-        bigIcon.classList.add('material-symbols-outlined', 'alertBigIcon');
-        bigIcon.innerText = specialIcon;
-        bigIcon.style.fontSize = '490px';
-        bigIcon.style.position = 'absolute';
-        bigIcon.style.top = '-140px';
-        bigIcon.style.right = '-50px';
-        bigIcon.style.opacity = '0.1';
-        bigIcon.style.userSelect = 'none';
-        bigIcon.style.pointerEvents = 'none';
-        alertMsgR.appendChild(bigIcon);
-
-        // Play alert SFX
-        var a = new Audio();
-        a.src = 'audio/htmlalert.mp3';
-        a.playbackRate = 0.9;
-        if (await window.deltamodBackend.invoke('getUniqueFlag', ["SFX"]) === true) {
-            a.play();
+        const content = document.createElement('div');
+        const heading = document.createElement('h1');
+        heading.id = 'community-alert-title';
+        heading.textContent = title;
+        const copy = document.createElement('p');
+        copy.id = 'community-alert-description';
+        copy.textContent = String(message);
+        copy.style.whiteSpace = 'pre-line';
+        const controls = document.createElement('div');
+        controls.className = 'alertButtons';
+        content.append(heading, copy, controls);
+        const bigIcon = document.createElement('span');
+        bigIcon.className = 'material-symbols-outlined alertBigIcon';
+        bigIcon.textContent = specialIcon;
+        bigIcon.setAttribute('aria-hidden', 'true');
+        alertMsgR.replaceChildren(content, bigIcon);
+        alertMsgR.setAttribute('role', 'alertdialog');
+        alertMsgR.setAttribute('aria-modal', 'true');
+        alertMsgR.setAttribute('aria-labelledby', heading.id);
+        alertMsgR.setAttribute('aria-describedby', copy.id);
+        alertMsgR.tabIndex = -1;
+        const background = [...document.body.children].filter(node => node !== alertMain
+            && !['SCRIPT', 'STYLE', 'LINK'].includes(node.tagName));
+        const inertState = background.map(node => [node, node.inert]);
+        background.forEach(node => { node.inert = true; });
+        const sfx = source => {
+            // Audio is feedback, never a prerequisite for opening/closing a dialog.
+            Promise.resolve().then(() => window.deltamodBackend.invoke('getUniqueFlag', ['SFX']))
+                .then(enabled => { if (enabled) return new Audio(source).play(); }).catch(() => {});
+        };
+        let selected;
+        let onKey;
+        try {
+            const selection = new Promise(resolve => {
+                let closing = false;
+                const close = choice => {
+                    if (closing) return;
+                    closing = true;
+                    [...controls.children].forEach(button => { button.disabled = true; });
+                    alertMsgR.style.animation = animationDuration
+                        ? `${animationSeconds}s alertFadeOut ${MOTION.easeIn} forwards` : 'none';
+                    sfx('audio/booow.mp3');
+                    setTimeout(() => resolve(choice), animationDuration);
+                };
+                choices.forEach(choice => {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.textContent = choice.text;
+                    button.addEventListener('click', () => close(choice));
+                    controls.append(button);
+                });
+                onKey = event => {
+                    if (event.key === 'Escape') {
+                        // Escape must not accidentally accept a destructive action.
+                        const cancel = choices.find(choice => has(choice, 'rejectWith'));
+                        if (cancel) { event.preventDefault(); event.stopPropagation(); close(cancel); }
+                    }
+                    if (event.key === 'Tab') {
+                        const enabled = [...controls.children].filter(button => !button.disabled);
+                        if (!enabled.length) { event.preventDefault(); return; }
+                        const first = enabled[0], last = enabled.at(-1);
+                        if (event.shiftKey && (document.activeElement === first || !controls.contains(document.activeElement))) {
+                            event.preventDefault(); last.focus();
+                        } else if (!event.shiftKey && (document.activeElement === last || !controls.contains(document.activeElement))) {
+                            event.preventDefault(); first.focus();
+                        }
+                    }
+                };
+                alertMain.addEventListener('keydown', onKey);
+            });
+            alertMain.hidden = false;
+            alertMain.style.display = 'flex';
+            alertMsgR.style.animation = animationDuration
+                ? `${animationSeconds}s alertFadeIn ${MOTION.easeOut} forwards` : 'none';
+            // Start on dismissal for confirmation dialogs; retain all original choices.
+            const cancelIndex = choices.findIndex(choice => has(choice, 'rejectWith'));
+            controls.children[Math.max(0, cancelIndex)].focus({ preventScroll: true });
+            sfx('audio/htmlalert.mp3');
+            selected = await selection;
+        } finally {
+            alertMain.removeEventListener('keydown', onKey);
+            alertMain.hidden = true;
+            alertMain.style.display = 'none';
+            alertMsgR.style.animation = 'none';
+            alertMsgR.replaceChildren();
+            inertState.forEach(([node, inert]) => { node.inert = inert; });
+            if (previousFocus?.isConnected && !previousFocus.inert) previousFocus.focus({ preventScroll: true });
         }
-    });
+        return await settle(selected);
+    } finally {
+        isAlertShowing = false;
+    }
 }
 
 function credits(funny) {

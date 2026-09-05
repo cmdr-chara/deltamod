@@ -113,3 +113,9 @@ small {
     animation: spawn var(--motion-standard) var(--motion-ease-out);
     box-sizing: border-box;
 }
+
+/* Keep the original centered patching composition and theme. */
+.patch-progress-info { display:flex; justify-content:space-between; gap:12px; color:var(--muted-text); font-size:var(--font-size-meta); }
+#patch-progress { display:block; width:100%; height:8px; margin:10px 0 18px; accent-color:var(--theme-color); }
+.logs { width:min(600px,calc(100vw - 72px)); margin:10px 0; height:240px; font-size:13px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
+@media(prefers-reduced-motion:reduce) { .rotate { animation:none !important; } }

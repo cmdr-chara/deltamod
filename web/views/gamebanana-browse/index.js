@@ -1741,64 +1741,93 @@ searchel.addEventListener('keypress', function (e) {
     }
 });
 
-searchel.addEventListener('focus', function (e) {
-    if (SHOP_PROVIDER !== 'gamebanana') return;
-    autocomplete.style.opacity = '1';
-    autocomplete.style.pointerEvents = 'auto';
+// Suggestions are input-driven, cancel stale requests, and use the active game.
+let suggestionTimer;
+let suggestionRequest;
+let suggestionGame;
+let suggestionSequence = 0;
+let activeSuggestion = -1;
+autocomplete.id = 'mod-search-suggestions';
+autocomplete.setAttribute('role', 'listbox');
+searchel.setAttribute('role', 'combobox');
+searchel.setAttribute('aria-autocomplete', 'list');
+searchel.setAttribute('aria-controls', autocomplete.id);
+searchel.setAttribute('aria-expanded', 'false');
+function closeSuggestions() {
+    suggestionSequence++;
+    clearTimeout(suggestionTimer);
+    suggestionRequest?.abort();
+    activeSuggestion = -1;
+    autocomplete.replaceChildren();
+    autocomplete.style.opacity = '0';
+    autocomplete.style.pointerEvents = 'none';
+    searchel.setAttribute('aria-expanded', 'false');
+    searchel.removeAttribute('aria-activedescendant');
+}
+function scheduleSuggestions() {
+    closeSuggestions();
+    const query = searchel.value.trim();
+    if (SHOP_PROVIDER !== 'gamebanana' || query.length < 3) return;
+    const sequence = suggestionSequence;
+    suggestionTimer = setTimeout(async () => {
+        const request = new AbortController();
+        suggestionRequest = request;
+        try {
+            suggestionGame ||= window.deltamodBackend.invoke('getCurrentGameInfo', [])
+                .then(game => game?.gamebanana?.id).catch(error => { suggestionGame = null; throw error; });
+            const gameID = await suggestionGame;
+            if (!gameID || sequence !== suggestionSequence || !isCurrentShopPage()) return;
+            const response = await fetch('https://gamebanana.com/apiv12/Util/Search/Suggestions?_idGameRow='
+                + encodeURIComponent(gameID) + '&_sSearchString=' + encodeURIComponent(query), { signal: request.signal });
+            if (!response.ok) return;
+            const results = await response.json();
+            if (sequence !== suggestionSequence || !isCurrentShopPage() || document.activeElement !== searchel) return;
+            if (!Array.isArray(results)) return;
+            const fragment = document.createDocumentFragment();
+            results.filter(item => typeof item === 'string').slice(0, 8).forEach((item, index) => {
+                const result = document.createElement('div');
+                result.className = 'result';
+                result.id = `mod-suggestion-${index}`;
+                result.setAttribute('role', 'option');
+                result.setAttribute('aria-selected', 'false');
+                result.textContent = item;
+                // Keep focus in the combobox until its click is handled.
+                result.addEventListener('mousedown', event => event.preventDefault());
+                result.addEventListener('click', () => {
+                    searchel.value = item;
+                    closeSuggestions();
+                    syncSearchClearButton();
+                    search(item);
+                });
+                fragment.append(result);
+            });
+            autocomplete.replaceChildren(fragment);
+            const open = autocomplete.childElementCount > 0;
+            autocomplete.style.opacity = open ? '1' : '0';
+            autocomplete.style.pointerEvents = open ? 'auto' : 'none';
+            searchel.setAttribute('aria-expanded', String(open));
+        } catch (_) {
+            // Suggestions are optional. Full search remains available on failures.
+        }
+    }, 240);
+}
+searchel.addEventListener('input', scheduleSuggestions);
+searchel.addEventListener('focus', scheduleSuggestions);
+searchel.addEventListener('blur', closeSuggestions);
+clearSearchButton.addEventListener('click', closeSuggestions);
+searchel.addEventListener('keydown', event => {
+    const options = [...autocomplete.children];
+    if (event.key === 'Escape') { closeSuggestions(); return; }
+    if (options.length && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+        event.preventDefault();
+        activeSuggestion = (activeSuggestion + (event.key === 'ArrowDown' ? 1 : options.length - 1) + options.length) % options.length;
+        options.forEach((option, index) => option.setAttribute('aria-selected', String(index === activeSuggestion)));
+        searchel.setAttribute('aria-activedescendant', options[activeSuggestion].id);
+    }
+    if (event.key === 'Enter' && activeSuggestion >= 0 && options[activeSuggestion]) {
+        event.preventDefault();
+        options[activeSuggestion].click();
+    }
 });
-
-searchel.addEventListener('blur', function (e) {
-    setTimeout(() => {
-        autocomplete.style.opacity = '0';
-        autocomplete.style.pointerEvents = 'none';
-    }, 300);
-});
-
-let sval = 0;
-
-window._intervals = window._intervals || [];
-window._intervals.push(setInterval(async () => {
-    if (SHOP_PROVIDER !== 'gamebanana') return;
-    var isFocused = document.activeElement === searchel;
-    if (!isFocused) {
-        autocomplete.style.opacity = '0';
-        autocomplete.style.pointerEvents = 'none';
-        return;
-    }
-    if (sval != searchel.value) {
-        sval = searchel.value;
-    } else return;
-
-    if (searchel.value.length < 3) {
-        autocomplete.innerHTML = '';
-        autocomplete.style.opacity = '0';
-        autocomplete.style.pointerEvents = 'none';
-        return;
-    }
-
-    var res = await fetch('https://gamebanana.com/apiv12/Util/Search/Suggestions?_idGameRow=6755&_sSearchString=' + (searchel.value));
-    var elems = JSON.parse(await res.text());
-
-    autocomplete.style.opacity = '1';
-    autocomplete.style.pointerEvents = 'auto';
-    autocomplete.innerHTML = '';
-    elems.forEach((item) => {
-        var resultDiv = document.createElement('div');
-        resultDiv.className = 'result';
-        resultDiv.innerText = item;
-        resultDiv.addEventListener('click', function () {
-            searchel.value = item;
-            search(searchel.value);
-        });
-        autocomplete.appendChild(resultDiv);
-    });
-    if (elems.length === 0) {
-        var noResultDiv = document.createElement('div');
-        noResultDiv.className = 'result';
-        noResultDiv.innerText = 'No results found';
-        noResultDiv.style.color = '#888';
-        autocomplete.appendChild(noResultDiv);
-        noResultDiv.style.pointerEvents = 'none';
-    }
-}, 1000));
+window._onClosePage.push(closeSuggestions);
 })();

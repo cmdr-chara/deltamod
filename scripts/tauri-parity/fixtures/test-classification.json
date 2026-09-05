@@ -20,6 +20,8 @@
     "tests/tauri-parity-classification.test.js"
   ],
   "tests": [
+    { "path": "tests/frontend-refinements.test.js", "layer": "renderer", "runtime": "shared", "retained": true },
+    { "path": "tests/e2e/frontend-refinement.spec.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/archive-security.test.js", "layer": "security", "runtime": "shared", "retained": true },
     { "path": "tests/atomic-store.test.js", "layer": "lifecycle", "runtime": "shared", "retained": true },
     { "path": "tests/boot-integration.test.js", "layer": "renderer", "runtime": "shared", "retained": true },

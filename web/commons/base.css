@@ -512,3 +512,18 @@ th {
         flex-wrap: wrap;
     }
 }
+
+/* Accessible refinement shared by the original views; keep Pixel and theme surfaces. */
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline:2px solid var(--theme-color, white); outline-offset:3px;
+}
+.control-save-status { display:block; margin-top:5px; font-size:13px; line-height:1.3; color:var(--muted-text); }
+.control-save-status.is-error { color:var(--danger); }
+input[aria-invalid="true"], select[aria-invalid="true"] { border-color:var(--danger); }
+.control-save-status:empty { display:none; }
+:where(.logs, .mods-scroll, .error-list-dialog, .alertMsg) { scrollbar-width:thin; scrollbar-color:var(--theme-color) transparent; }
+:where(.logs, .mods-scroll, .error-list-dialog, .alertMsg)::-webkit-scrollbar { display:block; width:6px; height:6px; }
+:where(.logs, .mods-scroll, .error-list-dialog, .alertMsg)::-webkit-scrollbar-thumb { background:var(--theme-color); border-radius:8px; }
+@media(prefers-reduced-motion:reduce) {
+    .alertMain, .alertMsg, .error-list-dialog { animation:none !important; transition:none !important; }
+}
