@@ -54,3 +54,75 @@ describe('desktop workspace utilities and route contracts', () => {
         expect(script).not.toContain('innerHTML +=');
     });
 });
+
+describe('renderer startup execution', () => {
+    function runStartup({ installer = false, failedSource = null } = {}) {
+        const vm = require('node:vm');
+        const sources = [];
+        const boot = { hidden: false };
+        const classes = new Set(['deltamod-route-pending']);
+        let errorMessage = null;
+        let resolveDone;
+        const done = new Promise(resolve => { resolveDone = resolve; });
+        const document = {
+            documentElement: { classList: { remove: name => classes.delete(name) } },
+            body: {
+                classList: { remove() {} },
+                appendChild(script) {
+                    sources.push(script.src);
+                    queueMicrotask(() => script.src === failedSource ? script.onerror() : script.onload());
+                }
+            },
+            getElementById: () => boot,
+            querySelector: () => ({}),
+            createElement: () => ({})
+        };
+        const window = {
+            deltamodBackend: { invoke: async () => installer },
+            DeltamodUI: { showError: (_target, error) => { errorMessage = error.message; } },
+            dispatchEvent: () => resolveDone({ sources, boot, classes, errorMessage })
+        };
+        const location = {
+            replace: route => resolveDone({ sources, route }),
+            reload() {}
+        };
+        vm.runInNewContext(read('web/modules/startup.js'), {
+            document, window, location, Event, console: { warn() {} }
+        });
+        return done;
+    }
+
+    it('loads dependencies exactly once and preserves Linux media ordering', async () => {
+        const { sources, classes, errorMessage } = await runStartup();
+        expect(sources).toEqual([
+            './modules/localization.js', './modules/icons.js', './modules/workspace.js',
+            './modules/dialogs.js', './modules/theme-sprites.js', './modules/seasonal-events.js',
+            './boot/deltamod-boot.js', 'index.js', './linux-menu-audio.js', './linux-runtime-polish.js'
+        ]);
+        expect(new Set(sources).size).toBe(sources.length);
+        expect(classes.has('deltamod-route-pending')).toBe(false);
+        expect(errorMessage).toBeNull();
+    });
+
+    it('continues without the optional generated React boot bundle', async () => {
+        const result = await runStartup({ failedSource: './boot/deltamod-boot.js' });
+        expect(result.boot.hidden).toBe(true);
+        expect(result.sources.filter(source => source === 'index.js')).toHaveLength(1);
+        expect(result.errorMessage).toBeNull();
+    });
+
+    it('routes the native installer without loading Community modules', async () => {
+        const result = await runStartup({ installer: true });
+        expect(result.route).toBe('./installer/index.html');
+        expect(result.sources).toEqual([]);
+    });
+
+    it('reveals actionable failure instead of restarting a partially loaded renderer', async () => {
+        const result = await runStartup({ failedSource: './modules/dialogs.js' });
+        expect(result.errorMessage).toContain('./modules/dialogs.js');
+        expect(result.classes.has('deltamod-route-pending')).toBe(false);
+        expect(result.boot.hidden).toBe(true);
+        expect(result.sources).not.toContain('index.js');
+        expect(new Set(result.sources).size).toBe(result.sources.length);
+    });
+});

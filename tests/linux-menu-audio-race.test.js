@@ -330,11 +330,14 @@ describe('Linux menu audio request coordination', () => {
 
     it('is loaded after index.js but before the remaining Linux runtime polish', () => {
         const html = fs.readFileSync(path.join(projectRoot, 'web', 'index.html'), 'utf8');
-        expect(html).toContain("'./linux-menu-audio.js'");
-        expect(html.indexOf("'./linux-menu-audio.js'"))
-            .toBeGreaterThan(html.indexOf("'index.js'"));
-        expect(html.indexOf("'./linux-menu-audio.js'"))
-            .toBeLessThan(html.indexOf("'./linux-runtime-polish.js'"));
+        const startup = fs.readFileSync(path.join(projectRoot, 'web', 'modules', 'startup.js'), 'utf8');
+        expect(html).toContain('<script src="./modules/startup.js"></script>');
+        expect(startup).toContain("'./linux-menu-audio.js'");
+        expect(startup).toContain("await load('index.js')");
+        expect(startup.indexOf("'./linux-menu-audio.js'"))
+            .toBeGreaterThan(startup.indexOf("'index.js'"));
+        expect(startup.indexOf("'./linux-menu-audio.js'"))
+            .toBeLessThan(startup.indexOf("'./linux-runtime-polish.js'"));
     });
 
     it('does nothing outside Linux Tauri', () => {

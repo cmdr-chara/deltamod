@@ -63,6 +63,7 @@
     { "path": "tests/provider-shop-wiring.test.js", "layer": "provider", "runtime": "shared", "retained": true },
     { "path": "tests/release-notes.test.js", "layer": "compatibility", "runtime": "shared", "retained": true },
     { "path": "tests/remote-security.test.js", "layer": "security", "runtime": "shared", "retained": true },
+    { "path": "tests/workspace-ui.test.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/renderer-smoke.test.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/retry-command.test.js", "layer": "domain", "runtime": "shared", "retained": true },
     { "path": "tests/seasonal-events.test.js", "layer": "renderer", "runtime": "shared", "retained": true },
@@ -84,6 +85,7 @@
     { "path": "tests/e2e/chara-replay.spec.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/e2e/community-smoke.spec.js", "layer": "shell-electron", "runtime": "electron", "retained": true },
     { "path": "tests/e2e/tauri-localization.spec.js", "layer": "shell-tauri", "runtime": "tauri", "retained": true },
+    { "path": "tests/e2e/frontend-workspace.spec.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/e2e/tauri-themes.spec.js", "layer": "shell-tauri", "runtime": "tauri", "retained": true }
   ]
 }

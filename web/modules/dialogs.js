@@ -73,7 +73,17 @@
         });
         overlay.hidden = true; overlay.style.display = 'none'; panel.replaceChildren();
         background.forEach((element, index) => { element.inert = inertBefore[index]; });
-        if (previous?.isConnected && !previous.closest('[inert]')) previous.focus({ preventScroll: true });
+        const restoreFocus = () => {
+            if (previous?.isConnected && !previous.closest('[inert]') && !previous.disabled) {
+                previous.focus({ preventScroll: true });
+            }
+        };
+        restoreFocus();
+        // The caller may re-enable its initiating control in the settled promise's
+        // finally block. Retry after that microtask, but never steal a newer focus.
+        requestAnimationFrame(() => {
+            if (overlay.hidden && document.activeElement === document.body) restoreFocus();
+        });
         sound('audio/booow.mp3');
         return buttons[choice];
     }

@@ -97,8 +97,11 @@ describe('universal seasonal events', () => {
     it('loads before the boot renderer and waits for the real theme colors', () => {
         const markup = fs.readFileSync(path.join(projectRoot, 'web', 'index.html'), 'utf8');
         const renderer = fs.readFileSync(path.join(projectRoot, 'web', 'index.js'), 'utf8');
-        expect(markup.indexOf('modules/seasonal-events.js'))
-            .toBeLessThan(markup.indexOf('boot/deltamod-boot.js'));
+        const startup = fs.readFileSync(path.join(projectRoot, 'web', 'modules', 'startup.js'), 'utf8');
+        expect(markup).toContain('<script src="./modules/startup.js"></script>');
+        expect(startup).toContain('modules/seasonal-events.js');
+        expect(startup.indexOf('modules/seasonal-events.js'))
+            .toBeLessThan(startup.indexOf('boot/deltamod-boot.js'));
         expect(renderer).toContain('window.SeasonalEvents?.setThemeReady(true)');
     });
 });

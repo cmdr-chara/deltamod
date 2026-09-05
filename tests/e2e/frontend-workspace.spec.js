@@ -71,12 +71,14 @@ test('failed enable writes roll back and the dialog restores focus', async ({ pa
     const toggle = page.locator('#modcheck-mod-0');
     await expect(toggle).toBeChecked();
     await page.evaluate(() => { window.__rejectToggle = true; });
-    await toggle.uncheck();
+    await toggle.focus();
+    await toggle.press('Space');
     await expect(page.locator('[role="alertdialog"]')).toBeVisible();
     await expect(page.locator('.alertMsg')).toContainText('Fixture write rejected');
     await page.locator('.alertMsg button').click();
     await expect(toggle).toBeChecked();
     await expect(toggle).toBeEnabled();
+    await expect(toggle).toBeFocused();
     await expect(page.locator('#par')).toBeEnabled();
 });
 

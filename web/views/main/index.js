@@ -187,6 +187,7 @@ async function createMod(mod, modListElement) {
         enabled.onchange = async e => {
             const c = e.target;
             const isEnabled = c.checked;
+            const hadFocus = document.activeElement === c;
             pendingToggles += 1; c.disabled = true; updateLaunchState();
             modRow.classList.toggle('is-enabled', isEnabled);
             try {
@@ -197,6 +198,11 @@ async function createMod(mod, modListElement) {
                 if (modRow.isConnected) await htmlAlert('Unable to change mod state', String(error?.message || error), [{ text: 'OK' }]);
             } finally {
                 pendingToggles -= 1; c.disabled = false; updateLaunchState();
+                // Disabling a native checkbox clears its focus before an error
+                // dialog opens. Restore only when no other control took focus.
+                if (hadFocus && c.isConnected && !c.closest('[inert]') && document.activeElement === document.body) {
+                    c.focus({ preventScroll: true });
+                }
             }
         };
 

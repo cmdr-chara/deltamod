@@ -344,9 +344,11 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(html).toContain("media-src 'self' blob: deltapack: themeprot: packet:");
         expect(html).toContain('<link rel="stylesheet" href="linux-webkit-compat.css">');
         expect(html).toContain('<script src="./media-compat.js"></script>');
-        expect(html).toContain("'./linux-runtime-polish.js'");
+        const startup = fs.readFileSync(path.join(projectRoot, 'web', 'modules', 'startup.js'), 'utf8');
+        expect(html).toContain('<script src="./modules/startup.js"></script>');
+        expect(startup).toContain("'./linux-runtime-polish.js'");
         expect(html.indexOf('./media-compat.js')).toBeGreaterThan(html.indexOf('./tauri-adapter.js'));
-        expect(html.indexOf("'./linux-runtime-polish.js'")).toBeGreaterThan(html.indexOf("'index.js'"));
+        expect(startup.indexOf("'./linux-runtime-polish.js'")).toBeGreaterThan(startup.indexOf("'index.js'"));
         expect(csp['media-src']).toContain('blob:');
         expect(csp['connect-src']).toContain('themeprot:');
         expect(csp['connect-src']).toContain('packet:');
@@ -359,7 +361,7 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(css).toContain('font-family: system-ui, "Segoe UI", sans-serif;');
         expect(css).toContain('-webkit-font-smoothing: antialiased;');
         expect(css).toContain('html.deltamod-linux-webkit .setting-title');
-        expect(css).toContain('-webkit-font-smoothing: none;');
+        expect(css).not.toContain('-webkit-font-smoothing: none;');
         expect(css).not.toContain('html.deltamod-linux-webkit * {');
         expect(css).toContain('html.deltamod-linux-reduced-effects');
         expect(css).toContain('backdrop-filter: none !important;');
