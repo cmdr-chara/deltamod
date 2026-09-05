@@ -1554,3 +1554,9 @@ body {
         font-size: 17px;
     }
 }
+
+/* Alert artwork/alignment stays native to the active theme. */
+.alertButtons { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+.alertButtons > button { flex:1 1 120px; }
+.alertBigIcon { font-size:490px; position:absolute; top:-140px; right:-50px; opacity:0.1; user-select:none; pointer-events:none; }
+.alertMsg p { overflow-wrap:anywhere; }

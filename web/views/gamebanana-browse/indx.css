@@ -817,3 +817,10 @@ input {
         margin: 3px;
     }
 }
+
+/* Match keyboard suggestions to the existing hover affordance. */
+.autocomplete > .results > .result[aria-selected="true"] {
+    background:var(--theme-color-point2); box-shadow:inset 3px 0 var(--theme-color);
+}
+.autocomplete > .results { max-height:280px; overflow-y:auto; scrollbar-width:thin; }
+@media(prefers-reduced-motion:reduce) { .autocomplete > .results { transition:none; } }

@@ -16,6 +16,20 @@
 
     const communityStrings = Object.freeze({
         en: {
+            refine_load_failed: "Could not load the mod list.",
+            refine_retry: "Retry",
+            refine_search_mods: "Search mods",
+            refine_search_hint: "Name, author, version or package ID",
+            refine_clear: "Clear",
+            refine_mod_count: "{0} of {1} mods",
+            refine_no_matches: "No matching mods. Clear the search or change the filter.",
+            refine_saving: "Saving…",
+            refine_saved: "Saved",
+            refine_save_failed: "Not saved. Try again.",
+            refine_progress: "Progress",
+            refine_patch_complete: "Patching complete!",
+            refine_patch_log: "Patch log",
+
             community_options_subtitle: 'Configure Community without changing the official Deltamod profile.',
             optcat_data: 'Data',
             optcat_nexus: 'Nexus Mods',
@@ -118,6 +132,20 @@
             allmods_choose_installation: 'Choose another installation above or return to All installations.'
         },
         it: {
+            refine_load_failed: "Impossibile caricare le mod.",
+            refine_retry: "Riprova",
+            refine_search_mods: "Cerca mod",
+            refine_search_hint: "Nome, autore, versione o ID del pacchetto",
+            refine_clear: "Cancella",
+            refine_mod_count: "{0} di {1} mod",
+            refine_no_matches: "Nessuna mod corrispondente. Cancella la ricerca o cambia il filtro.",
+            refine_saving: "Salvataggio…",
+            refine_saved: "Salvato",
+            refine_save_failed: "Non salvato. Riprova.",
+            refine_progress: "Avanzamento",
+            refine_patch_complete: "Patch completata!",
+            refine_patch_log: "Registro della patch",
+
             community_options_subtitle: 'Configura Community senza modificare il profilo ufficiale di Deltamod.',
             optcat_data: 'Dati',
             optcat_nexus: 'Nexus Mods',
@@ -220,6 +248,20 @@
             allmods_choose_installation: 'Scegli un’altra installazione qui sopra o torna a Tutte le installazioni.'
         },
         pl: {
+            refine_load_failed: "Nie udało się wczytać listy modów.",
+            refine_retry: "Spróbuj ponownie",
+            refine_search_mods: "Szukaj modów",
+            refine_search_hint: "Nazwa, autor, wersja lub ID pakietu",
+            refine_clear: "Wyczyść",
+            refine_mod_count: "{0} z {1} modów",
+            refine_no_matches: "Brak pasujących modów. Wyczyść wyszukiwanie lub zmień filtr.",
+            refine_saving: "Zapisywanie…",
+            refine_saved: "Zapisano",
+            refine_save_failed: "Nie zapisano. Spróbuj ponownie.",
+            refine_progress: "Postęp",
+            refine_patch_complete: "Nakładanie modów zakończone!",
+            refine_patch_log: "Dziennik zmian",
+
             community_options_subtitle: 'Skonfiguruj Community bez zmieniania oficjalnego profilu Deltamod.',
             optcat_data: 'Dane',
             optcat_nexus: 'Nexus Mods',
@@ -322,6 +364,20 @@
             allmods_choose_installation: 'Wybierz powyżej inną instalację lub wróć do opcji Wszystkie instalacje.'
         },
         es: {
+            refine_load_failed: "No se pudo cargar la lista de mods.",
+            refine_retry: "Reintentar",
+            refine_search_mods: "Buscar mods",
+            refine_search_hint: "Nombre, autor, versión o ID del paquete",
+            refine_clear: "Borrar",
+            refine_mod_count: "{0} de {1} mods",
+            refine_no_matches: "No hay mods coincidentes. Borra la búsqueda o cambia el filtro.",
+            refine_saving: "Guardando…",
+            refine_saved: "Guardado",
+            refine_save_failed: "No se ha guardado. Inténtalo de nuevo.",
+            refine_progress: "Progreso",
+            refine_patch_complete: "¡Parche completado!",
+            refine_patch_log: "Registro del parche",
+
             community_options_subtitle: 'Configura Community sin modificar el perfil oficial de Deltamod.',
             optcat_data: 'Datos',
             optcat_nexus: 'Nexus Mods',
@@ -424,6 +480,20 @@
             allmods_choose_installation: 'Elige otra instalación arriba o vuelve a Todas las instalaciones.'
         },
         fr: {
+            refine_load_failed: "Impossible de charger la liste des mods.",
+            refine_retry: "Réessayer",
+            refine_search_mods: "Rechercher des mods",
+            refine_search_hint: "Nom, auteur, version ou ID du paquet",
+            refine_clear: "Effacer",
+            refine_mod_count: "{0} sur {1} mods",
+            refine_no_matches: "Aucun mod correspondant. Effacez la recherche ou changez le filtre.",
+            refine_saving: "Enregistrement…",
+            refine_saved: "Enregistré",
+            refine_save_failed: "Non enregistré. Réessayez.",
+            refine_progress: "Progression",
+            refine_patch_complete: "Application terminée !",
+            refine_patch_log: "Journal des modifications",
+
             community_options_subtitle: 'Configurez Community sans modifier le profil officiel de Deltamod.',
             optcat_data: 'Données',
             optcat_nexus: 'Nexus Mods',
@@ -526,6 +596,20 @@
             allmods_choose_installation: 'Choisissez une autre installation ci-dessus ou revenez à Toutes les installations.'
         },
         de: {
+            refine_load_failed: "Die Mod-Liste konnte nicht geladen werden.",
+            refine_retry: "Erneut versuchen",
+            refine_search_mods: "Mods suchen",
+            refine_search_hint: "Name, Autor, Version oder Paket-ID",
+            refine_clear: "Leeren",
+            refine_mod_count: "{0} von {1} Mods",
+            refine_no_matches: "Keine passenden Mods. Suche leeren oder Filter ändern.",
+            refine_saving: "Speichern…",
+            refine_saved: "Gespeichert",
+            refine_save_failed: "Nicht gespeichert. Erneut versuchen.",
+            refine_progress: "Fortschritt",
+            refine_patch_complete: "Patchen abgeschlossen!",
+            refine_patch_log: "Patch-Protokoll",
+
             community_options_subtitle: 'Community konfigurieren, ohne das offizielle Deltamod-Profil zu verändern.',
             optcat_data: 'Daten',
             optcat_nexus: 'Nexus Mods',
@@ -628,6 +712,20 @@
             allmods_choose_installation: 'Wähle oben eine andere Installation aus oder kehre zu Alle Installationen zurück.'
         },
         'pt-br': {
+            refine_load_failed: "Não foi possível carregar a lista de mods.",
+            refine_retry: "Tentar novamente",
+            refine_search_mods: "Buscar mods",
+            refine_search_hint: "Nome, autor, versão ou ID do pacote",
+            refine_clear: "Limpar",
+            refine_mod_count: "{0} de {1} mods",
+            refine_no_matches: "Nenhum mod encontrado. Limpe a busca ou altere o filtro.",
+            refine_saving: "Salvando…",
+            refine_saved: "Salvo",
+            refine_save_failed: "Não foi salvo. Tente novamente.",
+            refine_progress: "Progresso",
+            refine_patch_complete: "Aplicação concluída!",
+            refine_patch_log: "Registro de aplicação",
+
             community_options_subtitle: 'Configure o Community sem alterar o perfil oficial do Deltamod.',
             optcat_data: 'Dados',
             optcat_nexus: 'Nexus Mods',
@@ -730,6 +828,20 @@
             allmods_choose_installation: 'Escolha outra instalação acima ou volte para Todas as instalações.'
         },
         ja: {
+            refine_load_failed: "MODリストを読み込めませんでした。",
+            refine_retry: "再試行",
+            refine_search_mods: "MODを検索",
+            refine_search_hint: "名前、作者、バージョン、パッケージID",
+            refine_clear: "クリア",
+            refine_mod_count: "{1}件中{0}件のMOD",
+            refine_no_matches: "一致するMODがありません。検索をクリアするか、フィルターを変更してください。",
+            refine_saving: "保存中…",
+            refine_saved: "保存しました",
+            refine_save_failed: "保存できませんでした。もう一度お試しください。",
+            refine_progress: "進行状況",
+            refine_patch_complete: "パッチ完了！",
+            refine_patch_log: "パッチログ",
+
             community_options_subtitle: '公式Deltamodのプロフィールを変更せずにCommunityを設定します。',
             optcat_data: 'データ',
             optcat_nexus: 'Nexus Mods',

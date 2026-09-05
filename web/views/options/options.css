@@ -508,3 +508,8 @@ body .viewport .options-page .cat > button:not(.selected):hover {
         transform: rotate(-12deg);
     }
 }
+
+/* Feedback must wrap below controls, not stretch the option/status table. */
+.options-page .setting-control:has(.control-save-status) { flex-wrap:wrap; }
+.options-page .control-save-status { flex-basis:100%; text-align:center; }
+.options-page .setting-title { overflow-wrap:anywhere; }

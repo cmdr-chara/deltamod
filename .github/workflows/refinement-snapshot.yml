@@ -1,0 +1,24 @@
+name: Refinement source snapshot
+on:
+  push:
+    branches: [frontend-refinement]
+    paths: [.github/workflows/refinement-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Archive tracked source at this exact revision
+        run: |
+          git archive --format=tar.gz HEAD > /tmp/current-refinement.tar.gz
+          git rev-parse HEAD > /tmp/current-refinement-sha.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: current-refinement-source
+          path: /tmp/current-refinement*
+          retention-days: 1
