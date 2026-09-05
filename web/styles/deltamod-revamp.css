@@ -1,135 +1,58 @@
-/* Deltamod refined desktop UI layer */
+/* Deltamod desktop workspace. Theme artwork remains behind quiet, legible surfaces. */
+:root { --dm-nav-width: 184px; --topbar-height: 42px; --sidebar-size: var(--dm-nav-width); --dm-chrome: rgba(14,16,20,.98); }
+body { padding: 0; overflow: hidden; box-sizing: border-box; }
+body > .topbar { position: fixed; inset: 0 0 auto var(--dm-nav-width); width: auto; height: var(--topbar-height); padding: 0 0 0 22px; background: var(--dm-chrome); border: 0; border-bottom: 1px solid var(--panel-border); border-radius: 0; box-shadow: none; backdrop-filter: none; z-index: 10; }
+.topbar .title { min-width: 0; margin: 0; padding: 0; height: 100%; font-family: var(--font-ui); }
+.topbar #pageTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; color: var(--muted-text); font: 12px var(--font-ui); text-shadow: none; }
+.topbar .barbtns { display: flex; align-self: stretch; gap: 0; }
+.topbar .bar-button { width: 44px; height: 100%; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; transform: none; box-shadow: none; display: grid; place-items: center; color: var(--text-primary); }
+.topbar .bar-button:hover { transform: none; background: var(--control-bg-hover); box-shadow: none; }
+.topbar .close-button:hover { background: #bb2637; color: #fff; }
+body > .sidebar { position: fixed; inset: 0 auto 0 0; width: var(--dm-nav-width); height: auto; padding: 0 10px 112px; box-sizing: border-box; overflow-y: auto; border: 0; border-right: 1px solid var(--panel-border); background: var(--dm-chrome); backdrop-filter: none; animation: none; box-shadow: none; z-index: 11; }
+.sidebar .sidebar-brand { height: 68px; display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; padding: 0 8px; font: 21px var(--font-display); -webkit-app-region: drag; }
+.sidebar-brand img { width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated; }
+.sidebar .sidebar-buttons { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 8px 0; padding: 0; width: 100%; }
+.sidebar .sidebar-button { position: relative; display: flex; align-items: center; justify-content: flex-start; width: 100%; height: auto; min-height: 42px; margin: 0; padding: 10px 12px; gap: 12px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted-text); font: 12px/1.35 var(--font-ui); transform: none; box-shadow: none; text-align: left; text-shadow: none; }
+.sidebar-button .sidebar-label { min-width: 0; overflow-wrap: anywhere; }
+.sidebar .sidebar-button > img { flex: 0 0 22px; width: 22px; height: 22px; object-fit: contain; filter: none; opacity: 1; image-rendering: pixelated; }
+.sidebar .sidebar-button::before, .sidebar .sidebar-button::after { display: none; }
+.sidebar .sidebar-button:hover { color: var(--text-primary); background: var(--control-bg); transform: none; box-shadow: none; }
+.sidebar .sidebar-button.active { color: var(--text-primary); border-color: transparent; background: var(--theme-color-point2, #392027); box-shadow: inset 2px 0 var(--theme-color); transform: none; }
+.sidebar .sidebar-button[data-page="options"] { margin-top: 18px; }
+.sidebar .sidebar-button[data-disabled="true"] { opacity: .4; cursor: not-allowed; }
+body > .viewport { position: fixed; inset: var(--topbar-height) 0 0 var(--dm-nav-width); width: auto; height: auto; margin: 0; padding: 28px 32px; border: 0; border-radius: 0; background: rgba(7,9,12,.58); overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; z-index: 3; }
+.viewport h1 { text-shadow: none; }
+.viewport :is(p, code, pre, textarea, input, .task-note, .installation-copy, .patch-mod-info, .modOtherInfoSpan) { user-select: text; }
+body > .dmodicon { opacity: .1; pointer-events: none; }
+body > .language-wheel-toggle, body > .language-wheel-toggle:not(:hover) { left: 16px; right: auto; top: auto; bottom: 16px; width: calc(var(--dm-nav-width) - 32px); min-height: 38px; height: auto; padding: 8px; display: flex; align-items: center; justify-content: flex-start; gap: 10px; border: 1px solid transparent; border-radius: 6px; background: var(--dm-chrome); box-shadow: none; transform: none; font: 11px var(--font-ui); z-index: 20; }
+.language-wheel-toggle img { flex: 0 0 24px; width: 24px; height: 20px; object-fit: contain; }
+body > .language-wheel-toggle:hover { transform: none; background: #22252c; }
+body > .gamebanana-account { position: fixed; left: 16px; bottom: 62px; right: auto; top: auto; width: calc(var(--dm-nav-width) - 32px); box-sizing: border-box; min-height: 32px; padding: 6px 8px; border: 0; border-radius: 6px; background: var(--dm-chrome); box-shadow: none; font: 11px var(--font-ui); z-index: 20; }
+.gamebanana-account-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alertMain { align-items: center; padding: 32px 24px; background: rgba(0,0,0,.7); backdrop-filter: none; }
+.alertMain .alertMsg { position: relative; width: min(560px,100%); max-height: calc(100dvh - 64px); padding: 24px; border: 1px solid var(--panel-border); border-top: 2px solid var(--theme-color); border-radius: 10px; background: var(--panel-bg-strong); box-shadow: 0 24px 80px #0008; backdrop-filter: none; }
+.alertMsg h1 { font: 600 21px/1.3 var(--font-ui); margin: 0 0 12px; }
+.alertMsg p { color: var(--muted-text); overflow-wrap: anywhere; }
+.alertBigIcon { display: none; }
+.alertButtons { justify-content: flex-end; }
+.alertButtons > button { flex: 0 1 auto !important; min-width: 90px; }
+.language-wheel-backdrop { backdrop-filter: none; }
+.language-wheel { background: #17191f; }
+.skip-workspace { position: fixed; top: 5px; left: calc(var(--dm-nav-width) + 12px); z-index: 3000; transform: translateY(-150%); padding: 8px 12px; background: var(--panel-bg-strong); color: white; border-radius: 4px; }
+.skip-workspace:focus { transform: translateY(0); }
+/* Tables and editor panels are grounded in the view; only dialogs cast deep shadows. */
+.dm-surface, .dm-surface-raised, .dm-page-header, .dm-section-heading { box-shadow: none; backdrop-filter: none; }
+.dm-surface { background: transparent; border: 0; border-radius: 0; }
+.dm-interactive:hover { transform: none; }
+body.deltamod-ui-entering > :is(.topbar,.sidebar,.viewport,.language-wheel-toggle) { transition: opacity 180ms ease, transform 180ms ease; transition-delay: 0ms; }
+@media (max-width: 1000px) { :root { --dm-nav-width: 164px; } body > .viewport { padding: 22px; } .sidebar .sidebar-button { gap: 9px; padding: 9px 8px; } }
+@media (max-width: 850px) { :root { --dm-nav-width: 64px; } body > .viewport { padding: 20px; } .sidebar .sidebar-brand { padding: 0 5px; } .sidebar-brand span, .sidebar-label, .language-toggle-label { display: none; } .sidebar .sidebar-button { justify-content: center; padding: 10px; } body > .language-wheel-toggle, body > .gamebanana-account { left: 12px; width: 40px; padding: 8px; } .gamebanana-account-name { display: none; } }
+@media (max-height: 600px) { .sidebar .sidebar-brand { height: 52px; } .sidebar .sidebar-button { min-height: 36px; padding-block: 8px; } .sidebar .sidebar-button[data-page="options"] { margin-top: 10px; } }
+@media (prefers-reduced-motion: reduce) { body.deltamod-ui-entering > * { transition: none !important; } .sidebar *, .alertMsg, .language-wheel { animation: none !important; transition: none !important; } }
+@media (forced-colors: active) { .sidebar .sidebar-button.active { border-color: Highlight; } body > .sidebar, body > .topbar { border-color: CanvasText; } }
 
-:root {
-  --dm-surface: rgba(12, 14, 20, .94);
-  --dm-surface-raised: rgba(20, 23, 32, .97);
-  --dm-border: rgba(255,255,255,.12);
-  --dm-radius: 14px;
-  --dm-motion: cubic-bezier(.2,.8,.2,1);
-}
-
-.dm-surface {
-  background: var(--dm-surface);
-  border: 1px solid var(--dm-border);
-  border-radius: var(--dm-radius);
-  box-shadow: 0 12px 35px rgba(0,0,0,.28);
-}
-
-.dm-surface-raised { background: var(--dm-surface-raised); }
-
-.dm-interactive {
-  transition: transform .18s var(--dm-motion), border-color .18s ease, background-color .18s ease;
-}
-
-.dm-interactive:hover {
-  transform: translateY(-2px);
-  border-color: var(--theme-color);
-}
-
-.sidebar {
-  width: 86px;
-  background: rgba(8,10,16,.78);
-  border-right: 1px solid var(--dm-border);
-  backdrop-filter: none;
-}
-
-.sidebar-button {
-  width: 52px;
-  height: 52px;
-  border-radius: 12px;
-  border: 1px solid transparent;
-}
-
-.sidebar-button:hover,
-.sidebar-button:focus-visible {
-  background: rgba(255,255,255,.08);
-  border-color: var(--dm-border);
-  transform: translateY(-2px);
-}
-
-.viewport {
-  left: 86px;
-  width: calc(100% - 86px);
-  border-radius: var(--dm-radius);
-  border-color: var(--dm-border);
-}
-
-/* Shared styling for legacy HTML views: mods, shop, install manager, options */
-.viewport .card,
-.viewport .panel,
-.viewport .box,
-.viewport .modCard,
-.viewport .option {
-  background: var(--dm-surface);
-  border: 1px solid var(--dm-border);
-  box-shadow: 0 10px 30px rgba(0,0,0,.2);
-}
-
-.viewport button,
-.viewport input,
-.viewport select {
-  transition: transform .14s ease, border-color .14s ease, background-color .14s ease;
-}
-
-.viewport button:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-
-.viewport button:focus-visible,
-.viewport input:focus-visible,
-.viewport select:focus-visible {
-  outline: 2px solid var(--theme-color);
-  outline-offset: 2px;
-}
-
-.product-mod-card,
-.product-profile-manager,
-.product-health-summary,
-.product-library-toolbar,
-.product-operation-progress {
-  background: var(--dm-surface);
-  border-color: var(--dm-border);
-  backdrop-filter: none;
-}
-
-.product-library-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 4;
-}
-
-.product-badge,
-.product-fixture-label,
-.product-profile-active {
-  border-radius: 8px;
-}
-
-progress {
-  border-radius: 99px;
-  overflow: hidden;
-}
-
-.alertMain,
-.product-dialog-backdrop {
-  backdrop-filter: none !important;
-}
-
-.theme-background-video {
-  will-change: opacity;
-}
-
-@keyframes dm-view-enter {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.viewport > * {
-  animation: dm-view-enter 220ms var(--dm-motion);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: .01ms !important;
-    transition-duration: .01ms !important;
-  }
-}
+.topbar .barbtns { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+body > .gamebanana-account { display: flex; gap: 8px; justify-content: flex-start; align-items: center; height: auto; }
+body > .language-wheel-toggle img { transform: none; }
+.language-toggle-label { text-align: left; overflow-wrap: anywhere; }
+.quiet-danger { color: var(--danger) !important; }

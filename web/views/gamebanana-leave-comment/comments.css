@@ -1,0 +1,16 @@
+.comments-page .commentBox { display: flex; align-items: flex-start; gap: 16px; padding: 20px 0; border: 0; border-top: 1px solid var(--panel-divider); background: transparent; }
+.comments-page .commentBox > img { flex: 0 0 40px; width: 40px; height: 40px; border-radius: 6px; object-fit: cover; }
+.comments-page .commentArea { flex: 1; min-width: 0; }
+.comments-page .commentArea label { display: block; margin-bottom: 8px; color: var(--muted-text); }
+.comments-page textarea { width: 100%; min-height: 140px; }
+.comments-page #sendBtn { margin-top: 12px; }
+.comments-page .stamp { display: inline-block; padding: 3px 8px; background: var(--control-bg); border-radius: 4px; color: var(--muted-text); font-size: 12px; }
+
+.comment-thread { display:grid; gap:16px; margin-top:24px; }
+.commentBox { display:flex; gap:12px; padding-block:16px; border-bottom:1px solid var(--panel-divider); }
+.commentBox > img { flex:none; border-radius:5px; }
+.commentArea { flex:1; min-width:0; }
+.commentArea > p { white-space:pre-wrap; overflow-wrap:anywhere; margin-block:8px; }
+.comment-replies { border-left:2px solid var(--panel-divider); padding-left:12px; margin-top:12px; }
+.comment-replies .comment-replies .comment-replies { padding-left:0; border-left:0; }
+.stampsArea { display:flex; gap:8px; flex-wrap:wrap; color:var(--muted-text); font-size:12px; }

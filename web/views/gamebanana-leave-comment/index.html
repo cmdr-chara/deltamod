@@ -1,40 +1,17 @@
-<button onclick="page('gamebanana-browse')">Back</button>
-<br>
-<h1>Comments</h1>
+<section class="content-page task-page comments-page">
+<header class="page-heading"><button type="button" class="secondary-action" onclick="page('gamebanana-browse')" data-i18n="ui_back">$$ui_back$$</button><h1>Comments</h1></header>
 <div class="comments">
     <div class="commentBox" style="display: none;" id="myCommentBox">
         <img src="" alt="" width="50" height="50" id="gbPic">
         <div class="commentArea">
-            <textarea name="comment" id="comment" maxlength="10000" required style="width: calc(100% - 10px); height: 150px; background-color: rgba(0,0,0,0.5); color: white;" placeholder="Type your comment here..." aria-label="Comment text"></textarea>
-            <br><br>
+            <label for="comment">Comment</label>
+            <textarea name="comment" id="comment" maxlength="10000" required rows="6" placeholder="Type your comment here..." aria-label="Comment text"></textarea>
+
             <button type="button" onclick="window.currentPageStack.send()" id="sendBtn">Send comment</button>
         </div>
     </div>
 </div>
-<style>
-.stamp {
-    padding: 4px;
-    padding-left: 10px;
-    padding-right: 10px;
-    font-size: 0.95em;
-    background-color: var(--theme-color-rgbaless);
-    color: white;
-    border-radius: 5px;
-}
-.commentBox {
-    background-color: rgba(0,0,0,0.1);
-    border: 1px solid var(--theme-color);
-    border-radius: 5px;
-    padding: 10px;
-    display: flex;
-    flex-direction: row;
-    align-items: flex-start;
-    gap: 15px;
-    margin-bottom: 10px;
-}
-.commentArea {
-    width: calc(100% - 55px);
-}
-</style>
+</section>
+STYLESHEET[comments]
 JSL
 TITLE[Comments]

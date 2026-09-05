@@ -506,7 +506,8 @@ function updateModDownloadStatus({ phase = 'download', completed = 0, total = 0,
             : '';
     track.setAttribute('aria-valuenow', String(Math.round(percentage)));
     track.setAttribute('aria-valuetext', title.textContent);
-    bar.style.setProperty('--mod-download-progress', `${percentage}%`);
+    bar.style.setProperty('--mod-download-progress', '100%');
+    bar.style.transform = `scaleX(${percentage / 100})`;
 }
 
 function setDownloadButtonIcon(button, glyph) {
@@ -1099,6 +1100,7 @@ function renderSourceState(table, title, message, action = null) {
 }
 
 function renderSourceLoading(table, rowCount = 4) {
+    table.setAttribute('aria-busy', 'true');
     table.closest('table')?.classList.remove('is-state');
     table.replaceChildren();
 
@@ -1721,7 +1723,12 @@ async function plusPage(amt) {
     }
 
     genbtnstyles();
-})();
+})().catch(error => {
+    const target = document.getElementById('modsBody');
+    if (isCurrentShopPage() && target?.isConnected) {
+        window.DeltamodUI.showError(target, error, () => page('gamebanana-browse'));
+    }
+});
 
 var searchel = document.getElementById('searchInput');
 var autocomplete = document.querySelector('.autocomplete .results');
@@ -1801,4 +1808,14 @@ window._intervals.push(setInterval(async () => {
         noResultDiv.style.pointerEvents = 'none';
     }
 }, 1000));
+})();
+
+(() => {
+    const body = document.getElementById('modsBody');
+    if (!body) return;
+    const observer = new MutationObserver(() => {
+        body.setAttribute('aria-busy', String(Boolean(body.querySelector('.shop-skeleton-row'))));
+    });
+    observer.observe(body, { childList: true });
+    window._onClosePage.push(() => observer.disconnect());
 })();

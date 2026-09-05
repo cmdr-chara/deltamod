@@ -10,7 +10,7 @@
     --product-update: #8dc8ff;
     --product-update-bg: rgba(67, 139, 202, 0.16);
     color: var(--text-primary);
-    font-family: "Calibri", sans-serif;
+    font-family: var(--font-ui, system-ui);
 }
 
 .installed-mods-page {
@@ -37,7 +37,7 @@
     min-height: 32px;
     padding: 5px 10px;
     border: 1px solid var(--panel-border);
-    border-radius: 999px;
+    border-radius: 5px;
     background: var(--product-surface);
     color: var(--muted-text);
     font-size: var(--font-size-meta);
@@ -80,7 +80,7 @@
     border: 1px solid var(--panel-border);
     border-radius: var(--panel-radius);
     background: var(--product-surface);
-    box-shadow: var(--shadow-raised);
+    box-shadow: none;
 }
 
 .product-profile-manager h2,
@@ -136,7 +136,7 @@
 .product-profile-active {
     display: inline-flex;
     padding: 2px 7px;
-    border-radius: 999px;
+    border-radius: 5px;
     background: var(--product-accent-soft);
     color: var(--theme-color);
     font-size: var(--font-size-meta);
@@ -201,7 +201,7 @@
     border-left: 3px solid var(--theme-color);
     border-radius: var(--panel-radius);
     background: var(--product-surface);
-    box-shadow: var(--shadow-raised);
+    box-shadow: none;
 }
 
 .product-health-summary-heading {
@@ -266,10 +266,8 @@
     padding: clamp(18px, 2.1vw, 26px);
     border: 1px solid var(--panel-border);
     border-radius: var(--panel-radius);
-    background:
-        linear-gradient(135deg, var(--product-accent-soft), transparent 36%),
-        var(--product-surface);
-    box-shadow: var(--shadow-panel);
+    background: var(--product-surface);
+    box-shadow: none;
 }
 
 .product-mod-card::before {
@@ -294,7 +292,7 @@
     border: 1px solid color-mix(in srgb, var(--theme-color) 52%, var(--panel-border));
     border-radius: 13px;
     background: rgba(0, 0, 0, 0.3);
-    box-shadow: var(--shadow-raised);
+    box-shadow: none;
     image-rendering: auto;
     object-fit: cover;
 }
@@ -317,7 +315,7 @@
     overflow-wrap: anywhere;
     margin: 0 0 10px;
     color: var(--text-primary);
-    font-size: clamp(23px, 2.4vw, 31px);
+    font-size: clamp(19px, 2vw, 23px);
     line-height: 1.15;
 }
 
@@ -334,7 +332,7 @@
     min-height: 25px;
     padding: 3px 9px;
     border: 1px solid var(--panel-border);
-    border-radius: 999px;
+    border-radius: 5px;
     background: rgba(255, 255, 255, 0.055);
     color: var(--muted-text);
     font-size: 13px;
@@ -383,7 +381,7 @@
 
 .product-mod-details {
     display: grid;
-    grid-template-columns: repeat(6, minmax(110px, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 1px;
     overflow: hidden;
     margin: var(--space-5) 0 0;
@@ -511,7 +509,7 @@
     border: 1px solid var(--panel-border);
     border-radius: var(--panel-radius);
     background: var(--product-surface);
-    box-shadow: var(--shadow-raised);
+    box-shadow: none;
 }
 
 .product-operation-progress-heading {
@@ -532,23 +530,23 @@
     height: 9px;
     overflow: hidden;
     border: 0;
-    border-radius: 999px;
+    border-radius: 5px;
     background: rgba(255, 255, 255, 0.08);
     accent-color: var(--theme-color);
 }
 
 .product-progress-bar::-webkit-progress-bar {
-    border-radius: 999px;
+    border-radius: 5px;
     background: rgba(255, 255, 255, 0.08);
 }
 
 .product-progress-bar::-webkit-progress-value {
-    border-radius: 999px;
+    border-radius: 5px;
     background: var(--theme-color);
 }
 
 .product-progress-bar::-moz-progress-bar {
-    border-radius: 999px;
+    border-radius: 5px;
     background: var(--theme-color);
 }
 
@@ -570,7 +568,7 @@
     border: 1px solid var(--panel-border);
     border-radius: var(--panel-radius);
     background: var(--product-surface);
-    box-shadow: var(--shadow-raised);
+    box-shadow: none;
 }
 
 .product-section-heading {
@@ -672,7 +670,7 @@
     border: 1px solid var(--panel-border);
     border-radius: var(--panel-radius);
     background: var(--product-surface);
-    box-shadow: var(--shadow-raised);
+    box-shadow: none;
 }
 
 .product-state-marker {
@@ -798,7 +796,7 @@
 
 .product-dialog::backdrop {
     background: rgba(2, 2, 4, 0.72);
-    backdrop-filter: blur(3px);
+    backdrop-filter: none;
 }
 
 .product-dialog h2 {
@@ -895,7 +893,7 @@
     border-left: 3px solid var(--theme-color);
     border-radius: var(--control-radius);
     background: var(--panel-bg-strong);
-    box-shadow: var(--shadow-panel);
+    box-shadow: none;
     pointer-events: auto;
     animation: product-toast-enter var(--motion-standard) var(--motion-ease-out);
 }
@@ -926,7 +924,7 @@
     padding: 6px 8px;
     background: transparent !important;
     color: var(--muted-text);
-    font-family: "Calibri", sans-serif;
+    font-family: var(--font-ui, system-ui);
     font-size: 13px;
 }
 
@@ -1131,3 +1129,27 @@
         box-shadow: none;
     }
 }
+
+.product-profile-manager { padding: 18px 0; border: 0; border-top: 1px solid var(--panel-divider); border-bottom: 1px solid var(--panel-divider); border-radius: 0; background: transparent; }
+.product-profile-row { border: 0; border-inline-start: 2px solid transparent; border-bottom: 1px solid var(--panel-divider); border-radius: 0; background: transparent; padding: 12px; }
+.product-profile-row.is-active { border-inline-start-color: var(--theme-color); background: var(--product-accent-soft); }
+.product-mod-list { gap: 12px; }
+.product-mod-card { padding: 18px; }
+.product-mod-card::before { display: none; }
+.product-mod-card:focus-within { border-color: var(--theme-color); }
+.product-mod-name { font-family: var(--font-ui); }
+.product-mod-eyebrow, .product-eyebrow { letter-spacing: .03em; color: var(--muted-text); }
+.product-library-toolbar { padding: 0 0 12px; border: 0; border-bottom: 1px solid var(--panel-divider); border-radius: 0; background: transparent; }
+.product-mod-details { margin-top: 16px; }
+.product-mod-actions > button { background: var(--control-bg) !important; border: 1px solid var(--panel-border); color: var(--text-primary); }
+.product-mod-actions > button.product-button-danger { background: var(--danger-bg) !important; color: var(--danger) !important; border-color: var(--danger-border); }
+.product-health-summary { background: transparent; border: 0; border-bottom: 1px solid var(--panel-divider); border-radius: 0; padding: 0 0 16px; }
+.product-operations-center, .product-recovery-center, .product-diagnostics-panel { border: 0; border-top: 1px solid var(--panel-divider); border-radius: 0; background: transparent; padding-inline: 0; }
+.product-state { background: transparent; border: 0; }
+.product-operation-progress { border-inline-start: 3px solid var(--theme-color); }
+.product-badge { min-height: 22px; font-size: 12px; }
+.product-dialog-actions { flex-wrap: wrap; }
+.product-dialog .product-conflict-path { user-select: text; }
+@media (max-width: 1000px) { .product-profile-manager { grid-template-columns: 1fr; } .product-profile-actions { flex-wrap: wrap; } }
+
+@supports (content-visibility: auto) { .product-mod-card { content-visibility: auto; contain-intrinsic-size: auto 320px; } }

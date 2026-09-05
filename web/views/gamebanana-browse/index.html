@@ -1,4 +1,5 @@
 <div class="content-page shop-page">
+    <header class="page-heading"><h1 data-i18n="ui_nav_shop">$$ui_nav_shop$$</h1><p>GameBanana · Nexus Mods · ModDB</p></header>
     <div class="tspandiv">
         <img alt="" width="32" height="32" id="gbPic" hidden>
         <label class="shop-source-label" for="modSourceSelect">Source</label>
@@ -10,7 +11,8 @@
             </svg>
         </button>
         <div class="autocomplete">
-            <input type="text" id="searchInput" placeholder="$$shop_search$$">
+            <label for="searchInput" class="workspace-sr-only">$$shop_search$$</label>
+            <input type="search" id="searchInput" placeholder="$$shop_search$$" autocomplete="off">
             <button type="button" id="clearModSearchButton" class="shop-search-clear" title="Clear search" aria-label="Clear search" hidden>
                 <svg class="shop-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <path d="m7 7 10 10M17 7 7 17"></path>
@@ -46,7 +48,7 @@
     <p id="searchInd" style="display: none; font-style: italic !important;"></p>
     <p id="contentFilterStatus" class="calibri content-filter-status" aria-live="polite"></p>
     <p id="sourceAttribution" class="calibri source-attribution"></p>
-    <section id="modDownloadStatus" class="mod-download-status calibri" hidden aria-live="polite" aria-atomic="true">
+    <section id="modDownloadStatus" class="mod-download-status calibri" hidden aria-live="polite" aria-atomic="false">
         <div class="mod-download-status-heading">
             <strong id="modDownloadStatusTitle">Downloading mod…</strong>
             <span id="modDownloadStatusPercent">0%</span>
@@ -74,7 +76,7 @@
                 </th>
             </tr>
         </thead>
-        <tbody id="modsBody">
+        <tbody id="modsBody" aria-busy="true">
             <tr class="shop-skeleton-row" aria-hidden="true">
                 <td colspan="2">
                     <div class="shop-skeleton">

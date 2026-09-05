@@ -1,4 +1,8 @@
 (() => {
+const optionsRoot = document.querySelector('.options-page');
+const optionsTable = optionsRoot.querySelector('tbody');
+let disposed = false;
+window.DeltamodUI.onDispose(() => { disposed = true; });
 const localize = (key, fallback, ...args) => (
     window.Localization?.t(key, fallback, ...args) || fallback
 );
@@ -24,7 +28,7 @@ function createSettingControlCell() {
 async function addCheckboxOption(name, description, flagid, requiresRestart = false, changeHandler = (e) => {}) {
     name = localizeKnown(name);
     description = localizeKnown(description);
-    const table = document.querySelector('tbody');
+    const table = optionsTable;
     const tr = document.createElement('tr');
 
     const tdLabel = document.createElement('td');
@@ -56,10 +60,19 @@ async function addCheckboxOption(name, description, flagid, requiresRestart = fa
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.id = 'FLAG-' + flagid.toUpperCase();
+    input.setAttribute('aria-label', name);
     input.checked = await window.deltamodBackend.invoke('getUniqueFlag', [flagid]);
+    let savedValue = input.checked;
     input.addEventListener('change', async (e) => {
-        await window.deltamodBackend.invoke('setUniqueFlag', [flagid, e.target.checked]);
-        await changeHandler(e.target.checked);
+        input.disabled = true;
+        try {
+            await window.deltamodBackend.invoke('setUniqueFlag', [flagid, e.target.checked]);
+            savedValue = input.checked;
+            await changeHandler(input.checked);
+        } catch (error) {
+            input.checked = savedValue;
+            if (!disposed) await htmlAlert('Unable to save setting', String(error?.message || error), [{ text: 'OK' }]);
+        } finally { input.disabled = false; }
     });
     control.appendChild(input);
 
@@ -79,7 +92,7 @@ function addRangeOption(name, description, {
 } = {}) {
     name = localizeKnown(name);
     description = localizeKnown(description);
-    const table = document.querySelector('tbody');
+    const table = optionsTable;
     const tr = document.createElement('tr');
 
     const tdLabel = document.createElement('td');
@@ -144,7 +157,7 @@ window.deltamodBackend.invoke('isDevMode', []).then((devmode) => {
 async function addSelectOption(name, description, options, requiresRestart = false, changeHandler = (val) => {}, defaultValue = '') {
     name = localizeKnown(name);
     description = localizeKnown(description);
-    const table = document.querySelector('tbody');
+    const table = optionsTable;
     const tr = document.createElement('tr');
 
     const tdLabel = document.createElement('td');
@@ -175,6 +188,7 @@ async function addSelectOption(name, description, options, requiresRestart = fal
 
     const select = document.createElement('select');
     select.id = 'SELECT-' + name.toUpperCase().replace(/[^A-Z0-9]+/g, '-');
+    select.setAttribute('aria-label', name);
 
     let firstValue = '';
     for (const option of options) {
@@ -193,8 +207,14 @@ async function addSelectOption(name, description, options, requiresRestart = fal
 
     select.value = defaultValue || firstValue;
 
-    select.addEventListener('change', (e) => {
-        changeHandler(e.target.value);
+    let savedSelection = select.value;
+    select.addEventListener('change', async (e) => {
+        select.disabled = true;
+        try { await changeHandler(e.target.value); savedSelection = select.value; }
+        catch (error) {
+            select.value = savedSelection;
+            if (!disposed) await htmlAlert('Unable to save setting', String(error?.message || error), [{ text: 'OK' }]);
+        } finally { select.disabled = false; }
     });
 
     control.appendChild(select);
@@ -210,7 +230,7 @@ async function addButton(name, description, click, buttonText, enabled = true, d
     buttonText = localizeKnown(buttonText);
     disabledReason = localizeKnown(disabledReason);
 
-    const table = document.querySelector('tbody');
+    const table = optionsTable;
     const tr = document.createElement('tr');
 
     const tdLabel = document.createElement('td');
@@ -218,7 +238,7 @@ async function addButton(name, description, click, buttonText, enabled = true, d
     span.className = 'setting-title';
     span.innerText = name;
     if (colour != '') {
-        span.style.color = colour;
+        span.style.color = colour === 'red' ? 'var(--danger)' : colour;
     }
     tdLabel.appendChild(span);
 
@@ -232,8 +252,17 @@ async function addButton(name, description, click, buttonText, enabled = true, d
     const { td: tdInput, control } = createSettingControlCell();
 
     const button = document.createElement('button');
+    button.type = 'button';
+    button.className = colour === 'red' ? 'danger-action' : 'secondary-action';
     button.innerText = buttonText;
-    button.addEventListener('click', click);
+    let pending = false;
+    button.addEventListener('click', async event => {
+        if (pending || disposed) return;
+        pending = true; button.setAttribute('aria-busy', 'true');
+        try { await click(event); }
+        catch (error) { if (!disposed) await htmlAlert('Unable to complete action', String(error?.message || error), [{ text: 'OK' }]); }
+        finally { pending = false; button.removeAttribute('aria-busy'); }
+    });
     control.appendChild(button);
     if (!enabled) {
         tr.classList.add('setting-row-disabled');
@@ -252,7 +281,7 @@ async function addButton(name, description, click, buttonText, enabled = true, d
 }
 
 async function addRowHeader(name) {
-    const table = document.querySelector('tbody');
+    const table = optionsTable;
     const tr = document.createElement('tr');
     const td = document.createElement('td');
     td.colSpan = 2;
@@ -284,7 +313,7 @@ async function addInfoRow(name, value, description = '', valueKind = 'text') {
     value = valueKind === 'path' ? value : localizeKnown(value);
     description = localizeKnown(description);
 
-    const table = document.querySelector('tbody');
+    const table = optionsTable;
     const tr = document.createElement('tr');
     const label = document.createElement('td');
     const status = document.createElement('td');
@@ -308,7 +337,7 @@ async function addInfoRow(name, value, description = '', valueKind = 'text') {
 }
 
 async function addLanguageOption(language, selected) {
-    const table = document.querySelector('tbody');
+    const table = optionsTable;
     const tr = document.createElement('tr');
     tr.className = 'language-option-row';
 
@@ -392,7 +421,7 @@ function formatProfileBytes(bytes) {
 
 async function runOfficialProfileImport(summary) {
     const operationId = crypto.randomUUID();
-    const table = document.querySelector('tbody');
+    const table = optionsTable;
     const tr = document.createElement('tr');
     const label = document.createElement('td');
     const status = document.createElement('td');
@@ -454,12 +483,14 @@ var tempLock = false;
 var pendingCategory = null;
 
 window.currentPageStack.cat = async function(cat) {
+    if (disposed || !optionsRoot.isConnected) return;
     if (tempLock) {
         pendingCategory = cat;
         return;
     }
     tempLock = true;
-    let tbody = document.querySelector('tbody');
+    let tbody = optionsTable;
+    tbody.setAttribute('aria-busy', 'true');
     tbody.innerHTML = '';
 
     document.getElementById('b_gen').classList.remove('selected');
@@ -964,6 +995,7 @@ window.currentPageStack.cat = async function(cat) {
     }
     } catch (error) {
         console.error(`Unable to render options category ${cat}:`, error);
+        if (disposed) return;
         tbody.replaceChildren();
         const row = document.createElement('tr');
         const cell = document.createElement('td');
@@ -972,7 +1004,9 @@ window.currentPageStack.cat = async function(cat) {
         row.appendChild(cell);
         tbody.appendChild(row);
     } finally {
-        // as far as i know this page is the only page that needs ts
+        tbody.setAttribute('aria-busy', 'false');
+        if (disposed) return;
+        window.DeltamodUI.mount(optionsRoot);
         genbtnstyles();
         rew();
         tempLock = false;

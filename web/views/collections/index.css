@@ -1,11 +1,9 @@
-.actions {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    justify-content: center;
-}
-
-.collection-name-input {
-    width: calc(100% - 2rem);
-    border: 1px solid var(--theme-color);
-}
+.collection-create-form { margin: 0 0 24px; padding: 18px 0; border-block: 1px solid var(--panel-divider); }
+.collection-create-form > label { display: block; margin-bottom: 8px; color: var(--muted-text); font-size: 13px; }
+.collection-create-controls { display: flex; gap: 10px; }
+.collection-create-controls input { flex: 1; min-width: 0; max-width: 500px; }
+.collection-create-form p:empty { display: none; }
+.collections-page .actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.collections-page .actions button { width: 36px; height: 36px; padding: 8px; background: var(--control-bg) !important; color: var(--text-primary); border: 1px solid var(--panel-border); }
+.collections-page .actions button.danger-action { color: var(--danger); }
+@media (max-width: 720px) { .collection-create-controls { flex-wrap: wrap; } .collection-create-controls input { flex-basis: 100%; } }

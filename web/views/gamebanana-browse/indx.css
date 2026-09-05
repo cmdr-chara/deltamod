@@ -16,7 +16,7 @@
     border: 1px solid var(--panel-border);
     border-radius: 16px;
     background: rgba(9, 9, 11, 0.82);
-    backdrop-filter: blur(var(--panel-blur)) brightness(0.76);
+    backdrop-filter: none;
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
 }
 
@@ -61,7 +61,7 @@
 .content-filter-label,
 .content-filter-status,
 .shop-source-label {
-    font-family: "Pixel", sans-serif;
+    font-family: var(--font-ui);
 }
 
 .content-filter-label {
@@ -148,7 +148,7 @@
     border-radius: 4px;
     background: rgba(255, 255, 255, 0.08);
     color: var(--muted-text);
-    font-family: "Pixel", sans-serif;
+    font-family: var(--font-ui);
     font-size: var(--font-size-meta);
 }
 
@@ -160,7 +160,7 @@
     border-radius: 999px;
     background: var(--accent-color);
     color: var(--accent-contrast, #fff);
-    font-family: "Pixel", sans-serif;
+    font-family: var(--font-ui);
     font-size: var(--font-size-meta);
 }
 
@@ -223,7 +223,7 @@
     border-radius: 4px;
     background: rgba(68, 48, 4, 0.78);
     color: #ffe29a;
-    font-family: "Pixel", sans-serif;
+    font-family: var(--font-ui);
     font-size: var(--font-size-meta);
 }
 
@@ -327,7 +327,7 @@
 }
 
 .shop-page .modTitleSpan {
-    font-family: "Pixel", sans-serif;
+    font-family: var(--font-ui);
 }
 
 .shop-page .modOtherInfoSpan {
@@ -505,7 +505,7 @@ input {
 
 .mod-image-lightbox::backdrop {
     background: rgba(0, 0, 0, 0.82);
-    backdrop-filter: blur(4px);
+    backdrop-filter: none;
 }
 
 .mod-image-lightbox-shell {
@@ -662,7 +662,7 @@ input {
     border-radius: 999px;
     background: rgba(0, 0, 0, 0.82);
     color: #fff;
-    font-family: "Pixel", sans-serif;
+    font-family: var(--font-ui);
     font-size: var(--font-size-meta);
     line-height: 1.2;
     text-align: center;
@@ -817,3 +817,20 @@ input {
         margin: 3px;
     }
 }
+
+.shop-page .page-heading { margin-bottom: 20px; }
+.shop-page .tspandiv { flex-wrap: wrap; gap: 10px; position: sticky; top: -1px; padding: 12px 0; border: 0; border-block: 1px solid var(--panel-divider); border-radius: 0; background: var(--panel-bg-strong); box-shadow: none; }
+.shop-page .tspandiv .autocomplete { flex: 1 1 230px; min-width: 160px; }
+.shop-page .shop-filter-controls { flex-wrap: wrap; }
+.shop-page #searchInput { font-family: var(--font-ui); min-height: 38px; }
+.shop-page table { border: 1px solid var(--panel-border); background: var(--panel-bg); }
+.shop-page .modTitleSpan { font: 650 18px/1.3 var(--font-ui); }
+.shop-page .modOtherInfoSpan { font-size: 12px; color: var(--muted-text); }
+.shop-page .mod-download-status { background: var(--panel-bg-strong); border: 1px solid var(--panel-border); border-inline-start: 3px solid var(--theme-color); border-radius: 6px; box-shadow: none; }
+.shop-page .mod-download-progress-track { overflow: hidden; border-radius: 4px; }
+#modDownloadProgressBar { transform-origin: left center; transition: transform 140ms linear; }
+.shop-page .serietast { border-radius: var(--control-radius); font-size: 13px; box-shadow: none; }
+.mod-image-lightbox { border-radius: 10px; border: 1px solid var(--panel-border); background: #111319; }
+.mod-image-lightbox-header { border-bottom: 1px solid var(--panel-divider); padding: 14px 18px; }
+@media (max-width: 1000px) { .shop-page th:last-child, .shop-page td:last-child { width: 150px; } .shop-page .tspandiv { position: relative; } }
+@media (prefers-reduced-motion: reduce) { #modDownloadProgressBar { transition: none; } }

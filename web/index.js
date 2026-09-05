@@ -724,6 +724,7 @@ function applyThemeSpriteAnimations() {
             let frameIndex = Math.abs(Number(sprite.frameOffset) || 0) % frameUrls.length;
             image.src = frameUrls[frameIndex];
             const timer = setInterval(() => {
+                if (document.hidden || document.documentElement.classList.contains('window-inactive') || prefersReducedMotion()) return;
                 frameIndex = (frameIndex + 1) % frameUrls.length;
                 image.src = frameUrls[frameIndex];
             }, frameDuration);
@@ -858,7 +859,8 @@ async function fallBackFromThemeVideo(video, background, reason) {
 window._onClosePage = window._onClosePage || [];
 
 const PAGE_STYLESHEET_OVERRIDES = Object.freeze({
-    allmods: './views/main/main.css'
+    allmods: './views/main/main.css',
+    'allmods-v2': './views/main/main.css'
 });
 
 const PAGE_REGISTRY = Object.freeze(Object.fromEntries([
@@ -906,11 +908,15 @@ function loadPageMarkup(pageDefinition) {
 }
 
 function warmPageMarkupCache() {
-    for (const pageDefinition of Object.values(PAGE_REGISTRY)) {
-        loadPageMarkup(pageDefinition).catch(error => {
-            console.warn(`Unable to prepare page ${pageDefinition.name}:`, error);
+    const likely = ['main', 'allmods', 'options', 'gamebanana-browse'];
+    const next = () => {
+        const name = likely.shift();
+        if (!name) return;
+        loadPageMarkup(PAGE_REGISTRY[name]).catch(() => {}).finally(() => {
+            (window.requestIdleCallback || (callback => setTimeout(callback, 100)))(next);
         });
-    }
+    };
+    next();
 }
 
 function loadPageScript(pageDefinition) {
@@ -1049,168 +1055,13 @@ function enableElem(elem) {
  * Custom HTML Alert System
  * ==========================================
  */
-var alertCache = [];
-var isAlertShowing = false;
-
-/**
- * Queues or displays an HTML-based alert dialog.
- */
-async function htmlAlert(title, message, buttons, specialIcon) {
-    if (isAlertShowing) {
-        return new Promise((resolve, reject) => {
-            alertCache.push({ title, message, buttons, resolve, reject, specialIcon: 'info' });
-        });
-    } else {
-        return htmlAlertRaw(title, message, buttons, specialIcon);
-    }
+// The dialog queue owns focus, background inertness, and false/zero results.
+function htmlAlert(title, message, buttons, specialIcon) {
+    return window.DeltamodDialogs.show(title, message, buttons, specialIcon);
 }
 
-/**
- * Internal function to handle the rendering of the HTML alert.
- */
-async function htmlAlertRaw(title, message, buttons, specialIcon = 'info') {
-    return new Promise(async (resolve, reject) => {
-        isAlertShowing = true;
-
-        if (
-            localStorage.getItem('alertAlignment') == "Separate"
-            && window.deltamodBackend.isCommandAvailable('htmlAlert_outwin')
-        ) {
-            var index = await window.deltamodBackend.invoke('htmlAlert_outwin', [title, message, buttons]);
-            isAlertShowing = false;
-            var button = buttons[index];
-
-            if (button.resolveWith) {
-                resolve(button.resolveWith);
-                return;
-            }
-
-            if (button.rejectWith) {
-                reject(button.rejectWith);
-                return;
-            }
-
-            return;
-        }
-
-        var alertMain = document.getElementsByClassName('alertMain')[0];
-        var alertMsgR = alertMain.getElementsByClassName('alertMsg')[0];
-
-        const animationDuration = prefersReducedMotion() ? 0 : MOTION.standard;
-        const animationSeconds = animationDuration / 1000;
-        const animOptions = `${MOTION.easeOut} forwards`;
-
-        alertMsgR.innerHTML = '';
-
-        // Container
-        var alertMsg = document.createElement('div');
-        alertMsgR.appendChild(alertMsg);
-
-        // Title
-        var titleElement = document.createElement('h1');
-        titleElement.innerText = title;
-        titleElement.style.opacity = '1';
-        
-        // Message
-        var messageElement = document.createElement('p');
-        messageElement.textContent = String(message);
-        messageElement.style.whiteSpace = 'pre-line';
-        messageElement.style.opacity = '1';
-        
-        alertMsg.appendChild(titleElement);
-        alertMsg.appendChild(messageElement);
-
-        // Buttons
-        var buttonsHTML = document.createElement('div');
-        buttonsHTML.style.textAlign = 'right';
-        buttonsHTML.classList.add('alertButtons');
-        buttonsHTML.style.opacity = '1';
-        buttonsHTML.style.display = 'flex';
-        buttonsHTML.style.gap = '8px';
-        buttonsHTML.style.justifyContent = 'flex-end';
-        
-
-        buttons.forEach((button) => {
-            var btn = document.createElement('button');
-            btn.textContent = button.text;
-            btn.style.flex = '1 1 0';
-            btn.onclick = async function() {
-                buttonsHTML.style.pointerEvents = 'none';
-                // Outro animation
-                alertMsgR.style.animation = animationDuration === 0
-                    ? 'none'
-                    : `${animationSeconds}s alertFadeOut ${MOTION.easeIn} forwards`;
-                setTimeout(() => {
-                    alertMain.style.animation = '';
-                    alertMain.style.display = 'none';
-                    alertMain.hidden = true;
-                    alertMsgR.style.animation = 'none';
-                    alertMsgR.innerHTML = '';
-                }, animationDuration);
-                
-                isAlertShowing = false;
-                
-                // Play dismiss SFX
-                var a = new Audio();
-                a.src = 'audio/booow.mp3';
-                if (await window.deltamodBackend.invoke('getUniqueFlag', ["SFX"]) === true) {
-                    a.play().catch(() => {});
-                }
-
-                // Resolve/Reject
-                if (button.resolveWith) {
-                    resolve(button.resolveWith);
-                    return;
-                }
-                if (button.rejectWith) {
-                    reject(button.rejectWith);
-                    return;
-                }
-                if (button.onClick) button.onClick();
-
-                // Process next alert in cache
-                if (alertCache.length > 0) {
-                    setTimeout(() => {
-                        var nextAlert = alertCache.shift();
-                        htmlAlertRaw(nextAlert.title, nextAlert.message, nextAlert.buttons)
-                            .then(nextAlert.resolve)
-                            .catch(nextAlert.reject);
-                    }, animationDuration);
-                }
-            };
-            buttonsHTML.appendChild(btn);
-        });
-
-        alertMain.hidden = false;
-        alertMain.style.display = 'flex';
-        alertMsg.appendChild(buttonsHTML);
-        alertMsgR.style.animation = 'none';
-        void alertMsgR.offsetWidth;
-        alertMsgR.style.animation = animationDuration === 0
-            ? 'none'
-            : `${animationSeconds}s alertFadeIn ${animOptions}`;
-
-        // Special Background Icon
-        var bigIcon = document.createElement('span');
-        bigIcon.classList.add('material-symbols-outlined', 'alertBigIcon');
-        bigIcon.innerText = specialIcon;
-        bigIcon.style.fontSize = '490px';
-        bigIcon.style.position = 'absolute';
-        bigIcon.style.top = '-140px';
-        bigIcon.style.right = '-50px';
-        bigIcon.style.opacity = '0.1';
-        bigIcon.style.userSelect = 'none';
-        bigIcon.style.pointerEvents = 'none';
-        alertMsgR.appendChild(bigIcon);
-
-        // Play alert SFX
-        var a = new Audio();
-        a.src = 'audio/htmlalert.mp3';
-        a.playbackRate = 0.9;
-        if (await window.deltamodBackend.invoke('getUniqueFlag', ["SFX"]) === true) {
-            a.play();
-        }
-    });
+function htmlAlertRaw(title, message, buttons, specialIcon) {
+    return htmlAlert(title, message, buttons, specialIcon);
 }
 
 function credits(funny) {
@@ -1321,7 +1172,7 @@ function adaptForIcons(element) {
 }
 
 function icon(name, fontSize) {
-    return `<span class="material-symbols-outlined" style="font-size: ${fontSize}">${name}</span>`;
+    return window.DeltamodIcons.markup(name, fontSize);
 }
 
 async function invokeOptional(channel, data, fallback) {
@@ -1516,6 +1367,7 @@ async function drainPageNavigations() {
             await renderPage(navigation.target);
             navigation.resolve(true);
         } catch (error) {
+            window.DeltamodUI.showError(document.querySelector('.viewport'), error, () => page(navigation.target));
             navigation.reject(error);
         } finally {
             activePageNavigation = null;
@@ -1524,6 +1376,10 @@ async function drainPageNavigations() {
 }
 
 async function renderPage(name) {
+    if (name === '') name = pageN;
+    if (!PAGE_REGISTRY[name]) throw new Error(`Blocked unknown page: ${String(name)}`);
+    const previousFocus = document.activeElement;
+    const focusContent = Boolean(previousFocus?.matches?.('.sidebar-button:focus-visible'));
     rew();
 
     // Clear existing intervals/listeners to prevent memory leaks
@@ -1622,9 +1478,9 @@ async function renderPage(name) {
     // Handle NO-SIDEBAR tag
     if (purifiedHTML.includes('NO-SIDEBAR')) {
         purifiedHTML = purifiedHTML.replace('NO-SIDEBAR', '');
-        ([...Array.from(document.getElementsByClassName('sidebar-button')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => button.setAttribute('data-disabled', 'true'));
+        ([...Array.from(document.getElementsByClassName('sidebar-button')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => { button.setAttribute('data-disabled', 'true'); button.setAttribute('aria-disabled', 'true'); if (button.tagName === 'BUTTON') button.disabled = true; });
     } else {
-        ([...Array.from(document.getElementsByClassName('sidebar-button')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => button.setAttribute('data-disabled', 'false'));
+        ([...Array.from(document.getElementsByClassName('sidebar-button')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => { button.setAttribute('data-disabled', 'false'); button.setAttribute('aria-disabled', 'false'); if (button.tagName === 'BUTTON') button.disabled = false; });
     }
 
     // Extract Title Tag
@@ -1687,17 +1543,20 @@ async function renderPage(name) {
 
     // Inject Viewport HTML
     const pageViewport = document.getElementsByClassName('viewport')[0];
+    pageViewport.querySelectorAll('*').forEach(element => element._tippy?.destroy());
     pageViewport.querySelectorAll('img, video, source').forEach(media => {
         media.removeAttribute('src');
         media.removeAttribute('srcset');
     });
+    pageViewport.dataset.page = name;
     pageViewport.innerHTML = purifiedHTML;
+    window.DeltamodUI?.mount(pageViewport);
     window.Localization?.apply(pageViewport);
     window.Localization?.applyKnownText(pageViewport);
 
     // Set Active Sidebar Button
     ([...Array.from(document.getElementsByClassName('sidebar-button')), ...Array.from(document.getElementsByClassName('gamebanana-account'))]).forEach(button => {
-        if (button.getAttribute('data-page') === name) {
+        if (button.getAttribute('data-page') === (name === 'allmods-v2' ? 'allmods' : name)) {
             button.classList.add('active');
             button.setAttribute('aria-current', 'page');
         } else {
@@ -1744,6 +1603,11 @@ async function renderPage(name) {
             console.warn('Unable to recolor page sprites:', error);
         });
 
+    if (focusContent) {
+        const heading = pageViewport.querySelector('h1');
+        if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+    }
+    window.dispatchEvent(new CustomEvent('deltamod-page-ready', { detail: { name } }));
     await signalBenchmarkReadiness();
 
 }
@@ -1816,6 +1680,8 @@ async function renderuser() {
         { loggedIn: false }
     );
 
+    const ribbon = document.getElementById('collectionsRibbon');
+    if (ribbon) ribbon.style.display = 'inline-flex';
     var gbaccount = document.querySelector('.gamebanana-account');
     gbaccount.replaceChildren();
     const avatar = document.createElement('img');
@@ -2106,6 +1972,14 @@ async function setupLanguageWheel() {
         if (toggle.getAttribute('aria-expanded') === 'true') closeWheel();
         else openWheel();
     });
+    wheel.addEventListener('keydown', event => {
+        if (event.key !== 'Tab' || wheel.hidden) return;
+        const current = optionButtons.indexOf(document.activeElement);
+        if ((event.shiftKey && current <= 0) || (!event.shiftKey && (current < 0 || current === optionButtons.length - 1))) {
+            event.preventDefault();
+            optionButtons[event.shiftKey ? optionButtons.length - 1 : 0]?.focus();
+        }
+    });
     wheel.addEventListener('pointerleave', () => {
         if (!isChangingLanguage) previewLanguage(selectedLanguage());
     });
@@ -2222,14 +2096,6 @@ async function setupLanguageWheel() {
         return;
     }
 
-    await new Promise(resolve => {
-        var int = setInterval(async () => {
-            if (renderedUser) {
-                clearInterval(int);
-                resolve();
-            }
-        }, 50);
-    });
     bootProgress(0.72, 'Reading mod sources');
 
     // Main App Branching Route
@@ -2253,12 +2119,15 @@ async function setupLanguageWheel() {
         await page('locate');
         finishBoot();
         (window.requestIdleCallback || (callback => setTimeout(callback, 0)))(warmPageMarkupCache);
-        document.querySelectorAll('.sidebar-button').forEach(button => button.setAttribute('data-disabled', 'true'));
+        document.querySelectorAll('.sidebar-button').forEach(button => { button.setAttribute('data-disabled', 'true'); button.setAttribute('aria-disabled', 'true'); if (button.tagName === 'BUTTON') button.disabled = true; });
         invokeOptional('executeArgumentCmd', [], null);
     }
 })().catch(error => {
     console.error('Deltamod initialization failed:', error);
-    window.DeltamodBoot?.fail('Continuing');
+    window.DeltamodBoot?.fail('Unable to start');
+    document.getElementById('deltamod-boot-root').hidden = true;
+    document.body.classList.remove('deltamod-boot-active');
+    window.DeltamodUI?.showError(document.querySelector('.viewport'), error, () => location.reload());
 });
 
 function closeAudio() {
@@ -2288,10 +2157,8 @@ function openAudio() {
  * Late Execution Modules (Shop Checker)
  * ==========================================
  */
-(async () => {
-    renderuser();
-
-    if ((await window.deltamodBackend.invoke('validateGamebananaToken'))) {
-        document.getElementById('collectionsRibbon').style.display = 'inline-flex';
-    }
-})();
+// Account availability is optional. Network failure must not freeze local mod management.
+renderuser().catch(error => {
+    renderedUser = true;
+    console.warn('GameBanana account is unavailable:', error);
+});

@@ -13,10 +13,17 @@
                 id="installedModsV2Preview"
                 class="secondary-action"
                 type="button"
-                title="Open the read-only Installed Mods v2 preview"
-            >Preview new library</button>
+                title="Manage profiles and verify installed mods"
+             data-i18n="ui_profiles_health">$$ui_profiles_health$$</button>
         </div>
     </div>
+    <div class="workspace-search" role="search">
+        <label for="mod-search"><span data-i18n="ui_search_mods">$$ui_search_mods$$</span>
+            <input id="mod-search" type="search" autocomplete="off" placeholder="$$ui_search_hint$$" data-i18n-placeholder="ui_search_hint" aria-controls="modlist">
+        </label>
+        <output id="mod-search-count" for="mod-search" aria-live="polite"></output>
+    </div>
+    <div id="mod-search-empty" class="workspace-no-results" hidden data-i18n="ui_no_matches">$$ui_no_matches$$</div>
     <div class="mods-scroll">
         <div style="display: none;" class="modlist-error" id="error-banner">
             <h2>$$modFail_bannerTitle$$</h2>
@@ -33,20 +40,19 @@
                     <th>$$actions$$</th>
                 </tr>
             </thead>
-            <tbody id="modlist">
-            </tbody>
+            <tbody id="modlist" aria-busy="true"><tr><td colspan="2" class="workspace-loading" role="status">$$allModsTitle$$…</td></tr></tbody>
         </table>
     </div>
 
-    <dialog class="error-list-dialog" id="error-list-dialog">
-            <h2>$$modFail_dialogTitle$$</h2>
+    <dialog class="error-list-dialog" id="error-list-dialog" aria-labelledby="mod-errors-title">
+            <h2 id="mod-errors-title">$$modFail_dialogTitle$$</h2>
             <span class="calibri">$$modFail_dialogSubtitle$$</span>
             <div class="error-list-div" id="error-list-div">
 
             </div>
             <div class="error-buttons">
                 <!-- forgive me for this MASSIVE onclick thing, but keeping this and allmods unified is a pain in the ass -->
-                <button onclick="rew(); document.getElementById('error-list-dialog').style.animation = '0.3s closeError ease forwards'; setTimeout(() => { document.getElementById('error-list-dialog').close(); document.getElementById('error-list-dialog').style.animation = '0.3s openError ease forwards'; }, 300);" style="width: 100%; padding: 10px;">$$allmods_ok$$</button>
+                <button onclick="rew(); document.getElementById('error-list-dialog').close();" style="width: 100%; padding: 10px;">$$allmods_ok$$</button>
             </div>
         </dialog>
 </div>

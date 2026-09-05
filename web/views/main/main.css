@@ -107,7 +107,7 @@ a {
   padding: 6px;
   border-radius: 999px;
   background: var(--panel-bg-strong);
-  backdrop-filter: blur(var(--panel-blur)) brightness(0.76);
+  backdrop-filter: none;
 }
 
 .patch-actions > button {
@@ -136,7 +136,7 @@ a {
   cursor: pointer;
 }
 select {
-  font-family: "Pixel", sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--font-size-control);
   color: var(--text-primary);
   background-color: var(--panel-bg-strong);
@@ -458,3 +458,34 @@ th {
     transition: none;
   }
 }
+
+/* Workspace layout: preserve the familiar list, distinguish the launch action. */
+.patch-actions { border-radius: 0; padding: 0; background: transparent; gap: 8px; }
+.patch-actions > button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: 0 1 auto; width: auto; height: auto; min-height: 40px; padding: 10px 14px; border-radius: var(--control-radius); font: 13px var(--font-ui); }
+.patch-actions > #importModBtn { background: var(--control-bg) !important; color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--panel-border); }
+.patch-actions > button > .material-symbols-outlined { width: 19px; height: 19px; font-size: 19px; }
+.patch-mod-title { font-weight: 650; }
+.patch-mod-description { font-size: 13px; }
+.patch-mod-meta { font-size: 12px; }
+.patch-mod-warning { font-size: 12px; }
+.patch-mod-variant { width: min(360px,100%); margin-bottom: 0; font-family: var(--font-ui); font-size: 13px; }
+.mods-page .mods-scroll { overflow: visible; padding: 0; background: transparent; }
+.mods-page #modtable { border-collapse: separate; border-spacing: 0; }
+.mods-page #modtable td { padding: 15px 16px; }
+.mods-page #modtable thead { position: static; }
+.library-page .library-toolbar { flex-wrap: wrap; align-items: flex-end; }
+.library-page .library-filter { display: flex; flex-wrap: wrap; flex: 0 1 auto; gap: 8px; }
+.library-page .library-filter select { width: min(230px,100%); }
+.modlist-error { cursor: pointer; padding: 16px; margin-bottom: 12px; border: 1px solid var(--danger-border); background: var(--danger-bg); border-radius: var(--control-radius); }
+.modlist-error h2 { margin: 0 0 5px; }
+.error-list-dialog { box-sizing: border-box; width: min(700px,calc(100vw - 48px)); max-height: calc(100vh - 64px); padding: 24px; border: 1px solid var(--panel-border); border-top: 2px solid var(--danger); background: var(--panel-bg-strong); color: var(--text-primary); border-radius: var(--panel-radius); }
+.error-list-dialog::backdrop { background: #000b; backdrop-filter: none; }
+.error-holder { border: 0; border-top: 1px solid var(--panel-divider); padding: 16px 0; }
+@media (max-width: 1000px) { .patch-toolbar { flex-wrap: wrap; align-items: center; gap: 14px; } .patch-actions { margin-left: auto; } }
+@media (max-width: 650px) { .patch-actions { margin-left: 0; width: 100%; } .patch-actions > button { flex: 1; } .patch-mod-layout { grid-template-columns: 52px minmax(0,1fr); gap: 10px; } .patch-mod-artwork, .mod-image { width: 52px; height: 52px; } }
+
+button.patch-mod-artwork { display: block; flex: none; padding: 0; border: 0; overflow: hidden; cursor: pointer; box-sizing: border-box; }
+.patch-mod-artwork .mod-image { width: 100%; height: 100%; box-sizing: border-box; margin: 0; border: 1px solid var(--panel-border); box-shadow: none; }
+.mod-image:hover { box-shadow: none; }
+.library-page td [id^="moddesc-"] { font-size: 13px !important; }
+.library-page td [id^="modauthor-"], .library-page td [id^="modsize-"] { color: var(--muted-text) !important; }

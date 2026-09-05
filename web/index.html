@@ -5,12 +5,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' deltapack: themeprot: packet:; script-src 'self' 'unsafe-inline'; script-src-attr 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; img-src 'self' data: https://gamebanana.com https://images.gamebanana.com https://avatars.githubusercontent.com https://media.moddb.com https://static.moddb.com https://images.nexusmods.com https://staticdelivery.nexusmods.com deltapack: themeprot: packet:; media-src 'self' blob: deltapack: themeprot: packet:; connect-src 'self' ipc: http://ipc.localhost https://gamebanana.com deltapack: themeprot: packet:; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; frame-src https://gamebanana.com; base-uri 'none'; form-action 'none'">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
+    <link rel="stylesheet" href="modules/icons.css">
     <link rel="stylesheet" href="commons/base.css">
     <link rel="stylesheet" href="index.css">
     <link rel="stylesheet" href="linux-webkit-compat.css">
     <link rel="stylesheet" href="modules/seasonal-events.css">
     <link rel="stylesheet" href="boot/deltamod-boot.css">
+    <link rel="stylesheet" href="styles/deltamod-revamp.css">
 
     <style id="deltamod-route-guard">html.deltamod-route-pending body { visibility: hidden; }</style>
     <script>document.documentElement.classList.add('deltamod-route-pending');</script>
@@ -22,6 +23,7 @@
     <script src="./modules/tippy/tippy-bundle.umd.js"></script>
 </head>
 <body>
+    <a class="skip-workspace" href="#workspace" data-i18n="ui_skip">Skip to content</a>
     <div
         id="deltamod-boot-root"
         role="status"
@@ -89,42 +91,43 @@
             </button>
         </div>
     </div>
-    <div class="viewport">
+    <div class="viewport" id="workspace" role="region" aria-labelledby="pageTitle" tabindex="-1">
         <div class="loadingBar">
             
         </div>
     </div>
     <div class="sidebar">
-        <div class="sidebar-buttons">
-            <button class="sidebar-button" data-page="main" aria-label="Home">
+        <div class="sidebar-brand"><img src="./img/packIcon.png" alt="" width="32" height="32" data-theme-sprite="soul" data-theme-sprite-source="./img/packIcon.png"><span>Deltamod</span></div>
+        <nav class="sidebar-buttons" aria-label="Main navigation">
+            <button class="sidebar-button" type="button" data-i18n-aria-label="ui_nav_play" data-page="main" aria-label="Home">
                 <img src="sbar/main.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/main.png">
+                <span class="sidebar-label" data-i18n="ui_nav_play">Play & patch</span>
             </button>
-
-            <button class="sidebar-button" data-page="allmods" aria-label="Mod library">
+            <button class="sidebar-button" type="button" data-i18n-aria-label="ui_nav_library" data-page="allmods" aria-label="Mod library">
                 <img src="sbar/allmods.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/allmods.png">
+                <span class="sidebar-label" data-i18n="ui_nav_library">Mod library</span>
             </button>
-
-            <button class="sidebar-button" data-page="options" aria-label="Options">
-                <img src="sbar/options.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/options.png">
-            </button>
-            
-            <button class="sidebar-button" data-page="installmanager" aria-label="Installation manager">
+            <button class="sidebar-button" type="button" data-i18n-aria-label="ui_nav_games" data-page="installmanager" aria-label="Installation manager">
                 <img src="sbar/installmanager.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/installmanager.png">
+                <span class="sidebar-label" data-i18n="ui_nav_games">Installations</span>
             </button>
-
-            <!-- JS should display this if user toggled GameBanana specific features -->
-            <button class="sidebar-button" id="shopRibbon" data-page="gamebanana-browse" aria-label="Mod Shop">
+            <button class="sidebar-button" type="button" data-i18n-aria-label="ui_nav_shop" id="shopRibbon" data-page="gamebanana-browse" aria-label="Mod Shop">
                 <img src="sbar/shop.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/shop.png">
+                <span class="sidebar-label" data-i18n="ui_nav_shop">Mod Shop</span>
             </button>
-
-            <button class="sidebar-button" style="display: none;" id="collectionsRibbon" data-page="collections" aria-label="Collections">
+            <button class="sidebar-button" type="button" data-i18n-aria-label="ui_nav_collections" style="display: none;" id="collectionsRibbon" data-page="collections" aria-label="Collections">
                 <img src="sbar/collections.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/collections.png">
+                <span class="sidebar-label" data-i18n="ui_nav_collections">Collections</span>
             </button>
-
-            <button class="sidebar-button" data-page="credits" aria-label="Information and credits">
+            <button class="sidebar-button" type="button" data-i18n-aria-label="options" data-page="options" aria-label="Options">
+                <img src="sbar/options.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/options.png">
+                <span class="sidebar-label" data-i18n="options">Options</span>
+            </button>
+            <button class="sidebar-button" type="button" data-i18n-aria-label="ui_nav_about" data-page="credits" aria-label="Information and credits">
                 <img src="sbar/credits.png" alt="" width="26" data-theme-sprite="accent" data-theme-sprite-source="sbar/credits.png">
+                <span class="sidebar-label" data-i18n="ui_nav_about">About</span>
             </button>
-        </div>
+        </nav>
     </div>
     <button
         id="language-wheel-toggle"
@@ -135,6 +138,7 @@
         aria-controls="language-wheel"
     >
         <img id="language-wheel-toggle-flag" src="assets/language-flags/en.svg" alt="">
+        <span class="language-toggle-label" data-i18n="language_switcher_label">Change language</span>
     </button>
     <div id="language-wheel-backdrop" class="language-wheel-backdrop" hidden></div>
     <div
@@ -162,7 +166,6 @@
     <div class="alertMain" hidden>
         <div class="alertMsg"></div>
     </div>
-</body>
 <div class="winb">
     
 </div>
@@ -170,39 +173,6 @@
 
 </div>
   <style id="dynamic-theme-styles"></style>
-  <script>
-    (() => {
-      const load = source => new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = source;
-        script.onload = resolve;
-        script.onerror = () => reject(new Error(`Unable to load ${source}`));
-        document.body.appendChild(script);
-      });
-      const startCommunity = async () => {
-        for (const source of [
-          './modules/localization.js',
-          './modules/theme-sprites.js',
-          './modules/seasonal-events.js',
-          './boot/deltamod-boot.js',
-          // The guarded loader eventually appends the normal renderer (src="index.js").
-          'index.js',
-          './linux-menu-audio.js',
-          './linux-runtime-polish.js'
-        ]) await load(source);
-        document.documentElement.classList.remove('deltamod-route-pending');
-        window.dispatchEvent(new Event('deltamod-route-ready'));
-      };
-      const installerMode = window.deltamodBackend?.invoke
-        ? window.deltamodBackend.invoke('isInstallerMode', [])
-        : Promise.resolve(false);
-      Promise.resolve(installerMode).then(isInstaller => {
-        if (isInstaller === true) {
-          window.location.replace('./installer/index.html');
-          return;
-        }
-        return startCommunity();
-      }).catch(() => startCommunity());
-    })();
-  </script>
+  <script src="./modules/startup.js"></script>
+</body>
 </html>

@@ -313,6 +313,30 @@ pub(crate) fn mod_list(state: &AppState, channel: &str) -> Result<Value, String>
         .copied()
         .unwrap_or(false);
     let records = list.as_array_mut().ok_or_else(error::internal)?;
+    let snapshot = state
+        .mods_themes
+        .mods()
+        .state()
+        .map_err(|_| runtime_error(channel))?;
+    let enabled_ids: BTreeSet<String> = snapshot
+        .enabled
+        .iter()
+        .map(|id| id.as_str().to_owned())
+        .collect();
+    for record in records.iter_mut() {
+        let object = record.as_object_mut().ok_or_else(error::internal)?;
+        let uid = object
+            .get("uid")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        object.insert("_enabled".into(), json!(enabled_ids.contains(&uid)));
+        // Only reuse paths from the validated native packet index. Recent imports
+        // retain the getModImage fallback; the renderer never walks directories.
+        if let Some(path) = state.mod_images.get(&uid) {
+            object.insert("_imagePath".into(), json!(path));
+        }
+    }
     let mut requirements = Vec::new();
     for record in records.iter_mut() {
         let object = record.as_object_mut().ok_or_else(error::internal)?;
@@ -781,6 +805,13 @@ mod tests {
         assert_eq!(record[0]["isIncompatible"], json!(false));
         assert_eq!(record[0]["incompatibilityReason"], json!(""));
         assert_eq!(record[0]["hashDifferentFiles"], json!([]));
+        assert_eq!(record[0]["_enabled"], json!(false));
+        dispatch(&state, "toggleModState", &[json!("mod-a"), json!(true)]).unwrap();
+        let enabled = dispatch(&state, "getModList", &[]).unwrap().unwrap();
+        assert_eq!(enabled["modList"][0]["_enabled"], json!(true));
+        dispatch(&state, "toggleModState", &[json!("mod-a"), json!(false)]).unwrap();
+        let disabled = dispatch(&state, "getModListFull", &[]).unwrap().unwrap();
+        assert_eq!(disabled[0]["_enabled"], json!(false));
         let _ = fs::remove_dir_all(root);
     }
 

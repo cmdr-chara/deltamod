@@ -1,4 +1,4 @@
-<div class="content-page mods-page product-ui dm-page-shell">
+<div class="content-page mods-page product-ui">
     <header class="patch-toolbar">
         <div class="patch-toolbar-copy">
             <h1 id="ptitle">$$main_title$$</h1>
@@ -14,20 +14,27 @@
             </div>
         </div>
         <div class="patch-actions" aria-label="Patch actions">
-            <button onclick="window.electronAPI.invoke('importMod',[])" id="importModBtn" title="Import a mod package" aria-label="Import a mod package"><span class="material-symbols-outlined">add_box</span></button>
-            <button onclick="window.currentPageStack.patchAndRun()" id="par" title="Apply selected mods and launch" aria-label="Apply selected mods and launch"><span class="material-symbols-outlined">arrow_circle_right</span></button>
+            <button onclick="window.electronAPI.invoke('importMod',[])" id="importModBtn" title="Import a mod package" aria-label="Import a mod package"><span class="material-symbols-outlined" aria-hidden="true">add_box</span><span data-i18n="import_mod_package">$$import_mod_package$$</span></button>
+            <button onclick="window.currentPageStack.patchAndRun()" id="par" title="Apply selected mods and launch" aria-label="Apply selected mods and launch"><span class="material-symbols-outlined" aria-hidden="true">arrow_circle_right</span><span data-i18n="ui_patch_launch">$$ui_patch_launch$$</span></button>
         </div>
     </header>
-    <div class="mods-scroll dm-surface-raised">
+    <div class="workspace-search" role="search">
+        <label for="mod-search"><span data-i18n="ui_search_mods">$$ui_search_mods$$</span>
+            <input id="mod-search" type="search" autocomplete="off" placeholder="$$ui_search_hint$$" data-i18n-placeholder="ui_search_hint" aria-controls="modlist">
+        </label>
+        <output id="mod-search-count" for="mod-search" aria-live="polite"></output>
+    </div>
+    <div id="mod-search-empty" class="workspace-no-results" hidden data-i18n="ui_no_matches">$$ui_no_matches$$</div>
+    <div class="mods-scroll">
         <div style="display: none;" class="modlist-error" id="error-banner"><h2>$$modFail_bannerTitle$$</h2><span class="calibri">$$modFail_bannerClick$$</span></div>
         <table id="modtable">
             <colgroup><col class="patch-mod-column"><col class="patch-enabled-column"></colgroup>
-            <thead><tr><th>$$mod$$</th><th class="patch-enabled-heading">$$enabled$$</th></tr></thead>
-            <tbody id="modlist"></tbody>
+            <thead><tr><th scope="col">$$mod$$</th><th scope="col" class="patch-enabled-heading">$$enabled$$</th></tr></thead>
+            <tbody id="modlist" aria-busy="true"><tr><td colspan="2" class="workspace-loading" role="status">$$ui_search_mods$$…</td></tr></tbody>
         </table>
     </div>
-    <dialog class="error-list-dialog" id="error-list-dialog">
-        <h2>$$modFail_dialogTitle$$</h2>
+    <dialog class="error-list-dialog" id="error-list-dialog" aria-labelledby="mod-errors-title">
+        <h2 id="mod-errors-title">$$modFail_dialogTitle$$</h2>
         <span class="calibri">$$modFail_dialogSubtitle$$</span>
         <div class="error-list-div" id="error-list-div"></div>
         <div class="error-buttons"><button onclick="rew(); document.getElementById('error-list-dialog').close();" style="width:100%;padding:10px;">OK</button></div>

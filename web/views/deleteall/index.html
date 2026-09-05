@@ -1,7 +1,7 @@
-<div>
-    <h1>$$deleteall_title$$</h1>
+<div class="content-page task-page reset-page">
+    <header class="page-heading"><h1>$$deleteall_title$$</h1>
     <p class="calibri">$$deleteall_description$$</p>
-    <div style="font-family: 'Calibri';">
+    </header><div class="task-warning">
         <p><b>$$deleteall_warning0$$</b></p>
         <ul>
             <li>$$deleteall_warning1$$</li>
@@ -11,18 +11,12 @@
         <p><i>$$deleteall_warning4$$</i></p>
     </div>
     <p>$$deleteall_sure$$</p>
-    <button style="display: flex; align-items: center; gap: 10px;" id="initbtn">
+    <div class="task-actions"><button type="button" class="secondary-action" onclick="page('options')" data-i18n="ui_back">$$ui_back$$</button><button type="button" class="danger-action" id="initbtn">
         <span class="material-symbols-outlined">bomb</span> <b>$$deleteall_deleteall$$</b>
-    </button>
-    <br>
-    <progress id="progbar" value="0" max="100"></progress>
+    </button></div>
+    <p id="reset-status" role="status" class="task-note"></p>
+    <progress id="progbar" value="0" max="100" aria-label="$$ui_progress$$" hidden></progress>
 </div>
-<style>
-    @keyframes fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-    }
-</style>
 JSL
 AUDIO[mainTheme.mp3]
 TITLE[$$deleteall_title$$]

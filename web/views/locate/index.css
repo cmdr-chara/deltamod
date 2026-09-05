@@ -137,3 +137,12 @@ input[type="checkbox"] {
         outline-offset: 2px;
     }
 }
+
+.locate-page .fileInput { display: flex; gap: 8px; }
+.locate-page .fileInput input { flex: 1; min-width: 0; }
+.locate-page .gOptions { flex-wrap: wrap; gap: 8px; }
+.locate-page .game-option { border-radius: 8px; min-width: 54px; min-height: 54px; }
+.locate-page .otherImports { flex-wrap: wrap; }
+.locate-page .importProgress { padding: 18px; border: 1px solid var(--panel-border); background: var(--panel-bg-strong); border-inline-start: 3px solid var(--theme-color); border-radius: 6px; }
+.locate-page .importProgress progress { margin-block: 14px; }
+#gameImportFile { overflow-wrap: anywhere; }

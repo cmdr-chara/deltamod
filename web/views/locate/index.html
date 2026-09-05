@@ -1,8 +1,8 @@
-<div>
-    <h1>$$locate_title$$</h1>
+<div class="content-page task-page locate-page">
+    <header class="page-heading"><h1>$$locate_title$$</h1>
     <p class="calibri">$$locate_desc$$</p>
-    <hr>
-    <div>
+    </header>
+    <section class="task-section">
         <p style="display: flex; justify-content: left; align-items: center; gap: 10px;">
             <span class="material-symbols-outlined" aria-hidden="true">gamepad_up</span>
             $$locate_selectgame$$
@@ -13,7 +13,7 @@
             $$locate_selectfolder$$
         </p>
         <div class="fileInput" style="display: flex; justify-content: left; align-items: stretch; gap: 5px;">
-            <input type="text" id="dpath" placeholder="$$locate_path_placeholder$$" style="width: 100%;" autocomplete="off">
+            <input type="text" aria-label="$$locate_selectfolder$$" id="dpath" placeholder="$$locate_path_placeholder$$" style="width: 100%;" autocomplete="off">
             <button class="folder-picker-button" type="button" onclick="window.currentPageStack.locateDelta()" aria-label="$$locate_selectfolder$$">
                 <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
             </button>
@@ -27,22 +27,20 @@
                 <span class="material-symbols-outlined" style="font-size: 14px;" aria-hidden="true">cloud_download</span> $$locate_autodownload$$
             </button>
         </div>
-    </div>
-    <br>
-    <hr>
+    </section>
+    <section class="task-section">
     <div class="copyAnyways">
         <input type="checkbox" id="copyAnyways">
         <label for="copyAnyways">$$locate_copyanyways$$</label>
     </div>
     <section id="gameImportProgress" class="importProgress" hidden aria-live="polite">
         <div><strong id="gameImportPhase">Preparing import…</strong> <span id="gameImportAmount"></span></div>
-        <progress id="gameImportBar" value="0" max="1"></progress>
+        <progress id="gameImportBar" value="0" max="1" aria-label="$$ui_progress$$"></progress>
         <small id="gameImportFile" class="calibri"></small>
         <button id="cancelGameImport" type="button">Cancel import</button>
     </section>
-    <br>
-    <button type="button" onclick="window.currentPageStack.id()">$$save_and_close$$</button>
-    <br><br>
+    </section>
+    <div class="task-actions"><button type="button" onclick="window.currentPageStack.id()">$$save_and_close$$</button></div>
 </div>
 STYLESHEET[index]
 JSL

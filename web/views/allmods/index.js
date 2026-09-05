@@ -1,4 +1,8 @@
 (() => {
+function setTooltip(element, { content }) {
+    element.title = String(content);
+    if (!element.hasAttribute('aria-label')) element.setAttribute('aria-label', String(content));
+}
 const t = (key, fallback, ...args) =>
     window.Localization?.t(key, fallback, ...args) ?? fallback;
 
@@ -8,6 +12,9 @@ const setInterval = (handler, delay, ...args) => {
     window._intervals.push(interval);
     return interval;
 };
+const pageTable = document.getElementById('modlist');
+const thumbnails = window.DeltamodUI.thumbnailLoader();
+const gameNames = new Map();
 function purifyDescription(desc) {
     if (desc === null || desc === undefined) return '';
     let text = String(desc);
@@ -36,26 +43,19 @@ function setIconText(element, iconName, text, size = 'small') {
 
 async function createMod(mod, compatible, loggedIn, modListElement) {
     const modRow = document.createElement('tr');
-
-    let imeta = await window.deltamodBackend.invoke('getModImage', [mod.uid]);
-    if (!imeta.path) {
-        imeta.path = window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png');
-    }
+    modRow.dataset.game = mod.game || '';
+    modRow.dataset.search = [mod.name, mod.author, mod.version, mod.packageID].flat().filter(Boolean).join(' ');
 
     // Column 1 (Mod)
     const modNameContainer = document.createElement('td');
     const titleSpan = document.createElement('div');
     const modImage = document.createElement('img');
-    modImage.src = imeta.path;
+    thumbnails.add(modImage, mod);
     modImage.alt = '';
     modImage.width = 32;
     modImage.height = 32;
     modImage.style.borderRadius = '4px';
     modImage.style.objectFit = 'cover';
-    modImage.onerror = () => {
-        modImage.onerror = null;
-        modImage.src = window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png');
-    };
     const modTitle = document.createElement('span');
     modTitle.textContent = String(mod.name || t('allmods_unnamed', 'Unnamed mod'));
     titleSpan.append(modImage, modTitle);
@@ -127,7 +127,7 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
     gameSpan.className = 'calibri';
     gameSpan.style.fontSize = 'smaller';
     gameSpan.style.color = '#888';
-    setIconText(gameSpan, 'stadia_controller', await window.deltamodBackend.invoke('getGameInfo', [mod.game]).then(g => g.name));
+    setIconText(gameSpan, 'stadia_controller', gameNames.get(mod.game) || mod.game || 'Unknown game');
     gameSpan.id = `modgame-${mod.uid}`;
     modNameContainer.appendChild(gameSpan);
 
@@ -173,7 +173,7 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
     compatSpan.id = `modcompat-${mod.uid}`;
     modNameContainer.appendChild(compatSpan);
     
-    if (mod.gamebanana.supports) {
+    if (mod.gamebanana?.supports) {
         let gbSpan = document.createElement('p');
         gbSpan = adaptForIcons(gbSpan);
         gbSpan.style.margin = '0px';
@@ -202,11 +202,23 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
         const exploreModButton = document.createElement('button');
         exploreModButton.onclick = () => window.deltamodBackend.invoke('openModFolder', [mod.folder]);
         exploreModButton.innerHTML = icon('folder_eye', '20px');
+        setTooltip(exploreModButton, { content: t('open_mod_folder', 'Open mod folder') });
         bdiv.appendChild(exploreModButton);
 
         const deleteModButton = document.createElement('button');
-        deleteModButton.onclick = () => {
-            window.deltamodBackend.invoke('removeMod', [mod.folder]);
+        setTooltip(deleteModButton, { content: t('delete_mod', 'Delete mod') });
+        deleteModButton.classList.add('secondary-action', 'quiet-danger');
+        deleteModButton.onclick = async () => {
+            deleteModButton.disabled = true;
+            try {
+                const confirmed = await htmlAlert(t('delete_mod', 'Delete mod'), `${mod.name}\nRemove this installed package?`, [
+                    { text: t('delete_mod', 'Delete mod'), resolveWith: 'delete' }, { text: 'Cancel', resolveWith: false }
+                ]);
+                if (confirmed !== 'delete' || !modListElement.isConnected) return;
+                await window.deltamodBackend.invoke('removeMod', [mod.folder]);
+                await page('allmods');
+            } catch (error) { await htmlAlert('Unable to remove mod', String(error?.message || error), [{ text: 'OK' }]); }
+            finally { deleteModButton.disabled = false; }
         };
         deleteModButton.innerHTML = icon('delete_forever', '20px');
         bdiv.appendChild(deleteModButton);
@@ -250,17 +262,17 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
             likeBtn.innerHTML = icon('mood_heart', '20px');
             bdiv.appendChild(likeBtn);
 
-            tippy(likeBtn, {
+            setTooltip(likeBtn, {
                 content: t('allmods_like_tooltip', 'Like this mod on GameBanana'),
             });
-            tippy(gbModButton, {
+            setTooltip(gbModButton, {
                 content: loggedIn
                     ? t('allmods_comment_leave', 'Leave a comment on GameBanana')
                     : t('allmods_comment_view', 'View the GameBanana comments for this mod'),
             });
 
-            likeBtn.disabled = !mod.gamebanana.supports || !loggedIn;
-            gbModButton.disabled = !mod.gamebanana.supports;
+            likeBtn.disabled = !mod.gamebanana?.supports || !loggedIn;
+            gbModButton.disabled = !mod.gamebanana?.supports;
     }
 
     modRow.appendChild(modNameContainer);
@@ -339,7 +351,7 @@ async function createErroringMods(errors) {
         gamesShowSelect.isConnected &&
         modListElement.isConnected;
 
-    var loggedIn = await window.deltamodBackend.invoke('validateGamebananaToken', []);
+    var loggedIn = await window.deltamodBackend.invoke('validateGamebananaToken', []).catch(() => false);
     if (!isPageActive()) return;
     previewButton?.addEventListener('click', () => {
         window._pageArguments = {};
@@ -348,25 +360,19 @@ async function createErroringMods(errors) {
     const pageArguments = window._pageArguments || {};
     const selectedSpecID = pageArguments.specID;
 
-    let filterFunc = (x) => true;
-    if (selectedSpecID != undefined && selectedSpecID !== 'all') {
-        filterFunc = (mod) => mod.game === selectedSpecID;
-    }
+
 
     var enumerateGames = await window.deltamodBackend.invoke('getAvailableGames', []);
     if (!isPageActive()) return;
     for (const game of enumerateGames) {
+        gameNames.set(game.id, game.name);
         const option = document.createElement('option');
         option.value = game.id;
         option.innerText = game.name;
         gamesShowSelect.appendChild(option);
     }
 
-    gamesShowSelect.onchange = () => {
-        const selectedGame = gamesShowSelect.value;
-        window._pageArguments = { specID: selectedGame };
-        page('allmods');
-    };
+
     
     if (selectedSpecID != undefined && selectedSpecID !== 'all') {
         gamesShowSelect.value = selectedSpecID;
@@ -376,11 +382,19 @@ async function createErroringMods(errors) {
     var { modList, errors } = await window.deltamodBackend.invoke('getModList', []);
     if (!isPageActive()) return;
 
-    var list = modList.filter(filterFunc);
+    modListElement.replaceChildren();
+    var list = modList;
     for (const mod of list) {
         const modRow = await createMod(mod, mod.isCompatible, loggedIn, modListElement);
         if (!modRow) return;
     }
+    const search = window.DeltamodUI.bindSearch({
+        input: document.getElementById('mod-search'), rows: [...modListElement.children],
+        output: document.getElementById('mod-search-count'), empty: document.getElementById('mod-search-empty'),
+        predicate: row => gamesShowSelect.value === 'all' || row.dataset.game === gamesShowSelect.value
+    });
+    gamesShowSelect.onchange = () => search?.apply();
+    modListElement.setAttribute('aria-busy', 'false');
     window._pageArguments = {}; // Clear it so it doesn't affect other mods
 
     if (errors.length > 0) {
@@ -449,5 +463,5 @@ async function createErroringMods(errors) {
     }
 
     genbtnstyles();
-})();
+})().catch(error => window.DeltamodUI.showError(pageTable, error, () => page('allmods')));
 })();

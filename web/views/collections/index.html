@@ -1,23 +1,13 @@
-<div class="content-page collections-page product-ui">
-    <header class="dm-section-heading">
-        <h1>Collections</h1>
-        <p>Manage curated mod setups with a cleaner workspace.</p>
-    </header>
-    <section class="dm-surface" aria-label="Collections workspace">
-        <table>
-            <colgroup>
-                <col style="width: 80%;">
-                <col style="width: 20%;">
-            </colgroup>
-            <thead>
-                <tr>
-                    <th>Collection</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="collections"></tbody>
-        </table>
-    </section>
+<div class="content-page collections-page">
+    <header class="page-heading"><h1 data-i18n="ui_nav_collections">$$ui_nav_collections$$</h1><p data-i18n="ui_collection_desc">$$ui_collection_desc$$</p></header>
+    <form id="collection-create-form" class="collection-create-form">
+        <label for="collection-name" data-i18n="ui_collection_name">$$ui_collection_name$$</label>
+        <div class="collection-create-controls"><input id="collection-name" type="text" maxlength="200" required autocomplete="off"><button id="collection-create" type="submit" data-i18n="ui_create_collection">$$ui_create_collection$$</button></div>
+        <p id="collection-status" class="task-note" role="status"></p>
+    </form>
+    <table><thead><tr><th scope="col">Collection</th><th scope="col">$$actions$$</th></tr></thead>
+        <tbody id="collections" aria-busy="true"><tr><td colspan="2" class="workspace-loading" role="status">$$ui_nav_collections$$…</td></tr></tbody>
+    </table>
 </div>
 JSL
 TITLE[Collections]

@@ -1,6 +1,6 @@
 .options-layout {
     display: grid;
-    grid-template-columns: minmax(240px, 290px) minmax(0, 1fr);
+    grid-template-columns: minmax(170px, 205px) minmax(0, 1fr);
     align-items: start;
     gap: 18px;
 }
@@ -96,11 +96,11 @@
     border-radius: var(--panel-radius);
     background: var(--panel-bg-strong);
     box-shadow: var(--shadow-panel);
-    backdrop-filter: blur(var(--panel-blur)) brightness(0.76);
+    backdrop-filter: none;
 }
 
 .options-page .setting-title {
-    font-family: "Pixel", sans-serif;
+    font-family: var(--font-ui);
 }
 
 .options-page tbody small {
@@ -219,7 +219,7 @@
     border-radius: 8px;
     background: var(--control-bg);
     color: white;
-    font-family: "Pixel", sans-serif;
+    font-family: var(--font-ui);
     font-size: 11px;
     line-height: 1;
     text-align: center;
@@ -288,7 +288,7 @@
     margin-top: 0px;
     border: 1px solid var(--panel-border);
     border-radius: var(--panel-radius);
-    backdrop-filter: blur(var(--panel-blur)) brightness(0.76);
+    backdrop-filter: none;
     box-shadow: var(--shadow-panel);
 }
 
@@ -302,16 +302,7 @@
         0 8px 18px color-mix(in srgb, var(--theme-color) 24%, transparent);
 }
 
-.viewport .cat > button::before {
-    flex: 0 0 auto;
-    width: 22px;
-    content: attr(data-icon);
-    font-family: "Material Symbols Outlined";
-    font-size: 19px;
-    font-weight: normal;
-    line-height: 1;
-    text-align: center;
-}
+.viewport .cat > button::before { display: none; }
 
 .viewport .cat > button::after {
     width: 6px;
@@ -508,3 +499,22 @@ body .viewport .options-page .cat > button:not(.selected):hover {
         transform: rotate(-12deg);
     }
 }
+
+.options-page .page-heading { padding: 0 0 18px; border-bottom: 1px solid var(--panel-divider); background: transparent; border-radius: 0; }
+.options-page .page-heading::before { display: none; }
+.options-page .opt { box-shadow: none; }
+.options-page .cat { position: sticky; top: 0; padding: 0 12px 0 0; border: 0; border-right: 1px solid var(--panel-divider); border-radius: 0; background: transparent; box-shadow: none; }
+body .viewport .options-page .cat > button { gap: 10px; margin: 0 0 4px; font: 13px/1.4 var(--font-ui); border-radius: 5px; min-height: 38px; }
+body .viewport .options-page .cat > button:not(.selected) { background: transparent !important; opacity: 1; filter: none; }
+body .viewport .options-page .cat > button.selected { background: var(--theme-color-point2) !important; color: var(--text-primary); box-shadow: inset 2px 0 var(--theme-color); padding-left: 12px !important; }
+.options-page .cat > button::after { display: none; }
+.options-page .cat > button .dm-icon { flex: 0 0 18px; }
+.options-page .setting-title { font: 600 14px/1.4 var(--font-ui); }
+.options-page tbody small { font-size: 12px; }
+.options-page #modtable { table-layout: auto; }
+.options-page #modtable td { padding: 15px 16px; }
+.options-page .ingranaggio { width: 200px; height: 200px; left: auto; right: 0; top: 0; opacity: .22; }
+.options-page .ingranaggio-wheel { animation: none; }
+.options-page .ingranaggio-main { font-size: 180px; top: 0; }
+.options-page .ingranaggio-secondary, .options-page .ingranaggio-tertiary { display: none; }
+@media (max-width: 920px) { .options-layout { grid-template-columns: 1fr; } .options-page .cat { position: static; display: flex; flex-wrap: wrap; gap: 4px; padding: 0 0 12px; border: 0; border-bottom: 1px solid var(--panel-divider); } body .viewport .options-page .cat > button { width: auto; flex: 0 1 auto; margin: 0; } }

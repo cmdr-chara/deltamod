@@ -1,20 +1,20 @@
-<div class="content-page installed-mods-page product-ui dm-page" data-installed-mods-mode="live-lifecycle">
-    <header class="product-library-header dm-page-header">
+<div class="content-page installed-mods-page product-ui" data-installed-mods-mode="live-lifecycle">
+    <header class="product-library-header">
         <div class="page-heading">
             <h1>$$allModsTitle$$</h1>
             <p>$$community_allmods_subtitle$$</p>
         </div>
-        <span class="product-fixture-label">Live local catalogue</span>
+        <button class="secondary-action" type="button" onclick="page('allmods')" data-i18n="ui_back">$$ui_back$$</button>
     </header>
 
+    <details class="library-safety-note"><summary data-i18n="ui_file_safety">$$ui_file_safety$$</summary>
     <p class="product-preview-note" role="note">
         Installed packages are tracked by the transactional lifecycle. Verify checks every owned
         file; uninstall refuses to overwrite or remove externally changed content.
-    </p>
+    </p></details>
 
-    <section class="product-profile-manager dm-surface" aria-labelledby="profile-manager-title">
+    <section class="product-profile-manager" aria-labelledby="profile-manager-title">
         <div>
-            <p class="product-eyebrow">Reproducible setup</p>
             <h2 id="profile-manager-title">Profiles</h2>
             <p>Exact provider versions, archive hashes, configuration and load order.</p>
         </div>
@@ -28,15 +28,15 @@
         </div>
     </section>
 
-    <main id="installed-mods-v2-root" aria-busy="true" aria-live="polite">
-        <section class="product-state dm-surface" role="status" data-state="loading">
+    <section id="installed-mods-v2-root" aria-busy="true">
+        <section class="product-state" role="status" data-state="loading">
             <span class="product-state-marker" aria-hidden="true">◇</span>
             <div class="product-state-copy">
                 <h2>Loading installed mods</h2>
                 <p>Reading the local mod catalogue.</p>
             </div>
         </section>
-    </main>
+    </section>
 </div>
 JSL
 AUDIO[mainTheme.mp3]

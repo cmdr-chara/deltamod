@@ -1,0 +1,4 @@
+/* Utility glyphs are local SVG; pixel illustrations remain original Deltamod assets. */
+.dm-icon { display: inline-block; flex: 0 0 auto; width: 1em; height: 1em; vertical-align: -.15em; pointer-events: none; }
+.material-symbols-outlined { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 1em; height: 1em; font: inherit; font-size: 20px; line-height: 1; vertical-align: middle; }
+.material-symbols-outlined > .dm-icon { width: 100% !important; height: 100% !important; }

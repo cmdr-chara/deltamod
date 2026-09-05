@@ -1,111 +1,62 @@
+/* Copyright © 2026 Deltamod contributors. Licensed under the EUPL 1.2. */
 (() => {
-const setInterval = (handler, delay, ...args) => {
-    const interval = window.setInterval(handler, delay, ...args);
-    window._intervals = window._intervals || [];
-    window._intervals.push(interval);
-    return interval;
-};
-(async () => {
-    var modlist = (await invoke('getModList', [])).modList;
-    var tbody = document.getElementById('mod-list');
-    for (const mod of modlist) {
-        var modTR = document.createElement('tr');
-
-        var modTD = document.createElement('td');
-        modTR.appendChild(modTD);
-
-        var containerDiv = document.createElement('div');
-        containerDiv.style.display = 'flex';
-        containerDiv.style.alignItems = 'center';
-        containerDiv.style.gap = '10px';
-        modTD.appendChild(containerDiv);
-
-        let imeta = await window.deltamodBackend.invoke('getModImage', [mod.uid]);
-        if (!imeta.path) {
-            imeta.path = window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png');
+    'use strict';
+    const table = document.getElementById('mod-list');
+    const button = document.getElementById('export-btn');
+    const collectionId = window._pageArguments?.collectionId;
+    const thumbnails = window.DeltamodUI.thumbnailLoader();
+    let exporting = false;
+    async function load() {
+        const { modList } = await invoke('getModList', []);
+        if (!table.isConnected) return;
+        if (!Array.isArray(modList)) throw new Error('The mod catalogue could not be read.');
+        const fragment = document.createDocumentFragment();
+        for (const mod of modList) {
+            const row = document.createElement('tr'); const cell = document.createElement('td');
+            const identity = document.createElement('label'); identity.className = 'export-mod-identity';
+            const image = document.createElement('img'); image.alt = ''; image.width = 40; image.height = 40;
+            thumbnails.add(image, mod);
+            const text = document.createElement('span'); text.textContent = String(mod.name);
+            identity.append(image, text); cell.append(identity);
+            const selection = document.createElement('td'); selection.className = 'export-selection';
+            const checkbox = document.createElement('input'); checkbox.type = 'checkbox';
+            checkbox.id = `export-mod-${fragment.childElementCount}`; identity.htmlFor = checkbox.id;
+            checkbox.setAttribute('aria-label', `Export ${mod.name}`);
+            const supported = mod.gamebanana?.supports === true;
+            checkbox.disabled = !supported;
+            if (supported) {
+                checkbox.dataset.model = mod.gamebanana.model; checkbox.dataset.id = mod.gamebanana.id;
+                checkbox.dataset.name = mod.name; checkbox.dataset.pid = mod.packageID;
+            } else {
+                const note = document.createElement('small'); note.className = 'task-note';
+                note.textContent = 'Only mods downloaded from GameBanana are supported'; text.append(document.createElement('br'), note);
+            }
+            selection.append(checkbox); row.append(cell, selection); fragment.append(row);
         }
-
-        var modIcon = document.createElement('img');
-        modIcon.src = imeta.path;
-        modIcon.style.width = '32px';
-        modIcon.style.height = '32px';
-        if (!mod.gamebanana.supports) {
-            modIcon.style.filter = 'grayscale(100%)';
+        if (!modList.length) {
+            const row = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 2;
+            cell.textContent = 'No installed mods to export.'; cell.className = 'workspace-load-state'; row.append(cell); fragment.append(row);
         }
-        containerDiv.appendChild(modIcon);
-
-        var modInfoDiv = document.createElement('div');
-        containerDiv.appendChild(modInfoDiv);
-
-        var modName = document.createElement('span');
-        modName.textContent = mod.name;
-        modInfoDiv.appendChild(modName);
-
-        if (!mod.gamebanana.supports) {
-            modInfoDiv.appendChild(document.createElement('br'));
-            var unsupportedTag = document.createElement('span');
-            unsupportedTag.textContent = 'Only mods downloaded from GameBanana are supported';
-            unsupportedTag.style.color = 'rgba(255,255,255,0.5)';
-            unsupportedTag.style.fontSize = '0.8em';
-            unsupportedTag.style.marginLeft = '5px';
-            modInfoDiv.appendChild(unsupportedTag);
-        }
-
-        tbody.appendChild(modTR);
-
-        if (mod.gamebanana.supports) {
-            var checkboxTD = document.createElement('td');
-            checkboxTD.style.textAlign = 'center';
-            var checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.dataset.model = mod.gamebanana.model;
-            checkbox.dataset.id = mod.gamebanana.id;
-            checkbox.dataset.name = mod.name;
-            checkbox.dataset.pid = mod.packageID;
-            checkbox.addEventListener('click', (e) => {
-                if (document.querySelectorAll('#mod-list input[type="checkbox"]:checked').length > 0) {
-                    document.getElementById('export-btn').disabled = false;
-                }
-                else {
-                    document.getElementById('export-btn').disabled = true;
-                }
-            });
-            checkboxTD.appendChild(checkbox);
-            modTR.appendChild(checkboxTD);
-        }
-        else {
-            var emptyTD = document.createElement('td');
-            emptyTD.style.textAlign = 'center';
-            modTR.appendChild(emptyTD);
-
-            emptyTD.innerHTML = icon('do_not_disturb_on', '2em');
-        }
+        table.replaceChildren(fragment); table.setAttribute('aria-busy', 'false');
     }
-})();
-
-window.currentPageStack.exportMods = async function() {
-    var checkboxes = document.querySelectorAll('#mod-list input[type="checkbox"]');
-    var selectedMods = [];
-    checkboxes.forEach(checkbox => {
-        if (checkbox.checked) {
-            selectedMods.push({
-                model: checkbox.dataset.model,
-                id: checkbox.dataset.id,
-                name: checkbox.dataset.name,
-                pid: checkbox.dataset.pid
-            });
-        }
+    table.addEventListener('change', () => {
+        button.disabled = exporting || !table.querySelector('input:checked:not(:disabled)') || collectionId == null;
     });
-
-    await invoke('gamebanana_importToCollection', [window._pageArguments.collectionId, selectedMods]);
-
-    await htmlAlert("Done", "The selected mods have been imported to the collection.", [{
-        text: "Ok",
-        resolveWith: 'ok'
-    }]);
-
-    window._pageArguments = {};
-
-    page('collections');
-};
+    window.currentPageStack.exportMods = async () => {
+        if (exporting || button.disabled) return;
+        const selectedMods = [...table.querySelectorAll('input:checked:not(:disabled)')].map(checkbox => ({
+            model: checkbox.dataset.model, id: checkbox.dataset.id, name: checkbox.dataset.name, pid: checkbox.dataset.pid
+        }));
+        exporting = true; button.disabled = true; button.setAttribute('aria-busy', 'true');
+        try {
+            const response = await invoke('gamebanana_importToCollection', [collectionId, selectedMods]);
+            if (response?.success === false) throw new Error(String(response.message || response.error || 'Export failed.'));
+            if (!table.isConnected) return;
+            await htmlAlert('Collection updated', 'The selected mods have been added to the collection.', [{ text: 'OK' }]);
+            window._pageArguments = {}; await page('collections');
+        } catch (error) { await htmlAlert('Unable to export', String(error?.message || error), [{ text: 'OK' }]); }
+        finally { exporting = false; button.removeAttribute('aria-busy'); button.disabled = !table.querySelector('input:checked:not(:disabled)'); }
+    };
+    if (collectionId == null) window.DeltamodUI.showError(table, 'Choose a collection before exporting.', () => page('collections'));
+    else load().catch(error => window.DeltamodUI.showError(table, error, load));
 })();

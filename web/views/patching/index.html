@@ -1,15 +1,16 @@
-<div style="width: 100%; height: 100%; display: flex; justify-content: center; align-items: center;">
-    <div>
-        <p style="font-size: 25px; margin-bottom: 0;" class="iconhoster" id="patchingTXT"><span class="material-symbols-outlined rotate">cycle</span><i>Patching the game...</i></p>
-        <p class="calibri" id="patchingDesc">Please wait. This process may take a bit longer if you selected more mods.</p>
-        <div class="logs" id="gpl"></div>
-    </div>
-</div>
-
-
-<div class="buttons">
-    <button onclick="window.currentPageStack.next()" id="next" style="display: none;">Open game</button>
-</div>
+<section class="content-page task-page patching-page">
+    <header class="page-heading">
+        <h1 id="patchingTXT" role="status" data-i18n="ui_patching">$$ui_patching$$</h1>
+        <p id="patchingDesc">Please wait while the selected mods are applied. Keep Deltamod open until this finishes.</p>
+    </header>
+    <div class="patch-progress-heading"><label for="patch-progress" data-i18n="ui_progress">$$ui_progress$$</label><output id="patch-percent" for="patch-progress"></output></div>
+    <progress id="patch-progress" max="100" aria-label="$$ui_progress$$"></progress>
+    <section class="patch-log-section" aria-labelledby="patch-log-heading">
+        <h2 id="patch-log-heading" data-i18n="ui_log">$$ui_log$$</h2>
+        <div class="logs" id="gpl" tabindex="0" aria-label="$$ui_log$$"></div>
+    </section>
+    <div class="task-actions"><button type="button" onclick="window.currentPageStack.next()" id="next" hidden>Open game</button></div>
+</section>
 JSL
 NO-SIDEBAR
 STYLESHEET[style]

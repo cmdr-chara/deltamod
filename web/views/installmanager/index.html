@@ -1,10 +1,10 @@
-<div class="content-page installations-page product-ui dm-surface-stack">
-    <div class="page-heading dm-section-heading">
+<div class="content-page installations-page product-ui">
+    <div class="page-heading">
         <h1>$$installmanager_title$$</h1>
         <p>$$community_installmanager_subtitle$$</p>
     </div>
-    <section class="dm-surface dm-interactive" aria-labelledby="installations-heading">
-        <h2 id="installations-heading" class="product-visually-hidden">$$installation$$</h2>
+    <section class="dm-surface" aria-labelledby="installations-heading">
+        <h2 id="installations-heading" class="workspace-sr-only">$$installation$$</h2>
         <table>
             <colgroup>
                 <col style="width: 85%;">
@@ -16,7 +16,7 @@
                     <th>$$actions$$</th>
                 </tr>
             </thead>
-            <tbody id="installations-list"></tbody>
+            <tbody id="installations-list" aria-busy="true"><tr><td colspan="2" class="workspace-loading" role="status">$$installmanager_title$$…</td></tr></tbody>
         </table>
     </section>
 </div>

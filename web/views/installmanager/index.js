@@ -1,10 +1,16 @@
 (() => {
+function setTooltip(element, { content }) {
+    element.title = String(content);
+    if (!element.hasAttribute('aria-label')) element.setAttribute('aria-label', String(content));
+}
 const setInterval = (handler, delay, ...args) => {
     const interval = window.setInterval(handler, delay, ...args);
     window._intervals = window._intervals || [];
     window._intervals.push(interval);
     return interval;
 };
+const tbody = document.querySelector('#installations-list');
+const gameInfo = new Map();
 (async () => {
     try {
         const installs = await window.deltamodBackend.invoke('getInstallations', []).catch(e => {
@@ -13,7 +19,11 @@ const setInterval = (handler, delay, ...args) => {
         const index = await window.deltamodBackend.invoke('getSystemIndex', []).catch(e => {
             throw new Error(`Error fetching current installation index: ${e.message}`);
         });
-        const tbody = document.querySelector('#installations-list');
+        if (!tbody?.isConnected) return;
+        tbody.replaceChildren();
+        const gameIds = [...new Set(installs.map(install => install.pid))];
+        await Promise.all(gameIds.map(async pid => gameInfo.set(pid, await window.deltamodBackend.invoke('getGameInfo', [pid]))));
+        if (!tbody.isConnected) return;
 
         for (const i in installs) {
             const install = installs[i];
@@ -48,12 +58,17 @@ const setInterval = (handler, delay, ...args) => {
                 editablespan.style.margin = '0';
                 editablespan.style.height = '22px';
                 editablespan.style.fontSize = '16px';
-                editablespan.value = sanitizeHTML(
-                    install.name || `Install #${install.index + 1}`
-                );
+                editablespan.value = install.name || `Install #${install.index + 1}`;
+                editablespan.setAttribute('aria-label', `Installation name: ${editablespan.value}`);
                 editablespan.style.cursor = 'text';
 
+                let savedName = editablespan.value;
+                editablespan.addEventListener('keydown', event => {
+                    if (event.key === 'Enter') editablespan.blur();
+                    if (event.key === 'Escape') { editablespan.value = savedName; editablespan.blur(); }
+                });
                 editablespan.onblur = async () => {
+                    if (editablespan.value.trim() === savedName) return;
                     if (editablespan.value.trim() === '') {
                         htmlAlert(
                             'Invalid installation name',
@@ -66,14 +81,18 @@ const setInterval = (handler, delay, ...args) => {
 
                     install.name = editablespan.value.trim();
 
-                    window.deltamodBackend.invoke('setInstallationCName', [
-                        install.index.toString(),
-                        install.name,
-                    ]);
+                    try {
+                        await window.deltamodBackend.invoke('setInstallationCName', [install.index.toString(), install.name]);
+                        savedName = install.name;
+                    } catch (error) {
+                        editablespan.value = savedName;
+                        if (editablespan.isConnected) await htmlAlert('Unable to rename installation', String(error?.message || error), [{ text: 'OK' }]);
+                    }
                 };
 
                 const boldName = document.createElement('img');
                 boldName.style.width = '43px';
+                boldName.alt = ''; boldName.width = 43; boldName.height = 43; boldName.decoding = 'async';
                 boldName.src = './gamesIco/' + install.pid + '.png';
 
                 const nameText = document.createElement('div');
@@ -84,9 +103,7 @@ const setInterval = (handler, delay, ...args) => {
 
                 const details = document.createElement('small');
                 {
-                    const gname = await window.electronAPI
-                        .invoke('getGameInfo', [install.pid])
-                        .then(g => g?.name || 'Unknown game');
+                    const gname = gameInfo.get(install.pid)?.name || 'Unknown game';
 
                     details.textContent = `${gname} · ${install.steam ? 'Steam' : 'Manual'}`;
                     if (!install.valid) {
@@ -139,7 +156,7 @@ const setInterval = (handler, delay, ...args) => {
 
                 buttonsDiv.appendChild(goBtn);
 
-                tippy(goBtn, {
+                setTooltip(goBtn, {
                     content:
                         !install.valid
                             ? 'Repair or re-import this installation before switching to it'
@@ -184,7 +201,7 @@ const setInterval = (handler, delay, ...args) => {
 
                 buttonsDiv.appendChild(deleteBtn);
 
-                tippy(deleteBtn, {
+                setTooltip(deleteBtn, {
                     content: 'Delete installation',
                     placement: 'top',
                     delay: [500, 0],
@@ -214,7 +231,7 @@ const setInterval = (handler, delay, ...args) => {
                         }
                     };
                     buttonsDiv.appendChild(repairBtn);
-                    tippy(repairBtn, { content: 'Attempt safe repair', placement: 'top', delay: [500, 0] });
+                    setTooltip(repairBtn, { content: 'Attempt safe repair', placement: 'top', delay: [500, 0] });
 
                     let reimportBtn = document.createElement('button');
                     reimportBtn.style.padding = '4px';
@@ -228,7 +245,7 @@ const setInterval = (handler, delay, ...args) => {
                         if (result?.repaired) page('installmanager');
                     };
                     buttonsDiv.appendChild(reimportBtn);
-                    tippy(reimportBtn, { content: 'Re-import from a clean game folder', placement: 'top', delay: [500, 0] });
+                    setTooltip(reimportBtn, { content: 'Re-import from a clean game folder', placement: 'top', delay: [500, 0] });
                 }
 
                 let openBtn = document.createElement('button');
@@ -244,7 +261,7 @@ const setInterval = (handler, delay, ...args) => {
                     ]);
                 };
 
-                tippy(openBtn, {
+                setTooltip(openBtn, {
                     content: 'Open installation folder',
                     placement: 'top',
                     delay: [500, 0],
@@ -277,7 +294,7 @@ const setInterval = (handler, delay, ...args) => {
                         );
                     }
                 };
-                tippy(editBtn, {
+                setTooltip(editBtn, {
                     content: install.canOpenInUndertaleModTool
                         ? (canLaunchUndertaleModTool
                             ? 'Create a safe copy for UndertaleModTool; export changes back as a Community mod'
@@ -316,7 +333,7 @@ const setInterval = (handler, delay, ...args) => {
                     ]);
                 };
 
-                tippy(shortcutBtn, {
+                setTooltip(shortcutBtn, {
                     content: canCreateShortcut
                         ? 'Create shortcut on desktop'
                         : 'Desktop shortcut creation is unavailable in this app build',
@@ -335,7 +352,7 @@ const setInterval = (handler, delay, ...args) => {
                 row.appendChild(nameCell);
                 row.appendChild(goCell);
 
-                tbody.appendChild(row);
+                if (tbody.isConnected) tbody.appendChild(row);
             })(install, i).catch(e => {
                 throw new Error(`Error creating row for installation ${install.index}: ${e.message}`);
             });
@@ -368,33 +385,15 @@ const setInterval = (handler, delay, ...args) => {
         newCell.appendChild(newButton);
         newRow.appendChild(newCell);
 
+        if (!tbody.isConnected) return;
         tbody.appendChild(newRow);
+        tbody.setAttribute('aria-busy', 'false');
 
         genbtnstyles();
-    } catch (e) {
-        var errorTR = document.createElement('tr');
-        var errorTD = document.createElement('td');
-        errorTD.colSpan = 2;
-        errorTD.style.fontWeight = 'bold';
-
-        var errortitle = document.createElement('div');
-        errortitle.innerText = 'Error loading installations';
-        errortitle.style.fontSize = '18px';
-        errortitle.style.marginBottom = '10px';
-        errorTD.appendChild(errortitle);
-
-        var errorMsg = document.createElement('div');
-        errorMsg.textContent = [e?.message, e?.stack].filter(Boolean).join('\n') || String(e);
-        errorMsg.style.whiteSpace = 'pre-wrap';
-        errorMsg.style.fontSize = '14px';
-        errorTD.appendChild(errorMsg);
-
-        errorTR.appendChild(errorTD);
-        document.querySelector('#installations-list').appendChild(errorTR);
+    } catch (error) {
+        window.DeltamodUI.showError(tbody, error, () => page('installmanager'));
     }
-})().catch(e => {
-    window.alert('Unexpected error: ' + e.message + '\n' + e.stack);
-});
+})();
 
 elisten(document, 'keydown', e => {
     var ctrlDown = e.ctrlKey || e.metaKey;

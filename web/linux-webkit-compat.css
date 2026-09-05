@@ -33,9 +33,9 @@ html.deltamod-linux-webkit button,
 html.deltamod-linux-webkit select,
 html.deltamod-linux-webkit th,
 html.deltamod-linux-webkit .setting-title {
-    -webkit-font-smoothing: none;
+    -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: auto;
-    text-rendering: geometricPrecision;
+    text-rendering: optimizeLegibility;
 }
 
 html.deltamod-linux-webkit button,

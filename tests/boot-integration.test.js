@@ -19,8 +19,10 @@ describe('Deltamod boot screen integration', () => {
         const css = fs.readFileSync(path.join(projectRoot, 'web', 'index.css'), 'utf8');
         expect(html).toContain('id="deltamod-boot-root"');
         expect(html).toContain('boot/deltamod-boot.css');
-        expect(html).toContain('./boot/deltamod-boot.js');
-        expect(html.indexOf('./boot/deltamod-boot.js')).toBeLessThan(html.indexOf('src="index.js"'));
+        const startup = fs.readFileSync(path.join(projectRoot, 'web', 'modules', 'startup.js'), 'utf8');
+        expect(html).toContain('./modules/startup.js');
+        expect(startup.indexOf("load('./boot/deltamod-boot.js')")).toBeLessThan(startup.indexOf("load('index.js')"));
+        expect(startup).toContain(".classList.remove('deltamod-route-pending')");
         expect(css).toContain('#deltamod-boot-root:not([hidden]):not([data-dismissed="true"]) ~ .language-wheel-toggle');
         expect(css).toContain('body.deltamod-ui-entering > .language-wheel-toggle');
     });
@@ -32,8 +34,11 @@ describe('Deltamod boot screen integration', () => {
         expect(html).toContain('<div class="alertMain" hidden>');
         expect(html).not.toContain('Example Alert');
         expect(css).toContain('.alertMain[hidden]');
-        expect(renderer).toContain('alertMain.hidden = false;');
-        expect(renderer).toContain('alertMain.hidden = true;');
+        const dialogs = fs.readFileSync(path.join(projectRoot, 'web', 'modules', 'dialogs.js'), 'utf8');
+        expect(renderer).toContain('window.DeltamodDialogs.show');
+        expect(dialogs).toContain('overlay.hidden = false;');
+        expect(dialogs).toContain('overlay.hidden = true;');
+        expect(dialogs).toContain("'aria-modal', 'true'");
     });
 
     test('connects theme and real initialization milestones to the boot API', () => {
@@ -44,7 +49,7 @@ describe('Deltamod boot screen integration', () => {
         expect(renderer).toContain("bootProgress(0.03, 'Starting local runtime')");
         expect(renderer).toContain("bootProgress(0.9, 'Preparing file overlay')");
         expect(renderer).toContain('finishBoot();');
-        expect(renderer).toContain("window.DeltamodBoot?.fail('Continuing')");
+        expect(renderer).toContain("window.DeltamodBoot?.fail('Unable to start')");
         expect(renderer).toContain("window.deltamodBackend.invoke('isCMode', [])");
         expect(renderer).toContain("invokeOptional('shouldGoIM', [], false)");
         expect(renderer).toContain("invokeOptional('executeArgumentCmd', [], null)");

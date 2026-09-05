@@ -16,6 +16,9 @@
 }
 
 :root {
+    color-scheme: dark;
+    --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-display: "Pixel", ui-monospace, monospace;
     /* Layout & spacing (4px base grid) */
     --content-max-width: 1240px;
     --content-gap: 18px;
@@ -27,27 +30,27 @@
     --space-6: 32px;
 
     /* Typography scale */
-    --font-size-body: 18px;
-    --font-size-control: 17px;
-    --font-size-meta: 15px;
-    --font-size-heading: 22px;
-    --font-size-title: 36px;
+    --font-size-body: 15px;
+    --font-size-control: 14px;
+    --font-size-meta: 13px;
+    --font-size-heading: 20px;
+    --font-size-title: 32px;
 
     /* Text colors (white on near-black surfaces, WCAG AA) */
     --text-primary: rgba(255, 255, 255, 0.95);
     --muted-text: rgba(255, 255, 255, 0.76);
-    --text-faint: rgba(255, 255, 255, 0.55);
+    --text-faint: #a3a7b2;
 
     /* Surfaces & elevation */
-    --panel-bg: rgba(10, 10, 12, 0.74);
-    --panel-bg-strong: rgba(9, 9, 11, 0.88);
+    --panel-bg: rgba(20, 22, 27, 0.96);
+    --panel-bg-strong: #17191f;
     --panel-border: rgba(255, 255, 255, 0.1);
     --panel-divider: rgba(255, 255, 255, 0.09);
-    --panel-radius: 16px;
-    --control-radius: 9px;
-    --panel-blur: 11px;
-    --shadow-panel: 0 18px 46px rgba(0, 0, 0, 0.24);
-    --shadow-raised: 0 6px 18px rgba(0, 0, 0, 0.3);
+    --panel-radius: 10px;
+    --control-radius: 6px;
+    --panel-blur: 0px;
+    --shadow-panel: 0 12px 32px rgba(0, 0, 0, 0.24);
+    --shadow-raised: 0 2px 6px rgba(0, 0, 0, 0.16);
 
     /* Controls */
     --control-height: 38px;
@@ -72,12 +75,6 @@
     --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
 }
 
-/* I did everything to use Calibri but I realized I actually want a font from my library.... */
-@font-face {
-    font-family: "Calibri";
-    src: url("./Geist.ttf") format("truetype");
-}
-
 @font-face {
     font-family: "Brands";
     src: url("./brands.ttf");
@@ -87,10 +84,10 @@ brand-icon {
     font-family: 'Brands';
 }
 
-/* Hide scrollbar for all browsers */
+/* Visible scroll affordances; do not hide long content from pointer users. */
 * {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    scrollbar-width: thin;
+    scrollbar-color: #626671 transparent;
 }
 
 strong,
@@ -98,16 +95,16 @@ b {
     font-weight: 600 !important;
 }
 
-*::-webkit-scrollbar {
-    display: none;
-}
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb { background: #626671; border: 2px solid transparent; background-clip: padding-box; border-radius: 6px; }
+[hidden] { display: none !important; }
 
 .btnarray>button {
     margin-right: 10px;
 }
 
 .allcalibri>* {
-    font-family: Calibri, sans-serif;
+    font-family: var(--font-ui);
 }
 
 h1 {
@@ -130,12 +127,12 @@ p {
 
 /* Primary action: theme accent with ink text and a soft accent glow on hover.
    Views opt out per-component (.sidebar-button, .secondary-action, ...). */
-button:not(.sidebar-button):not(.bar-button):not(.animated-pixel-heart):not(.language-wheel-toggle):not(.chara-choice):not(.secondary-action):not(.noScaleBTN):not(:hover):not(:disabled) {
+button:not(.sidebar-button):not(.bar-button):not(.animated-pixel-heart):not(.danger-action):not(.product-button-danger):not(.secondary-button):not(.language-wheel-toggle):not(.chara-choice):not(.secondary-action):not(.noScaleBTN):not(:hover):not(:disabled) {
     background-color: var(--theme-color) !important;
     color: var(--theme-color-ink, #fff);
 }
 button, input, select {
-    font-family: "Pixel", sans-serif;
+    font-family: var(--font-ui);
     font-size: var(--font-size-control);
     line-height: 1.2;
     color: var(--text-primary);
@@ -178,7 +175,7 @@ button:hover:not(:disabled):not(.sidebar-button):not(.language-wheel-toggle):not
 }
 
 button:hover:not(.noScaleBTN):not(.sidebar-button):not(.bar-button):not(.language-wheel-toggle) {
-    box-shadow: 0 4px 16px color-mix(in srgb, var(--theme-color, transparent) 32%, transparent);
+    box-shadow: none;
 }
 
 button:active:not(.noScaleBTN) {
@@ -222,17 +219,17 @@ input {
 
 input::placeholder {
     color: rgb(150, 150, 150);
-    font-style: italic;
+    font-style: normal;
 }
 
 .calibri {
-    font-family: Calibri, sans-serif;
+    font-family: var(--font-ui);
 }
 
 body {
     background-color: rgb(8, 8, 8);
     color: white;
-    font-family: "Calibri", sans-serif;
+    font-family: var(--font-ui);
     font-size: var(--font-size-body);
     line-height: 1.4;
 }
@@ -245,13 +242,13 @@ button,
 select,
 th,
 .setting-title {
-    font-family: "Pixel", sans-serif;
-    font-weight: normal !important;
+    font-family: var(--font-ui);
+    font-weight: 600;
 }
 
 textarea,
 input {
-    font-family: "Calibri", sans-serif;
+    font-family: var(--font-ui);
 }
 
 .imagetextbundle {
@@ -265,8 +262,8 @@ input {
 
 h1 {
     margin-top: 0;
-    margin-block-start: 21px;
-    margin-block-end: 21px;
+    margin-block-start: 0;
+    margin-block-end: 16px;
     margin-inline-start: 0px;
     margin-inline-end: 0px;
 }
@@ -276,11 +273,13 @@ table {
     width: 100%;
     border: 0;
     border-radius: var(--panel-radius);
-    padding: 12px;
+    padding: 0;
     background: var(--panel-bg);
-    backdrop-filter: blur(var(--panel-blur)) brightness(0.72);
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid var(--panel-border);
     color: white;
-    font-family: "Calibri", sans-serif;
+    font-family: var(--font-ui);
     font-size: var(--font-size-body);
     line-height: 1.4;
 }
@@ -325,10 +324,10 @@ tbody tr:last-child > td {
 }
 
 th {
-    font-family: "Pixel", sans-serif;
+    font-family: var(--font-ui);
     color: var(--text-primary);
-    background: color-mix(in srgb, var(--theme-color) 14%, #171315);
-    border-bottom: 2px solid var(--theme-color);
+    background: #20232a;
+    border-bottom: 1px solid var(--panel-border);
     letter-spacing: 0.03em;
 }
 
@@ -351,9 +350,9 @@ th {
     max-width: 760px;
     margin: 0;
     color: var(--muted-text);
-    font-family: "Calibri", sans-serif;
+    font-family: var(--font-ui);
     line-height: 1.4;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+    text-shadow: none;
 }
 
 .empty-state-cell {
@@ -388,7 +387,7 @@ th {
     max-width: 680px;
     margin: 0;
     color: var(--muted-text);
-    font-family: "Calibri", sans-serif;
+    font-family: var(--font-ui);
     line-height: 1.45;
 }
 
@@ -396,7 +395,7 @@ th {
     display: block;
     margin-top: 7px;
     color: rgba(255, 255, 255, 0.7);
-    font-family: "Calibri", sans-serif;
+    font-family: var(--font-ui);
 }
 
 .empty-state-actions {
@@ -426,10 +425,10 @@ th {
 
 @media (max-width: 900px) {
     :root {
-        --font-size-body: 17px;
-        --font-size-control: 16px;
-        --font-size-meta: 15px;
-        --font-size-heading: 21px;
+        --font-size-body: 15px;
+        --font-size-control: 14px;
+        --font-size-meta: 13px;
+        --font-size-heading: 20px;
         --font-size-title: 32px;
     }
 }
@@ -512,3 +511,49 @@ th {
         flex-wrap: wrap;
     }
 }
+
+/* Shared desktop controls and task hierarchy. */
+h1 { font-family: var(--font-display); font-weight: 400; text-shadow: none; }
+h2, h3, h4, .setting-title { font-family: var(--font-ui); }
+textarea { box-sizing: border-box; padding: 12px; border: 1px solid var(--panel-border); border-radius: var(--control-radius); background: var(--panel-bg-strong); color: var(--text-primary); resize: vertical; }
+button, input, select, textarea { max-width: 100%; }
+button { min-height: 36px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible,
+a:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 2px solid #e6e9f0; outline-offset: 3px; box-shadow: none; }
+button[aria-busy="true"] { cursor: wait; }
+input[type="checkbox"], input[type="radio"] { cursor: pointer; accent-color: var(--theme-color); }
+input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
+progress { width: 100%; height: 8px; accent-color: var(--theme-color); }
+summary { cursor: pointer; padding: 10px 0; }
+summary:focus-visible { border-radius: var(--control-radius); }
+code, pre { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+.content-page { padding-bottom: 24px; }
+.page-heading h1 { margin: 0 0 8px; }
+.page-heading p { max-width: 74ch; font-size: 14px; }
+th { font-size: 12px; font-weight: 650; }
+tbody tr:hover > td { background-color: rgba(255,255,255,.025); }
+.empty-state { background: transparent; min-height: 160px; }
+.empty-state-copy h2 { font-size: 21px; }
+.secondary-button { background: var(--control-bg) !important; color: var(--text-primary); border: 1px solid var(--panel-border); }
+.danger-action { background: var(--danger-bg) !important; border: 1px solid var(--danger-border); color: var(--danger) !important; }
+.task-page { max-width: 900px; }
+.task-section { padding: 22px 0; border-top: 1px solid var(--panel-divider); }
+.task-section h2 { margin: 0 0 12px; font-size: 17px; }
+.task-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.task-note { color: var(--muted-text); font-size: 13px; }
+.task-warning { padding: 16px 18px; border-inline-start: 3px solid var(--warning); background: #262319; border-radius: 0 6px 6px 0; }
+.task-warning p:first-child { margin-top: 0; }
+.task-warning p:last-child { margin-bottom: 0; }
+.workspace-search { display: flex; align-items: flex-end; gap: 12px; margin: 16px 0; }
+.workspace-search label { display: grid; gap: 7px; flex: 1; color: var(--muted-text); font-size: 12px; }
+.workspace-search input { width: 100%; }
+.workspace-search output { flex: 0 0 auto; padding-bottom: 10px; font-size: 12px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.workspace-no-results { padding: 32px 20px; text-align: center; color: var(--muted-text); }
+.workspace-load-state { padding: 24px; display: grid; gap: 12px; }
+.workspace-load-state p { margin: 0; }
+.workspace-load-state button { justify-self: start; }
+.workspace-loading { color: var(--text-faint); padding: 22px 16px; }
+.workspace-sr-only { position: absolute !important; width: 1px !important; height: 1px !important; margin: -1px !important; padding: 0 !important; overflow: hidden !important; clip-path: inset(50%) !important; white-space: nowrap !important; border: 0 !important; }
+@media (max-width: 720px) { .workspace-search { flex-wrap: wrap; } .workspace-search label { flex-basis: 100%; } .task-actions { justify-content: flex-start; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
+@media (forced-colors: active) { :focus-visible { outline: 2px solid Highlight !important; } button, input, select, textarea, table, .task-warning { border: 1px solid CanvasText; } }

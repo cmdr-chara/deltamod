@@ -1,4 +1,6 @@
 (() => {
+const locateRoot = document.querySelector('.locate-page');
+let importPending = false;
 const setInterval = (handler, delay, ...args) => {
     const interval = window.setInterval(handler, delay, ...args);
     window._intervals = window._intervals || [];
@@ -29,9 +31,15 @@ async function id() {
         htmlAlert("Warning","Please select a game.",[{text:"Ok",resolveWith:'ok'}]);
         return;
     }
-    setImportControlsDisabled(true);
+    if (importPending) return;
+    importPending = true; setImportControlsDisabled(true);
+    try {
     const result = await window.deltamodBackend.invoke("createNewInstallation", ["", "locate", (window.currentPageStack.pathOV ? window.currentPageStack.pathOV : document.getElementById('dpath').value).replaceAll('\\', '/'), (window.fromIM == undefined ? false : window.fromIM), window.gid, document.getElementById('copyAnyways').checked ? 'copy' : 'ncopy']);
     if (!result) setImportControlsDisabled(false);
+    } catch (error) {
+        if (locateRoot.isConnected) await htmlAlert('Import failed', String(error?.message || error), [{ text: 'OK' }]);
+        setImportControlsDisabled(false);
+    } finally { importPending = false; }
 }
 
 async function steam() {
@@ -39,6 +47,8 @@ async function steam() {
         htmlAlert("Warning","Please select a game.",[{text:"Ok",resolveWith:'ok'}]);
         return;
     }
+    if (importPending) return;
+    importPending = true; setImportControlsDisabled(true);
     try {
         const imported = await window.deltamodBackend.invoke("createNewInstallation", ["steam", "", "", window.fromIM, window.gid, document.getElementById('copyAnyways').checked ? 'copy' : 'ncopy']);
         if (!imported) {
@@ -55,7 +65,7 @@ async function steam() {
         }
     } catch (error) {
         htmlAlert("Error", "Could not import from Steam: " + String(error?.message || error), [{text:"Ok",resolveWith:'ok'}]);
-    }
+    } finally { importPending = false; if (locateRoot.isConnected) setImportControlsDisabled(false); }
 }
 
 window.currentPageStack.id = id;
@@ -69,18 +79,24 @@ window.currentPageStack.locateDelta = locateDelta;
 window.currentPageStack.steam = steam;
 
 window.currentPageStack.downloadDelta = async function() {
-    if (window.gid == 'noid') {
-        htmlAlert("Warning","Please select a game.",[{text:"Ok",resolveWith:'ok'}]);
+    if (importPending) return;
+    if (window.gid === 'noid') {
+        await htmlAlert('Warning', 'Please select a game.', [{ text: 'OK' }]);
         return;
     }
-    var path = await window.deltamodBackend.invoke("downloadGame", [window.gid]);
-    if (path) {
-        document.getElementById('dpath').value = path;
+    importPending = true;
+    setImportControlsDisabled(true);
+    try {
+        const path = await window.deltamodBackend.invoke('downloadGame', [window.gid]);
+        if (!locateRoot.isConnected || !path) return;
+        locateRoot.querySelector('#dpath').value = path;
+        locateRoot.querySelector('#copyAnyways').checked = true;
+    } catch (error) {
+        if (locateRoot.isConnected) await htmlAlert('Unable to download the game', String(error?.message || error), [{ text: 'OK' }]);
+    } finally {
+        importPending = false;
+        if (locateRoot.isConnected) setImportControlsDisabled(false);
     }
-
-    document.querySelector('.copyAnyways').style.opacity = 0.5;
-    document.querySelector('.copyAnyways').style.pointerEvents = 'none';
-    document.querySelector('#copyAnyways').checked = true;
 };
 
 var currentGameImportOperation = null;
@@ -97,7 +113,8 @@ function formatImportBytes(value) {
 }
 
 function setImportControlsDisabled(disabled) {
-    document.querySelectorAll('button:not(#cancelGameImport), input').forEach(element => {
+    if (!locateRoot.isConnected) return;
+    locateRoot.querySelectorAll('button:not(#cancelGameImport), input').forEach(element => {
         element.disabled = disabled;
     });
     if (!disabled) {
@@ -126,16 +143,22 @@ var removeGameImportListener = window.preloadAPI.onGameImportProgress(progress =
     document.getElementById('gameImportAmount').textContent =
         `${formatImportBytes(progress.completed)} / ${formatImportBytes(progress.total)}`;
     document.getElementById('gameImportFile').textContent = progress.currentItem || '';
-    document.getElementById('gameImportBar').value =
-        progress.total > 0 ? Math.min(1, progress.completed / progress.total) : 0;
+    const bar = document.getElementById('gameImportBar');
+    if (progress.total > 0) bar.value = Math.max(0, Math.min(1, progress.completed / progress.total));
+    else bar.removeAttribute('value');
+    document.getElementById('cancelGameImport').disabled = progress.phase === 'commit';
 });
 window._onClosePage = window._onClosePage || [];
 window._onClosePage.push(removeGameImportListener);
 
 document.getElementById('cancelGameImport').onclick = async () => {
     if (!currentGameImportOperation) return;
-    await window.deltamodBackend.invoke('cancelGameImport', [currentGameImportOperation]);
-    document.getElementById('gameImportPhase').textContent = 'Cancelling…';
+    try {
+        await window.deltamodBackend.invoke('cancelGameImport', [currentGameImportOperation]);
+        if (locateRoot.isConnected) document.getElementById('gameImportPhase').textContent = 'Cancelling…';
+    } catch (error) {
+        if (locateRoot.isConnected) await htmlAlert('Unable to cancel import', String(error?.message || error), [{ text: 'OK' }]);
+    }
 };
 
 (async() => {
@@ -147,6 +170,7 @@ document.getElementById('cancelGameImport').onclick = async () => {
     window.gid = "noid";
 
     const games = await window.deltamodBackend.invoke('getAvailableGames',[]);
+    if (!locateRoot.isConnected) return;
     const gOptions = document.querySelector('.gOptions');
 
     for (const game of games) {
@@ -171,16 +195,14 @@ document.getElementById('cancelGameImport').onclick = async () => {
                 option.classList.add('selectedGameIco');
                 option.setAttribute('aria-pressed', 'true');
 
-                selectedImportFeatures = new Set(game.availableFeatures.map(feature => feature.feat));
+                selectedImportFeatures = new Set((game.availableFeatures || []).map(feature => feature.feat));
                 updateImportMethods();
             });
             img.src = './gamesIco/' + game.id+'.png';
             option.appendChild(img);
             gOptions.appendChild(option);
 
-            tippy(option, {
-                content: game.name
-            });
+            option.title = game.name;
     }
 })();
 })();

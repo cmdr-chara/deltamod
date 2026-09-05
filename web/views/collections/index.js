@@ -1,129 +1,89 @@
+/* Copyright © 2026 Deltamod contributors. Licensed under the EUPL 1.2. */
 (() => {
-const setInterval = (handler, delay, ...args) => {
-    const interval = window.setInterval(handler, delay, ...args);
-    window._intervals = window._intervals || [];
-    window._intervals.push(interval);
-    return interval;
-};
-(async() => {
-    var table = document.getElementById("collections");
-    var collections = await invoke('gamebanana_getCollections');
-    if (collections.success === false && collections.message == 'You must be logged in to perform this action') {
-        var tr = document.createElement("tr");
-        var errortd = document.createElement("td");
-        errortd.colSpan = 2;
-        var errordiv = document.createElement("div");
-        errordiv.style.display = "flex";
-        errordiv.style.alignItems = "center";
-        errordiv.style.gap = "0.5em";
-        errordiv.innerHTML = icon('account_circle', '1.5em') + "<span>" + "You must be logged in to your GameBanana account to view collections." + "</span>";
-        errortd.appendChild(errordiv);
-        tr.appendChild(errortd);
-        table.appendChild(tr);
-        return;
+    'use strict';
+    const table = document.getElementById('collections');
+    const form = document.getElementById('collection-create-form');
+    const input = document.getElementById('collection-name');
+    const create = document.getElementById('collection-create');
+    const status = document.getElementById('collection-status');
+    const ui = window.DeltamodUI;
+    let busy = false;
+    const errorText = error => String(error?.message || error?.error || error || 'Please try again.');
+    const check = response => {
+        if (response?.success === false) throw new Error(errorText(response));
+        return response;
+    };
+    function action(label, glyph, callback, available = true) {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'secondary-action';
+        button.innerHTML = icon(glyph, '1.1em');
+        button.title = label; button.setAttribute('aria-label', label);
+        button.disabled = !available;
+        button.onclick = async () => {
+            if (button.disabled) return;
+            button.disabled = true;
+            try { await callback(); }
+            catch (error) { await htmlAlert('Collection unavailable', errorText(error), [{ text: 'OK' }]); }
+            finally { if (button.isConnected) button.disabled = !available; }
+        };
+        return button;
     }
-    for (const collection of collections) {
-        var tr = document.createElement("tr");
-
-        var nametd = document.createElement("td");
-        nametd.innerText = collection.name;
-        tr.appendChild(nametd);
-
-        var actiontd = document.createElement("td");
-        actiontd.classList.add("actions");
-        
-        var openInBrowser = document.createElement("button");
-        openInBrowser.innerHTML = icon('open_in_new', '1em');
-        openInBrowser.addEventListener('click', async () => {
-            window.open(`https://gamebanana.com/collections/${collection.id}`, '_blank');
-        });
-        actiontd.appendChild(openInBrowser);
-
-        var trash = document.createElement("button");
-        trash.innerHTML = icon('delete', '1em');
-        trash.addEventListener('click', async () => {
-            var htmlresp = await htmlAlert(("Delete collection"), ("Are you sure you want to delete this collection? This action is irreversible."), [{
-                text: "Yes",
-                resolveWith: 'y'
-            }, {
-                text: "No",
-                resolveWith: 'n'
-            }]);
-            if (htmlresp !== 'y') {
-                return;
+    async function load() {
+        table.setAttribute('aria-busy', 'true');
+        try {
+            const collections = check(await invoke('gamebanana_getCollections', []));
+            if (!table.isConnected) return;
+            if (!Array.isArray(collections)) throw new Error('The collection service returned an invalid response.');
+            const fragment = document.createDocumentFragment();
+            for (const collection of collections) {
+                const row = document.createElement('tr');
+                const name = document.createElement('td'); name.textContent = String(collection.name);
+                const actions = document.createElement('td'); actions.className = 'actions';
+                actions.append(action('Open collection on GameBanana', 'open_in_new', () => {
+                    window.open(`https://gamebanana.com/collections/${encodeURIComponent(collection.id)}`, '_blank');
+                }));
+                actions.append(action('Add installed mods to collection', 'bottom_panel_open', async () => {
+                    window._pageArguments = { collectionId: collection.id };
+                    await page('collection-exportchoose');
+                }));
+                const canRestore = window.deltamodBackend.isCommandAvailable('gamebanana_downloadAllInCollection');
+                actions.append(action(canRestore ? 'Restore collection' : 'Collection restore is unavailable in this app build', 'bottom_panel_close', async () => {
+                    const response = check(await invoke('gamebanana_downloadAllInCollection', [collection.id]));
+                    await htmlAlert('Collection restored', `Skipped ${response?.skipped ?? response?.skippedMods ?? 0} mods.`, [{ text: 'OK' }]);
+                }, canRestore));
+                const remove = action('Delete collection', 'delete', async () => {
+                    const choice = await htmlAlert('Delete collection', `Delete “${collection.name}”? This cannot be undone. Installed mod files will not be removed.`, [
+                        { text: 'Delete collection', resolveWith: 'delete' }, { text: 'Cancel', resolveWith: false }
+                    ]);
+                    if (choice !== 'delete' || !table.isConnected) return;
+                    check(await invoke('gamebanana_deleteCollection', [collection.id]));
+                    await load();
+                });
+                remove.classList.add('quiet-danger'); actions.append(remove);
+                row.append(name, actions); fragment.append(row);
             }
-            var resp = await invoke('gamebanana_deleteCollection', [collection.id]);
-            if (!resp.success) {
-                await htmlAlert("Error", `Failed to delete collection: ${JSON.stringify(resp.error)}`, [{
-                    text: "Ok",
-                    resolveWith: 'ok'
-                }]);
-            } else {
-                page('collections');
+            if (!collections.length) {
+                const row = document.createElement('tr'); const cell = document.createElement('td');
+                cell.colSpan = 2; cell.className = 'workspace-load-state';
+                cell.textContent = ui.t('ui_collection_empty', 'No collections yet. Create one above to save a mod setup.');
+                row.append(cell); fragment.append(row);
             }
-        });
-        actiontd.appendChild(trash);
-        tr.appendChild(actiontd);
-
-        var backup = document.createElement("button");
-        backup.innerHTML = icon('bottom_panel_open', '1em');
-        backup.addEventListener('click', async () => {
-            window._pageArguments = {
-                collectionId: collection.id
-            };
-            page('collection-exportchoose');
-        });
-        actiontd.appendChild(backup);
-        tr.appendChild(actiontd);
-
-        var download = document.createElement("button");
-        download.innerHTML = icon('bottom_panel_close', '1em');
-        const canRestoreCollection = window.deltamodBackend
-            .isCommandAvailable('gamebanana_downloadAllInCollection');
-        download.disabled = !canRestoreCollection;
-        download.title = canRestoreCollection
-            ? 'Restore collection'
-            : 'Collection restore is unavailable in this app build';
-        download.addEventListener('click', async () => {
-            download.disabled = true;
-            var resp = await invoke('gamebanana_downloadAllInCollection', [collection.id]);
-            await htmlAlert("Done", `Collection restore complete! Skipped ${(resp && (resp.skipped ?? resp.skippedMods ?? 0))} mods in download process.`, [{
-                text: "Ok",
-                resolveWith: 'ok'
-            }]);
-            download.disabled = false;
-        });
-        actiontd.appendChild(download);
-        tr.appendChild(actiontd);
-
-
-        table.appendChild(tr);
+            table.replaceChildren(fragment); ui.mount(table);
+        } catch (error) { ui.showError(table, error, load); }
+        finally { table.setAttribute('aria-busy', 'false'); }
     }
-
-    var addTr = document.createElement("tr");
-
-    var nameInputTd = document.createElement("td");
-    var nameInput = document.createElement("input");
-    nameInput.type = "text";
-    nameInput.placeholder = "New collection name";
-    nameInputTd.appendChild(nameInput);
-    nameInput.classList.add("collection-name-input");
-    addTr.appendChild(nameInputTd);
-
-    var addActionTd = document.createElement("td");
-    addActionTd.classList.add("actions");
-    var addButton = document.createElement("button");
-    addButton.innerHTML = icon('add', '1em');
-    addButton.addEventListener('click', async () => {
-        var name = nameInput.value.trim();
-        if (name.length > 0) {
-            var newCollection = await invoke('gamebanana_createCollection', [name]);
-            page('collections');
-        }
+    form.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (busy || !form.reportValidity()) return;
+        const name = input.value.trim();
+        if (!name) { input.focus(); return; }
+        busy = true; create.disabled = true; form.setAttribute('aria-busy', 'true'); status.textContent = '';
+        try {
+            check(await invoke('gamebanana_createCollection', [name]));
+            if (!form.isConnected) return;
+            input.value = ''; await load(); input.focus();
+        } catch (error) { status.textContent = errorText(error); }
+        finally { busy = false; create.disabled = false; form.removeAttribute('aria-busy'); }
     });
-    addActionTd.appendChild(addButton);
-    addTr.appendChild(addActionTd);
-
-    table.appendChild(addTr);
-})();
+    void load();
 })();

@@ -2157,16 +2157,12 @@
         });
         filter.value = 'all';
 
+        const searchIndex = new Map(asArray(mods).map(mod => [mod, [mod.name, mod.version, mod.provider?.displayName, mod.provider?.id].map(value => safeText(value).toLocaleLowerCase()).join('\n')]));
         const apply = () => {
             const query = safeText(search.value).trim().toLocaleLowerCase();
             const mode = safeText(filter.value, 'all');
             const visible = asArray(mods).filter(mod => {
-                const searchable = [
-                    mod.name,
-                    mod.version,
-                    mod.provider?.displayName,
-                    mod.provider?.id
-                ].map(value => safeText(value).toLocaleLowerCase()).join('\n');
+                const searchable = searchIndex.get(mod) || '';
                 if (query && !searchable.includes(query)) return false;
                 if (mode === 'updates') return mod.update?.state === 'available';
                 if (mode === 'attention') return installedModNeedsAttention(mod);

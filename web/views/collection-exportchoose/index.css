@@ -1,20 +1,8 @@
-input[type=checkbox] {
-    margin: 0;
-    width: 40px;
-    height: 25px;
-    cursor: pointer;
-    accent-color: var(--theme-color);
-    border: 6px solid white;
-    scale: 1.1;
-}
+.export-page table td { padding: 14px 16px; }
+.export-page table input[type="checkbox"] { width: 20px; height: 20px; }
+.export-page .task-actions { position: sticky; bottom: -1px; margin: 0; padding: 16px 0; background: var(--panel-bg-strong); border-top: 1px solid var(--panel-divider); }
+.export-page img { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; }
 
-button:disabled {
-    opacity: 0.5 !important;
-    cursor: not-allowed;
-}
-
-.alignRight {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
+.export-mod-identity { display:flex; align-items:center; gap:12px; cursor:pointer; }
+.export-mod-identity img { object-fit:cover; border-radius:4px; flex:none; }
+.export-selection { text-align:center; }

@@ -1,59 +1,31 @@
+/* Copyright © 2026 Deltamod contributors. Licensed under the EUPL 1.2. */
 (() => {
-const setInterval = (handler, delay, ...args) => {
-    const interval = window.setInterval(handler, delay, ...args);
-    window._intervals = window._intervals || [];
-    window._intervals.push(interval);
-    return interval;
-};
-window.currentPageStack.init = function() {
-    var white = document.createElement('div');
-    white.style.position = 'absolute';
-    white.style.left = '0px';
-    white.style.top = '0px';
-    white.style.width = '100%';
-    white.style.height = '100%';
-    white.style.backgroundColor = 'white';
-    white.style.zIndex = '1000000000';
-    white.style.animation = 'fadeIn 5s ease-out forwards';
-    document.body.appendChild(white);
-
-    var audSFX = new Audio('audio/fadewh.ogg');
-    audSFX.play();
-
-    setTimeout(function() {
-        window.deltamodBackend.invokeOptional('initialize', [], false)
-    }, 6000);
-};
-
-var btn = document.getElementById('initbtn');
-if (!window.deltamodBackend.isCommandAvailable('initialize')) {
-    btn.disabled = true;
-    btn.title = 'Data reset is unavailable in this app build';
-}
-let holdTimer = 0;
-let holding = false;
-btn.addEventListener('mousedown', () => {
-    holding = true;
-});
-btn.addEventListener('mouseup', () => {
-    holding = false;
-});
-btn.addEventListener('mouseleave', () => {
-    holding = false;
-});
-
-setInterval(() => {
-    if (holding) {
-        holdTimer = (holdTimer || 0) + 100;
-        document.getElementById('progbar').value = holdTimer / 5000 * 100;
-    }
-    else {
-        holdTimer = (holdTimer <= 0) ? 0 : holdTimer - 100;
-        document.getElementById('progbar').value = holdTimer / 5000 * 100;
-    }
-
-    if (holdTimer >= 5000) {
-        window.currentPageStack.init();
-    }   
-}, 100);
+    'use strict';
+    const button = document.getElementById('initbtn');
+    const status = document.getElementById('reset-status');
+    const progress = document.getElementById('progbar');
+    const available = window.deltamodBackend.isCommandAvailable('initialize');
+    let running = false;
+    button.disabled = !available;
+    if (!available) button.title = 'Data reset is unavailable in this app build';
+    window.currentPageStack.init = async () => {
+        if (!available || running) return;
+        running = true; button.disabled = true;
+        try {
+            const confirmed = await htmlAlert('Reset Deltamod data',
+                'This permanently removes your Deltamod settings and managed data. This action cannot be undone. Continue only after making a backup.', [
+                    { text: 'Reset data', resolveWith: 'reset' }, { text: 'Cancel', resolveWith: false }
+                ], 'warning');
+            if (confirmed !== 'reset' || !button.isConnected) return;
+            progress.hidden = false; progress.removeAttribute('value');
+            status.textContent = 'Resetting Deltamod data…';
+            await window.deltamodBackend.invokeOptional('initialize', [], false);
+            status.textContent = 'Reset request completed.';
+            progress.value = 100;
+        } catch (error) {
+            status.textContent = String(error?.message || error);
+            progress.hidden = true;
+        } finally { running = false; button.disabled = !available; }
+    };
+    button.addEventListener('click', window.currentPageStack.init);
 })();
