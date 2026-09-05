@@ -1,0 +1,79 @@
+# Temporary delivery support; removed after the refinement is committed.
+name: Refinement preflight
+on:
+  push:
+    branches: [frontend-refinement]
+    paths: [.github/workflows/refinement-preflight.yml]
+permissions:
+  contents: read
+jobs:
+  retire-rejected-branch:
+    if: github.repository == 'cmdr-chara/deltamod' && github.ref == 'refs/heads/frontend-refinement'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Delete only the explicitly rejected and unchanged branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          root = 'https://api.github.com/repos/cmdr-chara/deltamod'
+          def request(path, method='GET'):
+              req = urllib.request.Request(root + path, method=method, headers={
+                  'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28'})
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  raw = response.read()
+                  return json.loads(raw) if raw else None
+          pr = request('/pulls/58')
+          assert pr['state'] == 'closed' and not pr['merged'], 'PR 58 must remain closed and unmerged'
+          try:
+              branch = request('/git/ref/heads/frontend-revamp-tauri')
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              print('Rejected branch is already absent.')
+          else:
+              assert branch['object']['sha'] == '4d02e2facec2536a7e410d70788a1d523696c489', 'Branch changed; preserve new work'
+              request('/git/refs/heads/frontend-revamp-tauri', 'DELETE')
+              print('Deleted frontend-revamp-tauri. DeltaMaster was not modified.')
+          PY
+  review-environment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Export original sources and reproducible frontend test dependencies
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess, tarfile
+          root = pathlib.Path('.')
+          names = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
+          extensions = {'.js','.mjs','.cjs','.ts','.tsx','.html','.css','.json','.rs','.toml','.lock','.md','.txt','.yml','.yaml','.svg','.png','.jpg','.jpeg','.webp','.gif','.ttf','.woff','.woff2'}
+          with tarfile.open('/tmp/refinement-sources.tar.gz', 'w:gz') as archive:
+              for name in names:
+                  path = pathlib.Path(name)
+                  if name and path.is_file() and not path.is_symlink() and path.suffix in extensions and path.stat().st_size <= 16000000:
+                      archive.add(path, arcname=name, recursive=False)
+          with tarfile.open('/tmp/refinement-dependencies.tar.gz', 'w:gz') as archive:
+              def include(info):
+                  return None if info.name.startswith('node_modules/electron/dist') else info
+              archive.add('node_modules', filter=include)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refinement-environment
+          path: /tmp/refinement-*.tar.gz
+          retention-days: 1
