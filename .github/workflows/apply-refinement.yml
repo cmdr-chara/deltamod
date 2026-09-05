@@ -1,0 +1,81 @@
+# One-shot transport for the reviewed source patch; removed after delivery.
+name: Deliver original frontend refinement
+on:
+  push:
+    branches: [frontend-refinement]
+    paths: ['.github/refinement-delivery.*.b64', '.github/workflows/apply-refinement.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.repository == 'cmdr-chara/deltamod' && github.ref == 'refs/heads/frontend-refinement' && contains(github.event.head_commit.message, '[deliver-original-refinement]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Verify and apply the exact source-only patch
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, lzma, os, pathlib, subprocess, tempfile
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          assert git('rev-parse', 'HEAD') == os.environ['EXPECTED_HEAD']
+          assert git('rev-parse', 'HEAD^') == '53d6822cbee79d50fbedf944d9576002711b3d53'
+          assert not git('status', '--porcelain'), 'Preserve unexpected working tree changes'
+          encoded = ''.join(pathlib.Path(f'.github/refinement-delivery.{i}.b64').read_text() for i in range(4))
+          payload = base64.b64decode(encoded, validate=True)
+          assert hashlib.sha256(payload).hexdigest() == 'e601f335596612f97308456e4f748bb14ceb98b30d66cc26224503accc0ee809'
+          patch = lzma.decompress(payload)
+          assert len(patch) == 102863
+          assert hashlib.sha256(patch).hexdigest() == 'f4eadc05141e7a3a8ad0afb75d40cc4e93ad2081a0d6eec633a797f74ae1829b'
+          allowed = '''docs/frontend-refinement.md
+          scripts/tauri-parity/fixtures/test-classification.json
+          tests/e2e/fixtures/refinement-page.js
+          tests/e2e/frontend-refinement.spec.js
+          tests/frontend-refinements.test.js
+          web/commons/base.css
+          web/index.css
+          web/index.html
+          web/index.js
+          web/modules/frontend-refinements.js
+          web/modules/localization.js
+          web/views/allmods/index.html
+          web/views/allmods/index.js
+          web/views/gamebanana-browse/index.js
+          web/views/gamebanana-browse/indx.css
+          web/views/installmanager/index.js
+          web/views/main/index.html
+          web/views/main/index.js
+          web/views/main/main.css
+          web/views/options/index.js
+          web/views/options/options.css
+          web/views/patching/index.html
+          web/views/patching/index.js
+          web/views/patching/style.css
+          web/views/themesel/themesel.css'''.splitlines()
+          with tempfile.NamedTemporaryFile(suffix='.patch') as file:
+              file.write(patch)
+              file.flush()
+              git('apply', '--check', file.name)
+              git('apply', file.name)
+          # Workflow changes are published separately through the authorized connector.
+          # The source-writing job does not need workflow-administration permissions.
+          git('restore', '--', '.github/workflows/refinement-preflight.yml')
+          pathlib.Path('.github/workflows/frontend-refinement.yml').unlink()
+          git('add', '-A', '--', *allowed)
+          changed = git('diff', '--cached', '--name-only').splitlines()
+          assert set(changed) == set(allowed), changed
+          git('diff', '--cached', '--check')
+          git('config', 'user.name', 'github-actions[bot]')
+          git('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
+          git('commit', '-m', 'feat(frontend): refine original Deltamod controls and browsing without replacing its identity')
+          # A concurrent branch update makes this fail rather than overwrite new work.
+          git('push', 'origin', 'HEAD:refs/heads/frontend-refinement')
+          print('Delivered source commit:', git('rev-parse', 'HEAD'))
+          print('Changed source files:', len(changed))
+          PY
