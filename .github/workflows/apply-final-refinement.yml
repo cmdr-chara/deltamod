@@ -1,0 +1,61 @@
+name: Apply final Deltamod refinement
+
+on:
+  push:
+    branches: [frontend-refinement]
+    paths:
+      - '.github/workflows/apply-final-refinement.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download and validate final patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 4 --retry-delay 2 \
+            'https://filebin.net/deltamod-chara-20260906-final-6f1a9c2e/final.xz.b64' \
+            -o /tmp/final.xz.b64
+          base64 --decode /tmp/final.xz.b64 > /tmp/final.xz
+          xz --decompress --stdout /tmp/final.xz > /tmp/final.patch
+          test "$(wc -c < /tmp/final.patch)" -eq 983393
+          git apply --check /tmp/final.patch
+
+      - name: Apply final source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply /tmp/final.patch
+          rm -rf .github/refinement-delivery
+          rm -f .github/workflows/refinement-snapshot.yml
+          rm -f .github/workflows/apply-final-refinement.yml
+          git add -A
+          git diff --cached --check
+
+      - name: Verify JavaScript and boot build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run build:boot
+          npm run verify:secure-updater
+
+      - name: Commit final refinement
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(frontend): finish Deltamod desktop refinement and Linux fixes'
+          git push origin HEAD:frontend-refinement
