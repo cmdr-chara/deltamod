@@ -458,3 +458,23 @@ th {
     transition: none;
   }
 }
+
+/* Refine the existing table, rather than replacing Deltamod's shell. */
+.mod-search-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:0 0 14px; }
+.mod-search-toolbar[hidden], .mods-page tr[hidden] { display:none; }
+.mod-search-toolbar label, .mod-search-toolbar output { color:var(--muted-text); font-family:"Calibri",sans-serif; font-size:var(--font-size-meta); }
+.mod-search-toolbar input { flex:1 1 220px; min-width:0; margin:0; }
+.mod-search-toolbar output { min-width:90px; font-variant-numeric:tabular-nums; text-align:right; }
+.mod-search-toolbar button[hidden] { display:none; }
+.mod-search-empty { text-align:center; padding:28px 16px; color:var(--muted-text); }
+.library-mod-description { display:block; margin:6px 0; font-size:var(--font-size-body); color:var(--muted-text); overflow-wrap:anywhere; }
+.library-mod-row > td { vertical-align:middle; }
+.library-mod-row [id^="modtitle-"] { font-family:"Pixel",sans-serif; font-size:var(--font-size-heading); overflow-wrap:anywhere; }
+.library-mod-row .calibri { line-height:1.4; }
+.modlist-actions-column-bdiv { flex-wrap:wrap; }
+.patch-toggle input:disabled + .patch-toggle-track { opacity:0.55; cursor:wait; }
+.mods-page .error-list-dialog { width:min(680px,calc(100vw - 48px)); max-height:calc(100vh - 64px); box-sizing:border-box; overflow:auto; }
+.mods-page .error-list-div { width:100%; }
+.mods-page .error-holder { overflow-wrap:anywhere; }
+.mods-page .error-buttons { flex-wrap:wrap; }
+@media(max-width:900px) { .library-page .modlist-actions-column-bdiv { gap:5px; } }

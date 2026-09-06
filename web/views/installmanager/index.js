@@ -48,28 +48,23 @@ const setInterval = (handler, delay, ...args) => {
                 editablespan.style.margin = '0';
                 editablespan.style.height = '22px';
                 editablespan.style.fontSize = '16px';
-                editablespan.value = sanitizeHTML(
-                    install.name || `Install #${install.index + 1}`
-                );
+                let savedName = install.name || `Install #${install.index + 1}`;
+                editablespan.value = savedName;
+                editablespan.maxLength = 100;
+                editablespan.setAttribute('aria-label', window.Localization?.t('installation', 'Installation') || 'Installation');
+                editablespan.addEventListener('keydown', event => {
+                    if (event.key === 'Enter') { event.preventDefault(); editablespan.blur(); }
+                    if (event.key === 'Escape') { editablespan.value = savedName; editablespan.blur(); }
+                });
                 editablespan.style.cursor = 'text';
 
                 editablespan.onblur = async () => {
-                    if (editablespan.value.trim() === '') {
-                        htmlAlert(
-                            'Invalid installation name',
-                            'This installation name is invalid. Please choose another one.',
-                            [{ text: 'Ok', resolveWith: 'ok' }]
-                        );
-
-                        editablespan.value = `Install #${install.index + 1}`;
-                    }
-
-                    install.name = editablespan.value.trim();
-
-                    window.deltamodBackend.invoke('setInstallationCName', [
-                        install.index.toString(),
-                        install.name,
-                    ]);
+                    const nextName = editablespan.value.trim();
+                    if (!nextName || nextName === savedName) { editablespan.value = savedName; return; }
+                    const saved = await window.FrontendRefinements.saveControl(editablespan, () =>
+                        window.deltamodBackend.invoke('setInstallationCName', [install.index.toString(), nextName]),
+                        () => { editablespan.value = savedName; });
+                    if (saved) { savedName = nextName; install.name = nextName; editablespan.value = nextName; }
                 };
 
                 const boldName = document.createElement('img');

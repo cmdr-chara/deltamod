@@ -1,4 +1,7 @@
 (() => {
+const pageTable = document.getElementById('modlist');
+pageTable.closest('table').setAttribute('aria-busy', 'true');
+const loadArtwork = window.FrontendRefinements.artworkLoader();
 const t = (key, fallback, ...args) =>
     window.Localization?.t(key, fallback, ...args) ?? fallback;
 
@@ -34,13 +37,18 @@ function setIconText(element, iconName, text, size = 'small') {
     element.appendChild(document.createTextNode(` ${String(text ?? '')}`));
 }
 
+const gameInfo = new Map();
+function getGameName(id) {
+    if (!gameInfo.has(id)) gameInfo.set(id, window.deltamodBackend.invoke('getGameInfo', [id])
+        .then(game => game?.name || id).catch(() => id));
+    return gameInfo.get(id);
+}
+
 async function createMod(mod, compatible, loggedIn, modListElement) {
     const modRow = document.createElement('tr');
+    modRow.className = 'library-mod-row';
 
-    let imeta = await window.deltamodBackend.invoke('getModImage', [mod.uid]);
-    if (!imeta.path) {
-        imeta.path = window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png');
-    }
+    const imeta = { path: window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png') };
 
     // Column 1 (Mod)
     const modNameContainer = document.createElement('td');
@@ -79,7 +87,7 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
 
     const descSpan = document.createElement('span');
     descSpan.className = 'calibri';
-    descSpan.style = 'font-size: 10px; color: #ffffffdd;';
+    descSpan.classList.add('library-mod-description');
     descSpan.innerText = purifyDescription(mod.description);
     descSpan.id = `moddesc-${mod.uid}`;
     modNameContainer.appendChild(descSpan);
@@ -127,7 +135,7 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
     gameSpan.className = 'calibri';
     gameSpan.style.fontSize = 'smaller';
     gameSpan.style.color = '#888';
-    setIconText(gameSpan, 'stadia_controller', await window.deltamodBackend.invoke('getGameInfo', [mod.game]).then(g => g.name));
+    setIconText(gameSpan, 'stadia_controller', await getGameName(mod.game));
     gameSpan.id = `modgame-${mod.uid}`;
     modNameContainer.appendChild(gameSpan);
 
@@ -200,18 +208,24 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
         actionContainer.appendChild(bdiv);
 
         const exploreModButton = document.createElement('button');
+        exploreModButton.title = t('open_mod_folder', 'Open mod folder');
+        exploreModButton.setAttribute('aria-label', exploreModButton.title);
         exploreModButton.onclick = () => window.deltamodBackend.invoke('openModFolder', [mod.folder]);
         exploreModButton.innerHTML = icon('folder_eye', '20px');
         bdiv.appendChild(exploreModButton);
 
         const deleteModButton = document.createElement('button');
+        deleteModButton.title = t('delete_mod', 'Delete mod');
+        deleteModButton.setAttribute('aria-label', deleteModButton.title);
         deleteModButton.onclick = () => {
             window.deltamodBackend.invoke('removeMod', [mod.folder]);
         };
         deleteModButton.innerHTML = icon('delete_forever', '20px');
         bdiv.appendChild(deleteModButton);
 
-            const gbModButton = document.createElement('button');
+        const gbModButton = document.createElement('button');
+        gbModButton.title = t('gb_comment', 'Comments');
+        gbModButton.setAttribute('aria-label', gbModButton.title);
             gbModButton.onclick = () => {
                 window._pageArguments = {
                     id: mod.gamebanana.id,
@@ -222,7 +236,9 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
             gbModButton.innerHTML = icon('comment', '20px');
             bdiv.appendChild(gbModButton);
 
-            const likeBtn = document.createElement('button');
+        const likeBtn = document.createElement('button');
+        likeBtn.title = t('gb_like', 'Like mod');
+        likeBtn.setAttribute('aria-label', likeBtn.title);
             likeBtn.onclick = async () => {
                 let res = await window.deltamodBackend.invoke('gbLikeMod',[mod.gamebanana.model, mod.gamebanana.id]);
                     if (res.status == 200) {
@@ -268,6 +284,7 @@ async function createMod(mod, compatible, loggedIn, modListElement) {
 
     if (!modListElement.isConnected) return null;
     modListElement.appendChild(modRow);
+    loadArtwork(modImage, mod.uid);
     return modRow;
 }
 
@@ -275,7 +292,7 @@ async function createErroringMods(errors) {
     const dialogElement = document.getElementById("error-list-dialog");
     const errorList = document.getElementById("error-list-div");
 
-    for (const child of errorList.children) errorList.removeChild(child);
+    errorList.replaceChildren();
 
     for (const err of errors) {
         // err { mod: string, reason: string }
@@ -330,6 +347,9 @@ async function createErroringMods(errors) {
 
 (async () => {
     const errorBanner = document.getElementById("error-banner");
+    errorBanner.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); errorBanner.click(); }
+    });
     const gamesShowSelect = document.getElementById('gamesShow');
     const modListElement = document.getElementById('modlist');
     const previewButton = document.getElementById('installedModsV2Preview');
@@ -348,11 +368,6 @@ async function createErroringMods(errors) {
     const pageArguments = window._pageArguments || {};
     const selectedSpecID = pageArguments.specID;
 
-    let filterFunc = (x) => true;
-    if (selectedSpecID != undefined && selectedSpecID !== 'all') {
-        filterFunc = (mod) => mod.game === selectedSpecID;
-    }
-
     var enumerateGames = await window.deltamodBackend.invoke('getAvailableGames', []);
     if (!isPageActive()) return;
     for (const game of enumerateGames) {
@@ -362,12 +377,6 @@ async function createErroringMods(errors) {
         gamesShowSelect.appendChild(option);
     }
 
-    gamesShowSelect.onchange = () => {
-        const selectedGame = gamesShowSelect.value;
-        window._pageArguments = { specID: selectedGame };
-        page('allmods');
-    };
-    
     if (selectedSpecID != undefined && selectedSpecID !== 'all') {
         gamesShowSelect.value = selectedSpecID;
     }
@@ -376,11 +385,22 @@ async function createErroringMods(errors) {
     var { modList, errors } = await window.deltamodBackend.invoke('getModList', []);
     if (!isPageActive()) return;
 
-    var list = modList.filter(filterFunc);
+    const tableTools = window.FrontendRefinements.tableTools(modListElement, {
+        input: document.getElementById('mod-search'),
+        clear: document.getElementById('clear-mod-search'),
+        count: document.getElementById('mod-search-count'),
+        filter: gamesShowSelect
+    });
+    document.querySelector('.mod-search-toolbar').hidden = modList.length === 0;
+    // Render once. The game selector filters these same rows without rescanning.
+    var list = modList;
+
     for (const mod of list) {
         const modRow = await createMod(mod, mod.isCompatible, loggedIn, modListElement);
         if (!modRow) return;
+        tableTools.add(mod, modRow);
     }
+    tableTools.finish();
     window._pageArguments = {}; // Clear it so it doesn't affect other mods
 
     if (errors.length > 0) {
@@ -449,5 +469,6 @@ async function createErroringMods(errors) {
     }
 
     genbtnstyles();
-})();
+    pageTable.closest('table').setAttribute('aria-busy', 'false');
+})().catch(error => window.FrontendRefinements.showListError(pageTable, error));
 })();
