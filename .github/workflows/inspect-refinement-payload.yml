@@ -1,0 +1,29 @@
+name: Inspect refinement payload
+on:
+  push:
+    branches: [refinement-payload-inspect]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Decode staged patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d .github/refinement-delivery/complete.b64 > /tmp/refinement.patch.gz
+          gzip -dc /tmp/refinement.patch.gz > /tmp/refinement.patch
+          git apply --check /tmp/refinement.patch
+          sha256sum /tmp/refinement.patch | tee /tmp/refinement.sha256
+          wc -c /tmp/refinement.patch | tee /tmp/refinement.size
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: decoded-refinement-payload
+          path: |
+            /tmp/refinement.patch
+            /tmp/refinement.sha256
+            /tmp/refinement.size
+          retention-days: 1
