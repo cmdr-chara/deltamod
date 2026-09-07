@@ -23,7 +23,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .github/shopfix-parts/p0* | base64 --decode | gzip -dc > /tmp/linux-modshop-fix.patch
+          cat .github/shopfix-parts/p0* > /tmp/linux-modshop-fix.b64
+          echo '40af30714a8fe3de692090bbcb2983471161c0e2b24bd70b33a9acc37d5eb7e0  /tmp/linux-modshop-fix.b64' | sha256sum --check --strict
+          base64 --decode /tmp/linux-modshop-fix.b64 | gzip -dc > /tmp/linux-modshop-fix.patch
+          echo '4c6c087b00920495d489d5c09523c8d27f7923fa65656574419009769fff6fd5  /tmp/linux-modshop-fix.patch' | sha256sum --check --strict
+          test "$(wc -c < /tmp/linux-modshop-fix.patch)" -eq 29122
           git apply --check /tmp/linux-modshop-fix.patch
           git apply /tmp/linux-modshop-fix.patch
           rm -rf .github/shopfix-parts
