@@ -73,9 +73,15 @@
     min-width: 150px;
 }
 
+#modGameSelect {
+    flex: 0 1 180px;
+    min-width: 132px;
+    max-width: 210px;
+}
+
 #modSourceSelect {
-    flex: 0 0 166px;
-    min-width: 166px;
+    flex: 0 0 156px;
+    min-width: 146px;
 }
 
 .shop-source-label {
@@ -817,3 +823,10 @@ input {
         margin: 3px;
     }
 }
+
+/* Match keyboard suggestions to the existing hover affordance. */
+.autocomplete > .results > .result[aria-selected="true"] {
+    background:var(--theme-color-point2); box-shadow:inset 3px 0 var(--theme-color);
+}
+.autocomplete > .results { max-height:280px; overflow-y:auto; scrollbar-width:thin; }
+@media(prefers-reduced-motion:reduce) { .autocomplete > .results { transition:none; } }

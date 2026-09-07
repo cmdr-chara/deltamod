@@ -35,11 +35,25 @@ describe('provider Mod Shop shell wiring', () => {
         expect(shell).toContain('browse_with_cache(');
         expect(shell).toContain('ProviderCatalogCache::request_key');
         expect(shell).toContain('normalized_provider_error');
-        expect(renderer).toContain('offline: navigator.onLine === false');
+        expect(renderer).not.toContain('navigator.onLine');
+        expect(renderer).toContain('gameId: SHOP_GAME_ID');
+        expect(renderer).toContain('fetchGameBananaCatalogDirect');
         expect(renderer).toContain('browseGameBananaCatalog(furl)');
         expect(renderer).not.toContain("fetch(furl)");
         expect(renderer).toContain('Showing saved results because the live catalogue is unavailable.');
         expect(renderer).not.toContain('page(\'main\');\n        return;\n    }\n    let table');
+    });
+
+    it('lets the shop choose a game independently from the active installation', () => {
+        const markup = readFileSync(
+            join(root, 'web', 'views', 'gamebanana-browse', 'index.html'),
+            'utf8'
+        );
+        expect(markup).toContain('id="modGameSelect"');
+        expect(renderer).toContain("invoke('getAvailableGames', [])");
+        expect(renderer).toContain("localStorage.setItem('modShopGameId'");
+        expect(renderer).toContain("'Mod Shop could not be loaded'");
+        expect(renderer).toContain("'GameBanana could not be loaded'");
     });
 
     it('has no dead Game Jolt or itch.io Mod Shop rendering branches', () => {

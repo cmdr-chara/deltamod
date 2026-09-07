@@ -22,7 +22,10 @@ const {
 describe('mod source request validation', () => {
     it('accepts the supported providers and rejects unknown ones', () => {
         expect(BrowseRequest.parse({ provider: 'moddb' }).provider).toBe('moddb');
+        expect(BrowseRequest.parse({ provider: 'gamebanana', gameId: 'toby.undertale' }).gameId)
+            .toBe('toby.undertale');
         expect(() => BrowseRequest.parse({ provider: 'example' })).toThrow();
+        expect(() => BrowseRequest.parse({ provider: 'moddb', gameId: '../escape' })).toThrow();
     });
 
     it('only enables providers explicitly mapped by the selected game', () => {

@@ -10,6 +10,60 @@ let pageActive = true;
 let SHOP_PROVIDER = window._pageArguments?.provider
     || localStorage.getItem('modShopProvider')
     || 'gamebanana';
+let SHOP_GAME_ID = window._pageArguments?.gameId
+    || localStorage.getItem('modShopGameId')
+    || null;
+let SHOP_GAME = null;
+
+const SHOP_PROVIDER_DEFS = Object.freeze([
+    { id: 'gamebanana', name: 'GameBanana' },
+    { id: 'nexus', name: 'Nexus Mods' },
+    { id: 'moddb', name: 'ModDB (10 recent)' }
+]);
+
+function gameSupportsProvider(game, provider) {
+    if (!game || typeof game !== 'object') return false;
+    if (provider === 'gamebanana') return Number(game?.gamebanana?.id) > 0;
+    if (provider === 'nexus') return Boolean(String(game?.sources?.nexus?.domain || '').trim());
+    if (provider === 'moddb') return Boolean(String(game?.sources?.moddb?.slug || '').trim());
+    return false;
+}
+
+function availableProvidersForGame(game) {
+    return SHOP_PROVIDER_DEFS.filter(provider => gameSupportsProvider(game, provider.id));
+}
+
+async function resolveShopGame() {
+    const games = await window.deltamodBackend.invoke('getAvailableGames', []);
+    const supportedGames = (Array.isArray(games) ? games : [])
+        .filter(game => SHOP_PROVIDER_DEFS.some(provider => gameSupportsProvider(game, provider.id)));
+    if (supportedGames.length === 0) {
+        throw new Error('No supported games are available for the Mod Shop.');
+    }
+
+    let currentGame = null;
+    try {
+        currentGame = await window.deltamodBackend.invoke('getCurrentGameInfo', []);
+    } catch {
+        // Browsing the catalogue does not require an active installation.
+    }
+
+    const requestedId = SHOP_GAME_ID || currentGame?.id;
+    SHOP_GAME = supportedGames.find(game => game.id === requestedId)
+        || supportedGames.find(game => game.id === currentGame?.id)
+        || supportedGames[0];
+    SHOP_GAME_ID = SHOP_GAME.id;
+    localStorage.setItem('modShopGameId', SHOP_GAME_ID);
+    return { supportedGames, currentGame };
+}
+
+function currentShopGameBananaId() {
+    return Number(SHOP_GAME?.gamebanana?.id) || 0;
+}
+
+function preserveShopArguments(extra = {}) {
+    return { gameId: SHOP_GAME_ID, provider: SHOP_PROVIDER, ...extra };
+}
 
 // External catalogue requests are shared across page instances. Navigating or
 // changing sort while a Nexus request is in flight must not create another
@@ -329,8 +383,8 @@ async function getGameBananaFeaturedRecords(gameID) {
             const records = result.payload;
             return Array.isArray(records) ? records : [];
         }).catch(error => {
-            gameBananaFeaturedRecordsPromise = null;
-            throw error;
+            console.warn('Featured GameBanana metadata is unavailable:', error);
+            return [];
         });
     }
     return gameBananaFeaturedRecordsPromise;
@@ -364,7 +418,10 @@ async function gameBananaLogin() {
     var loggedin = await Promise.race([
         window.deltamodBackend.invoke('validateGamebananaToken', []),
         new Promise(resolve => setTimeout(() => resolve(false), 5000))
-    ]);
+    ]).catch(error => {
+        console.warn('GameBanana account status is unavailable; continuing anonymously.', error);
+        return false;
+    });
 
     isGBLoggedIn = loggedin;
 
@@ -420,7 +477,7 @@ function clearModSearch() {
     csearch = '';
     syncSearchClearButton();
     hideSearchSuggestions();
-    window._pageArguments = { provider: SHOP_PROVIDER };
+    window._pageArguments = preserveShopArguments();
     page('gamebanana-browse');
 }
 
@@ -532,15 +589,23 @@ async function search(searchQuery = null) {
     }
 
     if (SHOP_PROVIDER !== 'gamebanana') {
-        window._pageArguments = {
-            provider: SHOP_PROVIDER,
+        window._pageArguments = preserveShopArguments({
             sourceQuery: query.trim()
-        };
+        });
         page('gamebanana-browse');
         return;
     }
 
-    let gameID = (await window.deltamodBackend.invoke('getCurrentGameInfo',[])).gamebanana.id;
+    const gameID = currentShopGameBananaId();
+    if (!gameID) {
+        await htmlAlert(
+            'GameBanana unavailable for this game',
+            'Choose a game with GameBanana support from the Mod Shop game selector.',
+            [{ text: 'OK', resolveWith: 'ok' }],
+            'error'
+        );
+        return;
+    }
 
     {
         // Search names, descriptions, owners, credits, and studios in one
@@ -555,7 +620,8 @@ async function search(searchQuery = null) {
 }
 
 async function featured() {
-    let gameID = (await window.deltamodBackend.invoke('getCurrentGameInfo',[])).gamebanana.id;
+    const gameID = currentShopGameBananaId();
+    if (!gameID) return;
     // Why doesn't GB have a standard endpoint format for subs SMH
     window._pageArguments.gbAPI = 'https://gamebanana.com/apiv11/Game/' + gameID + '/TopSubs';
     window._pageArguments.gbAPIFilter = async function(data) {
@@ -644,20 +710,69 @@ window.currentPageStack.openImageLightbox = openImageLightbox;
 
 var firstgeneration = true;
 
-async function browseGameBananaCatalog(url) {
-    const response = await requestExternalSource({
-        provider: 'gamebanana',
-        url,
-        offline: navigator.onLine === false
-    });
-    if (!response?.ok || !response.result?.payload) {
-        const failure = new Error(
-            response?.error?.message || 'The GameBanana catalogue could not be loaded.'
-        );
-        failure.code = response?.error?.code || 'provider_unavailable';
-        throw failure;
+async function fetchGameBananaCatalogDirect(url) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) {
+            const error = new Error(`GameBanana returned HTTP ${response.status}.`);
+            error.status = response.status;
+            throw error;
+        }
+        return {
+            provider: 'gamebanana',
+            payload: await response.json(),
+            direct: true
+        };
+    } catch (error) {
+        if (error?.name === 'AbortError') {
+            const timeoutError = new Error('GameBanana did not respond before the request timed out.');
+            timeoutError.code = 'GAMEBANANA_TIMEOUT';
+            throw timeoutError;
+        }
+        throw error;
+    } finally {
+        clearTimeout(timeout);
     }
-    return response.result;
+}
+
+async function browseGameBananaCatalog(url) {
+    let nativeFailure = null;
+    try {
+        const nativeRequest = requestExternalSource({
+            provider: 'gamebanana',
+            url,
+            gameId: SHOP_GAME_ID
+        });
+        const response = await Promise.race([
+            nativeRequest,
+            new Promise((_, reject) => setTimeout(() => {
+                const error = new Error('The native GameBanana request timed out.');
+                error.code = 'GAMEBANANA_NATIVE_TIMEOUT';
+                reject(error);
+            }, 9000))
+        ]);
+        if (response?.ok && response.result?.payload !== undefined) {
+            return response.result;
+        }
+        nativeFailure = new Error(
+            response?.error?.message || 'The native GameBanana catalogue request failed.'
+        );
+        nativeFailure.code = response?.error?.code || 'provider_unavailable';
+    } catch (error) {
+        nativeFailure = error;
+    }
+
+    // Electron intentionally leaves GameBanana on its compatibility renderer
+    // path. This fallback also keeps Linux WebKit usable if the native bridge
+    // is unavailable while the public GameBanana endpoint itself is reachable.
+    try {
+        return await fetchGameBananaCatalogDirect(url);
+    } catch (directFailure) {
+        if (nativeFailure && !directFailure.cause) directFailure.cause = nativeFailure;
+        throw directFailure;
+    }
 }
 
 async function renderMods(table, GB_API, filter, gameID) {
@@ -668,10 +783,32 @@ async function renderMods(table, GB_API, filter, gameID) {
         window.PAGE = 1;
     }
     var furl = GB_API.replace('$PAGE', window.PAGE);
-    const catalog = await browseGameBananaCatalog(furl);
-    if (!isCurrentShopPage()) return;
-    var data = await filter(catalog.payload);
-    if (!isCurrentShopPage()) return;
+    let catalog;
+    let data;
+    let featuredData;
+    try {
+        catalog = await browseGameBananaCatalog(furl);
+        if (!isCurrentShopPage()) return;
+        data = await filter(catalog.payload);
+        if (!isCurrentShopPage()) return;
+        featuredData = await getGameBananaFeaturedRecords(gameID);
+        if (!isCurrentShopPage()) return;
+    } catch (error) {
+        console.error('GameBanana catalogue load failed:', error);
+        if (firstgeneration && isCurrentShopPage()) {
+            renderSourceState(
+                table,
+                'GameBanana could not be loaded',
+                error?.message || 'The catalogue request failed. Check your connection and try again.',
+                { label: 'Retry', run: () => {
+                    firstgeneration = true;
+                    renderSourceLoading(table);
+                    renderMods(table, GB_API, filter, gameID);
+                } }
+            );
+        }
+        return;
+    }
 
     const status = document.getElementById('contentFilterStatus');
     if (catalog.stale) {
@@ -680,8 +817,6 @@ async function renderMods(table, GB_API, filter, gameID) {
         status.innerText = 'Loaded this GameBanana page from the local catalogue cache.';
     }
 
-    var featuredData = await getGameBananaFeaturedRecords(gameID);
-    if (!isCurrentShopPage()) return;
     var featuredIDs = featuredData.map(x => {return {id: x._idRow, period: x._sPeriod};});
 
     if (firstgeneration) {
@@ -1063,11 +1198,18 @@ async function renderMods(table, GB_API, filter, gameID) {
     }
     catch (e) {
         console.error(e);
-        
-        await htmlAlert("Error","An error occurred while loading mods from GameBanana. Please try again later.",[{text:'Ok',resolveWith:'ok'}], 'error');
-
-        page('main');
         firstgeneration = true;
+        if (isCurrentShopPage()) {
+            renderSourceState(
+                table,
+                'GameBanana results could not be rendered',
+                e?.message || 'The catalogue returned data that Community could not display.',
+                { label: 'Retry', run: () => {
+                    renderSourceLoading(table);
+                    renderMods(table, GB_API, filter, gameID);
+                } }
+            );
+        }
         return;
     }
 
@@ -1154,10 +1296,10 @@ function setExternalSourceControlsDisabled(disabled) {
 function externalBrowseRequestKey(request) {
     return JSON.stringify([
         request?.provider || '',
+        request?.gameId || '',
         request?.query || '',
         request?.sort || '',
-        request?.url || '',
-        request?.offline === true
+        request?.url || ''
     ]);
 }
 
@@ -1537,9 +1679,9 @@ async function initializeExternalSource(table) {
     try {
         const request = {
             provider: SHOP_PROVIDER,
+            gameId: SHOP_GAME_ID,
             query,
-            sort,
-            offline: navigator.onLine === false
+            sort
         };
         const response = await requestExternalSource(request);
         if (!response?.ok) {
@@ -1617,25 +1759,48 @@ async function plusPage(amt) {
 (async () => {
     let table = document.getElementById('modsBody');
     const sourceSelect = document.getElementById('modSourceSelect');
-    const providers = await window.communityAPI.modSources.providers();
-    const availableProviders = providers.filter(provider => provider.available);
-    if (!availableProviders.some(provider => provider.id === SHOP_PROVIDER)) {
-        SHOP_PROVIDER = availableProviders[0]?.id || 'gamebanana';
-    }
-    for (const provider of availableProviders) {
-        const option = document.createElement('option');
-        option.value = provider.id;
-        option.innerText = provider.name;
-        sourceSelect.appendChild(option);
-    }
-    sourceSelect.value = SHOP_PROVIDER;
-    const selectedProvider = availableProviders.find(provider => provider.id === SHOP_PROVIDER);
-    sourceSelect.addEventListener('change', () => {
-        localStorage.setItem('modShopProvider', sourceSelect.value);
-        window._pageArguments = { provider: sourceSelect.value };
-        page('gamebanana-browse');
-    });
-    localStorage.setItem('modShopProvider', SHOP_PROVIDER);
+    const gameSelect = document.getElementById('modGameSelect');
+    try {
+        const { supportedGames } = await resolveShopGame();
+        gameSelect.replaceChildren();
+        for (const game of supportedGames) {
+            const option = document.createElement('option');
+            option.value = game.id;
+            option.innerText = game.name;
+            gameSelect.appendChild(option);
+        }
+        gameSelect.value = SHOP_GAME_ID;
+        gameSelect.addEventListener('change', () => {
+            const selectedGame = supportedGames.find(game => game.id === gameSelect.value);
+            if (!selectedGame) return;
+            localStorage.setItem('modShopGameId', selectedGame.id);
+            const providers = availableProvidersForGame(selectedGame);
+            const provider = providers.some(item => item.id === SHOP_PROVIDER)
+                ? SHOP_PROVIDER
+                : providers[0]?.id || 'gamebanana';
+            localStorage.setItem('modShopProvider', provider);
+            window._pageArguments = { gameId: selectedGame.id, provider };
+            page('gamebanana-browse');
+        });
+
+        const availableProviders = availableProvidersForGame(SHOP_GAME);
+        if (!availableProviders.some(provider => provider.id === SHOP_PROVIDER)) {
+            SHOP_PROVIDER = availableProviders[0]?.id || 'gamebanana';
+        }
+        sourceSelect.replaceChildren();
+        for (const provider of availableProviders) {
+            const option = document.createElement('option');
+            option.value = provider.id;
+            option.innerText = provider.name;
+            sourceSelect.appendChild(option);
+        }
+        sourceSelect.value = SHOP_PROVIDER;
+        sourceSelect.addEventListener('change', () => {
+            localStorage.setItem('modShopProvider', sourceSelect.value);
+            window._pageArguments = { gameId: SHOP_GAME_ID, provider: sourceSelect.value };
+            page('gamebanana-browse');
+        });
+        localStorage.setItem('modShopProvider', SHOP_PROVIDER);
 
     const isGameBanana = SHOP_PROVIDER === 'gamebanana';
     if (SHOP_PROVIDER === 'moddb') {
@@ -1664,18 +1829,19 @@ async function plusPage(amt) {
         return;
     }
 
-    let gameID = (await window.deltamodBackend.invoke('getCurrentGameInfo',[])).gamebanana.id;
+    const gameID = currentShopGameBananaId();
+    if (!gameID) throw new Error('The selected game is not mapped to GameBanana.');
     let GB_API = 'https://gamebanana.com/apiv11/Game/' + gameID + '/Subfeed?_sSort=default&_nPage=$PAGE';
     const contentRatingFilter = document.getElementById('contentRatingFilter');
     contentRatingFilter.value = currentContentFilter();
     contentRatingFilter.addEventListener('change', () => {
         localStorage.setItem('gamebananaContentFilter', contentRatingFilter.value);
-        window._pageArguments = {
+        window._pageArguments = preserveShopArguments({
             lp: '1',
             gbAPI: capi || undefined,
             gbAPIFilter: window.currentPageStack.filter,
             leSearchQuery: csearch || undefined
-        };
+        });
         page('gamebanana-browse');
     });
     let filter = async function(a) {
@@ -1721,6 +1887,23 @@ async function plusPage(amt) {
     }
 
     genbtnstyles();
+    } catch (error) {
+        console.error('Mod Shop initialization failed:', error);
+        if (isCurrentShopPage()) {
+            setExternalSourceControlsDisabled(false);
+            sourceSelect.disabled = false;
+            gameSelect.disabled = false;
+            renderSourceState(
+                table,
+                'Mod Shop could not be loaded',
+                error?.message || 'The Mod Shop failed to initialize.',
+                { label: 'Retry', run: () => {
+                    window._pageArguments = preserveShopArguments();
+                    page('gamebanana-browse');
+                } }
+            );
+        }
+    }
 })();
 
 var searchel = document.getElementById('searchInput');
@@ -1741,64 +1924,92 @@ searchel.addEventListener('keypress', function (e) {
     }
 });
 
-searchel.addEventListener('focus', function (e) {
-    if (SHOP_PROVIDER !== 'gamebanana') return;
-    autocomplete.style.opacity = '1';
-    autocomplete.style.pointerEvents = 'auto';
+// Suggestions are input-driven, cancel stale requests, and use the active game.
+let suggestionTimer;
+let suggestionRequest;
+let suggestionGame;
+let suggestionSequence = 0;
+let activeSuggestion = -1;
+autocomplete.id = 'mod-search-suggestions';
+autocomplete.setAttribute('role', 'listbox');
+searchel.setAttribute('role', 'combobox');
+searchel.setAttribute('aria-autocomplete', 'list');
+searchel.setAttribute('aria-controls', autocomplete.id);
+searchel.setAttribute('aria-expanded', 'false');
+function closeSuggestions() {
+    suggestionSequence++;
+    clearTimeout(suggestionTimer);
+    suggestionRequest?.abort();
+    activeSuggestion = -1;
+    autocomplete.replaceChildren();
+    autocomplete.style.opacity = '0';
+    autocomplete.style.pointerEvents = 'none';
+    searchel.setAttribute('aria-expanded', 'false');
+    searchel.removeAttribute('aria-activedescendant');
+}
+function scheduleSuggestions() {
+    closeSuggestions();
+    const query = searchel.value.trim();
+    if (SHOP_PROVIDER !== 'gamebanana' || query.length < 3) return;
+    const sequence = suggestionSequence;
+    suggestionTimer = setTimeout(async () => {
+        const request = new AbortController();
+        suggestionRequest = request;
+        try {
+            suggestionGame ||= Promise.resolve(currentShopGameBananaId());
+            const gameID = await suggestionGame;
+            if (!gameID || sequence !== suggestionSequence || !isCurrentShopPage()) return;
+            const response = await fetch('https://gamebanana.com/apiv12/Util/Search/Suggestions?_idGameRow='
+                + encodeURIComponent(gameID) + '&_sSearchString=' + encodeURIComponent(query), { signal: request.signal });
+            if (!response.ok) return;
+            const results = await response.json();
+            if (sequence !== suggestionSequence || !isCurrentShopPage() || document.activeElement !== searchel) return;
+            if (!Array.isArray(results)) return;
+            const fragment = document.createDocumentFragment();
+            results.filter(item => typeof item === 'string').slice(0, 8).forEach((item, index) => {
+                const result = document.createElement('div');
+                result.className = 'result';
+                result.id = `mod-suggestion-${index}`;
+                result.setAttribute('role', 'option');
+                result.setAttribute('aria-selected', 'false');
+                result.textContent = item;
+                // Keep focus in the combobox until its click is handled.
+                result.addEventListener('mousedown', event => event.preventDefault());
+                result.addEventListener('click', () => {
+                    searchel.value = item;
+                    closeSuggestions();
+                    syncSearchClearButton();
+                    search(item);
+                });
+                fragment.append(result);
+            });
+            autocomplete.replaceChildren(fragment);
+            const open = autocomplete.childElementCount > 0;
+            autocomplete.style.opacity = open ? '1' : '0';
+            autocomplete.style.pointerEvents = open ? 'auto' : 'none';
+            searchel.setAttribute('aria-expanded', String(open));
+        } catch (_) {
+            // Suggestions are optional. Full search remains available on failures.
+        }
+    }, 240);
+}
+searchel.addEventListener('input', scheduleSuggestions);
+searchel.addEventListener('focus', scheduleSuggestions);
+searchel.addEventListener('blur', closeSuggestions);
+clearSearchButton.addEventListener('click', closeSuggestions);
+searchel.addEventListener('keydown', event => {
+    const options = [...autocomplete.children];
+    if (event.key === 'Escape') { closeSuggestions(); return; }
+    if (options.length && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+        event.preventDefault();
+        activeSuggestion = (activeSuggestion + (event.key === 'ArrowDown' ? 1 : options.length - 1) + options.length) % options.length;
+        options.forEach((option, index) => option.setAttribute('aria-selected', String(index === activeSuggestion)));
+        searchel.setAttribute('aria-activedescendant', options[activeSuggestion].id);
+    }
+    if (event.key === 'Enter' && activeSuggestion >= 0 && options[activeSuggestion]) {
+        event.preventDefault();
+        options[activeSuggestion].click();
+    }
 });
-
-searchel.addEventListener('blur', function (e) {
-    setTimeout(() => {
-        autocomplete.style.opacity = '0';
-        autocomplete.style.pointerEvents = 'none';
-    }, 300);
-});
-
-let sval = 0;
-
-window._intervals = window._intervals || [];
-window._intervals.push(setInterval(async () => {
-    if (SHOP_PROVIDER !== 'gamebanana') return;
-    var isFocused = document.activeElement === searchel;
-    if (!isFocused) {
-        autocomplete.style.opacity = '0';
-        autocomplete.style.pointerEvents = 'none';
-        return;
-    }
-    if (sval != searchel.value) {
-        sval = searchel.value;
-    } else return;
-
-    if (searchel.value.length < 3) {
-        autocomplete.innerHTML = '';
-        autocomplete.style.opacity = '0';
-        autocomplete.style.pointerEvents = 'none';
-        return;
-    }
-
-    var res = await fetch('https://gamebanana.com/apiv12/Util/Search/Suggestions?_idGameRow=6755&_sSearchString=' + (searchel.value));
-    var elems = JSON.parse(await res.text());
-
-    autocomplete.style.opacity = '1';
-    autocomplete.style.pointerEvents = 'auto';
-    autocomplete.innerHTML = '';
-    elems.forEach((item) => {
-        var resultDiv = document.createElement('div');
-        resultDiv.className = 'result';
-        resultDiv.innerText = item;
-        resultDiv.addEventListener('click', function () {
-            searchel.value = item;
-            search(searchel.value);
-        });
-        autocomplete.appendChild(resultDiv);
-    });
-    if (elems.length === 0) {
-        var noResultDiv = document.createElement('div');
-        noResultDiv.className = 'result';
-        noResultDiv.innerText = 'No results found';
-        noResultDiv.style.color = '#888';
-        autocomplete.appendChild(noResultDiv);
-        noResultDiv.style.pointerEvents = 'none';
-    }
-}, 1000));
+window._onClosePage.push(closeSuggestions);
 })();

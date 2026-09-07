@@ -350,7 +350,7 @@ body {
 
 h1 {
     margin-top: 0;
-    text-shadow: 3px 3px 0px var(--theme-color);
+    text-shadow: none;
 }
 
 .viewport {
@@ -501,7 +501,8 @@ html.roaring-knight-awakened {
 
 html.roaring-knight-awakened .bg,
 html.roaring-knight-awakened .theme-background-video {
-    filter: grayscale(1) brightness(0.28) contrast(1.42);
+    filter: grayscale(1) brightness(0.95) contrast(1.12);
+    opacity: 0.65;
 }
 
 html.roaring-knight-awakened .topbar,
@@ -811,6 +812,68 @@ html.roaring-knight-blackout .dmodicon {
         transform: translate(-50%, -100%) !important;
     }
 }
+
+/* Awakening: omen, fountain, arrival, three cuts, monochrome reveal. */
+.theme-transition-overlay::before, .theme-transition-overlay::after {
+    content: ''; position: absolute; left: 0; right: 0; height: 9vh; background: #000; z-index: 8;
+}
+.theme-transition-overlay::before { top: 0; }
+.theme-transition-overlay::after { bottom: 0; }
+.theme-transition-blackout { background: radial-gradient(ellipse at 50% 55%, #10131de8, #000 72%); }
+.theme-transition-sigil { animation-duration: 2100ms; animation-delay: 600ms; }
+.theme-transition-knight { animation-delay: calc(2400ms + var(--echo-delay)); }
+.theme-transition-soul { animation-delay: 700ms; }
+.theme-transition-particles span { animation-delay: calc(4200ms + var(--particle-delay)); animation-duration: 1100ms; }
+.theme-transition-fountain { position: absolute; inset: 12% 15% 15%; z-index: 1; overflow: hidden; }
+.theme-transition-fountain span {
+    position: absolute; bottom: 0; left: calc(15% + var(--ray) * 4.7%); height: 100%;
+    width: 2%; background: linear-gradient(0deg, #d2d8f0aa, #454a6970 45%, transparent);
+    transform-origin: bottom; opacity: 0;
+    animation: knight-fountain-rise 3200ms cubic-bezier(.12,.6,.3,1) calc(850ms + var(--ray) * 35ms) both;
+}
+.theme-transition-flight {
+    position: absolute; left: 50%; top: 50%; width: clamp(140px, 22vmin, 320px); z-index: 3;
+    image-rendering: pixelated; opacity: 0; animation: knight-flight 1700ms ease-in-out 1300ms both;
+}
+.theme-transition-title {
+    position: absolute; bottom: 16%; width: 100%; text-align: center; z-index: 7;
+    font: 14px/1.5 system-ui, sans-serif; letter-spacing: .55em; color: #e6e9f1;
+    opacity: 0; animation: knight-title 1900ms ease 3500ms both;
+}
+.theme-transition-skip {
+    position: absolute; right: 24px; bottom: 24px; z-index: 10; pointer-events: auto;
+    border: 1px solid #777; background: #111; color: white; padding: 9px 14px;
+    font: 13px system-ui, sans-serif; cursor: pointer;
+}
+.theme-transition-skip:focus-visible { outline: 2px solid white; outline-offset: 4px; }
+.theme-transition-overlay .theme-transition-rift.is-cut {
+    animation: knight-cut 680ms cubic-bezier(.1,.82,.2,1) both;
+}
+.theme-transition-overlay.is-impacting > .theme-transition-rift:not(.is-cut) { display: none; }
+.theme-transition-overlay.is-releasing { transition-duration: 1300ms; }
+@keyframes knight-fountain-rise {
+    0% { opacity: 0; transform: scaleY(.02); }
+    30% { opacity: .7; transform: scaleY(.8) skewX(-7deg); }
+    65% { opacity: .45; transform: scaleY(1.1) skewX(4deg); }
+    100% { opacity: 0; transform: scaleY(1.5); }
+}
+@keyframes knight-flight {
+    0% { opacity: 0; transform: translate(-50%, 65%) scale(.3); }
+    35% { opacity: .85; }
+    75% { opacity: 1; transform: translate(-50%, -60%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -80%) scale(1.15); }
+}
+@keyframes knight-title {
+    0% { opacity: 0; transform: translateY(12px); }
+    30%, 75% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-4px); }
+}
+@keyframes knight-cut {
+    0% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--cut-angle)) scaleX(.02); }
+    12% { opacity: .9; transform: translate(-50%, -50%) rotate(var(--cut-angle)) scaleX(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--cut-angle)) scaleX(1.08) scaleY(.08); }
+}
+
 /* theme-scene-effects:end */
 
 * {
@@ -1554,3 +1617,9 @@ body {
         font-size: 17px;
     }
 }
+
+/* Alert artwork/alignment stays native to the active theme. */
+.alertButtons { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+.alertButtons > button { flex:1 1 120px; }
+.alertBigIcon { font-size:490px; position:absolute; top:-140px; right:-50px; opacity:0.1; user-select:none; pointer-events:none; }
+.alertMsg p { overflow-wrap:anywhere; }

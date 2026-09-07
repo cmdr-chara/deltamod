@@ -25,19 +25,21 @@ function renderContributorCredits(profile, fromCache) {
         return;
     }
 
-    for (const group of groups) {
+    for (const [groupIndex, group] of groups.entries()) {
         const section = document.createElement('section');
         section.className = 'credit-group';
 
         const title = document.createElement('h3');
+        title.id = `credit-role-${groupIndex}`;
+        section.setAttribute('aria-labelledby', title.id);
         title.textContent = group?._sGroupName || 'Contributors';
         section.appendChild(title);
 
-        const people = document.createElement('div');
+        const people = document.createElement('ul');
         people.className = 'credit-people';
 
         for (const credit of Array.isArray(group?._aAuthors) ? group._aAuthors : []) {
-            const person = document.createElement('div');
+            const person = document.createElement('li');
             person.className = 'credit-person';
 
             const avatar = document.createElement('img');

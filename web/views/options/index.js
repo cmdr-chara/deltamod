@@ -56,10 +56,19 @@ async function addCheckboxOption(name, description, flagid, requiresRestart = fa
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.id = 'FLAG-' + flagid.toUpperCase();
+    input.setAttribute('aria-label', name);
     input.checked = await window.deltamodBackend.invoke('getUniqueFlag', [flagid]);
+    let savedChecked = input.checked;
     input.addEventListener('change', async (e) => {
-        await window.deltamodBackend.invoke('setUniqueFlag', [flagid, e.target.checked]);
-        await changeHandler(e.target.checked);
+        const nextChecked = input.checked;
+        const saved = await window.FrontendRefinements.saveControl(input, () =>
+            window.deltamodBackend.invoke('setUniqueFlag', [flagid, nextChecked]),
+            () => { input.checked = savedChecked; });
+        if (saved) {
+            savedChecked = nextChecked;
+            try { await changeHandler(nextChecked); }
+            catch (error) { await htmlAlert(name, String(error?.message || error), [{ text: 'OK', resolveWith: 'ok' }]); }
+        }
     });
     control.appendChild(input);
 
@@ -192,9 +201,13 @@ async function addSelectOption(name, description, options, requiresRestart = fal
     }
 
     select.value = defaultValue || firstValue;
-
-    select.addEventListener('change', (e) => {
-        changeHandler(e.target.value);
+    select.setAttribute('aria-label', name);
+    let savedValue = select.value;
+    select.addEventListener('change', async () => {
+        const nextValue = select.value;
+        const saved = await window.FrontendRefinements.saveControl(select, () => changeHandler(nextValue),
+            () => { select.value = savedValue; });
+        if (saved) savedValue = nextValue;
     });
 
     control.appendChild(select);

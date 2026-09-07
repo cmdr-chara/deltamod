@@ -26,8 +26,14 @@
             </button>
         </div>
     </header>
+    <div class="mod-search-toolbar" hidden>
+        <label for="mod-search" data-i18n="refine_search_mods">$$refine_search_mods$$</label>
+        <input id="mod-search" type="search" autocomplete="off" placeholder="$$refine_search_hint$$" data-i18n-placeholder="refine_search_hint">
+        <button id="clear-mod-search" class="secondary-action" type="button" hidden data-i18n="refine_clear">$$refine_clear$$</button>
+        <output id="mod-search-count" for="mod-search" aria-live="polite"></output>
+    </div>
     <div class="mods-scroll">
-        <div style="display: none;" class="modlist-error" id="error-banner">
+        <div style="display: none;" class="modlist-error" id="error-banner" role="button" tabindex="0">
             <h2>$$modFail_bannerTitle$$</h2>
             <span class="calibri">$$modFail_bannerClick$$</span>
         </div>

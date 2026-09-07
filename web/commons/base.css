@@ -11,7 +11,8 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: geometricPrecision;
 
-    font-weight: normal !important;
+    font-weight: 400;
+    font-style: normal;
     /* bold fucks shit up the entire font */
 }
 
@@ -72,10 +73,11 @@
     --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
 }
 
-/* I did everything to use Calibri but I realized I actually want a font from my library.... */
+/* Legacy body-font alias: keep prose distinct from the Pixel display face. */
 @font-face {
     font-family: "Calibri";
-    src: url("./Geist.ttf") format("truetype");
+    src: local("Arial"), local("Liberation Sans"), local("DejaVu Sans");
+    font-display: swap;
 }
 
 @font-face {
@@ -247,6 +249,7 @@ th,
 .setting-title {
     font-family: "Pixel", sans-serif;
     font-weight: normal !important;
+    font-synthesis: none;
 }
 
 textarea,
@@ -511,4 +514,19 @@ th {
     .installation-actions {
         flex-wrap: wrap;
     }
+}
+
+/* Accessible refinement shared by the original views; keep Pixel and theme surfaces. */
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline:2px solid var(--theme-color, white); outline-offset:3px;
+}
+.control-save-status { display:block; margin-top:5px; font-size:13px; line-height:1.3; color:var(--muted-text); }
+.control-save-status.is-error { color:var(--danger); }
+input[aria-invalid="true"], select[aria-invalid="true"] { border-color:var(--danger); }
+.control-save-status:empty { display:none; }
+:where(.logs, .mods-scroll, .error-list-dialog, .alertMsg) { scrollbar-width:thin; scrollbar-color:var(--theme-color) transparent; }
+:where(.logs, .mods-scroll, .error-list-dialog, .alertMsg)::-webkit-scrollbar { display:block; width:6px; height:6px; }
+:where(.logs, .mods-scroll, .error-list-dialog, .alertMsg)::-webkit-scrollbar-thumb { background:var(--theme-color); border-radius:8px; }
+@media(prefers-reduced-motion:reduce) {
+    .alertMain, .alertMsg, .error-list-dialog { animation:none !important; transition:none !important; }
 }

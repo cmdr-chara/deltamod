@@ -126,6 +126,27 @@ fn current_game(state: &AppState) -> Option<Value> {
         .dispatch("getCurrentGameInfo", &[])
         .ok()
         .flatten()
+        .filter(|game| !game.is_null())
+}
+
+fn requested_game(state: &AppState, request: &Value) -> Option<Value> {
+    let Some(game_id) = request.get("gameId").and_then(Value::as_str) else {
+        return current_game(state);
+    };
+    if game_id.is_empty()
+        || game_id.len() > 120
+        || !game_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
+        return None;
+    }
+    state
+        .game
+        .dispatch("getGameInfo", &[json!(game_id)])
+        .ok()
+        .flatten()
+        .filter(|game| !game.is_null())
 }
 
 fn mapped_source(game: &Value, provider: Provider) -> Option<&str> {
@@ -513,8 +534,8 @@ pub fn dispatch(
             let provider = shop_provider
                 .network_provider()
                 .ok_or_else(|| error::invalid("modSources:browse"))?;
-            let game =
-                current_game(state).ok_or_else(|| error::unavailable("modSources:browse"))?;
+            let game = requested_game(state, request)
+                .ok_or_else(|| error::unavailable("modSources:browse"))?;
             let offline = request
                 .get("offline")
                 .and_then(Value::as_bool)

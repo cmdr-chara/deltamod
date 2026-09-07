@@ -1,4 +1,7 @@
 (() => {
+const pageTable = document.getElementById('modlist');
+pageTable.closest('table').setAttribute('aria-busy', 'true');
+const loadArtwork = window.FrontendRefinements.artworkLoader();
 const t = (key, fallback, ...args) =>
     window.Localization?.t(key, fallback, ...args) ?? fallback;
 
@@ -25,7 +28,12 @@ function purifyDescription(desc) {
     return text;
 }
 
+const launchButton = document.getElementById('par');
+launchButton.disabled = true;
+let listReady = false;
+let launching = false;
 var noMergeMods = [];
+const pendingWrites = new Set();
 
 function adaptForIconsA(elem) {
     elem.style.display = 'inline-flex';
@@ -126,12 +134,11 @@ async function createMod(mod, modListElement) {
         }
     });
 
-    let imeta = await window.deltamodBackend.invoke('getModImage', [mod.uid]);
-    if (!imeta.path) {
-        imeta.path = window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png');
-    }
+    const imeta = { path: window.deltamodBackend.assetUrl('app', 'web/img/mod-placeholder.png') };
 
     let img = document.createElement('img');
+    img.width = 76;
+    img.height = 76;
     img.src = imeta.path;
     img.classList.add('mod-image');
     img.alt = `${mod.name} cover`;
@@ -248,13 +255,28 @@ async function createMod(mod, modListElement) {
         enabled.setAttribute('aria-label', `Enable ${mod.name}`);
         enabled.checked = await window.deltamodBackend.invoke('getModState', [mod.uid]);
         modRow.classList.toggle('is-enabled', enabled.checked);
-        enabled.onchange = e => {
+        enabled.onchange = async e => {
             const c = e.target;
             const isEnabled = c.checked;
             const forMod = mod.uid;
 
             modRow.classList.toggle('is-enabled', isEnabled);
-            window.deltamodBackend.invoke("toggleModState", [forMod, isEnabled]);
+            enabled.disabled = true;
+            const write = window.deltamodBackend.invoke("toggleModState", [forMod, isEnabled]);
+            pendingWrites.add(write);
+            launchButton.disabled = true;
+            try {
+                await write;
+            } catch (error) {
+                enabled.checked = !isEnabled;
+                modRow.classList.toggle('is-enabled', enabled.checked);
+                await htmlAlert(t('refine_save_failed', 'Not saved. Try again.'), String(error?.message || error),
+                    [{ text: t('allmods_ok', 'OK'), resolveWith: 'ok' }]);
+            } finally {
+                pendingWrites.delete(write);
+                enabled.disabled = false;
+                launchButton.disabled = !listReady || pendingWrites.size > 0;
+            }
         };
 
         let toggleTrack = document.createElement('span');
@@ -270,6 +292,7 @@ async function createMod(mod, modListElement) {
 
     if (!modListElement?.isConnected) return null;
     modListElement.appendChild(modRow);
+    loadArtwork(img, mod.uid);
     return modRow;
 }
 
@@ -277,7 +300,7 @@ async function createErroringMods(errors) {
     const dialogElement = document.getElementById("error-list-dialog");
     const errorList = document.getElementById("error-list-div");
 
-    for (const child of errorList.children) errorList.removeChild(child);
+    errorList.replaceChildren();
 
     for (const err of errors) {
         // err { mod: string, reason: string }
@@ -336,6 +359,9 @@ function loadInst(index) {
 
 (async () => {
     const errorBanner = document.getElementById("error-banner");
+    errorBanner.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); errorBanner.click(); }
+    });
 
     var { modList, errors } = (await window.deltamodBackend.invoke('getModList', []));
     const modListElement = document.getElementById('modlist');
@@ -355,57 +381,19 @@ function loadInst(index) {
         // sort by name ascending by default
         modList = modList.sort((a, b) => a.name.localeCompare(b.name));
     }
-    let addedAuthors = [];
+    const tableTools = window.FrontendRefinements.tableTools(modListElement, {
+        input: document.getElementById('mod-search'),
+        clear: document.getElementById('clear-mod-search'),
+        count: document.getElementById('mod-search-count'),
+        sort: sortWay
+    });
+    document.querySelector('.mod-search-toolbar').hidden = modList.length === 0;
     for (const x of modList.filter(x => !x.isIncompatible)) {
-        const primaryAuthor = (Array.isArray(x.author) ? x.author[0] : x.author) || 'Unknown Author';
-        if (window._pageArguments && window._pageArguments.sortid === "author" && !addedAuthors.includes(primaryAuthor)) {
-            // also create author tr
-            var tr = document.createElement('tr');
-            var td = document.createElement('td');
-            td.colSpan = 3;
-            td.style.paddingLeft = '20px';
-            td.style.fontSize = '18px';
-            td.style.fontWeight = 'bold';
-            td.style.backgroundColor = 'rgba(40, 40, 40, 0.05)';
-            td.style.color = '#fff';
-            td.textContent = `Mods by ${primaryAuthor}`;
-            tr.appendChild(td);
-            addedAuthors.push(primaryAuthor);
-            modListElement.appendChild(tr);
-        }
-        await createMod(x, modListElement);
+        const row = await createMod(x, modListElement);
         if (!pageIsActive()) return;
+        tableTools.add(x, row);
     }
-
-    sortWay.onchange = async (e) => {
-        switch (e.target.value) {
-            case 'asc':
-                window._pageArguments = { sortfunc: (a, b) => a.name.localeCompare(b.name), sortid: 'asc' };
-                page('');
-                break;
-            case 'desc':
-                window._pageArguments = { sortfunc: (a, b) => b.name.localeCompare(a.name), sortid: 'desc' };
-                page('');
-                break;
-            case 'size-asc':
-                window._pageArguments = { sortfunc: (a, b) => (a.size || 0) - (b.size || 0), sortid: 'size-asc' };
-                page('');
-                break;
-            case 'size-desc':
-                window._pageArguments = { sortfunc: (a, b) => (b.size || 0) - (a.size || 0), sortid: 'size-desc' };
-                page('');
-                break;
-            case 'author':
-                window._pageArguments = { sortfunc: (a, b) => {
-                    const authorA = a.author[0] || "Unknown Author";
-                    const authorB = b.author[0] || "Unknown Author";
-                    return authorA.localeCompare(authorB);
-                }, sortid: 'author' };
-                page('');
-                break;
-
-        }
-    };
+    tableTools.finish();
 
     if (errors.length > 0) {
         errorBanner.onclick = () => {
@@ -481,9 +469,16 @@ function loadInst(index) {
     window._pageArguments = null;
 
     genbtnstyles();
-})();
+    pageTable.closest('table').setAttribute('aria-busy', 'false');
+    listReady = true;
+    launchButton.disabled = !listReady || pendingWrites.size > 0;
+})().catch(error => window.FrontendRefinements.showListError(pageTable, error));
 
 async function patchAndRun() {
+    if (!listReady || pendingWrites.size || launching) return;
+    launching = true;
+    launchButton.disabled = true;
+    try {
     var allChecks = Array.from(document.querySelectorAll('input[type="checkbox"]')).filter(cb => cb.id.startsWith('modcheck-'));
     var selectedMods = allChecks.filter(cb => cb.checked).map(cb => cb.id.replace('modcheck-', ''));
     console.log('Selected mods:', selectedMods);
@@ -505,13 +500,18 @@ async function patchAndRun() {
     if (!goOn) return;
 
     if (selectedMods.length === 0) {
-        window.deltamodBackend.invoke('startGame', []);
+        await window.deltamodBackend.invoke('startGame', []);
     }
     else {
-        page('patching');
-        setTimeout(() => {
-            window.deltamodBackend.invoke('patchAndRun', [selectedMods]);
-        }, 1000);
+        await page('patching');
+        await window.deltamodBackend.invoke('patchAndRun', [selectedMods]);
+    }
+    } catch (error) {
+        await htmlAlert(t('allmods_cant_launch', 'Could not launch the game'), String(error?.message || error),
+            [{ text: t('allmods_ok', 'OK'), resolveWith: 'ok' }]);
+    } finally {
+        launching = false;
+        if (launchButton.isConnected) launchButton.disabled = !listReady || pendingWrites.size > 0;
     }
 }
 

@@ -101,15 +101,6 @@ describe('theme audio playback', () => {
         expect(barrier.backgroundPosition).toBe('center bottom');
     });
 
-    it('shortens the Roaring Knight post-slash exit by twenty-five percent', () => {
-        const renderer = fs.readFileSync(path.join(projectRoot, 'web', 'index.js'), 'utf8');
-        const css = fs.readFileSync(path.join(projectRoot, 'web', 'index.css'), 'utf8');
-
-        expect(renderer).toContain('}, 1575);');
-        expect(renderer).toContain('setTimeout(clearThemeTransition, 2100)');
-        expect(css).toContain('transition-duration: 490ms;');
-    });
-
     it('persists the Roaring Knight awakening and skips repeat transitions', () => {
         const renderer = fs.readFileSync(path.join(projectRoot, 'web', 'index.js'), 'utf8');
         const preparation = renderer.slice(

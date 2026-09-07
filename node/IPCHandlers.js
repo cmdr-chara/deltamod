@@ -1072,7 +1072,7 @@ module.exports = function registerIPCHandlers(context) {
     handle('modSources:browse', async (event, args) => {
         try {
             const request = ModSources.BrowseRequest.parse(args?.[0] || {});
-            const game = GameDB.getGameById(KeyValue.readKVS('gamePid'));
+            const game = GameDB.getGameById(request.gameId || KeyValue.readKVS('gamePid'));
             if (!game) {
                 const error = new Error('No current game installation is selected.');
                 error.code = 'GAME_NOT_SELECTED';
