@@ -22,3 +22,4 @@ jobs:
           name: current-refinement-source
           path: /tmp/current-refinement*
           retention-days: 1
+# Snapshot refresh for Linux Mod Shop diagnosis.
