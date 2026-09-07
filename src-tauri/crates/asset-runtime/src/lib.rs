@@ -223,6 +223,7 @@ fn mime(ext: &str) -> Option<&'static str> {
         "wav" => "audio/wav",
         "ogg" => "audio/ogg",
         "mp4" => "video/mp4",
+        "webm" => "video/webm",
         _ => return None,
     })
 }
@@ -242,6 +243,7 @@ fn allowed(kind: AssetKind, path: &str, ext: &str) -> bool {
                 | "wav"
                 | "ogg"
                 | "mp4"
+                | "webm"
         ),
         AssetKind::Packet => {
             (path == "icon.png" || path.starts_with("image/"))
@@ -572,6 +574,17 @@ mod tests {
         assert!(r.resolve("theme://x/%2e%2e/same.png").is_err());
         assert!(r.resolve("theme://x/same.exe").is_err());
         assert!(r.resolve("packet://p/audio/a.mp3").is_err());
+    }
+    #[test]
+    fn webm_theme_has_video_mime_and_range_support() {
+        let (runtime, dir) = runtime();
+        fs::write(dir.path().join("built/loop.webm"), b"webm-data").unwrap();
+        let plan = runtime.resolve("theme://x/loop.webm").unwrap();
+        let response = headers(&plan, Some("bytes=0-3")).unwrap();
+        assert_eq!(response.content_type, "video/webm");
+        assert_eq!(response.status, 206);
+        assert_eq!(response.content_length, 4);
+        assert!(runtime.resolve("packet://p/image/loop.webm").is_err());
     }
     #[test]
     fn deep_links_are_strict() {

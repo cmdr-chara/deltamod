@@ -343,10 +343,22 @@
                         ? t('theme_in_use', 'In use')
                         : t('theme_use', 'Use theme');
                     candidateButton.setAttribute('aria-pressed', String(active));
+                    const replay = candidate.querySelector('.theme-replay-event');
+                    if (replay) replay.hidden = !active;
                 }
                 await themeRefresh(true);
             });
             actions.appendChild(selectButton);
+            if (theme.id === 'the-knight') {
+                const replayButton = document.createElement('button');
+                replayButton.type = 'button';
+                replayButton.className = 'theme-replay-event secondary-action noScaleBTN';
+                replayButton.textContent = t('theme_replay_event', 'Replay awakening');
+                replayButton.title = t('theme_knight_cue', 'The awakening normally begins after 26 seconds.');
+                replayButton.hidden = theme.id !== selectedTheme;
+                replayButton.addEventListener('click', () => replayRoaringKnightTransition());
+                actions.appendChild(replayButton);
+            }
 
             if (!theme.builtIn) {
                 const deleteButton = document.createElement('button');

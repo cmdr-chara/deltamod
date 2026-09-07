@@ -38,7 +38,7 @@
 
 .library-page .library-filter {
   display: grid;
-  grid-template-columns: auto 300px;
+  grid-template-columns: minmax(0, 300px);
   align-items: center;
   gap: 10px;
   flex: 0 0 auto;
@@ -46,7 +46,9 @@
 
 .library-page .library-filter label {
   color: var(--muted-text);
-  font-family: "Calibri", sans-serif;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .library-page .library-filter select {

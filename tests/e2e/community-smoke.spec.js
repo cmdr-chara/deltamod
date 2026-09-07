@@ -235,7 +235,19 @@ test('launches securely and keeps Options categories inside their column', async
                 const alertResult = htmlAlert('Sound test', 'Dismiss this dialog.', [
                     { text: 'Close', resolveWith: 'closed' }
                 ]);
-                document.querySelector('.alertButtons button').click();
+                // Alert rendering is queued; wait for the dialog before dismissing it.
+                const closeButton = await new Promise(resolve => {
+                    const observer = new MutationObserver(() => {
+                        const button = document.querySelector('.alertButtons button');
+                        if (!button) return;
+                        observer.disconnect();
+                        resolve(button);
+                    });
+                    observer.observe(document.body, { childList: true, subtree: true });
+                    const button = document.querySelector('.alertButtons button');
+                    if (button) { observer.disconnect(); resolve(button); }
+                });
+                closeButton.click();
                 await alertResult;
                 return dismissSounds;
             } finally {

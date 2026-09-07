@@ -24,6 +24,10 @@ var themeTransitionLastAudioTime = null;
 var themeTransitionSfxTimers = [];
 var themeTransitionActiveSfx = [];
 var themeTransitionCompleted = false;
+var themeTransitionWatchTimer = null;
+var themeTransitionPhaseTimers = [];
+var themeTransitionEscapeHandler = null;
+var themeTransitionGeneration = 0;
 var themeSpriteAnimationTimers = [];
 var menuAudioWasPlayingBeforeWindowInactive = false;
 var theme = null;
@@ -270,6 +274,19 @@ const ROARING_KNIGHT_MONOCHROME_SPRITES = Object.freeze({
 });
 
 function clearThemeTransition() {
+    themeTransitionGeneration += 1;
+    themeTransitionPhaseTimers.forEach(clearTimeout);
+    themeTransitionPhaseTimers = [];
+    if (themeTransitionEscapeHandler) {
+        document.removeEventListener('keydown', themeTransitionEscapeHandler);
+        themeTransitionEscapeHandler = null;
+    }
+    const skip = document.getElementById('theme-transition-skip');
+    if (skip && document.activeElement === skip) {
+        document.querySelector('.theme-replay-event')?.focus();
+    }
+    clearInterval(themeTransitionWatchTimer);
+    themeTransitionWatchTimer = null;
     clearTimeout(themeTransitionCleanupTimer);
     clearTimeout(themeTransitionImpactTimer);
     clearTimeout(themeTransitionFrameTimer);
@@ -348,24 +365,25 @@ function scheduleRoaringKnightSfx(fileName, delay, volume, playbackRate, stopAft
 }
 
 async function playRoaringKnightSoundSequence() {
+    const generation = themeTransitionGeneration;
     // An IPC failure must not silently mute a visual effect. An explicit disabled
     // SFX preference still wins.
     const sfxEnabled = await window.deltamodBackend
         .invoke('getUniqueFlag', ['SFX'])
         .catch(() => true);
-    if (sfxEnabled === false || document.hidden) return;
+    if (sfxEnabled === false || document.hidden || generation !== themeTransitionGeneration) return;
 
     // DELTARUNE layers movement and multiple differently pitched cuts for the
     // Knight. Keep the same structure while using locally bundled assets.
-    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.move, 70, 0.48, 0.86);
-    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.move, 390, 0.26, 1.18);
-    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.move, 625, 0.34, 0.72);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.move, 1200, 0.48, 0.86);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.move, 2200, 0.26, 1.18);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.move, 2900, 0.34, 0.72);
 
-    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.slash, 748, 0.58, 0.72);
-    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.slash, 765, 0.46, 0.94);
-    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.slash, 790, 0.32, 1.22);
-    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.impact, 785, 0.34, 1.12, 950);
-    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.damage, 805, 0.42, 0.78);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.slash, 3300, 0.58, 0.72);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.slash, 3720, 0.46, 0.94);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.slash, 4140, 0.32, 1.22);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.impact, 4200, 0.34, 1.12, 950);
+    scheduleRoaringKnightSfx(ROARING_KNIGHT_SFX.damage, 4250, 0.42, 0.78);
 }
 
 function activeThemeVisualConfig() {
@@ -461,10 +479,43 @@ async function prepareThemeTransition(themeConfig = theme) {
         const image = new Image();
         image.src = themeTransitionAssetUrl(fileName, themeConfig);
     });
+    if (!themeTransitionCompleted) watchRoaringKnightCue(themeConfig);
     return themeTransitionCompleted;
 }
 
+// Page music, disabled audio, and unavailable codecs must not suppress the event.
+// Use the soundtrack cue when it is playing, otherwise count foreground time.
+function watchRoaringKnightCue(themeConfig) {
+    const cueTime = Number(themeConfig.transitionCueTime);
+    if (!Number.isFinite(cueTime) || cueTime < 0) return;
+    let elapsed = 0;
+    let previousTick = performance.now();
+    themeTransitionWatchTimer = setInterval(() => {
+        const now = performance.now();
+        const delta = Math.min(now - previousTick, 1000);
+        previousTick = now;
+        if (document.hidden || !document.hasFocus()) return;
+        elapsed += delta;
+        const themeTrack = themeAssetUrl(themeConfig, 'mus', themeConfig.mainSong);
+        if (currentAudioSource === themeTrack && !audio.paused && !audio.error) {
+            synchronizeThemeTransition();
+        } else if (elapsed >= cueTime * 1000) {
+            playRoaringKnightTransition();
+        }
+    }, 250);
+}
+
+function replayRoaringKnightTransition() {
+    if (theme?.transitionEffect !== ROARING_KNIGHT_TRANSITION.id) return;
+    clearThemeTransition();
+    themeTransitionCompleted = false;
+    applyRoaringKnightPalette(false);
+    playRoaringKnightTransition();
+}
+
 function completeRoaringKnightAwakening() {
+    clearInterval(themeTransitionWatchTimer);
+    themeTransitionWatchTimer = null;
     themeTransitionCompleted = true;
     applyRoaringKnightPalette(true);
     window.deltamodBackend
@@ -477,6 +528,7 @@ function completeRoaringKnightAwakening() {
 function playRoaringKnightTransition() {
     if (theme?.transitionEffect !== ROARING_KNIGHT_TRANSITION.id) return;
     if (themeTransitionCompleted) return;
+    if (document.getElementById('theme-transition-overlay')) return;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
         completeRoaringKnightAwakening();
         return;
@@ -487,7 +539,7 @@ function playRoaringKnightTransition() {
     const overlay = document.createElement('div');
     overlay.id = 'theme-transition-overlay';
     overlay.className = 'theme-transition-overlay';
-    overlay.setAttribute('aria-hidden', 'true');
+    overlay.setAttribute('aria-label', 'Roaring Knight awakening');
 
     const blackout = document.createElement('span');
     blackout.className = 'theme-transition-blackout';
@@ -521,45 +573,86 @@ function playRoaringKnightTransition() {
 
     const particles = document.createElement('div');
     particles.className = 'theme-transition-particles';
-    for (let particleIndex = 0; particleIndex < 12; particleIndex += 1) {
+    for (let particleIndex = 0; particleIndex < 32; particleIndex += 1) {
         const particle = document.createElement('span');
-        particle.style.setProperty('--particle-angle', `${particleIndex * 30}deg`);
+        particle.style.setProperty('--particle-angle', `${particleIndex * 137.5}deg`);
         particle.style.setProperty('--particle-distance', `${20 + (particleIndex % 4) * 5}vmin`);
         particle.style.setProperty('--particle-delay', `${particleIndex * 18}ms`);
         particles.appendChild(particle);
     }
 
-    overlay.append(blackout, sigil, particles, knightStage, soul, rift);
+    const fountain = document.createElement('div');
+    fountain.className = 'theme-transition-fountain';
+    for (let i = 0; i < 16; i += 1) {
+        const ray = document.createElement('span');
+        ray.style.setProperty('--ray', String(i));
+        fountain.appendChild(ray);
+    }
+    const flight = document.createElement('img');
+    flight.className = 'theme-transition-flight';
+    flight.alt = '';
+    flight.src = themeTransitionAssetUrl('spr_roaringknight_fly_transition_0.png');
+    const title = document.createElement('div');
+    title.className = 'theme-transition-title';
+    title.textContent = 'THE ROARING KNIGHT';
+    const skip = document.createElement('button');
+    skip.id = 'theme-transition-skip';
+    skip.className = 'theme-transition-skip';
+    skip.textContent = 'Skip · Esc';
+    const finish = () => {
+        clearThemeTransition();
+        completeRoaringKnightAwakening();
+    };
+    skip.addEventListener('click', finish);
+    themeTransitionEscapeHandler = event => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        finish();
+    };
+    document.addEventListener('keydown', themeTransitionEscapeHandler);
+    overlay.append(blackout, fountain, sigil, particles, flight, knightStage, soul, rift, title, skip);
+    for (const decoration of overlay.children) {
+        if (decoration !== skip) decoration.setAttribute('aria-hidden', 'true');
+    }
     document.body.appendChild(overlay);
     document.documentElement.classList.add('roaring-knight-blackout');
     requestAnimationFrame(() => overlay.classList.add('is-active'));
     void playRoaringKnightSoundSequence();
 
+    [3300, 3720, 4140].forEach((delay, cut) => {
+        themeTransitionPhaseTimers.push(setTimeout(() => {
+            if (!overlay.isConnected) return;
+            const slash = rift.cloneNode();
+            slash.classList.add('is-cut');
+            slash.style.setProperty('--cut-angle', `${[-28, 32, -8][cut]}deg`);
+            overlay.appendChild(slash);
+            let frame = 0;
+            const advance = () => {
+                if (!overlay.isConnected) return;
+                knightStage.querySelectorAll('.theme-transition-knight').forEach(knight => {
+                    setRoaringKnightSlashFrame(knight, frame);
+                });
+                frame += 1;
+                if (frame < ROARING_KNIGHT_TRANSITION.slashFrames.length) {
+                    themeTransitionPhaseTimers.push(setTimeout(advance, 60));
+                }
+            };
+            advance();
+        }, delay));
+    });
     themeTransitionImpactTimer = setTimeout(() => {
         if (!overlay.isConnected) return;
         overlay.classList.add('is-impacting');
-        let frameIndex = 0;
-        const advanceSlashFrame = () => {
-            if (!overlay.isConnected) return;
-            knightStage.querySelectorAll('.theme-transition-knight').forEach(knight => {
-                setRoaringKnightSlashFrame(knight, frameIndex);
-            });
-            frameIndex += 1;
-            if (frameIndex < ROARING_KNIGHT_TRANSITION.slashFrames.length) {
-                themeTransitionFrameTimer = setTimeout(advanceSlashFrame, 64);
-            }
-        };
-        advanceSlashFrame();
-    }, 760);
+    }, 4200);
 
     themeTransitionReleaseTimer = setTimeout(() => {
         if (!overlay.isConnected) return;
         overlay.classList.add('is-releasing');
         document.documentElement.classList.remove('roaring-knight-blackout');
         completeRoaringKnightAwakening();
-    }, 1575);
+    }, 5400);
 
-    themeTransitionCleanupTimer = setTimeout(clearThemeTransition, 2100);
+    themeTransitionCleanupTimer = setTimeout(clearThemeTransition, 6800);
 }
 
 function synchronizeThemeTransition() {
@@ -579,19 +672,14 @@ function synchronizeThemeTransition() {
 
     const currentTime = audio.currentTime;
     if (!Number.isFinite(currentTime)) return;
-    if (themeTransitionLastAudioTime === null) {
-        themeTransitionLastAudioTime = currentTime;
-        return;
-    }
-    if (currentTime < themeTransitionLastAudioTime) {
+    if (themeTransitionLastAudioTime !== null && currentTime < themeTransitionLastAudioTime) {
         clearThemeTransition();
         applyRoaringKnightPalette(false);
         themeTransitionLastAudioTime = currentTime;
         return;
     }
     if (
-        themeTransitionLastAudioTime < cueTime
-        && currentTime >= cueTime
+        currentTime >= cueTime
         && !document.hidden
         && document.hasFocus()
     ) {
@@ -734,6 +822,15 @@ function applyThemeSpriteAnimations() {
     layer.hidden = stage.childElementCount === 0;
 }
 
+function loopThemeBackgroundVideo() {
+    const video = getThemeBackgroundVideo();
+    if (!video?.dataset.source || video.hidden || document.hidden || !document.hasFocus()) return;
+    video.currentTime = 0;
+    video.play().catch(error => {
+        void fallBackFromThemeVideo(video, document.querySelector('.bg'), error?.name || 'loop restart failed');
+    });
+}
+
 function applyThemeBackground() {
     const background = document.querySelector('.bg');
     const video = getThemeBackgroundVideo();
@@ -760,6 +857,8 @@ function applyThemeBackground() {
         video.hidden = true;
         video.classList.remove('is-revealed');
         background.classList.remove('is-covered-by-video');
+        video.onended = null;
+        delete video.dataset.deltamodRetainMediaBlob;
         video.removeAttribute('src');
         video.removeAttribute('poster');
         video.removeAttribute('data-source');
@@ -781,7 +880,11 @@ function applyThemeBackground() {
         background.classList.remove('is-covered-by-video');
     }
     video.hidden = sourceChanged;
-    video.loop = true;
+    // WebKitGTK may stall at EOS with its native loop flag. Retain the Blob
+    // and explicitly seek/restart on ended instead of fetching the clip again.
+    video.loop = false;
+    video.dataset.deltamodRetainMediaBlob = 'true';
+    video.onended = loopThemeBackgroundVideo;
     video.onplaying = () => {
         clearTimeout(themeVideoLoadTimer);
         video.hidden = false;

@@ -7,7 +7,7 @@
   "id": "the-knight",
   "color": "rgb(87, 82, 151)",
   "soulColor": "#FF0000",
-  "backgroundVideo": "the-knight.mp4",
+  "backgroundVideo": "the-knight.webm",
   "backgroundVideoRevealDelay": 1.5,
   "backgroundVideoPoster": false,
   "transitionEffect": "roaring-knight-monochrome-awakening",

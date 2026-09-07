@@ -1054,3 +1054,5 @@ body.chara-sequence-active {
     .theme-card, .theme-card-actions button { transition:none; }
     .theme-card-actions button:active { transform:none; }
 }
+
+.theme-card[data-theme-id="the-knight"] .theme-card-actions { flex-direction: column; }

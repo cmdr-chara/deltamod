@@ -16,7 +16,7 @@ function cssText(file) {
         return candidate.startsWith(web + path.sep) ? `url("${asset(candidate)}")` : full;
     });
 }
-async function openView(page, view, { count = 3, width = 1100 } = {}) {
+async function openView(page, view, { count = 3, width = 1100, beforeScript } = {}) {
     await page.setViewportSize({ width, height: 800 });
     const html = read('index.html').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
         .replace(/<div\s+id="deltamod-boot-root"[\s\S]*?<\/div>/, '')
@@ -105,6 +105,7 @@ async function openView(page, view, { count = 3, width = 1100 } = {}) {
         document.querySelectorAll('.sidebar-button').forEach(button => button.classList.toggle('active', button.dataset.page === view));
         window.Localization.apply(document.querySelector('.viewport'));
     }, {markup, view});
+    if (beforeScript) await beforeScript(page);
     await page.addScriptTag({path:path.join(web,`views/${view}/index.js`)});
     return page;
 }

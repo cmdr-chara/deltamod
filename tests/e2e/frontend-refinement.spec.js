@@ -187,3 +187,40 @@ test('navigation drops queued artwork and ignores late native results', async ({
     expect(await page.evaluate(()=>window.__resolvers.length)).toBe(4);
     expect(await page.locator('#lazy-0').getAttribute('src')).toMatch(/^data:/);
 });
+
+
+test('credits keep long contributor names readable at desktop widths', async ({page}, testInfo) => {
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    for (const width of [800, 1440, 1920]) {
+        await openView(page, 'credits', {width, beforeScript: async page => {
+            await page.evaluate(() => {
+                window.communityAPI.app = {version: async () => '2.0.18', openMaintainerProfile() {}};
+                const groups = ['Project owners and directors', 'Programmers', 'Artists & Musicians', 'Partners of the project', 'Special Thanks'];
+                window.fetch = async () => new Response(JSON.stringify({_aCredits: groups.map((name, index) => ({
+                    _sGroupName: name,
+                    _aAuthors: Array.from({length: index === 4 ? 4 : 2}, (_, person) => ({
+                        _sName: person ? 'MechanicalResonance1998 (KP)' : 'Community contributor',
+                        _sAvatarUrl: window.__placeholder
+                    }))
+                }))}), {status: 200});
+            });
+        }});
+        await expect(page.locator('.credit-group')).toHaveCount(5);
+        await expect(page.locator('.credit-person')).toHaveCount(12);
+        await page.evaluate(() => document.fonts.ready);
+        expect(await page.locator('.viewport').evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+        expect(await page.locator('.credit-person span').evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth + 1))).toBe(true);
+        await page.screenshot({path:testInfo.outputPath(`credits-${width}.png`)});
+    }
+    expect(errors).toEqual([]);
+});
+
+
+test('library keeps the production controls and renders clean headings', async ({page}, info) => {
+    await openView(page, 'allmods', {count: 0, width: 1920});
+    await expect(page.locator('#installedModsV2Preview')).toHaveCount(0);
+    await expect(page.locator('.page-heading h1')).toHaveCSS('text-shadow', 'none');
+    await expect(page.locator('#gamesShow')).toBeVisible();
+    await page.screenshot({path: info.outputPath('library-polished.png')});
+});

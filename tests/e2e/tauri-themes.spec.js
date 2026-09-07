@@ -38,6 +38,8 @@ test('Tauri theme catalogue renders, filters, and selects every built-in theme',
         window._onClosePage = [];
         window.genbtnstyles = () => {};
         window.themeRefresh = async () => {};
+        window.__replays = 0;
+        window.replayRoaringKnightTransition = () => { window.__replays += 1; };
         window.elisten = (element, event, handler) => element.addEventListener(event, handler);
         window.__language = 'en';
         window.Localization = {
@@ -116,6 +118,15 @@ test('Tauri theme catalogue renders, filters, and selects every built-in theme',
     await expect(page.locator('.theme-card.is-current')).toHaveCount(1);
     await expect(page.locator(`.theme-card[data-theme-id="${selectedId}"]`)).toHaveClass(/is-current/);
     expect(await page.evaluate(() => window.__pageCalls)).toBe(0);
+
+    const knight = page.locator('.theme-card[data-theme-id="the-knight"]');
+    await expect(knight.locator('.theme-replay-event')).toBeHidden();
+    await knight.locator('.theme-select-button').click();
+    await expect(knight.locator('.theme-replay-event')).toBeVisible();
+    await knight.locator('.theme-replay-event').click();
+    expect(await page.evaluate(() => window.__replays)).toBe(1);
+    await page.locator('.theme-card[data-theme-id="base"] .theme-select-button').click();
+    await expect(knight.locator('.theme-replay-event')).toBeHidden();
 
     await page.locator('#open-theme-import').click();
     await expect(page.locator('#theme-import-form')).toBeVisible();

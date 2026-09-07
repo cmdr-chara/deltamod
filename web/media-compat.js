@@ -149,7 +149,7 @@
         getMode: () => mode,
         setMode,
         usesReducedEffects: () => mode !== 'quality',
-        forcesPosterVideo: () => mode !== 'quality',
+        forcesPosterVideo: () => mode === 'performance',
         playNative,
         playNativeWhenReady,
         snapshot: () => Object.freeze({ mode, ...diagnostics })
@@ -179,6 +179,17 @@
         if (!absolute) return false;
         try {
             return supportedSchemes.has(new Url(absolute).protocol);
+        } catch {
+            return false;
+        }
+    }
+
+    function isLocalThemeVideo(element, source) {
+        if (!isThemeBackgroundVideo(element) || !root.location?.href) return false;
+        try {
+            const url = new Url(source, root.location.href);
+            const app = new Url(root.location.href);
+            return url.origin === app.origin && /^https?:$/.test(url.protocol);
         } catch {
             return false;
         }
@@ -423,7 +434,7 @@
         }
 
         const source = mediaSourceFor(this);
-        if (!needsCompatibilitySource(source)) {
+        if (!needsCompatibilitySource(source) && !isLocalThemeVideo(this, source)) {
             return nativePlay.apply(this, args);
         }
 
@@ -431,7 +442,11 @@
         const kind = mediaKind(this);
 
         if (kind === 'video') {
-            if (isThemeBackgroundVideo(this) && mode !== 'quality') {
+            // The bundled VP8 loop works without optional H.264/AAC plugins.
+            const portableLoop = /\.webm(?:[?#]|$)/i.test(absolute)
+                && Boolean(this.canPlayType?.('video/webm; codecs="vp8"'))
+                && !root.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+            if (isThemeBackgroundVideo(this) && (mode === 'performance' || (mode === 'auto' && !portableLoop))) {
                 diagnostics.videoBlocks += 1;
                 const error = posterVideoError(absolute);
                 diagnostics.lastError = error.code;

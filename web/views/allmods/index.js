@@ -352,7 +352,6 @@ async function createErroringMods(errors) {
     });
     const gamesShowSelect = document.getElementById('gamesShow');
     const modListElement = document.getElementById('modlist');
-    const previewButton = document.getElementById('installedModsV2Preview');
     if (!errorBanner || !gamesShowSelect || !modListElement) return;
     const isPageActive = () =>
         errorBanner.isConnected &&
@@ -361,10 +360,6 @@ async function createErroringMods(errors) {
 
     var loggedIn = await window.deltamodBackend.invoke('validateGamebananaToken', []);
     if (!isPageActive()) return;
-    previewButton?.addEventListener('click', () => {
-        window._pageArguments = {};
-        page('allmods-v2');
-    });
     const pageArguments = window._pageArguments || {};
     const selectedSpecID = pageArguments.specID;
 

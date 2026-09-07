@@ -186,6 +186,25 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(audio.dataset.deltamodOriginalMediaSource).toBe('themeprot://asset/ch6.mp3');
     });
 
+    it('retains the video blob across explicit loops and releases it on a source change', async () => {
+        const { root, FakeMediaElement, CompatibleURL } = linuxTauriRoot();
+        installMediaCompatibility(root);
+        root.location = {href: 'http://127.0.0.1:1430/index.html'};
+        const video = themeVideo(FakeMediaElement);
+        video.src = 'http://127.0.0.1:1430/themes/video/the-knight.webm';
+        video.dataset.source = video.src;
+        video.dataset.deltamodRetainMediaBlob = 'true';
+        for (let i = 0; i < 3; i++) {
+            await video.play();
+            video.emit('ended');
+        }
+        expect(root.fetch).toHaveBeenCalledTimes(1);
+        expect(CompatibleURL.revokeObjectURL).not.toHaveBeenCalled();
+        video.src = 'themeprot://asset/other.webm';
+        await video.play();
+        expect(CompatibleURL.revokeObjectURL).toHaveBeenCalledWith('blob:deltamod-media-1');
+    });
+
     it('releases one-shot non-shared media blobs after playback ends', async () => {
         const { root, FakeMediaElement, CompatibleURL } = linuxTauriRoot();
         installMediaCompatibility(root);
@@ -209,7 +228,7 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(CompatibleURL.revokeObjectURL).toHaveBeenCalledWith('blob:deltamod-media-1');
     });
 
-    it('blocks theme background video immediately in auto mode', async () => {
+    it('blocks legacy MP4 theme background video in auto mode', async () => {
         const { root, FakeMediaElement, CompatibleURL, nativePlay } = linuxTauriRoot();
         installMediaCompatibility(root);
         const video = themeVideo(FakeMediaElement);
@@ -221,7 +240,7 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(root.fetch).not.toHaveBeenCalled();
         expect(CompatibleURL.createObjectURL).not.toHaveBeenCalled();
         expect(nativePlay).not.toHaveBeenCalled();
-        expect(root.DeltamodLinuxCompat.forcesPosterVideo()).toBe(true);
+        expect(root.DeltamodLinuxCompat.forcesPosterVideo()).toBe(false);
         expect(root.DeltamodLinuxCompat.snapshot().videoBlocks).toBe(1);
     });
 
@@ -368,4 +387,44 @@ describe('Linux WebKitGTK compatibility', () => {
         expect(css).toContain('color-scheme: dark;');
         expect(css).toContain('-webkit-appearance: none;');
     });
+});
+
+
+describe('portable Knight loop', () => {
+    it('plays VP8 WebM through the Blob bridge in Auto mode', async () => {
+        const {root, FakeMediaElement, nativePlay} = linuxTauriRoot();
+        installMediaCompatibility(root);
+        const video = themeVideo(FakeMediaElement);
+        video.src = 'tauri://localhost/themes/video/the-knight.webm';
+        video.dataset.source = video.src;
+        await expect(video.play()).resolves.toBe('played');
+        expect(nativePlay).toHaveBeenCalledOnce();
+        expect(root.DeltamodLinuxCompat.snapshot().videoBlobLoads).toBe(1);
+    });
+    it.each(['performance', 'reduced-motion'])('keeps portable video still for %s', async setting => {
+        const {root, FakeMediaElement, nativePlay} = linuxTauriRoot({mode: setting === 'performance' ? setting : 'auto'});
+        root.matchMedia = () => ({matches: setting === 'reduced-motion'});
+        installMediaCompatibility(root);
+        const video = themeVideo(FakeMediaElement);
+        video.src = 'tauri://localhost/themes/video/the-knight.webm';
+        video.dataset.source = video.src;
+        await expect(video.play()).rejects.toMatchObject({code:'DELTAMOD_LINUX_THEME_VIDEO_DISABLED'});
+        expect(nativePlay).not.toHaveBeenCalled();
+    });
+});
+
+
+it('buffers same-origin development-server theme video for reliable looping', async () => {
+    const {root, FakeMediaElement, nativePlay} = linuxTauriRoot();
+    root.location = {href:'http://127.0.0.1:1430/index.html'};
+    installMediaCompatibility(root);
+    const video = themeVideo(FakeMediaElement);
+    video.src = 'http://127.0.0.1:1430/themes/video/the-knight.webm';
+    video.dataset.source = video.src;
+    await expect(video.play()).resolves.toBe('played');
+    expect(video.src).toBe('blob:deltamod-media-1');
+    expect(root.fetch).toHaveBeenCalledOnce();
+    await video.play();
+    expect(root.fetch).toHaveBeenCalledOnce();
+    expect(nativePlay).toHaveBeenCalledTimes(2);
 });
