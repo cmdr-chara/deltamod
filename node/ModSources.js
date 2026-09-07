@@ -10,6 +10,7 @@ const { fetchWithValidatedRedirects, validateRemoteUrl } = require('./security/R
 const ProviderId = z.enum(['gamebanana', 'nexus', 'moddb']);
 const BrowseRequest = z.object({
     provider: ProviderId,
+    gameId: z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9._-]+$/).optional(),
     query: z.string().trim().max(120).optional().default(''),
     sort: z.enum(['latest_added', 'latest_updated', 'trending']).optional().default('latest_added')
 });

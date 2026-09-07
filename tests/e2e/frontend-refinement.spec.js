@@ -141,7 +141,6 @@ test('shop suggestions debounce, encode the query, use the current game and supp
         menu.className = 'results';
         document.querySelector('.mod-search-toolbar').append(menu);
         window.__suggestions = [];
-        window.deltamodBackend.invoke = async () => ({gamebanana:{id:1234}});
         window.fetch = async (url, options) => {
             window.__suggestions.push({url,aborted:options.signal.aborted});
             return new Response(JSON.stringify(['Forest & friends','Forest redux']));
@@ -152,6 +151,7 @@ test('shop suggestions debounce, encode the query, use the current game and supp
     await page.addScriptTag({content:`(() => {
         const searchel=document.querySelector('#searchInput'),autocomplete=document.querySelector('.results'),clearSearchButton=document.querySelector('#clear-mod-search');
         const SHOP_PROVIDER='gamebanana',isCurrentShopPage=()=>true,syncSearchClearButton=()=>{};
+        const currentShopGameBananaId=()=>1234;
         const search=query=>{window.__selectedSuggestion=query;};
         ${behavior}
     })();`});
