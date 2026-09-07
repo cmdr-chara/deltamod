@@ -23,9 +23,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base64 --decode .github/linux-modshop-fix.patch.gz.b64 | gzip -dc > /tmp/linux-modshop-fix.patch
+          cat .github/shopfix-parts/p0* | base64 --decode | gzip -dc > /tmp/linux-modshop-fix.patch
           git apply --check /tmp/linux-modshop-fix.patch
           git apply /tmp/linux-modshop-fix.patch
+          rm -rf .github/shopfix-parts
           rm -f .github/linux-modshop-fix.patch.gz.b64
           rm -f .github/workflows/apply-linux-modshop-fix.yml
           git add -A
