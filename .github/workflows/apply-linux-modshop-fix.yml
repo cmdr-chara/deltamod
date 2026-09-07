@@ -1,0 +1,61 @@
+name: Apply Linux Mod Shop fix
+
+on:
+  push:
+    branches: [frontend-refinement]
+    paths:
+      - '.github/workflows/apply-linux-modshop-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Decode and apply reviewed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .github/linux-modshop-fix.patch.gz.b64 | gzip -dc > /tmp/linux-modshop-fix.patch
+          git apply --check /tmp/linux-modshop-fix.patch
+          git apply /tmp/linux-modshop-fix.patch
+          rm -f .github/linux-modshop-fix.patch.gz.b64
+          rm -f .github/workflows/apply-linux-modshop-fix.yml
+          git add -A
+          git diff --cached --check
+
+      - name: JavaScript syntax checks
+        run: |
+          node --check web/views/gamebanana-browse/index.js
+          node --check node/ModSources.js
+          node --check node/IPCHandlers.js
+          node --check tests/provider-shop-wiring.test.js
+          node --check tests/mod-sources.test.js
+          node --check tests/e2e/frontend-refinement.spec.js
+
+      - name: Install dependencies
+        run: node scripts/retry-command.js --label "npm ci" -- npm ci
+
+      - name: Focused Mod Shop tests
+        run: npx vitest run tests/provider-shop-wiring.test.js tests/mod-sources.test.js tests/frontend-refinements.test.js
+
+      - name: Typecheck and boot build
+        run: |
+          npm run typecheck
+          npm run build:boot
+
+      - name: Commit Linux Mod Shop fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(mod-shop): make catalogue browsing reliable on Linux'
+          git push origin HEAD:frontend-refinement
