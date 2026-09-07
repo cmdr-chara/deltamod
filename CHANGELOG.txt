@@ -1,3 +1,12 @@
+# Deltamod Community 2.0.19
+
+Released 2026-09-07.
+
+## Changes
+
+- docs: make GitHub landing experience player-first (#57) (`30fcbc3`).
+- Complete the original Deltamod desktop refinement and Linux/Tauri hardening (#59) (`6a980ec`).
+
 # Deltamod Community 2.0.18
 
 Planned stable release.
