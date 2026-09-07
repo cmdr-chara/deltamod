@@ -13,7 +13,7 @@ sevenz-rust2 = { version = "=0.22.2", default-features = false, features = ["bzi
 tar = { version = "=0.4.46", default-features = false }
 tempfile = "=3.27.0"
 thiserror = "=2.0.20"
-toml = "=1.1.4"
+toml = "=1.1.5"
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "=8.6.0", default-features = false, features = ["deflate", "deflate64", "bzip2", "zstd"] }
