@@ -1,5 +1,6 @@
 use crate::{error, state::AppState};
 use deltamod_patching_runtime::{Compatibility, RequiredFile};
+use deltamod_product_contracts::{PreflightTransactionRoot, ValidatedRelativePath};
 use deltamod_profile_install_runtime::MAX_LEGACY_INSTALLATION_INDEX;
 use deltamod_tools_runtime::{verify_tool, ToolKind};
 use serde_json::{json, Value};
@@ -188,6 +189,111 @@ fn directory_size(root: &Path) -> u64 {
     total
 }
 
+fn variant_relative_path(value: &str) -> Option<ValidatedRelativePath> {
+    let path = ValidatedRelativePath::parse(value).ok()?;
+    // These are literal filenames; marker readers trim surrounding whitespace.
+    (path.as_str() == value && value.trim() == value).then_some(path)
+}
+
+fn legacy_variants(manifest: &toml::Value) -> Value {
+    let Some(declared) = manifest.get("variants").and_then(toml::Value::as_array) else {
+        return Value::Null;
+    };
+    let mut seen = BTreeSet::new();
+    let variants = declared
+        .iter()
+        .filter_map(|variant| {
+            let filename = variant.get("filename")?.as_str()?;
+            variant_relative_path(filename)?;
+            let name = variant.get("name")?.as_str()?;
+            if name.is_empty() || !seen.insert(filename) {
+                return None;
+            }
+            Some(json!({"filename": filename, "name": name}))
+        })
+        .collect::<Vec<_>>();
+    if variants.is_empty() {
+        Value::Null
+    } else {
+        json!(variants)
+    }
+}
+
+fn selected_packet_variant(root: &Path) -> Option<String> {
+    let root = PreflightTransactionRoot::open(root).ok()?;
+    let marker = root.inspect(&variant_relative_path("__variant")?).ok()?;
+    let metadata = fs::symlink_metadata(&marker).ok()?;
+    if !metadata.is_file() || metadata.len() > 4096 {
+        return None;
+    }
+    let selected = fs::read_to_string(marker).ok()?.trim().to_owned();
+    variant_relative_path(&selected)?;
+    Some(selected)
+}
+
+fn set_mod_variant(state: &AppState, variant: &str, folder: &str) -> Result<(), String> {
+    const CHANNEL: &str = "setModVariant";
+    let mods = state
+        .mods_themes
+        .mods()
+        .list()
+        .map_err(|_| runtime_error(CHANNEL))?;
+    let modern = mods.iter().find(|record| record.folder.as_str() == folder);
+    let packets = legacy_mod_records(state);
+    let packet = packets
+        .iter()
+        .find(|record| record.get("folder").and_then(Value::as_str) == Some(folder));
+    match (modern, packet) {
+        (Some(record), None) => state
+            .mods_themes
+            .mods()
+            .set_variant(record.uid.as_str(), variant)
+            .map_err(|_| runtime_error(CHANNEL)),
+        (None, Some(packet)) => {
+            let folder_path = variant_relative_path(folder)
+                .filter(|path| !path.as_str().contains('/'))
+                .ok_or_else(|| error::invalid(CHANNEL))?;
+            let variant_path =
+                variant_relative_path(variant).ok_or_else(|| error::invalid(CHANNEL))?;
+            let declared = packet
+                .get("variants")
+                .and_then(Value::as_array)
+                .is_some_and(|variants| {
+                    variants
+                        .iter()
+                        .any(|entry| entry.get("filename").and_then(Value::as_str) == Some(variant))
+                });
+            if variant != "modding.xml" && !declared {
+                return Err(error::invalid(CHANNEL));
+            }
+            let packets_root =
+                PreflightTransactionRoot::open(&state.data_root.root.join("packets"))
+                    .map_err(|_| runtime_error(CHANNEL))?;
+            let packet_path = packets_root
+                .inspect(&folder_path)
+                .map_err(|_| error::invalid(CHANNEL))?;
+            let packet_root = PreflightTransactionRoot::open(&packet_path)
+                .map_err(|_| error::invalid(CHANNEL))?;
+            let manifest = packet_root
+                .inspect(&variant_path)
+                .map_err(|_| error::invalid(CHANNEL))?;
+            if !fs::symlink_metadata(manifest)
+                .map(|metadata| metadata.is_file())
+                .unwrap_or(false)
+            {
+                return Err(error::invalid(CHANNEL));
+            }
+            let marker = packet_root
+                .inspect(&variant_relative_path("__variant").expect("fixed marker path"))
+                .map_err(|_| error::invalid(CHANNEL))?;
+            deltamod_storage_domain::atomic_write_bytes(&marker, variant.as_bytes(), false)
+                .map_err(|_| runtime_error(CHANNEL))
+        }
+        // A folder name must identify one mod across the two supported stores.
+        _ => Err(error::invalid(CHANNEL)),
+    }
+}
+
 fn legacy_mod_records(state: &AppState) -> Vec<Value> {
     let root = state.data_root.root.join("packets");
     let Ok(entries) = fs::read_dir(&root) else {
@@ -277,7 +383,8 @@ fn legacy_mod_records(state: &AppState) -> Vec<Value> {
             "packageID": text("packageID", "und.und.und"),
             "size": ((directory_size(&path) as f64 / (1024.0 * 1024.0)) * 100.0).round() / 100.0,
             "mergeSupport": metadata.get("mergeSupport").and_then(toml::Value::as_bool).unwrap_or(true),
-            "variants": Value::Null,
+            "variants": legacy_variants(&manifest),
+            "_selectedVariant": selected_packet_variant(&path),
             "new": identity.get("new").and_then(Value::as_bool).unwrap_or(false),
             "gamebanana": {
                 "supports": gamebanana_id.is_some() && gamebanana_model.is_some(),
@@ -470,14 +577,10 @@ pub fn dispatch(state: &AppState, channel: &str, data: &[Value]) -> Result<Optio
             Ok(Some(Value::Null))
         }
         "setModVariant" => {
-            let uid = arg_string(data, 0, "setModVariant")?;
-            let variant = arg_string(data, 1, "setModVariant")?;
-            state
-                .mods_themes
-                .mods()
-                .set_variant(&uid, &variant)
-                .map_err(|_| runtime_error(channel))?;
-            Ok(Some(Value::Null))
+            let variant = arg_string(data, 0, "setModVariant")?;
+            let folder = arg_string(data, 1, "setModVariant")?;
+            set_mod_variant(state, &variant, &folder)?;
+            Ok(Some(json!(true)))
         }
         "removeMod" => {
             let uid = arg_string(data, 0, "removeMod")?;
@@ -648,7 +751,8 @@ pub fn dispatch(state: &AppState, channel: &str, data: &[Value]) -> Result<Optio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use std::{fs, io::Write};
+    use zip::write::SimpleFileOptions;
 
     fn state() -> (AppState, std::path::PathBuf) {
         let nonce = std::time::SystemTime::now()
@@ -781,6 +885,242 @@ mod tests {
         assert_eq!(record[0]["isIncompatible"], json!(false));
         assert_eq!(record[0]["incompatibilityReason"], json!(""));
         assert_eq!(record[0]["hashDifferentFiles"], json!([]));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn import_variant_packet(state: &AppState, root: &Path) -> std::path::PathBuf {
+        let archive_path = root.join("variants.zip");
+        let mut archive = zip::ZipWriter::new(fs::File::create(&archive_path).unwrap());
+        let manifest = r#"
+[metadata]
+name = "Variant fixture"
+version = "1.0"
+packageID = "example.mod"
+game = "toby.deltarune"
+
+[[variants]]
+filename = "modding.xml"
+name = "Default"
+
+[[variants]]
+filename = "variants/alternate.xml"
+name = "Alternate"
+
+[[variants]]
+filename = " alternate.xml"
+name = "Leading whitespace"
+"#;
+        for (name, contents) in [
+            ("meta.toml", manifest),
+            (
+                "modding.xml",
+                r#"<mod><patch type="copy" patch="default.dat" to="choice.dat"/></mod>"#,
+            ),
+            (
+                "variants/alternate.xml",
+                r#"<mod><patch type="copy" patch="alternate.dat" to="choice.dat"/></mod>"#,
+            ),
+            (
+                " alternate.xml",
+                r#"<mod><patch type="copy" patch="alternate.dat" to="choice.dat"/></mod>"#,
+            ),
+            ("default.dat", "default"),
+            ("alternate.dat", "alternate"),
+        ] {
+            archive
+                .start_file(name, SimpleFileOptions::default())
+                .unwrap();
+            archive.write_all(contents.as_bytes()).unwrap();
+        }
+        archive.finish().unwrap();
+        deltamod_archive_import_runtime::import_archive_with_source(
+            &archive_path,
+            &state.data_root.root.join("packets"),
+            deltamod_archive_import_runtime::Limits::default(),
+            None,
+            || false,
+            |_| deltamod_archive_import_runtime::DuplicateDecision::Cancel,
+        )
+        .unwrap()
+        .destination
+    }
+
+    #[test]
+    fn imported_packet_variant_round_trips_through_renderer_channels_and_patching() {
+        let (state, root) = state();
+        let packet = import_variant_packet(&state, &root);
+        let list = dispatch(&state, "getModListFull", &[]).unwrap().unwrap();
+        let record = &list[0];
+        assert_eq!(record["folder"], json!("example.mod"));
+        assert_eq!(record["_selectedVariant"], Value::Null);
+        assert_eq!(
+            record["variants"][1],
+            json!({"filename":"variants/alternate.xml","name":"Alternate"})
+        );
+        let uid = record["uid"].as_str().unwrap().to_owned();
+        assert_eq!(
+            dispatch(
+                &state,
+                "setModVariant",
+                &[
+                    record["variants"][1]["filename"].clone(),
+                    record["folder"].clone()
+                ],
+            )
+            .unwrap(),
+            Some(json!(true))
+        );
+        assert_eq!(
+            fs::read_to_string(packet.join("__variant")).unwrap(),
+            "variants/alternate.xml"
+        );
+        drop(state);
+
+        let reopened = AppState::initialize(root.join("data"), root.join("resource")).unwrap();
+        let refreshed = dispatch(&reopened, "getModList", &[]).unwrap().unwrap();
+        assert_eq!(
+            refreshed["modList"][0]["_selectedVariant"],
+            json!("variants/alternate.xml")
+        );
+        // The selected variant must remain usable independently of the default
+        // XML: the patch planner consumes the marker written by this channel.
+        fs::write(packet.join("modding.xml"), "<invalid").unwrap();
+        fs::create_dir_all(&reopened.patching.game_root).unwrap();
+        assert!(reopened.patching.build_plan(&[uid]).is_ok());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn packet_variant_rejections_preserve_the_current_selection() {
+        let (state, root) = state();
+        let packet = import_variant_packet(&state, &root);
+        assert_eq!(
+            dispatch(
+                &state,
+                "setModVariant",
+                &[json!("modding.xml"), json!("example.mod")]
+            )
+            .unwrap(),
+            Some(json!(true))
+        );
+        for variant in [
+            "../outside.xml",
+            "%2e%2e/outside.xml",
+            "variants\\alternate.xml",
+            "/outside.xml",
+            "C:/outside.xml",
+            "variants/alternate.xml:stream",
+            "variants//alternate.xml",
+            "variants/undeclared.xml",
+            "",
+        ] {
+            assert!(
+                dispatch(
+                    &state,
+                    "setModVariant",
+                    &[json!(variant), json!("example.mod")],
+                )
+                .is_err(),
+                "{variant}"
+            );
+        }
+        for folder in [
+            "../example.mod",
+            "example.mod/..",
+            "example.mod/",
+            "missing",
+        ] {
+            assert!(
+                dispatch(
+                    &state,
+                    "setModVariant",
+                    &[json!("modding.xml"), json!(folder)],
+                )
+                .is_err(),
+                "{folder}"
+            );
+        }
+        assert_eq!(
+            fs::read_to_string(packet.join("__variant")).unwrap(),
+            "modding.xml"
+        );
+        // Packets without explicit variants still support the conventional default.
+        fs::write(
+            packet.join("meta.toml"),
+            "[metadata]\nname='Default only'\npackageID='example.mod'\n",
+        )
+        .unwrap();
+        assert!(dispatch(
+            &state,
+            "setModVariant",
+            &[json!("modding.xml"), json!("example.mod")],
+        )
+        .is_ok());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn declared_variant_with_leading_whitespace_cannot_change_selection() {
+        let (state, root) = state();
+        let packet = import_variant_packet(&state, &root);
+        assert!(packet.join(" alternate.xml").is_file());
+        let list = dispatch(&state, "getModListFull", &[]).unwrap().unwrap();
+        assert_eq!(list[0]["variants"].as_array().unwrap().len(), 2);
+        dispatch(
+            &state,
+            "setModVariant",
+            &[json!("modding.xml"), json!("example.mod")],
+        )
+        .unwrap();
+
+        assert!(dispatch(
+            &state,
+            "setModVariant",
+            &[json!(" alternate.xml"), json!("example.mod")],
+        )
+        .is_err());
+
+        assert_eq!(
+            fs::read_to_string(packet.join("__variant")).unwrap(),
+            "modding.xml"
+        );
+        let refreshed = dispatch(&state, "getModListFull", &[]).unwrap().unwrap();
+        assert_eq!(refreshed[0]["_selectedVariant"], json!("modding.xml"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn modern_variant_channel_resolves_folder_to_uid_and_preserves_selection() {
+        let (state, root) = state();
+        let mod_dir = state.data_root.root.join("mods").join("different-folder");
+        fs::create_dir(&mod_dir).unwrap();
+        fs::write(
+            mod_dir.join("manifest.json"),
+            r#"{"uid":"mod-a","name":"A","variants":[{"id":"default","label":"Default"},{"id":"alternate","label":"Alternate"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            dispatch(
+                &state,
+                "setModVariant",
+                &[json!("alternate"), json!("different-folder")],
+            )
+            .unwrap(),
+            Some(json!(true))
+        );
+        assert!(dispatch(
+            &state,
+            "setModVariant",
+            &[json!("undeclared"), json!("different-folder")],
+        )
+        .is_err());
+        drop(state);
+        let reopened = AppState::initialize(root.join("data"), root.join("resource")).unwrap();
+        let list = dispatch(&reopened, "getModListFull", &[]).unwrap().unwrap();
+        assert_eq!(list[0]["uid"], json!("mod-a"));
+        assert_eq!(list[0]["_selectedVariant"], json!("alternate"));
+        assert_eq!(list[0]["variants"][1]["filename"], json!("alternate"));
+        assert_eq!(list[0]["variants"][1]["id"], json!("alternate"));
         let _ = fs::remove_dir_all(root);
     }
 

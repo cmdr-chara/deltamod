@@ -208,6 +208,17 @@
     color: var(--muted-text);
 }
 
+.shop-page-retry td {
+    padding: 18px 24px;
+    text-align: center;
+}
+
+.shop-page-retry p {
+    margin: 0 auto 12px;
+    max-width: 64ch;
+    color: var(--muted-text);
+}
+
 @media (max-width: 1100px) {
     .tspandiv {
         flex-wrap: wrap;

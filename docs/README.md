@@ -9,6 +9,7 @@ These documents describe release, packaging, and platform-boundary contracts:
 - [Tauri migration boundary](./TAURI-MIGRATION-BOUNDARY.md)
 - [Bundled UNDERTALE theme sources](./UNDERTALE-THEME-RECIPES.md)
 - [Desktop runtime benchmark](../benchmarks/desktop/README.md)
+- [Desktop workflow reliability](./desktop-workflow-reliability.md)
 
 User-facing contribution, support, security, licensing, and release-note files
 remain at the repository root so GitHub and package tooling can discover them.
