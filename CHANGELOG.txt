@@ -1,3 +1,11 @@
+# Deltamod Community 2.0.20
+
+Released 2026-09-08.
+
+## Changes
+
+- fix(desktop): harden mod workflows and recovery (#72) (`291ead1`).
+
 # Deltamod Community 2.0.18
 
 Planned stable release.
