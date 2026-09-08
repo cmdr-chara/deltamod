@@ -2,6 +2,7 @@ use crate::{error, state::AppState};
 use deltamod_archive_import_runtime::{
     import_archive_with_source, DuplicateDecision, ImportError, LegacySourceMetadata, Limits,
 };
+use deltamod_game_download_runtime::CancellationToken;
 use deltamod_network_runtime::import_download::{
     validate_download_url, DownloadPolicy, HostAllowlist,
 };
@@ -9,7 +10,7 @@ use deltamod_tauri_os_adapters::{
     validate_dialog_selection, ChoiceBackend, DialogBackend, DialogFilter, DialogRequest,
 };
 use serde_json::{json, Value};
-use std::{cell::RefCell, fs};
+use std::{cell::RefCell, collections::HashMap, fs};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::watch;
 use uuid::Uuid;
@@ -544,6 +545,32 @@ fn download_game(app: &AppHandle, state: &AppState, data: &[Value]) -> Result<Va
     }
 }
 
+fn cancel_game_download(
+    operations: &HashMap<String, CancellationToken>,
+    data: &[Value],
+) -> Result<Option<Value>, String> {
+    let operation = data
+        .first()
+        .ok_or_else(|| error::invalid("cancelGameImport"))?;
+    // Local copies emit numeric IDs and are owned by workflows::dispatch.
+    if operation.as_u64().is_some() {
+        return Ok(None);
+    }
+    let operation_id = operation
+        .as_str()
+        .ok_or_else(|| error::invalid("cancelGameImport"))?;
+    if let Some(token) = operations.get(operation_id) {
+        token.cancel();
+        Ok(Some(json!(true)))
+    } else if operation_id.parse::<u64>().is_ok() {
+        Ok(None)
+    } else {
+        // Downloads can finish between their final progress event and a cancel
+        // click. Preserve the existing no-op response for an expired token.
+        Ok(Some(json!(false)))
+    }
+}
+
 /// Isolated legacy channel adapter. Integration must place this before `workflows::dispatch`,
 /// which currently returns an unavailable error for `importMod` and `dlmodURL`.
 pub fn dispatch<D: DialogBackend + ChoiceBackend>(
@@ -558,20 +585,11 @@ pub fn dispatch<D: DialogBackend + ChoiceBackend>(
         "dlmodURL" => download_mod(app, _state, dialogs, data).map(Some),
         "downloadGame" => download_game(app, _state, data).map(Some),
         "cancelGameImport" => {
-            let operation_id = data
-                .first()
-                .and_then(Value::as_str)
-                .ok_or_else(|| error::invalid("cancelGameImport"))?;
             let operations = _state
                 .game_download_cancellations
                 .lock()
                 .map_err(|_| error::internal())?;
-            if let Some(token) = operations.get(operation_id) {
-                token.cancel();
-                Ok(Some(json!(true)))
-            } else {
-                Ok(None)
-            }
+            cancel_game_download(&operations, data)
         }
         _ => Ok(None),
     }
@@ -604,6 +622,46 @@ mod tests {
         assert!(!valid_operation_id(""));
         assert!(!valid_operation_id("has-dash"));
         assert!(!valid_operation_id(&"a".repeat(33)));
+    }
+
+    #[test]
+    fn copy_cancellation_ids_pass_through_without_cancelling_downloads() {
+        let token = CancellationToken::default();
+        let operations = HashMap::from([(Uuid::new_v4().to_string(), token.clone())]);
+        for operation in [json!(1), json!("1"), json!(0), json!(u64::MAX)] {
+            assert_eq!(cancel_game_download(&operations, &[operation]), Ok(None));
+            assert!(!token.is_cancelled());
+        }
+    }
+
+    #[test]
+    fn download_cancellation_targets_only_the_registered_uuid() {
+        let id = Uuid::new_v4().to_string();
+        let selected = CancellationToken::default();
+        let other = CancellationToken::default();
+        let operations = HashMap::from([
+            (id.clone(), selected.clone()),
+            (Uuid::new_v4().to_string(), other.clone()),
+        ]);
+        assert_eq!(
+            cancel_game_download(&operations, &[json!(id)]),
+            Ok(Some(json!(true)))
+        );
+        assert!(selected.is_cancelled());
+        assert!(!other.is_cancelled());
+        assert_eq!(
+            cancel_game_download(&operations, &[json!(Uuid::new_v4().to_string())]),
+            Ok(Some(json!(false)))
+        );
+    }
+
+    #[test]
+    fn malformed_cancellation_ids_are_rejected() {
+        let operations = HashMap::new();
+        assert!(cancel_game_download(&operations, &[]).is_err());
+        for operation in [json!(-1), json!(1.5), json!(null), json!([]), json!({})] {
+            assert!(cancel_game_download(&operations, &[operation]).is_err());
+        }
     }
 
     #[test]

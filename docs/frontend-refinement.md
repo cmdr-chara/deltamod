@@ -33,6 +33,9 @@ There is no replacement shell, UI framework, Rust migration or dependency upgrad
 
 ## Verification
 
+Follow-up workflow recovery and platform verification are recorded in
+[Desktop workflow reliability](desktop-workflow-reliability.md).
+
 ```sh
 npm ci
 npm run typecheck
@@ -58,8 +61,8 @@ before review; the branch can be discarded without changing application data.
 
 ```sh
 git fetch origin
-git switch frontend-refinement
-git pull --ff-only origin frontend-refinement
+git switch DeltaMaster
+git pull --ff-only origin DeltaMaster
 npm ci
 npm run tauri:dev
 ```

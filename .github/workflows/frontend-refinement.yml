@@ -4,13 +4,17 @@ on:
   pull_request:
     paths: ['web/**', 'tests/**', 'scripts/tauri-parity/fixtures/test-classification.json', '.github/workflows/frontend-refinement.yml']
   push:
-    branches: [frontend-refinement]
+    branches: [DeltaMaster]
     paths: ['web/**', 'tests/**', '.github/workflows/frontend-refinement.yml']
 permissions:
   contents: read
 jobs:
   frontend:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
@@ -28,12 +32,12 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - name: Original UI behavior and theme contracts
-        run: npx playwright test tests/e2e/frontend-refinement.spec.js tests/e2e/tauri-themes.spec.js tests/e2e/tauri-localization.spec.js
+        run: npx playwright test tests/e2e/frontend-refinement.spec.js tests/e2e/frontend-workflow-reliability.spec.js tests/e2e/shop-recovery.spec.js tests/e2e/tauri-themes.spec.js tests/e2e/tauri-localization.spec.js
       - name: UI evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: original-frontend-evidence
+          name: original-frontend-evidence-${{ matrix.os }}
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore

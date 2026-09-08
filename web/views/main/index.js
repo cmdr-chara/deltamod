@@ -32,8 +32,40 @@ const launchButton = document.getElementById('par');
 launchButton.disabled = true;
 let listReady = false;
 let launching = false;
+let pageActive = true;
 var noMergeMods = [];
-const pendingWrites = new Set();
+// Native writes can outlive the visit that started them. A later Home visit
+// must wait before reading its configuration or enabling launch.
+const pendingWrites = window._homeConfigurationWrites || (window._homeConfigurationWrites = new Set());
+const unsavedVariants = new Set();
+const pageArguments = window._pageArguments;
+window._onClosePage.push(() => { pageActive = false; });
+
+function pageIsActive() {
+    return pageActive && window.pageN === 'main' && pageTable.isConnected && launchButton.isConnected;
+}
+
+function hasUnsavedEnabledVariants() {
+    return Array.from(unsavedVariants).some(select =>
+        select.closest('.modrow')?.querySelector('.patch-toggle input')?.checked
+    );
+}
+
+function syncLaunchButton() {
+    if (pageIsActive()) {
+        launchButton.disabled = !listReady || pendingWrites.size > 0 || hasUnsavedEnabledVariants() || launching;
+    }
+}
+
+function configurationWrite(save) {
+    const write = Promise.resolve().then(save);
+    pendingWrites.add(write);
+    syncLaunchButton();
+    return write.finally(() => {
+        pendingWrites.delete(write);
+        syncLaunchButton();
+    });
+}
 
 function adaptForIconsA(elem) {
     elem.style.display = 'inline-flex';
@@ -225,15 +257,28 @@ async function createMod(mod, modListElement) {
             variantSelect.appendChild(option);
         }
         if (variantSelect.children.length != 0) {
-            variantSelect.onchange = e => {
-                const selectedVariant = variantSelect.value;
-                window.deltamodBackend.invoke('setModVariant', [selectedVariant, mod.folder]);
-            };
-            variantSelect.value = mod._selectedVariant || mod.variants[0].filename;
-            if (mod._selectedVariant == null || !mod.variants.some(v => v.filename === mod._selectedVariant)) {
-                window.deltamodBackend.invoke('setModVariant', [mod.variants[0].filename, mod.folder]);
-            }
+            const values = Array.from(variantSelect.options, option => option.value);
+            let savedVariant = values.includes(mod._selectedVariant) ? mod._selectedVariant : null;
+            variantSelect.setAttribute('aria-label', `${mod.name}: ${t('allmods_variants', '{0} variants', values.length)}`);
+            variantSelect.value = savedVariant ?? values[0];
             infoContainer.appendChild(variantSelect);
+            const saveVariant = selectedVariant => configurationWrite(async () => {
+                if (!pageIsActive()) return;
+                const saved = await window.FrontendRefinements.saveControl(
+                    variantSelect,
+                    () => window.deltamodBackend.invoke('setModVariant', [selectedVariant, mod.folder]),
+                    () => { variantSelect.value = savedVariant ?? ''; }
+                );
+                if (saved) {
+                    savedVariant = selectedVariant;
+                    unsavedVariants.delete(variantSelect);
+                }
+            });
+            variantSelect.onchange = () => saveVariant(variantSelect.value);
+            if (savedVariant === null) {
+                unsavedVariants.add(variantSelect);
+                saveVariant(variantSelect.value);
+            }
         }
     }
 
@@ -254,29 +299,30 @@ async function createMod(mod, modListElement) {
         enabled.id = `modcheck-${mod.uid}`;
         enabled.setAttribute('aria-label', `Enable ${mod.name}`);
         enabled.checked = await window.deltamodBackend.invoke('getModState', [mod.uid]);
+        if (!pageIsActive()) return null;
         modRow.classList.toggle('is-enabled', enabled.checked);
         enabled.onchange = async e => {
+            if (!pageIsActive()) return;
             const c = e.target;
             const isEnabled = c.checked;
             const forMod = mod.uid;
 
             modRow.classList.toggle('is-enabled', isEnabled);
             enabled.disabled = true;
-            const write = window.deltamodBackend.invoke("toggleModState", [forMod, isEnabled]);
-            pendingWrites.add(write);
-            launchButton.disabled = true;
-            try {
-                await write;
-            } catch (error) {
-                enabled.checked = !isEnabled;
-                modRow.classList.toggle('is-enabled', enabled.checked);
-                await htmlAlert(t('refine_save_failed', 'Not saved. Try again.'), String(error?.message || error),
-                    [{ text: t('allmods_ok', 'OK'), resolveWith: 'ok' }]);
-            } finally {
-                pendingWrites.delete(write);
-                enabled.disabled = false;
-                launchButton.disabled = !listReady || pendingWrites.size > 0;
-            }
+            await configurationWrite(async () => {
+                try {
+                    await window.deltamodBackend.invoke("toggleModState", [forMod, isEnabled]);
+                } catch (error) {
+                    enabled.checked = !isEnabled;
+                    modRow.classList.toggle('is-enabled', enabled.checked);
+                    if (pageIsActive()) {
+                        await htmlAlert(t('refine_save_failed', 'Not saved. Try again.'), String(error?.message || error),
+                            [{ text: t('allmods_ok', 'OK'), resolveWith: 'ok' }]);
+                    }
+                } finally {
+                    enabled.disabled = false;
+                }
+            });
         };
 
         let toggleTrack = document.createElement('span');
@@ -359,35 +405,35 @@ function loadInst(index) {
 
 (async () => {
     const errorBanner = document.getElementById("error-banner");
+    const modListElement = pageTable;
+    const sortWay = document.getElementById('sortWay');
+    const pageRoot = pageTable.closest('.mods-page');
     errorBanner.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); errorBanner.click(); }
     });
 
+    if (pendingWrites.size > 0) {
+        await Promise.allSettled(Array.from(pendingWrites));
+        if (!pageIsActive()) return;
+    }
     var { modList, errors } = (await window.deltamodBackend.invoke('getModList', []));
-    const modListElement = document.getElementById('modlist');
-    const sortWay = document.getElementById('sortWay');
-    const pageIsActive = () => (
-        window.pageN === 'main'
-        && modListElement?.isConnected
-        && sortWay?.isConnected
-    );
     if (!pageIsActive()) return;
 
-    if (window._pageArguments && window._pageArguments.sortfunc && window._pageArguments.sortid) {
-        modList = modList.sort(window._pageArguments.sortfunc);
-        sortWay.value = window._pageArguments.sortid;
+    if (pageArguments?.sortfunc && pageArguments?.sortid) {
+        modList = modList.sort(pageArguments.sortfunc);
+        sortWay.value = pageArguments.sortid;
     }
     else {
         // sort by name ascending by default
         modList = modList.sort((a, b) => a.name.localeCompare(b.name));
     }
     const tableTools = window.FrontendRefinements.tableTools(modListElement, {
-        input: document.getElementById('mod-search'),
-        clear: document.getElementById('clear-mod-search'),
-        count: document.getElementById('mod-search-count'),
+        input: pageRoot.querySelector('#mod-search'),
+        clear: pageRoot.querySelector('#clear-mod-search'),
+        count: pageRoot.querySelector('#mod-search-count'),
         sort: sortWay
     });
-    document.querySelector('.mod-search-toolbar').hidden = modList.length === 0;
+    pageRoot.querySelector('.mod-search-toolbar').hidden = modList.length === 0;
     for (const x of modList.filter(x => !x.isIncompatible)) {
         const row = await createMod(x, modListElement);
         if (!pageIsActive()) return;
@@ -466,20 +512,22 @@ function loadInst(index) {
         //document.getElementById('par').innerText = 'Run without patches';
     }
 
-    window._pageArguments = null;
+    if (window._pageArguments === pageArguments) window._pageArguments = null;
 
     genbtnstyles();
     pageTable.closest('table').setAttribute('aria-busy', 'false');
     listReady = true;
-    launchButton.disabled = !listReady || pendingWrites.size > 0;
-})().catch(error => window.FrontendRefinements.showListError(pageTable, error));
+    syncLaunchButton();
+})().catch(error => {
+    if (pageIsActive()) window.FrontendRefinements.showListError(pageTable, error);
+});
 
 async function patchAndRun() {
-    if (!listReady || pendingWrites.size || launching) return;
+    if (!pageIsActive() || !listReady || pendingWrites.size || hasUnsavedEnabledVariants() || launching) return;
     launching = true;
     launchButton.disabled = true;
     try {
-    var allChecks = Array.from(document.querySelectorAll('input[type="checkbox"]')).filter(cb => cb.id.startsWith('modcheck-'));
+    var allChecks = Array.from(pageTable.querySelectorAll('input[type="checkbox"]')).filter(cb => cb.id.startsWith('modcheck-'));
     var selectedMods = allChecks.filter(cb => cb.checked).map(cb => cb.id.replace('modcheck-', ''));
     console.log('Selected mods:', selectedMods);
 
@@ -497,7 +545,7 @@ async function patchAndRun() {
             goOn = false;
         }
     }
-    if (!goOn) return;
+    if (!goOn || !pageIsActive()) return;
 
     if (selectedMods.length === 0) {
         await window.deltamodBackend.invoke('startGame', []);
@@ -511,7 +559,7 @@ async function patchAndRun() {
             [{ text: t('allmods_ok', 'OK'), resolveWith: 'ok' }]);
     } finally {
         launching = false;
-        if (launchButton.isConnected) launchButton.disabled = !listReady || pendingWrites.size > 0;
+        syncLaunchButton();
     }
 }
 

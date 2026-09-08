@@ -262,12 +262,22 @@ impl ModService {
     pub fn list_json(&self) -> Result<Value> {
         let records = self.list()?;
         let root = self.runtime.inner.config.mods_root.clone();
-        Ok(Value::Array(records.into_iter().map(|m| json!({
-            "uid": m.uid.to_string(), "folder": m.folder.to_string(), "name": m.name,
-            "variants": m.variants.into_iter().map(|v| json!({"id": v.id.to_string(), "label": v.label})).collect::<Vec<_>>(),
-            "_neededFiles": read_json::<ModManifest>(&root.join(m.folder.as_str()).join("manifest.json"))
-                .ok().and_then(|manifest| manifest.needed_files)
-        })).collect()))
+        let selected = read_optional_state(&self.state_path())?.selected_variants;
+        Ok(Value::Array(records.into_iter().map(|m| {
+            let selected_variant = selected.get(m.uid.as_str()).filter(|selected| {
+                m.variants.iter().any(|variant| variant.id.as_str() == selected.as_str())
+            });
+            json!({
+                "uid": m.uid.to_string(), "folder": m.folder.to_string(), "name": m.name,
+                "variants": m.variants.into_iter().map(|v| json!({
+                    "id": v.id.to_string(), "label": v.label,
+                    "filename": v.id.to_string(), "name": v.label
+                })).collect::<Vec<_>>(),
+                "_selectedVariant": selected_variant,
+                "_neededFiles": read_json::<ModManifest>(&root.join(m.folder.as_str()).join("manifest.json"))
+                    .ok().and_then(|manifest| manifest.needed_files)
+            })
+        }).collect()))
     }
     pub fn list(&self) -> Result<Vec<domain::ModRecord>> {
         let root = &self.runtime.inner.config.mods_root;
@@ -831,6 +841,33 @@ mod tests {
         r.mods().set_variant("mod-a", "default").unwrap();
         r.mods().remove("mod-a").unwrap();
         assert_eq!(r.mods().count().unwrap(), 0)
+    }
+
+    #[test]
+    fn mod_variant_projection_preserves_both_contracts_and_saved_selection() {
+        let r = rt();
+        let folder = r.inner.config.mods_root.join("folder");
+        fs::create_dir(&folder).unwrap();
+        fs::write(
+            folder.join("manifest.json"),
+            r#"{"uid":"mod-a","name":"A","variants":[{"id":"default","label":"Default"},{"id":"alternate","label":"Alternate"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            r.mods().list_json().unwrap()[0]["_selectedVariant"],
+            Value::Null
+        );
+        r.mods().set_variant("mod-a", "alternate").unwrap();
+
+        let reopened = Runtime::open(r.inner.config.clone()).unwrap();
+        let list = reopened.mods().list_json().unwrap();
+        assert_eq!(list[0]["uid"], json!("mod-a"));
+        assert_eq!(list[0]["folder"], json!("folder"));
+        assert_eq!(list[0]["_selectedVariant"], json!("alternate"));
+        assert_eq!(
+            list[0]["variants"][1],
+            json!({"id":"alternate","label":"Alternate","filename":"alternate","name":"Alternate"})
+        );
     }
     #[test]
     fn legacy_removal_requires_marker_and_folder_name() {

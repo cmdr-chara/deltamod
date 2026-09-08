@@ -74,6 +74,9 @@ const externalBrowseState = window._communityExternalBrowseState
 let externalRetryTimer = null;
 let gameBananaPageRequestActive = false;
 let gameBananaInitialLoadComplete = false;
+let gameBananaRetryPending = false;
+let gameBananaHasMore = true;
+let gameBananaDownloadActive = false;
 let gameBananaFeaturedRecordsPromise = null;
 const renderedGameBananaRecords = new Set();
 
@@ -640,17 +643,38 @@ window.currentPageStack.featured = featured;
 window.currentPageStack.qms = {}; //queryme stack
 
 async function dlmod(dlurl, buttonElem=null, modid, modmodel, currentItem = `GameBanana ${modmodel} ${modid}`) {
-    lockUs = true;
-    Array.from(document.querySelectorAll('.sidebar-button')).forEach(e => e.disabled = true);
+    if (!isCurrentShopPage() || gameBananaDownloadActive) return false;
+    gameBananaDownloadActive = true;
+    const sidebarButtons = Array.from(document.querySelectorAll('.sidebar-button'))
+        .filter(button => !button.disabled);
+    sidebarButtons.forEach(button => { button.disabled = true; });
+    const pageCleanups = window._onClosePage;
+    let navigationReleased = false;
+    const releaseNavigation = () => {
+        if (navigationReleased) return;
+        navigationReleased = true;
+        sidebarButtons.forEach(button => { button.disabled = false; });
+        // Do not mutate the cleanup array while navigation is iterating it.
+        if (pageActive) {
+            const index = pageCleanups.indexOf(releaseNavigation);
+            if (index !== -1) pageCleanups.splice(index, 1);
+        }
+    };
+    pageCleanups.push(releaseNavigation);
     let queryme = Math.random().toString(36).substring(2, 15);
 
     setDownloadButtonIcon(buttonElem, 'search_activity');
     updateModDownloadStatus({ phase: 'download', currentItem });
 
-    window.currentPageStack.qms[queryme] = function(info) {
+    const progressHandlers = window.currentPageStack.qms;
+    let imported = false;
+    if (buttonElem) {
+        buttonElem.disabled = true;
+        buttonElem.setAttribute('aria-busy', 'true');
+    }
+    progressHandlers[queryme] = function(info) {
+        if (!isCurrentShopPage()) return;
         if (info.error) {
-            lockUs = false;
-            Array.from(document.querySelectorAll('.sidebar-button')).forEach(e => e.disabled = false);
             setDownloadButtonIcon(buttonElem, 'cancel');
             updateModDownloadStatus({
                 phase: 'failed',
@@ -674,9 +698,13 @@ async function dlmod(dlurl, buttonElem=null, modid, modmodel, currentItem = `Gam
 
     try {
         await window.deltamodBackend.invoke('dlmodURL',[dlurl, queryme, modid, modmodel]);
+        imported = true;
+        if (!isCurrentShopPage()) return true;
         setDownloadButtonIcon(buttonElem, 'done_outline');
         updateModDownloadStatus({ phase: 'complete', currentItem });
+        return true;
     } catch (error) {
+        if (!isCurrentShopPage()) return false;
         setDownloadButtonIcon(buttonElem, 'cancel');
         updateModDownloadStatus({ phase: 'failed', currentItem });
         await htmlAlert(
@@ -684,10 +712,19 @@ async function dlmod(dlurl, buttonElem=null, modid, modmodel, currentItem = `Gam
             error?.message || 'The mod could not be downloaded or imported.',
             [{ text: 'OK', resolveWith: 'ok' }]
         );
+        return false;
     } finally {
-        delete window.currentPageStack.qms[queryme];
-        lockUs = false;
-        Array.from(document.querySelectorAll('.sidebar-button')).forEach(e => e.disabled = false);
+        delete progressHandlers[queryme];
+        gameBananaDownloadActive = false;
+        if (buttonElem) {
+            buttonElem.disabled = imported;
+            buttonElem.removeAttribute('aria-busy');
+            buttonElem.style.opacity = '';
+            buttonElem.classList.remove('download-progress');
+            buttonElem.style.removeProperty('--download-progress');
+            if (!imported) setDownloadButtonIcon(buttonElem, 'download');
+        }
+        releaseNavigation();
     }
 }
 
@@ -777,12 +814,13 @@ async function browseGameBananaCatalog(url) {
 
 async function renderMods(table, GB_API, filter, gameID) {
     if (!isCurrentShopPage() || typeof GB_API !== 'string' || !table?.isConnected) {
-        return;
+        return false;
     }
     if (window.PAGE == null) {
         window.PAGE = 1;
     }
     var furl = GB_API.replace('$PAGE', window.PAGE);
+    const requestedPage = window.PAGE;
     let catalog;
     let data;
     let featuredData;
@@ -795,19 +833,15 @@ async function renderMods(table, GB_API, filter, gameID) {
         if (!isCurrentShopPage()) return;
     } catch (error) {
         console.error('GameBanana catalogue load failed:', error);
-        if (firstgeneration && isCurrentShopPage()) {
-            renderSourceState(
+        if (isCurrentShopPage()) {
+            renderGameBananaFailure(
                 table,
                 'GameBanana could not be loaded',
                 error?.message || 'The catalogue request failed. Check your connection and try again.',
-                { label: 'Retry', run: () => {
-                    firstgeneration = true;
-                    renderSourceLoading(table);
-                    renderMods(table, GB_API, filter, gameID);
-                } }
+                requestedPage
             );
         }
-        return;
+        return false;
     }
 
     const status = document.getElementById('contentFilterStatus');
@@ -825,21 +859,19 @@ async function renderMods(table, GB_API, filter, gameID) {
     }
 
     try {
-        if (data._aMetadata._bIsComplete) {
-            observer.disconnect(); // stop observing since there's no more content to load
-            document.querySelector('.scrollBottomDetector').style.display = 'none'; // hide the loading indicator
-        }
-
+        const complete = Boolean(data._aMetadata._bIsComplete);
         const pageRecords = Array.isArray(data._aRecords) ? data._aRecords : [];
         const isFeaturedDataset = pageRecords.some(record => record.featuredDataset);
         const candidates = firstgeneration && !isFeaturedDataset && /\/Subfeed(?:\?|$)/.test(GB_API)
             ? [...featuredData, ...pageRecords]
             : pageRecords;
+        const pageKeys = new Set();
+        const pageRows = [];
         const records = prioritizeFeaturedRecords(applyContentFilter(candidates), featuredIDs)
             .filter(record => {
                 const key = gameBananaRecordKey(record);
-                if (renderedGameBananaRecords.has(key)) return false;
-                renderedGameBananaRecords.add(key);
+                if (renderedGameBananaRecords.has(key) || pageKeys.has(key)) return false;
+                pageKeys.add(key);
                 return true;
             });
 
@@ -852,9 +884,11 @@ async function renderMods(table, GB_API, filter, gameID) {
                 : "No submissions on this page match the active Content filter.";
             tr.appendChild(td);
             table.appendChild(tr);
+            gameBananaHasMore = false;
+            firstgeneration = false;
             observer.disconnect(); // stop observing since there's no more content to load
             document.querySelector('.scrollBottomDetector').style.display = 'none'; // hide the loading indicator
-            return;
+            return true;
         }
         for (const mod of records) {
             await (async () => {
@@ -1029,19 +1063,43 @@ async function renderMods(table, GB_API, filter, gameID) {
                     dlBtn.title = 'Download and import mod';
                     dlBtn.setAttribute('aria-label', `Download ${mod._sName}`);
                     dlBtn.onclick = async () => {
+                        if (!isCurrentShopPage() || gameBananaDownloadActive || dlBtn.disabled) return;
                         dlBtn.disabled = true;
+                        dlBtn.setAttribute('aria-busy', 'true');
                         setDownloadButtonIcon(dlBtn, 'downloading');
                         dlBtn.style.opacity = '0.7';
 
-                        var dlpage = await fetch(`https://gamebanana.com/apiv11/${mod._sModelName}/${mod._idRow}/ProfilePage`);
-                        dlpage = await dlpage.json();
+                        const resetDownloadButton = () => {
+                            dlBtn.disabled = false;
+                            dlBtn.removeAttribute('aria-busy');
+                            dlBtn.style.opacity = '';
+                            setDownloadButtonIcon(dlBtn, 'download');
+                        };
+                        let dlpage;
+                        try {
+                            const response = await fetchGameBananaCatalogDirect(`https://gamebanana.com/apiv11/${mod._sModelName}/${mod._idRow}/ProfilePage`);
+                            dlpage = response.payload;
+                            if (!Array.isArray(dlpage?._aFiles)) throw new Error('GameBanana returned an invalid file list.');
+                        } catch (error) {
+                            resetDownloadButton();
+                            if (isCurrentShopPage()) {
+                                await htmlAlert('Download failed', error?.message || 'The file list could not be loaded. Try again.', [{ text: 'OK', resolveWith: 'ok' }]);
+                            }
+                            return;
+                        }
+                        if (!isCurrentShopPage() || !dlBtn.isConnected) return;
+                        if (gameBananaDownloadActive) {
+                            resetDownloadButton();
+                            return;
+                        }
+                        dlBtn.removeAttribute('aria-busy');
 
                         var eligibleDownloads = [];
 
                         dlpage._aFiles.forEach(file => {
                             try {
                                 var mmo = file._aModManagerIntegrations.map(x => x._idToolRow);
-                                if (mmo.includes(20575)) {
+                                if (mmo.includes(20575) && typeof file._sDownloadUrl === 'string' && file._sDownloadUrl.trim()) {
                                     eligibleDownloads.push(file);
                                 }
                             }
@@ -1056,6 +1114,7 @@ async function renderMods(table, GB_API, filter, gameID) {
                             if (open === 'yes') {
                                 window.open(mod._sProfileUrl, '_blank');
                             }
+                            resetDownloadButton();
                             return;
                         }
 
@@ -1078,8 +1137,9 @@ async function renderMods(table, GB_API, filter, gameID) {
                                 thisBtn.style.margin = '4px';
                                 thisBtn.style.width = '100%';
                                 thisBtn.onclick = async () => {
-                                    dlmod(file._sDownloadUrl.replace('dl','mmdl'), dlBtn, mod._idRow, mod._sModelName, file._sFile || file._sName || mod._sName);
+                                    if (!dtr.isConnected || gameBananaDownloadActive) return;
                                     dtr.remove();
+                                    await dlmod(file._sDownloadUrl.replace('dl','mmdl'), dlBtn, mod._idRow, mod._sModelName, file._sFile || file._sName || mod._sName);
                                 };
                                 btnsDiv.appendChild(thisBtn);
 
@@ -1131,7 +1191,18 @@ async function renderMods(table, GB_API, filter, gameID) {
                                 }
                             });
 
+                            const cancelChoice = document.createElement('button');
+                            cancelChoice.type = 'button';
+                            cancelChoice.dataset.i18n = 'cancel';
+                            cancelChoice.textContent = window.Localization.t('cancel', 'Cancel');
+                            cancelChoice.onclick = () => {
+                                dtr.remove();
+                                resetDownloadButton();
+                                dlBtn.focus();
+                            };
+                            btnsDiv.appendChild(cancelChoice);
                             tr.insertAdjacentElement("afterend", dtr);
+                            btnsDiv.querySelector('button')?.focus();
 
                             await timeoutPromise(100);
                             rew();
@@ -1140,7 +1211,7 @@ async function renderMods(table, GB_API, filter, gameID) {
                         }
 
                         const file = eligibleDownloads[0];
-                        dlmod(file._sDownloadUrl.replace('dl','mmdl'), dlBtn, mod._idRow, mod._sModelName, file._sFile || file._sName || mod._sName);
+                        await dlmod(file._sDownloadUrl.replace('dl','mmdl'), dlBtn, mod._idRow, mod._sModelName, file._sFile || file._sName || mod._sName);
                     };
 
                     td1.appendChild(dlBtn);
@@ -1188,32 +1259,67 @@ async function renderMods(table, GB_API, filter, gameID) {
                 tr.appendChild(td0);
                 tr.appendChild(td1);
 
-                insertRankedGameBananaRow(
-                    table,
-                    tr,
-                    featuredRankForID(featuredIDs, mod._idRow)
-                );
+                pageRows.push({ row: tr, rank: featuredRankForID(featuredIDs, mod._idRow) });
             })();
         };
+        if (!isCurrentShopPage()) return false;
+        // Publish a complete page together, so malformed later records cannot
+        // leave partial rows or deduplication keys behind on a retry.
+        for (const { row, rank } of pageRows) insertRankedGameBananaRow(table, row, rank);
+        for (const key of pageKeys) renderedGameBananaRecords.add(key);
+        if (complete) {
+            gameBananaHasMore = false;
+            observer.disconnect();
+            document.querySelector('.scrollBottomDetector').style.display = 'none';
+        }
     }
     catch (e) {
         console.error(e);
-        firstgeneration = true;
         if (isCurrentShopPage()) {
-            renderSourceState(
+            renderGameBananaFailure(
                 table,
                 'GameBanana results could not be rendered',
                 e?.message || 'The catalogue returned data that Community could not display.',
-                { label: 'Retry', run: () => {
-                    renderSourceLoading(table);
-                    renderMods(table, GB_API, filter, gameID);
-                } }
+                requestedPage
             );
         }
-        return;
+        return false;
     }
 
     firstgeneration = false;
+    return true;
+}
+
+function renderGameBananaFailure(table, title, message, requestedPage) {
+    gameBananaRetryPending = true;
+    const retry = () => loadGameBananaPage(requestedPage);
+    if (firstgeneration) {
+        renderSourceState(table, title, message, {
+            label: window.Localization.t('refine_retry', 'Retry'), run: retry
+        });
+        return;
+    }
+
+    // Keep the pages already read in place. A failed page must be retried
+    // explicitly before infinite scrolling can request the following page.
+    table.querySelector('.shop-page-retry')?.remove();
+    const row = document.createElement('tr');
+    row.className = 'shop-page-retry';
+    const cell = document.createElement('td');
+    cell.colSpan = 2;
+    const detail = document.createElement('p');
+    detail.className = 'calibri';
+    detail.setAttribute('role', 'status');
+    detail.dataset.i18n = 'shop_next_page_failed';
+    detail.textContent = window.Localization.t('shop_next_page_failed', 'The next page could not be loaded. Your current results are still here.');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.i18n = 'refine_retry';
+    button.textContent = window.Localization.t('refine_retry', 'Retry');
+    button.onclick = retry;
+    cell.append(detail, button);
+    row.append(cell);
+    table.append(row);
 }
 
 function renderSourceState(table, title, message, action = null) {
@@ -1734,6 +1840,12 @@ async function initializeExternalSource(table) {
 }
 
 async function plusPage(amt) {
+    if (!gameBananaInitialLoadComplete || gameBananaRetryPending || !gameBananaHasMore) return;
+    if (!Number.isFinite(amt) || amt <= 0) return;
+    return loadGameBananaPage(window.PAGE + amt);
+}
+
+async function loadGameBananaPage(requestedPage) {
     if (
         !isCurrentShopPage() ||
         gameBananaPageRequestActive ||
@@ -1744,15 +1856,21 @@ async function plusPage(amt) {
     }
     if (!Number.isFinite(window.PAGE)) window.PAGE = 1;
     const previousPage = window.PAGE;
-    window.PAGE += amt;
+    window.PAGE = requestedPage;
     gameBananaPageRequestActive = true;
+    gameBananaRetryPending = false;
+    const { table, GB_API, filter, gameID } = window.currentPageStack;
+    if (firstgeneration) renderSourceLoading(table);
+    table.querySelector('.shop-page-retry')?.remove();
+    table.setAttribute('aria-busy', 'true');
     try {
-        await renderMods(window.currentPageStack.table, window.currentPageStack.GB_API, window.currentPageStack.filter, window.currentPageStack.gameID);
-    } catch (error) {
-        window.PAGE = previousPage;
-        throw error;
+        const loaded = await renderMods(table, GB_API, filter, gameID);
+        if (!isCurrentShopPage()) return;
+        if (loaded) gameBananaInitialLoadComplete = true;
+        else window.PAGE = previousPage;
     } finally {
         gameBananaPageRequestActive = false;
+        table.removeAttribute('aria-busy');
     }
 }
 
@@ -1762,6 +1880,7 @@ async function plusPage(amt) {
     const gameSelect = document.getElementById('modGameSelect');
     try {
         const { supportedGames } = await resolveShopGame();
+        if (!isCurrentShopPage()) return;
         gameSelect.replaceChildren();
         for (const game of supportedGames) {
             const option = document.createElement('option');
@@ -1867,6 +1986,7 @@ async function plusPage(amt) {
     window._pageArguments = {}; // reset page arguments
 
     await gameBananaLogin();
+    if (!isCurrentShopPage()) return;
 
     renderSourceLoading(table);
 
@@ -1878,13 +1998,7 @@ async function plusPage(amt) {
         gameID
     };
 
-    gameBananaPageRequestActive = true;
-    try {
-        await renderMods(table, GB_API, filter, gameID);
-        gameBananaInitialLoadComplete = true;
-    } finally {
-        gameBananaPageRequestActive = false;
-    }
+    await loadGameBananaPage(window.PAGE);
 
     genbtnstyles();
     } catch (error) {

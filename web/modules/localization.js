@@ -18,6 +18,7 @@
         en: {
             refine_load_failed: "Could not load the mod list.",
             refine_retry: "Retry",
+            shop_next_page_failed: "The next page could not be loaded. Your current results are still here.",
             refine_search_mods: "Search mods",
             refine_search_hint: "Name, author, version or package ID",
             refine_clear: "Clear",
@@ -134,6 +135,7 @@
         it: {
             refine_load_failed: "Impossibile caricare le mod.",
             refine_retry: "Riprova",
+            shop_next_page_failed: "Impossibile caricare la pagina successiva. I risultati attuali sono ancora qui.",
             refine_search_mods: "Cerca mod",
             refine_search_hint: "Nome, autore, versione o ID del pacchetto",
             refine_clear: "Cancella",
@@ -250,6 +252,7 @@
         pl: {
             refine_load_failed: "Nie udało się wczytać listy modów.",
             refine_retry: "Spróbuj ponownie",
+            shop_next_page_failed: "Nie udało się wczytać następnej strony. Obecne wyniki są nadal widoczne.",
             refine_search_mods: "Szukaj modów",
             refine_search_hint: "Nazwa, autor, wersja lub ID pakietu",
             refine_clear: "Wyczyść",
@@ -366,6 +369,7 @@
         es: {
             refine_load_failed: "No se pudo cargar la lista de mods.",
             refine_retry: "Reintentar",
+            shop_next_page_failed: "No se pudo cargar la página siguiente. Los resultados actuales siguen aquí.",
             refine_search_mods: "Buscar mods",
             refine_search_hint: "Nombre, autor, versión o ID del paquete",
             refine_clear: "Borrar",
@@ -482,6 +486,7 @@
         fr: {
             refine_load_failed: "Impossible de charger la liste des mods.",
             refine_retry: "Réessayer",
+            shop_next_page_failed: "La page suivante n’a pas pu être chargée. Les résultats actuels sont toujours là.",
             refine_search_mods: "Rechercher des mods",
             refine_search_hint: "Nom, auteur, version ou ID du paquet",
             refine_clear: "Effacer",
@@ -598,6 +603,7 @@
         de: {
             refine_load_failed: "Die Mod-Liste konnte nicht geladen werden.",
             refine_retry: "Erneut versuchen",
+            shop_next_page_failed: "Die nächste Seite konnte nicht geladen werden. Die bisherigen Ergebnisse bleiben sichtbar.",
             refine_search_mods: "Mods suchen",
             refine_search_hint: "Name, Autor, Version oder Paket-ID",
             refine_clear: "Leeren",
@@ -714,6 +720,7 @@
         'pt-br': {
             refine_load_failed: "Não foi possível carregar a lista de mods.",
             refine_retry: "Tentar novamente",
+            shop_next_page_failed: "Não foi possível carregar a próxima página. Os resultados atuais continuam aqui.",
             refine_search_mods: "Buscar mods",
             refine_search_hint: "Nome, autor, versão ou ID do pacote",
             refine_clear: "Limpar",
@@ -830,6 +837,7 @@
         ja: {
             refine_load_failed: "MODリストを読み込めませんでした。",
             refine_retry: "再試行",
+            shop_next_page_failed: "次のページを読み込めませんでした。現在の結果はそのまま表示されています。",
             refine_search_mods: "MODを検索",
             refine_search_hint: "名前、作者、バージョン、パッケージID",
             refine_clear: "クリア",

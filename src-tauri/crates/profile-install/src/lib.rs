@@ -13,8 +13,8 @@ use deltamod_native_core::staged_copy::{
 };
 use deltamod_native_core::{patch_plan, patch_transaction};
 use deltamod_storage_domain::{
-    atomic_write_bytes, atomic_write_json, load_json, InstallationRecord, ProfileStore,
-    StorageError,
+    atomic_write_bytes, atomic_write_json, load_json, parse_legacy_json, InstallationRecord,
+    ProfileStore, StorageError,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -671,6 +671,7 @@ impl Runtime {
     ) -> Result<LegacyReimportResponse, RuntimeError> {
         let source = safe_directory(source)?;
         let profile = self.existing_legacy_profile(index)?;
+        let store_path = profile.join("store.json");
         let default = profile.join("deltaruneInstall");
         let destination = if default.exists() {
             profile.join(format!(
@@ -682,19 +683,42 @@ impl Runtime {
         };
         let operation =
             self.copy_operation("legacy-installation-reimport", &source, &destination, None)?;
+        // The copy can take minutes. Snapshot only when publishing metadata so
+        // profile changes completed during the copy survive success and rollback.
+        let snapshot = (|| -> Result<_, RuntimeError> {
+            let previous_store = fs::read(&store_path)?;
+            let previous_value: Value = parse_legacy_json(&previous_store)?;
+            let store = previous_value
+                .as_object()
+                .cloned()
+                .ok_or_else(|| RuntimeError::Domain("invalid installation store".into()))?;
+            Ok((previous_store, store))
+        })();
+        let (previous_store, mut store) = match snapshot {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&destination);
+                return Err(error);
+            }
+        };
         let update = (|| {
-            let mut store = self.legacy_store(index)?;
             store.insert(
                 "gamePath".into(),
                 Value::String(destination.to_string_lossy().into_owned()),
             );
             store.insert("gamePlatform".into(), Value::String(platform));
             store.insert("loadedDeltarune".into(), Value::Bool(true));
-            atomic_write_json(&profile.join("store.json"), &store, true)?;
+            atomic_write_json(&store_path, &store, true)?;
             self.upsert_legacy_record(index, &store)
         })();
         if let Err(error) = update {
-            let _ = fs::remove_dir_all(&destination);
+            // Publishing the per-profile store can succeed before the registry write
+            // fails. Restore it before removing the replacement it may reference.
+            // If restoration fails too, retain the replacement so neither possible
+            // store value points at files that this rollback has deleted.
+            if atomic_write_bytes(&store_path, &previous_store, false).is_ok() {
+                let _ = fs::remove_dir_all(&destination);
+            }
             return Err(error);
         }
         Ok(LegacyReimportResponse {
@@ -1345,6 +1369,25 @@ mod tests {
             )))
         }
     }
+
+    struct BeforeCommitCopy(Arc<dyn Fn() + Send + Sync>);
+    impl CopyBackend for BeforeCommitCopy {
+        fn copy(
+            &self,
+            source: &Path,
+            destination: &Path,
+            staging: &Path,
+            cancelled: &dyn Fn() -> bool,
+            progress: &mut dyn FnMut(u64, &str) -> Result<(), StagedCopyError>,
+            before_commit: &dyn Fn() -> Result<(), StagedCopyError>,
+        ) -> Result<(), StagedCopyError> {
+            StagedCopyBackend.copy(source, destination, staging, cancelled, progress, &|| {
+                (self.0)();
+                before_commit()
+            })
+        }
+    }
+
     #[test]
     fn linked_delete_never_deletes_external_source() {
         let d = tempdir().unwrap();
@@ -1638,6 +1681,238 @@ mod tests {
             .legacy_reimport_installation(0, &source, "win32".into())
             .is_err());
         assert_eq!(fs::read(live.join("data.win")).unwrap(), b"old");
+    }
+
+    #[test]
+    fn legacy_reimport_metadata_failure_restores_store_before_removing_copy() {
+        for failed_write in ["store", "registry"] {
+            let directory = tempdir().unwrap();
+            let source = directory.path().join("source");
+            fs::create_dir(&source).unwrap();
+            fs::write(source.join("data.win"), b"old").unwrap();
+            let root = directory.path().join("runtime");
+            let runtime = Runtime::open(&root).unwrap();
+            runtime
+                .legacy_create_installation(
+                    0,
+                    &source,
+                    "Managed".into(),
+                    true,
+                    legacy_store_fields(),
+                )
+                .unwrap();
+            let profile = runtime.legacy_profile_folder(0).unwrap();
+            let live = profile.join("deltaruneInstall");
+            let store_path = profile.join("store.json");
+            let mut previous_store = fs::read(&store_path).unwrap();
+            previous_store.extend_from_slice(b"## legacy suffix\n");
+            fs::write(&store_path, &previous_store).unwrap();
+            let registry_path = root.join("profiles").join("installations.json");
+            let previous_registry = fs::read(&registry_path).unwrap();
+            let blocked_backup = if failed_write == "store" {
+                profile.join("store.json.backup")
+            } else {
+                root.join("profiles").join("installations.json.backup")
+            };
+            // A directory at the backup path makes the metadata write fail on
+            // both Windows and Unix without relying on permission semantics.
+            fs::create_dir(&blocked_backup).unwrap();
+            fs::write(source.join("data.win"), b"replacement").unwrap();
+
+            assert!(runtime
+                .legacy_reimport_installation(0, &source, "linux".into())
+                .is_err());
+
+            assert_eq!(
+                fs::read(&store_path).unwrap(),
+                previous_store,
+                "{failed_write}"
+            );
+            assert_eq!(
+                fs::read(&registry_path).unwrap(),
+                previous_registry,
+                "{failed_write}"
+            );
+            assert_eq!(fs::read(live.join("data.win")).unwrap(), b"old");
+            assert!(!profile.join("deltaruneInstall-reimport-2").exists());
+            assert_eq!(
+                fs::read_dir(root.join(".runtime-journals"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+            let reopened = Runtime::open(&root).unwrap();
+            assert_eq!(
+                reopened.legacy_store(0).unwrap()["gamePath"],
+                json!(live.to_string_lossy())
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_reimport_success_publishes_store_and_registry() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("source");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("data.win"), b"old").unwrap();
+        let root = directory.path().join("runtime");
+        let runtime = Runtime::open(&root).unwrap();
+        let mut store = legacy_store_fields();
+        store.insert("enabledMods".into(), json!(["retained.mod"]));
+        runtime
+            .legacy_create_installation(0, &source, "Managed".into(), true, store)
+            .unwrap();
+        let old_game = runtime
+            .legacy_profile_folder(0)
+            .unwrap()
+            .join("deltaruneInstall");
+        fs::write(source.join("data.win"), b"replacement").unwrap();
+
+        let result = runtime
+            .legacy_reimport_installation(0, &source, "linux".into())
+            .unwrap();
+
+        assert!(result.repaired);
+        assert_eq!(
+            fs::read(result.destination.join("data.win")).unwrap(),
+            b"replacement"
+        );
+        assert_eq!(fs::read(old_game.join("data.win")).unwrap(), b"old");
+        let reopened = Runtime::open(&root).unwrap();
+        let store = reopened.legacy_store(0).unwrap();
+        assert_eq!(
+            store["gamePath"],
+            json!(result.destination.to_string_lossy())
+        );
+        assert_eq!(store["gamePlatform"], json!("linux"));
+        assert_eq!(store["loadedDeltarune"], json!(true));
+        assert_eq!(store["enabledMods"], json!(["retained.mod"]));
+        let profiles = reopened.load_legacy_profiles().unwrap();
+        assert_eq!(
+            profiles.installations[0].extra["gamePlatform"],
+            json!("linux")
+        );
+    }
+
+    #[test]
+    fn legacy_reimport_preserves_profile_changes_completed_during_copy() {
+        for fail_registry_write in [false, true] {
+            let directory = tempdir().unwrap();
+            let source = directory.path().join("source");
+            fs::create_dir(&source).unwrap();
+            fs::write(source.join("data.win"), b"old").unwrap();
+            let root = directory.path().join("runtime");
+            let runtime = Runtime::open(&root).unwrap();
+            let mut store = legacy_store_fields();
+            store.insert("isSteam".into(), json!(true));
+            store.insert("steamAppId".into(), json!("123"));
+            runtime
+                .legacy_create_installation(0, &source, "Managed".into(), true, store)
+                .unwrap();
+            let profile = runtime.legacy_profile_folder(0).unwrap();
+            let live = profile.join("deltaruneInstall");
+            let store_path = profile.join("store.json");
+            let changed_store_path = store_path.clone();
+            let registry_backup = root.join("profiles").join("installations.json.backup");
+            let concurrent = runtime.clone();
+            let reimport = Runtime::with_backend(
+                &root,
+                Arc::new(BeforeCommitCopy(Arc::new(move || {
+                    assert!(concurrent.legacy_remove_steam_integration(0).unwrap());
+                    let mut updated = fs::read(&changed_store_path).unwrap();
+                    updated.extend_from_slice(b"## changed during copy\n");
+                    fs::write(&changed_store_path, updated).unwrap();
+                    if fail_registry_write {
+                        fs::remove_file(&registry_backup).unwrap();
+                        fs::create_dir(&registry_backup).unwrap();
+                    }
+                }))),
+            )
+            .unwrap();
+            fs::write(source.join("data.win"), b"replacement").unwrap();
+
+            let result = reimport.legacy_reimport_installation(0, &source, "linux".into());
+
+            assert_eq!(result.is_err(), fail_registry_write);
+            let reopened = Runtime::open(&root).unwrap();
+            let store = reopened.legacy_store(0).unwrap();
+            assert_eq!(store["isSteam"], json!(false));
+            assert_eq!(store["steamAppId"], json!(""));
+            let profiles = reopened.load_legacy_profiles().unwrap();
+            assert_eq!(profiles.installations[0].steam, Some(false));
+            assert_eq!(profiles.installations[0].extra["steamAppId"], json!(""));
+            if fail_registry_write {
+                assert_eq!(store["gamePath"], json!(live.to_string_lossy()));
+                assert!(fs::read(&store_path)
+                    .unwrap()
+                    .ends_with(b"## changed during copy\n"));
+                assert!(!profile.join("deltaruneInstall-reimport-1").exists());
+            } else {
+                let destination = result.unwrap().destination;
+                assert_eq!(store["gamePath"], json!(destination.to_string_lossy()));
+                assert_eq!(
+                    fs::read(destination.join("data.win")).unwrap(),
+                    b"replacement"
+                );
+            }
+            assert_eq!(fs::read(live.join("data.win")).unwrap(), b"old");
+        }
+    }
+
+    #[test]
+    fn legacy_reimport_store_read_or_parse_failure_preserves_store_and_live_files() {
+        for changed_contents in [
+            None,
+            Some(b"invalid JSON".as_slice()),
+            Some(b"[]".as_slice()),
+        ] {
+            let directory = tempdir().unwrap();
+            let source = directory.path().join("source");
+            fs::create_dir(&source).unwrap();
+            fs::write(source.join("data.win"), b"old").unwrap();
+            let root = directory.path().join("runtime");
+            let runtime = Runtime::open(&root).unwrap();
+            runtime
+                .legacy_create_installation(
+                    0,
+                    &source,
+                    "Managed".into(),
+                    true,
+                    legacy_store_fields(),
+                )
+                .unwrap();
+            let profile = runtime.legacy_profile_folder(0).unwrap();
+            let live = profile.join("deltaruneInstall");
+            let store_path = profile.join("store.json");
+            let changed_store_path = store_path.clone();
+            let registry_path = root.join("profiles").join("installations.json");
+            let previous_registry = fs::read(&registry_path).unwrap();
+            let reimport = Runtime::with_backend(
+                &root,
+                Arc::new(BeforeCommitCopy(Arc::new(move || {
+                    if let Some(contents) = changed_contents {
+                        fs::write(&changed_store_path, contents).unwrap();
+                    } else {
+                        fs::remove_file(&changed_store_path).unwrap();
+                    }
+                }))),
+            )
+            .unwrap();
+            fs::write(source.join("data.win"), b"replacement").unwrap();
+
+            assert!(reimport
+                .legacy_reimport_installation(0, &source, "linux".into())
+                .is_err());
+
+            if let Some(contents) = changed_contents {
+                assert_eq!(fs::read(&store_path).unwrap(), contents);
+            } else {
+                assert!(!store_path.exists());
+            }
+            assert_eq!(fs::read(&registry_path).unwrap(), previous_registry);
+            assert_eq!(fs::read(live.join("data.win")).unwrap(), b"old");
+            assert!(!profile.join("deltaruneInstall-reimport-1").exists());
+        }
     }
 
     #[test]
