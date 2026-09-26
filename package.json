@@ -174,7 +174,7 @@
     "electron-builder": "^26.16.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.1"
   },
   "dependencies": {
     "@chainsafe/xdelta3-node": "^1.0.2",
