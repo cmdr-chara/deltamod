@@ -1,3 +1,68 @@
+# Deltamod Community 2.0.21
+
+Released 2026-09-26.
+
+## Changes
+
+- build(deps-dev): bump @types/node from 26.4.0 to 26.4.1 (`d185c01`).
+- build(deps): bump zod from 4.4.3 to 4.5.4 (`51713ed`).
+- build(deps): bump @sentry/node from 10.72.0 to 10.73.0 (`7307b9e`).
+- build(deps-dev): bump vitest from 4.1.11 to 5.0.0 (`9bf210e`).
+- build(deps-dev): bump electron from 44.0.0 to 44.2.0 (`46abe53`).
+- build(deps): bump tauri-plugin-dialog from 2.7.2 to 2.7.3 in /src-tauri (`41bbde4`).
+- build(deps): bump tauri-plugin-opener from 2.5.4 to 2.5.5 in /src-tauri (`16de1f8`).
+- build(deps): bump tauri-plugin-deep-link in /src-tauri (`e0f6573`).
+- build(deps): bump tauri-plugin-updater in /src-tauri (`dd2d148`).
+- build(deps): bump toml in /src-tauri (`a8c0cf8`).
+- Merge pull request #71 from cmdr-chara/dependabot/cargo/src-tauri/toml-1.1.5spec-1.1.0 (`717b522`).
+- Merge pull request #70 from cmdr-chara/dependabot/cargo/src-tauri/tauri-plugin-updater-2.11.0 (`6609ff2`).
+- Merge pull request #69 from cmdr-chara/dependabot/cargo/src-tauri/tauri-plugin-deep-link-2.4.10 (`46c9e96`).
+- Merge pull request #68 from cmdr-chara/dependabot/cargo/src-tauri/tauri-plugin-opener-2.5.5 (`6e41395`).
+- Merge pull request #67 from cmdr-chara/dependabot/cargo/src-tauri/tauri-plugin-dialog-2.7.3 (`c51fe9a`).
+- Merge pull request #66 from cmdr-chara/dependabot/npm_and_yarn/electron-44.2.0 (`f3b521d`).
+- Merge pull request #64 from cmdr-chara/dependabot/npm_and_yarn/vitest-5.0.0 (`2b76d05`).
+- Merge pull request #63 from cmdr-chara/dependabot/npm_and_yarn/sentry/node-10.73.0 (`155c023`).
+- Merge pull request #62 from cmdr-chara/dependabot/npm_and_yarn/zod-4.5.4 (`7f3374d`).
+- build(deps-dev): bump electron-builder from 26.15.7 to 26.16.0 (`350ce81`).
+- Merge pull request #61 from cmdr-chara/dependabot/npm_and_yarn/types/node-26.4.1 (`53a05ad`).
+- build(deps-dev): bump @types/react-dom from 19.2.5 to 19.2.7 (`8ccccdb`).
+- Merge pull request #60 from cmdr-chara/dependabot/npm_and_yarn/types/react-dom-19.2.7 (`d2506f2`).
+- Merge pull request #65 from cmdr-chara/dependabot/npm_and_yarn/electron-builder-26.16.0 (`d913864`).
+- docs: add transactional desktop agent contracts (`16aa2d4`).
+- docs: add scoped Tauri runtime agent contracts (`e096e4f`).
+- build(deps-dev): bump vite from 8.2.2 to 8.3.0 (`5ebf561`).
+- build(deps): bump react-dom and @types/react-dom (`e7cff5c`).
+- build(deps-dev): bump @playwright/test from 1.62.1 to 1.63.0 (`401f902`).
+- build(deps-dev): bump electron-builder from 26.16.0 to 26.16.1 (`9b6a00f`).
+- build(deps): bump toml in /src-tauri (`cb4a7e7`).
+- build(deps): bump uuid from 1.26.0 to 1.26.1 in /src-tauri (`c0d1a51`).
+- build(deps): bump tauri-plugin-single-instance in /src-tauri (`bdf950e`).
+- build(deps): bump hyper from 1.11.0 to 1.11.1 in /src-tauri (`f1d79d8`).
+- build(deps): bump @sentry/node from 10.73.0 to 10.75.0 (`78624c9`).
+- build(deps-dev): bump @types/node from 26.4.1 to 26.6.1 (`cc9a6cd`).
+- build(deps): bump zod from 4.5.4 to 4.6.5 (`95dad3c`).
+- build(deps): bump rustix from 1.1.4 to 1.1.5 in /native (`97e9555`).
+- build(deps): bump rustix from 1.1.4 to 1.1.5 in /src-tauri (`48ce4f3`).
+- Merge pull request #74 from cmdr-chara/dependabot/npm_and_yarn/vite-8.3.0 (`6dd89eb`).
+- Merge pull request #77 from cmdr-chara/dependabot/npm_and_yarn/multi-de36fa8f59 (`592beca`).
+- Merge pull request #78 from cmdr-chara/dependabot/npm_and_yarn/playwright/test-1.63.0 (`d1e97ee`).
+- Merge pull request #81 from cmdr-chara/dependabot/npm_and_yarn/electron-builder-26.16.1 (`832da63`).
+- Merge pull request #82 from cmdr-chara/dependabot/cargo/src-tauri/toml-1.1.6spec-1.1.0 (`20a107f`).
+- Merge pull request #83 from cmdr-chara/dependabot/cargo/src-tauri/uuid-1.26.1 (`ff3440b`).
+- Merge pull request #84 from cmdr-chara/dependabot/cargo/src-tauri/tauri-plugin-single-instance-2.4.4 (`20ebe1c`).
+- Merge pull request #85 from cmdr-chara/dependabot/cargo/src-tauri/hyper-1.11.1 (`bee9d36`).
+- Merge pull request #86 from cmdr-chara/dependabot/npm_and_yarn/sentry/node-10.75.0 (`b3b496a`).
+- Merge pull request #87 from cmdr-chara/dependabot/npm_and_yarn/types/node-26.6.1 (`96b1c9a`).
+- Merge pull request #88 from cmdr-chara/dependabot/npm_and_yarn/zod-4.6.5 (`3a25e6f`).
+- Merge pull request #91 from cmdr-chara/dependabot/cargo/native/rustix-1.1.5 (`6802988`).
+- Merge pull request #92 from cmdr-chara/dependabot/cargo/src-tauri/rustix-1.1.5 (`ea2ba6b`).
+- fix(deps): update js-yaml security override to 4.3.2 (`b829d01`).
+- build(deps-dev): bump electron from 44.2.0 to 44.4.5 (`40c0d6a`).
+- Merge pull request #89 from cmdr-chara/dependabot/npm_and_yarn/electron-44.4.2 (`fd2b3bf`).
+- build(deps-dev): bump vitest from 5.0.0 to 5.0.1 (`eac605f`).
+- Merge pull request #90 from cmdr-chara/dependabot/npm_and_yarn/vitest-5.0.1 (`07d90c8`).
+- fix(ci): reconcile Tauri Cargo lockfile (`7a9b3a8`).
+
 # Deltamod Community 2.0.18
 
 Planned stable release.
