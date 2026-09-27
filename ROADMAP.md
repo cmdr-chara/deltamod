@@ -12,6 +12,12 @@ This roadmap uses release-sized outcomes. Shared contracts are serialized throug
 one integration owner; bounded implementation work may proceed in parallel after
 those contracts pass their compatibility and safety tests.
 
+Upstream lineage: this repository is forked from
+[`deltamodders/deltamod`](https://github.com/deltamodders/deltamod), whose active
+development branch is `develop`. Upstream is an input and regression source, not
+an automatic merge target: Community's transactional lifecycle, Rust/Tauri trust
+boundaries, provenance rules, and release gates take precedence when designs differ.
+
 ## Non-negotiable invariants
 
 - At most one filesystem-mutating lifecycle operation may run per game installation.
@@ -76,6 +82,14 @@ before deserialization. Unknown newer versions fail closed before any mutation.
 
 - Required IPC parity, packaged Windows/macOS/Linux smoke, protocol, updater,
   sidecar, lifecycle, patching, persistence, and WebKitGTK evidence all pass.
+- Every renderer-visible Electron command is either implemented by Tauri or retired
+  from the renderer/preload contract with equivalent product behavior documented.
+  An `Unsupported` classification is not functional parity.
+- Static parity fixtures and generated evidence must agree with the current production
+  channel classification. A stale fixture is a release blocker even when the source
+  scanner reports no missing channel.
+- Upgrade, uninstall/reinstall, user-data preservation, and rollback are exercised
+  from the last stable Electron release to the candidate stable Tauri release.
 - One stable Tauri release succeeds before a separate cleanup release removes
   Electron runtime and packaging.
 - Tests are retained or removed by behavioral capability, never by filename alone.
@@ -84,6 +98,25 @@ before deserialization. Unknown newer versions fail closed before any mutation.
 lifecycle, and patch execution paths move to Rust with no Electron/Node runtime.
 The existing HTML/CSS/JavaScript renderer remains the product UI and keeps its fast
 shared tests; replacing that renderer with a Rust UI framework is not part of Release E.
+
+## Release F — Electron retirement
+
+This is a cleanup release after one successful stable Tauri release, not part of the
+first Tauri promotion.
+
+- Remove Electron runtime and `electron-builder` dependencies, Electron-only packaging
+  and prerelease workflows, and unreachable shell-only Node/preload/tracer paths.
+- Resolve the six currently explicit Tauri `Unsupported` channels before cleanup:
+  `rebootDev`, `createInstallLink`, `undertaleModTool:openInstallation`,
+  `gamebanana_downloadAllInCollection`, `npsCallback`, and `initialize`.
+  Each must be implemented or deliberately retired from every renderer/preload call site.
+- Keep shared renderer, domain, provider, lifecycle, security, compatibility, and
+  regression tests. Remove Electron-shell tests only after their mapped Tauri behavior
+  has equivalent packaged evidence.
+- Re-run package-size/startup/memory comparison after Electron assets and dependencies
+  are actually removed; do not fold cleanup gains into the pre-retirement benchmark.
+- Archive the last passing Electron artifact as a rollback reference without continuing
+  to publish Electron as a current product.
 
 ## Storage and retention
 
@@ -182,6 +215,107 @@ recovery easier to scan than decorative surfaces.
 The first-run success condition is: **Game ready — you can safely install mods.**
 Diagnostics must be sanitizable and copyable without opening DevTools.
 
+## Codebase audit — next work
+
+The 2026-09-27 audit was performed against `DeltaMaster@7a9b3a8` and the current
+upstream `deltamodders/deltamod:develop@0a86b85` (2.1.3). The following work was
+found in production code, compatibility fixtures, documentation, and upstream delta.
+
+### P0 — Evidence and release integrity
+
+- Refresh the static parity contract/output fixtures. They still record `startGame`
+  as unavailable in Rust even though the current Tauri router, game runtime, and
+  renderer adapter implement it.
+- Make parity CI derive or validate fixture classifications against the current Rust
+  router so snapshots cannot remain green after production behavior changes.
+- Reconcile migration documentation with current code. In particular,
+  `game-download-runtime/INTEGRATION.md` still describes the native game archive
+  importer as unavailable although `import_game_archive` is now wired, and
+  `docs/TEST-CLASSIFICATION.md` still describes a 65-test inventory while the
+  classification fixture currently contains 71 product tests.
+- Complete the signed stable Tauri release gate on Windows x64, Linux x64, macOS x64,
+  and macOS arm64, including installed-package smoke, updater evidence where supported,
+  protocol registration, sidecars, signing/notarization, and post-release rollback checks.
+
+### P1 — Close the remaining Tauri capability gaps
+
+- Implement collection restore for `gamebanana_downloadAllInCollection` through the
+  bounded provider/download/archive/lifecycle pipeline, with cancellation, structured
+  progress, file-choice handling, and no renderer-supplied download URL.
+- Either implement `createInstallLink` with a bounded Windows-native shortcut path
+  and validated installation identity, or remove the shortcut action from the shared UI.
+- Either implement `undertaleModTool:openInstallation` with explicit validated
+  executable/CLI selection and process ownership, or retire the action from the UI.
+- Remove the legacy `npsCallback` continuation path after confirming the Tauri
+  patch/lifecycle flow no longer requires it.
+- Keep `rebootDev` dev-only if retained; it must not become a stable packaged
+  capability merely to satisfy parity.
+- Do not copy Electron's recursive `initialize` profile erasure into Tauri IPC.
+  Retire it from the public bridge or replace it with a separately reviewed,
+  user-confirmed maintenance/reset flow with bounded data-root ownership.
+
+### P1 — Steam discovery and launch parity
+
+- Extend Linux Steam root discovery beyond `~/.local/share/Steam` to cover the
+  established `~/.steam/steam`, `~/.steam/root`, and Flatpak Steam layouts before
+  parsing `libraryfolders.vdf`.
+- Retain and expand the current multi-library VDF regression coverage, including
+  duplicate roots, malformed input, unavailable libraries, and non-default drives.
+- Validate Steam launch behavior on every supported platform. The current Rust
+  `startGame` Steam branch is Windows-only even though the native Steam opener has
+  Linux/macOS adapters; Linux Steam installations must not silently fall through to
+  an incompatible direct-executable path.
+- Turn upstream Steam-import and game-launch reports into Community regression tests,
+  especially upstream issues #47 and #62, while preserving transactional patch restore.
+
+### P2 — Accounts, collections, tools, and packaging
+
+- Decide whether to adopt upstream's itch.io account/collection expansion. If adopted,
+  build it on the Community credentials/provider boundaries rather than importing
+  plaintext account JSON or browser/local-callback token handling.
+- If multi-provider collections are adopted, make collection identity, create/delete,
+  export/import, and restore explicitly provider-aware end to end.
+- Re-evaluate upstream's UndertaleModTool `--overwrite` change against Community's
+  fresh staged-output model and add a compatibility regression only if the current
+  invocation can hit an existing output.
+- Use upstream Linux packaging reports #84 and #85 as regression cases for the Tauri
+  `.deb`: archive/package readability, correct architecture/native payloads, install,
+  launch, smoke, and uninstall must be verified from the produced artifact.
+- Review upstream's Chapter 3 theme as an optional Community content addition only
+  through the existing theme provenance, licensing, fixed-manifest, and media gates.
+
+## Upstream convergence — `deltamodders/deltamod`
+
+At the audit snapshot, Community and upstream have diverged substantially:
+`DeltaMaster` is 268 commits ahead of and 83 commits behind upstream `develop`.
+The common merge base predates both the Tauri rewrite and upstream's 2.1.x work.
+A wholesale merge would reintroduce architectural and security assumptions that the
+Community fork has intentionally replaced.
+
+For each upstream commit since the merge base, maintain an intake decision of
+**adopt**, **already covered**, **superseded**, or **intentional divergence**.
+P0/P1 security, corruption, install, patch, and launch fixes are triaged before
+feature parity. Imported code must continue to satisfy Community provenance and
+licensing policy.
+
+Current intake priorities:
+
+- **Already covered or substantially superseded:** case-insensitive mod hash checks,
+  active-game GameBanana search suggestions, modern Steam `libraryfolders.vdf`
+  parsing, secure protocol handling, transactional patch backup/restore, and Tauri
+  Linux `.deb` packaging. Keep regression coverage rather than re-importing the
+  Electron implementations.
+- **Adapt rather than merge:** upstream's expanded Linux Steam roots and 2.1.3 Steam
+  launch fixes; account/collection work; collection restore; Linux packaging fixes;
+  and any UndertaleModTool behavior change demonstrated by a Community regression.
+- **Requires product/provenance decision:** itch.io authenticated accounts and
+  collections, multi-provider collection UX, and the Chapter 3 theme.
+- **Do not copy verbatim across the trust boundary:** Electron/browser credential
+  export flows, plaintext account storage, arbitrary persisted launcher commands,
+  or direct filesystem mutation paths that bypass the lifecycle transaction model.
+- Add an upstream-delta check or review step to release preparation so new upstream
+  P0/P1 fixes cannot accumulate unnoticed between Community releases.
+
 ## Product gates
 
 | Outcome | Required evidence |
@@ -195,17 +329,23 @@ Diagnostics must be sanitizable and copyable without opening DevTools.
 | Long operations expose structured state | Every long-running operation |
 | Diagnostics require DevTools | No |
 | Shared tests survive Electron retirement | Yes |
+| Renderer-visible command remains Tauri `Unsupported` at Electron retirement | Zero; implement it or retire all public call sites |
+| Static parity fixture contradicts production channel classification | Zero |
+| Untriaged upstream P0/P1 delta at release branch cut | Zero |
 | Unreviewed game-theme assets enter Git/releases | Zero; only the fixed bundled allowlist is accepted |
 
 ## Current execution status
 
 | Slice | Status |
 | --- | --- |
-| Latest baseline and accessibility integration | Functional baseline complete at `9e6f8af` (contains local `a882423`); the sole newer `DeltaMaster` change from `7bb591c` is integrated in README. The next non-downgrade release identity is `2.0.18`, following published `2.0.17`. |
+| Audit snapshot | Audited `DeltaMaster@7a9b3a8` on 2026-09-27. The package identity remains `2.0.18`. Upstream `deltamodders/deltamod:develop@0a86b85` is `2.1.3`; the branches are diverged with Community 268 commits ahead and 83 commits behind at this snapshot. |
+| Historical functional baseline | The rewrite/performance baseline remains anchored at `9e6f8af` (contains local `a882423`). Treat that commit as benchmark evidence, not as the current tree identity. |
 | Contract freeze and adversarial fixtures | Accepted: 52 tests green; two Sol audits passed |
 | Release A lifecycle/UI foundations | A1/A2 are accepted and integrated. On Windows, Installed Mods v2 adopts legacy package libraries into authoritative lifecycle manifests without rewriting package bytes, retains a content-addressed exact snapshot, verifies exact owned hashes, repairs missing files from that snapshot, updates imported packet mods from a user-selected validated archive, and performs transactional uninstall only when no external change is present. Chara focus, delayed-start cancellation, native-position restoration, completed-line announcements, visible continuation, and reduced-motion safeguards remain integrated. |
 | Provider reconnaissance/foundation | R2 evidence, C1 normalization, and the C4 catalogue transport slice are integrated. The Mod Shop exposes GameBanana, Nexus Mods, and ModDB through validated provider-specific routes with structured safe failures, canonical item identities, a bounded content-addressed Rust metadata cache, fresh-cache reuse, and stale/offline fallback. Game Jolt and itch.io are retained only for configured automatic game downloads, matching the original Deltamod behavior. |
 | Bundled game themes | Four DELTARUNE and eight namespaced UNDERTALE themes, including New Home, are packaged as built-ins. The selector exposes 25 themes total while Chara remains hidden by default. Generation provenance is recorded without developer-specific installation paths. |
-| Tauri/test foundation | D1 through D2g are integrated. The bridge has 129 public commands (123 implemented, 6 explicitly unsupported) and 18 renderer events with zero producer gaps. Native separate-window alerts now use the bounded Tauri dialog adapter; the Chara encounter has native Rust window motion with exact restoration, and two dead legacy IPC channels were retired. The packaged shell registers the Community deep-link scheme and single-instance forwarding before the strict Rust handoff parser. Its explicit renderer handshake waits for all required event listeners instead of intercepting a captured Tauri internal. The freshly rebuilt unsigned Windows NSIS package passes exact-version in-app capability smoke and now proves that its bounded UNDERTALE fixture is actually resolvable by the game runtime, rather than merely listed. The previous installed candidate also passes install, protocol registration, second-instance forwarding into the first process after renderer readiness, all five packaged Rust worker protocols, atomic fixture import, exact hashing, patch backup/restore, process-tree cleanup, uninstall, and user-data preservation. Evidence is retained in `benchmarks/packaged-smoke/tauri-windows-installed-nsis-protocol.json` and `benchmarks/packaged-smoke/tauri-windows-installed-nsis-sidecars.json`. The release matrix now runs both Rust workspaces' all-target tests natively on Windows x64, Linux x64, and macOS x64/arm64 before packaging, then exercises the same installed worker smoke on every platform. Settings reports both patch and library recovery usage, keeps provider-cache cleanup separate, and danger-confirms identity-bound deletion of removable recovery generations. Startup reconciles interrupted deletion tombstones and enforces the 10 GiB recovery plus 100-item/30-day operation-history policies without deleting protected state. Signed updater/platform-signing evidence and actual non-Windows CI execution remain outstanding. |
+| Tauri/test foundation | D1 through D2g are integrated. The bridge has 129 public commands (123 implemented, 6 explicitly unsupported) and 18 renderer events with zero producer gaps. Functional parity is not closed until the six unsupported commands are implemented or retired. Static parity evidence also requires refresh because the checked-in contract still describes `startGame` as unavailable although production Rust implements it. Native separate-window alerts now use the bounded Tauri dialog adapter; the Chara encounter has native Rust window motion with exact restoration, and two dead legacy IPC channels were retired. The packaged shell registers the Community deep-link scheme and single-instance forwarding before the strict Rust handoff parser. Its explicit renderer handshake waits for all required event listeners instead of intercepting a captured Tauri internal. The freshly rebuilt unsigned Windows NSIS package passes exact-version in-app capability smoke and now proves that its bounded UNDERTALE fixture is actually resolvable by the game runtime, rather than merely listed. The previous installed candidate also passes install, protocol registration, second-instance forwarding into the first process after renderer readiness, all five packaged Rust worker protocols, atomic fixture import, exact hashing, patch backup/restore, process-tree cleanup, uninstall, and user-data preservation. Evidence is retained in `benchmarks/packaged-smoke/tauri-windows-installed-nsis-protocol.json` and `benchmarks/packaged-smoke/tauri-windows-installed-nsis-sidecars.json`. The release matrix now runs both Rust workspaces' all-target tests natively on Windows x64, Linux x64, and macOS x64/arm64 before packaging, then exercises the same installed worker smoke on every platform. Settings reports both patch and library recovery usage, keeps provider-cache cleanup separate, and danger-confirms identity-bound deletion of removable recovery generations. Startup reconciles interrupted deletion tombstones and enforces the 10 GiB recovery plus 100-item/30-day operation-history policies without deleting protected state. Signed updater/platform-signing evidence and actual non-Windows CI execution remain outstanding. |
+| Upstream intake | Upstream 2.1.3 changes are now an explicit convergence lane rather than an implicit merge target. Immediate adaptation candidates are Linux Steam roots/launch behavior and collection/account changes; existing Community security/lifecycle replacements remain authoritative. |
+| Documentation/test metadata debt | Update stale game-download integration notes and test-classification counts, then gate them against current source/fixture state where practical. |
 | Pre/post rewrite benchmark | Clean Electron baseline captured and recorded (7 measured launches; 1,513.96 ms median ready; 728.60 MiB median peak working set). The current unsigned Windows NSIS candidate completed the identical one-warm-up plus seven-launch protocol with fresh Deltamod/WebView2 profiles, the same bounded fixture, and renderer-authenticated main-route readiness: 1,664.31 ms median, 422.67 MiB median peak working set, and a 294.67 MiB installer. The comparator accepts the pair: +9.93% readiness, -41.99% memory, and -66.57% packaged size versus Electron. This is performance evidence only; signing and the remaining Release E gates still apply. |
 | Releases B–E | A2 update/verify/repair/game-health/restore, executable A3 transactional profile switching with exact lockfile source resolution, and A4 internal patch staging are accepted and integrated. A3 uses one outer journal/lease and atomically couples the active-profile pointer to the committed manifest. Tauri `patchAndRun` adopts the exact verified baseline, publishes staged patch output through the journaled Rust lifecycle filesystem boundary, and restores the previous generation after game exit or before the next patch session. Windows uses `fence-windows`; Linux and macOS use pinned device/inode identities plus rustix `openat`/`renameat`/`unlinkat` no-follow operations. The boundary rejects hardlinks/link escapes and rediscovers interrupted workspaces after restart; the legacy compatibility publisher is no longer reachable from `patchAndRun`. Recovery retention now measures and identity-binds exact workspaces, records durable deletion tombstones, quarantines before purge, reconciles interrupted deletion at startup, and compacts the append log without losing sequence authority. The complete locked Tauri workspace and strict all-target Clippy pass on Windows; native Linux/macOS adversarial execution remains a Release E package gate. The tools runtime bounds aggregate output, propagates live cancellation into external G3M/CSX execution, and terminates/reaps full process trees on cancellation, timeout, overflow, and completion. The release workflow now fails closed on missing updater/publisher credentials, verifies Authenticode on every distributed Windows executable, and requires Developer ID, Gatekeeper, and notarization evidence on both macOS architectures. Native signed execution and one stable Tauri publication remain external Release E gates. |
