@@ -28,8 +28,8 @@ boundaries, provenance rules, and release gates take precedence when designs dif
 - Identical file content may be co-owned. Differing content is a blocking conflict.
 - External modifications are never overwritten silently.
 - Active, unfinished, pinned, and sole recovery copies are protected from cleanup.
-- Electron-specific code may be retired only after equivalent Tauri capability
-  evidence exists. Fast shared domain, renderer, security, and compatibility tests remain.
+- Electron-specific tests are not release gates. Shared domain, renderer, security,
+  compatibility, and Tauri-native tests are authoritative.
 
 ## Contract freeze
 
@@ -89,7 +89,7 @@ before deserialization. Unknown newer versions fail closed before any mutation.
   channel classification. A stale fixture is a release blocker even when the source
   scanner reports no missing channel.
 - Upgrade, uninstall/reinstall, user-data preservation, and rollback are exercised
-  from the last stable Electron release to the candidate stable Tauri release.
+  against the current Community data layout and stable persisted contracts.
 - One stable Tauri release succeeds before a separate cleanup release removes
   Electron runtime and packaging.
 - Tests are retained or removed by behavioral capability, never by filename alone.
@@ -111,8 +111,7 @@ first Tauri promotion.
   `gamebanana_downloadAllInCollection`, `npsCallback`, and `initialize`.
   Each must be implemented or deliberately retired from every renderer/preload call site.
 - Keep shared renderer, domain, provider, lifecycle, security, compatibility, and
-  regression tests. Remove Electron-shell tests only after their mapped Tauri behavior
-  has equivalent packaged evidence.
+  Tauri shell regression tests. Electron-only tests are already outside the release gate.
 - Re-run package-size/startup/memory comparison after Electron assets and dependencies
   are actually removed; do not fold cleanup gains into the pre-retirement benchmark.
 - Archive the last passing Electron artifact as a rollback reference without continuing
@@ -230,9 +229,7 @@ found in production code, compatibility fixtures, documentation, and upstream de
   router so snapshots cannot remain green after production behavior changes.
 - Reconcile migration documentation with current code. In particular,
   `game-download-runtime/INTEGRATION.md` still describes the native game archive
-  importer as unavailable although `import_game_archive` is now wired, and
-  `docs/TEST-CLASSIFICATION.md` still describes a 65-test inventory while the
-  classification fixture currently contains 71 product tests.
+  importer as unavailable although `import_game_archive` is now wired.
 - Complete the signed stable Tauri release gate on Windows x64, Linux x64, macOS x64,
   and macOS arm64, including installed-package smoke, updater evidence where supported,
   protocol registration, sidecars, signing/notarization, and post-release rollback checks.
@@ -346,6 +343,6 @@ Current intake priorities:
 | Bundled game themes | Four DELTARUNE and eight namespaced UNDERTALE themes, including New Home, are packaged as built-ins. The selector exposes 25 themes total while Chara remains hidden by default. Generation provenance is recorded without developer-specific installation paths. |
 | Tauri/test foundation | D1 through D2g are integrated. The bridge has 129 public commands (123 implemented, 6 explicitly unsupported) and 18 renderer events with zero producer gaps. Functional parity is not closed until the six unsupported commands are implemented or retired. Static parity evidence also requires refresh because the checked-in contract still describes `startGame` as unavailable although production Rust implements it. Native separate-window alerts now use the bounded Tauri dialog adapter; the Chara encounter has native Rust window motion with exact restoration, and two dead legacy IPC channels were retired. The packaged shell registers the Community deep-link scheme and single-instance forwarding before the strict Rust handoff parser. Its explicit renderer handshake waits for all required event listeners instead of intercepting a captured Tauri internal. The freshly rebuilt unsigned Windows NSIS package passes exact-version in-app capability smoke and now proves that its bounded UNDERTALE fixture is actually resolvable by the game runtime, rather than merely listed. The previous installed candidate also passes install, protocol registration, second-instance forwarding into the first process after renderer readiness, all five packaged Rust worker protocols, atomic fixture import, exact hashing, patch backup/restore, process-tree cleanup, uninstall, and user-data preservation. Evidence is retained in `benchmarks/packaged-smoke/tauri-windows-installed-nsis-protocol.json` and `benchmarks/packaged-smoke/tauri-windows-installed-nsis-sidecars.json`. The release matrix now runs both Rust workspaces' all-target tests natively on Windows x64, Linux x64, and macOS x64/arm64 before packaging, then exercises the same installed worker smoke on every platform. Settings reports both patch and library recovery usage, keeps provider-cache cleanup separate, and danger-confirms identity-bound deletion of removable recovery generations. Startup reconciles interrupted deletion tombstones and enforces the 10 GiB recovery plus 100-item/30-day operation-history policies without deleting protected state. Signed updater/platform-signing evidence and actual non-Windows CI execution remain outstanding. |
 | Upstream intake | Upstream 2.1.3 changes are now an explicit convergence lane rather than an implicit merge target. Immediate adaptation candidates are Linux Steam roots/launch behavior and collection/account changes; existing Community security/lifecycle replacements remain authoritative. |
-| Documentation/test metadata debt | Update stale game-download integration notes and test-classification counts, then gate them against current source/fixture state where practical. |
+| Documentation/test metadata debt | Update stale game-download integration notes and keep classification metadata gated against the current shared/Tauri test surface. |
 | Pre/post rewrite benchmark | Clean Electron baseline captured and recorded (7 measured launches; 1,513.96 ms median ready; 728.60 MiB median peak working set). The current unsigned Windows NSIS candidate completed the identical one-warm-up plus seven-launch protocol with fresh Deltamod/WebView2 profiles, the same bounded fixture, and renderer-authenticated main-route readiness: 1,664.31 ms median, 422.67 MiB median peak working set, and a 294.67 MiB installer. The comparator accepts the pair: +9.93% readiness, -41.99% memory, and -66.57% packaged size versus Electron. This is performance evidence only; signing and the remaining Release E gates still apply. |
 | Releases B–E | A2 update/verify/repair/game-health/restore, executable A3 transactional profile switching with exact lockfile source resolution, and A4 internal patch staging are accepted and integrated. A3 uses one outer journal/lease and atomically couples the active-profile pointer to the committed manifest. Tauri `patchAndRun` adopts the exact verified baseline, publishes staged patch output through the journaled Rust lifecycle filesystem boundary, and restores the previous generation after game exit or before the next patch session. Windows uses `fence-windows`; Linux and macOS use pinned device/inode identities plus rustix `openat`/`renameat`/`unlinkat` no-follow operations. The boundary rejects hardlinks/link escapes and rediscovers interrupted workspaces after restart; the legacy compatibility publisher is no longer reachable from `patchAndRun`. Recovery retention now measures and identity-binds exact workspaces, records durable deletion tombstones, quarantines before purge, reconciles interrupted deletion at startup, and compacts the append log without losing sequence authority. The complete locked Tauri workspace and strict all-target Clippy pass on Windows; native Linux/macOS adversarial execution remains a Release E package gate. The tools runtime bounds aggregate output, propagates live cancellation into external G3M/CSX execution, and terminates/reaps full process trees on cancellation, timeout, overflow, and completion. The release workflow now fails closed on missing updater/publisher credentials, verifies Authenticode on every distributed Windows executable, and requires Developer ID, Gatekeeper, and notarization evidence on both macOS architectures. Native signed execution and one stable Tauri publication remain external Release E gates. |

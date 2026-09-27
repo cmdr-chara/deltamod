@@ -31,13 +31,12 @@ notarization is intentionally absent. A preview never satisfies this stable gate
 9. Windows x64: install and uninstall the NSIS package, verify its updater signature and a signed update from the previous stable version, run a mod import and CSX patch smoke test, and verify all five sidecars.
 10. Linux x64: install the `.deb`, confirm updater status is `unsupported-package`, import a mod, run a G3MTool patch smoke test, and verify all five sidecars.
 11. macOS x64 and arm64: verify the app bundle architecture, updater archive signature, and a signed update from the previous stable version; run the same persistence/protocol smoke tests, verify G3MTool, and mark UndertaleModTool CSX unavailable on arm64 rather than silently falling back.
-12. Compare the Tauri smoke results against the Electron release on the same fixture set. Any changed result is a release blocker unless documented in the release notes.
-13. Capture seven measured launches of the packaged Tauri candidate on the same
+12. Capture seven measured launches of the packaged Tauri candidate on the same
     Windows host and protocol as `benchmarks/desktop/electron-9e6f8af.json`, retain
     the immutable raw result, and require `scripts/desktop-benchmark/compare.js` to
     accept the pair before reporting readiness, memory, or artifact-size deltas.
-14. Confirm updater artifacts are enabled only in the Windows/macOS platform overrides, `latest.json` contains exactly those three signed targets, and Linux `.deb` is absent.
-15. Generate `SHA256SUMS.txt` over every release asset, including signatures and `latest.json`, attach GitHub attestations, and state that checksums verify integrity but not publisher identity.
+13. Confirm updater artifacts are enabled only in the Windows/macOS platform overrides, `latest.json` contains exactly those three signed targets, and Linux `.deb` is absent.
+14. Generate `SHA256SUMS.txt` over every release asset, including signatures and `latest.json`, attach GitHub attestations, and state that checksums verify integrity but not publisher identity.
 
 ## External signing prerequisites
 

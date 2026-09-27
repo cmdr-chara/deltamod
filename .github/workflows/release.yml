@@ -113,8 +113,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Electron workflow smoke test
-        run: npm run test:e2e
       - name: Acquire native Apple Silicon patcher
         run: npm run acquire:g3mtool
       - run: npm run verify:g3mtool

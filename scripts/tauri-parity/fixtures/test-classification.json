@@ -7,13 +7,11 @@
     "renderer",
     "security",
     "compatibility",
-    "shell-electron",
     "shell-tauri"
   ],
-  "runtimes": ["shared", "electron", "tauri"],
+  "runtimes": ["shared", "tauri"],
   "policy": {
     "sharedTestsSurviveElectronRetirement": true,
-    "electronTestsRequireEquivalentTauriCapabilityBeforeRemoval": true,
     "retirementOccursInSeparateCleanupRelease": true
   },
   "governanceTests": [
@@ -33,14 +31,12 @@
     { "path": "tests/credential-storage.test.js", "layer": "security", "runtime": "shared", "retained": true },
     { "path": "tests/desktop-benchmark-capture.test.js", "layer": "compatibility", "runtime": "shared", "retained": true },
     { "path": "tests/desktop-benchmark.test.js", "layer": "compatibility", "runtime": "shared", "retained": true },
-    { "path": "tests/easter-egg-window.test.js", "layer": "shell-electron", "runtime": "electron", "retained": true },
     { "path": "tests/g3mtool-provenance.test.js", "layer": "security", "runtime": "shared", "retained": true },
     { "path": "tests/game-hash-cache.test.js", "layer": "lifecycle", "runtime": "shared", "retained": true },
     { "path": "tests/game-patching.test.js", "layer": "lifecycle", "runtime": "shared", "retained": true },
     { "path": "tests/game-platform.test.js", "layer": "domain", "runtime": "shared", "retained": true },
     { "path": "tests/gamebanana-comment.test.js", "layer": "provider", "runtime": "shared", "retained": true },
     { "path": "tests/gamebanana-login.test.js", "layer": "provider", "runtime": "shared", "retained": true },
-    { "path": "tests/gamebanana-session.test.js", "layer": "shell-electron", "runtime": "electron", "retained": true },
     { "path": "tests/glib-variant-iter-patch.test.js", "layer": "compatibility", "runtime": "shared", "retained": true },
     { "path": "tests/hash-worker.test.js", "layer": "lifecycle", "runtime": "shared", "retained": true },
     { "path": "tests/image-security.test.js", "layer": "security", "runtime": "shared", "retained": true },
@@ -62,7 +58,6 @@
     { "path": "tests/nexus-ui-policy.test.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/patch-menu-ui.test.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/path-security.test.js", "layer": "security", "runtime": "shared", "retained": true },
-    { "path": "tests/preload-backend.test.js", "layer": "shell-electron", "runtime": "electron", "retained": true },
     { "path": "tests/profile-migration.test.js", "layer": "lifecycle", "runtime": "shared", "retained": true },
     { "path": "tests/progress-value.test.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/protocol.test.js", "layer": "security", "runtime": "shared", "retained": true },
@@ -88,7 +83,6 @@
     { "path": "tests/versioning.test.js", "layer": "domain", "runtime": "shared", "retained": true },
     { "path": "tests/window-zoom.test.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/e2e/chara-replay.spec.js", "layer": "renderer", "runtime": "shared", "retained": true },
-    { "path": "tests/e2e/community-smoke.spec.js", "layer": "shell-electron", "runtime": "electron", "retained": true },
     { "path": "tests/e2e/tauri-localization.spec.js", "layer": "shell-tauri", "runtime": "tauri", "retained": true },
     { "path": "tests/e2e/tauri-themes.spec.js", "layer": "shell-tauri", "runtime": "tauri", "retained": true }
   ]

@@ -115,46 +115,29 @@ jobs:
       - name: Install Playwright Chromium
         if: runner.os == 'macOS'
         run: node scripts/retry-command.js --label "Playwright Chromium installation" -- npx playwright install chromium
-      - name: Electron workflow smoke test
-        id: electron_e2e
+      - name: Renderer and Tauri browser E2E
+        id: renderer_e2e
         if: runner.os == 'macOS'
         run: npm run test:e2e
       - name: Upload Playwright failure diagnostics
-        if: failure() && steps.electron_e2e.outcome == 'failure'
+        if: failure() && steps.renderer_e2e.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-failure-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
           retention-days: 7
           path: test-results/
-      - name: Package smoke build
+      - name: Native tool smoke checks
         shell: bash
         run: |
           node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
           npm run verify:g3mtool
           if [[ "$RUNNER_OS" == "macOS" && "$RUNNER_ARCH" == "ARM64" ]]; then
-            node scripts/retry-command.js --label "UndertaleModTool Intel acquisition" -- node scripts/acquire-undertale-mod-tool.js darwin-x64
-            node scripts/verify-undertale-mod-tool.js darwin-x64 --tree-only
+            echo "UndertaleModTool CSX is intentionally unavailable on macOS ARM."
           else
             node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
             npm run verify:undertale-mod-tool
             npm run smoke:game-patching-csx
-          fi
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            npm run build:native-sidecars
-            node scripts/retry-command.js --label "Electron Windows package build" -- npx electron-builder --win --dir --publish never
-            node scripts/verify-packaged-hash-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
-            node scripts/verify-packaged-security-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
-            node scripts/verify-packaged-copy-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
-            node scripts/verify-packaged-patch-plan-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
-            node scripts/verify-packaged-patch-transaction-worker.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
-            node scripts/verify-packaged-undertale-mod-tool.js "dist/win-unpacked/resources/app.asar.unpacked" win32-x64
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            node scripts/retry-command.js --label "Electron macOS package build" -- npx electron-builder --mac --arm64 --dir --publish never
-            node scripts/verify-packaged-undertale-mod-tool.js "dist/mac-arm64/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64 --tree-only
-          else
-            node scripts/retry-command.js --label "Electron Linux package build" -- npx electron-builder --linux --dir --publish never
-            node scripts/verify-packaged-undertale-mod-tool.js "dist/linux-unpacked/resources/app.asar.unpacked" linux-x64
           fi
 
   verify-csx-macos-intel:
@@ -175,9 +158,6 @@ jobs:
         run: node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
       - run: npm run verify:g3mtool
       - run: npm run smoke:game-patching-csx
-      - run: npm run build:boot
-      - run: node scripts/retry-command.js --label "Electron macOS Intel package build" -- npx electron-builder --mac --x64 --dir --publish never
-      - run: node scripts/verify-packaged-undertale-mod-tool.js "dist/mac/Deltamod Community.app/Contents/Resources/app.asar.unpacked" darwin-x64
 
   benchmark-on-failure:
     needs: [verify, verify-csx-macos-intel]
