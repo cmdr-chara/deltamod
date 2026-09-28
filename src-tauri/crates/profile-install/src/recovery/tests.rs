@@ -104,10 +104,7 @@ fn rejects_forged_paths_kinds_and_operation_identities() {
             let mut value = serde_json::to_value(&original).unwrap();
             value[field] = json!(&attack);
             fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
-            assert!(
-                Runtime::open(&runtime.root).is_err(),
-                "{field}: {attack}"
-            );
+            assert!(Runtime::open(&runtime.root).is_err(), "{field}: {attack}");
             assert!(path.exists());
             assert_eq!(fs::read(outside.join("data.win")).unwrap(), b"original");
         }
