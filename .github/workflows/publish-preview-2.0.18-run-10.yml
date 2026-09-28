@@ -1,0 +1,56 @@
+name: Publish validated preview 2.0.18 run 10
+
+on:
+  push:
+    branches: [DeltaMaster]
+    paths:
+      - .github/workflows/publish-preview-2.0.18-run-10.yml
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: publish-preview-2.0.18-run-10
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Verify validated candidate, create tag, and dispatch release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: 7af7fd8a6b45202f23f6c4079769348f80ba2a2c
+          PREVIEW_TAG: community-tauri-preview-v2.0.18-run-10
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git merge-base --is-ancestor "$CANDIDATE_SHA" HEAD
+          version="$(git show "$CANDIDATE_SHA:package.json" | jq -r '.version')"
+          test "$version" = "2.0.18"
+
+          runs="$(gh api -H 'Accept: application/vnd.github+json'             "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$CANDIDATE_SHA&per_page=100")"
+
+          for workflow in             "Community CI"             "Community Provenance"             "Secure Updater Policy"             "Community Tauri Release"; do
+            jq -e --arg workflow "$workflow"               '[.workflow_runs[]
+                | select(.name == $workflow)
+                | select(.status == "completed")
+                | select(.conclusion == "success")
+              ] | length > 0' <<<"$runs" >/dev/null
+          done
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$PREVIEW_TAG" >/dev/null 2>&1; then
+            echo "::error::Preview tag already exists: $PREVIEW_TAG"
+            exit 1
+          fi
+
+          git tag "$PREVIEW_TAG" "$CANDIDATE_SHA"
+          git push origin "refs/tags/$PREVIEW_TAG"
+
+          gh workflow run tauri-release.yml --ref "$PREVIEW_TAG"
