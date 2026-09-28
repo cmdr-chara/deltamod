@@ -58,10 +58,7 @@ jobs:
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check --strict
           mkdir -p "$RUNNER_TEMP/actionlint"
           tar -xzf "$archive" -C "$RUNNER_TEMP/actionlint" actionlint
-          "$RUNNER_TEMP/actionlint/actionlint" -shellcheck= -pyflakes= \
-            .github/workflows/ci.yml .github/workflows/frontend-refinement.yml \
-            .github/workflows/provenance.yml .github/workflows/secure-updater-policy.yml \
-            .github/workflows/dependabot-automerge.yml .github/workflows/tauri-release.yml
+          "$RUNNER_TEMP/actionlint/actionlint" -shellcheck= -pyflakes= .github/workflows/*.yml
           node --test scripts/ci/gate.test.cjs
       - run: npm run verify:tauri-only
       - run: npm run typecheck
