@@ -890,6 +890,21 @@ impl Runtime {
         Ok(true)
     }
 
+    /// Resolves the configured game folder solely from a validated legacy index.
+    ///
+    /// Linked installations may live outside the application data root. The persisted
+    /// renderer-independent path is therefore revalidated as an absolute, non-linked
+    /// directory every time it crosses back into a native operation.
+    pub fn legacy_game_folder(&self, index: u32) -> Result<PathBuf, RuntimeError> {
+        let store = self.legacy_store(index)?;
+        let path = store
+            .get("gamePath")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| RuntimeError::Domain("installation game path is unavailable".into()))?;
+        safe_directory(Path::new(path))
+    }
+
     /// Resolves the managed folder solely from a validated legacy index.
     pub fn legacy_managed_folder(&self, index: u32) -> Result<PathBuf, RuntimeError> {
         let profile = self.existing_legacy_profile(index)?;
@@ -1637,6 +1652,10 @@ mod tests {
         runtime
             .legacy_create_installation(4, &source, "External".into(), false, legacy_store_fields())
             .unwrap();
+        assert_eq!(
+            runtime.legacy_game_folder(4).unwrap(),
+            source.canonicalize().unwrap()
+        );
 
         runtime.legacy_delete_installation(4).unwrap();
 
