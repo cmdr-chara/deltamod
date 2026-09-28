@@ -110,7 +110,10 @@ jobs:
             unsigned_preview=true
             validation=true
           elif [[ "$GITHUB_REF_NAME" == community-tauri-preview-v* ]]; then
-            test "$GITHUB_EVENT_NAME" = push
+            case "$GITHUB_EVENT_NAME" in
+              push|workflow_dispatch) ;;
+              *) echo "Unsupported preview release event: $GITHUB_EVENT_NAME" >&2; exit 1 ;;
+            esac
             test "$GITHUB_REF_TYPE" = tag
             release_tag="$GITHUB_REF_NAME"
             preview_version="${release_tag#community-tauri-preview-v}"

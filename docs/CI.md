@@ -104,3 +104,8 @@ candidate contains no updater signatures or `latest.json`, and retains a SHA-256
 manifest for seven days. Validation artifacts are intentionally unsigned and are not
 published. A green validation run is packaging evidence, not authorization to call a
 stable release signed or publishable.
+
+Unsigned preview tags may start the release workflow either from their tag push or
+through an explicit workflow dispatch against the immutable preview tag. The dispatch
+path exists because tags created with a workflow's `GITHUB_TOKEN` do not recursively
+trigger another workflow run.
