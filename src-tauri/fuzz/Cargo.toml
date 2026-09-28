@@ -1,0 +1,23 @@
+[package]
+name = "deltamod-native-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+deltamod-product-contracts = { path = "../crates/product-contracts" }
+deltamod-protocol-domain = { path = "../crates/protocol" }
+deltamod-updater-launch-runtime = { path = "../crates/updater-launch-runtime", default-features = false }
+
+[[bin]]
+name = "native_inputs"
+path = "fuzz_targets/native_inputs.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

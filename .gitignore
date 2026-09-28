@@ -37,3 +37,5 @@ tools/G3MTool
 /src-tauri/binaries/
 /src-tauri/resources/third-party/
 /.codex-runtime/
+/src-tauri/fuzz/artifacts/
+/src-tauri/fuzz/corpus/
