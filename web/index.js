@@ -970,7 +970,6 @@ const PAGE_REGISTRY = Object.freeze(Object.fromEntries([
     'collection-exportchoose',
     'collections',
     'credits',
-    'deleteall',
     'gamebanana-browse',
     'gamebanana-leave-comment',
     'goc-dl',
@@ -1039,7 +1038,7 @@ function loadPageScript(pageDefinition) {
 }
 
 /**
- * Wrapper for invoking Electron IPC calls.
+ * Wrapper for invoking the native backend.
  */
 async function invoke(...params) {
     return window.deltamodBackend.invoke(...params);
@@ -1370,7 +1369,7 @@ async function offerOfficialProfileImport() {
     return false;
 }
 
-// Override console methods to tunnel logs through Electron IPC
+// Override console methods to forward logs to the native backend
 console.log = function(...args) { window.deltamodBackend.invoke('log', [args.join(' '), 'LOG', pageN]); };
 console.warn = function(...args) { window.deltamodBackend.invoke('log', [args.join(' '), 'WARN', pageN]); };
 console.error = function(...args) { window.deltamodBackend.invoke('log', [args.join(' '), 'ERROR', pageN]); };
@@ -1866,7 +1865,7 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
-if (!window.electronAPI) {
+if (!window.deltamodBackend) {
     window.alert('This application cannot run in this environment.');
     window.close();
     window.location.href = 'about:blank';

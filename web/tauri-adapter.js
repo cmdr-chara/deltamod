@@ -7,7 +7,7 @@
 })(typeof window === 'undefined' ? globalThis : window, function installTauriAdapter(root) {
     'use strict';
 
-    if (root.deltamodBackend || root.communityAPI || root.preloadAPI) return 'electron';
+    if (root.deltamodBackend) return 'installed';
     if (!root.__TAURI__?.core?.invoke || !root.__TAURI__?.event?.listen) return 'browser';
 
     const tauriInvoke = root.__TAURI__.core.invoke;
@@ -269,7 +269,6 @@
 
     const backend = Object.freeze({ invoke, invokeOptional, isCommandAvailable, on, assetUrl });
     root.deltamodBackend = backend;
-    root.electronAPI = Object.freeze({ invoke });
     root.communityAPI = Object.freeze({
         app: Object.freeze({
             version: () => invoke('version'),

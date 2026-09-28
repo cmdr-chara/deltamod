@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "scope": "Synthetic unsigned updater-manifest tooling only. Not desktop, Tauri, installer or cryptographic verification.",
+  "baselineGitBlob": "ca31f742c896a9ffa2ac6355077feffa02f8cb6f",
+  "candidateGitBlob": "806d813e540c5421dc012c86d37959efc0409a34",
+  "environment": {
+    "node": "v22.16.0",
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz"
+  },
+  "validThreeTargetManifest": {
+    "baseline": {
+      "iterationsPerSample": 100,
+      "samplesMsPerCall": [
+        0.11524905999999958,
+        0.08836675000000013,
+        0.09185673000000008,
+        0.10063175,
+        0.10595012999999995,
+        0.0757743099999999,
+        0.12431180999999981,
+        0.09180656,
+        0.07176770000000034
+      ],
+      "medianMsPerCall": 0.09185673000000008
+    },
+    "candidate": {
+      "iterationsPerSample": 100,
+      "samplesMsPerCall": [
+        0.9585829899999999,
+        0.3771039899999982,
+        0.28555492999999843,
+        0.2614058,
+        0.44842785999999935,
+        0.5590460200000007,
+        0.20867081000000098,
+        0.23922537000000146,
+        0.21827677999999878
+      ],
+      "medianMsPerCall": 0.28555492999999843
+    }
+  },
+  "oversizedSignature32MiB": {
+    "baseline": {
+      "rejected": true,
+      "milliseconds": 691.290894,
+      "peakRssKiB": 112204
+    },
+    "candidate": {
+      "rejected": true,
+      "milliseconds": 3.844698000000008,
+      "peakRssKiB": 46888
+    }
+  }
+}

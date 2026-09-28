@@ -1,6 +1,6 @@
 # Tauri Release Gate
 
-This gate applies to the stable Tauri release. The existing Electron release remains the rollback artifact until every check below is green. The current unsigned Electron release workflow must not be used to publish the stable release.
+This gate applies to the stable Tauri release. Electron runtime and packaging have been removed from the source tree. Preserve the last existing Electron release as a historical rollback artifact until every check below is green. Source retirement is not evidence of a signed, platform-verified stable Tauri release. No Electron release workflow remains.
 
 Unsigned Tauri previews use tags named `community-tauri-preview-v*`. They are
 GitHub prereleases for manual testing only: updater artifacts and `latest.json`
@@ -9,7 +9,7 @@ notarization is intentionally absent. A preview never satisfies this stable gate
 
 ## Required parity checks
 
-1. `npm ci` succeeds with the committed `package-lock.json`.
+1. `npm ci` succeeds with the committed `package-lock.json`, and `npm run verify:tauri-only` rejects any reintroduced Electron runtime, dependency, or renderer binding.
 2. `npm run build:boot` succeeds and the Tauri frontend points at the generated `web/` output.
 3. `npm test`, `npm run typecheck`, and `npm run security:audit` pass.
 4. Formatting, strict all-target Clippy, and locked workspace tests pass for both

@@ -113,7 +113,6 @@
     "resources": {
       "../games/": "games/",
       "../web/themes/": "themes/",
-      "../tools/cmodeutil.exe": "tools/cmodeutil.exe",
       "resources/third-party/": "third-party/",
       "resources/NOTICE.md": "NOTICE.md",
       "resources/THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"

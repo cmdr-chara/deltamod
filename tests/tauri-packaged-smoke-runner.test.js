@@ -13,6 +13,12 @@ const {
 const execFileAsync = promisify(execFile);
 const runnerPath = path.join(__dirname, '..', 'scripts', 'tauri-parity', 'run-packaged-smoke.js');
 
+// A live PID does not prove that a fixture has executed its initialization.
+// Emit the existing in-app probe only after the observable work is complete.
+function capabilitySource() {
+    return "require('node:fs').writeFileSync(process.env.DELTAMOD_SMOKE_CAPABILITY_FILE, JSON.stringify({schemaVersion:1,status:'passed',ok:true,packageVersion:'2.0.13',checks:{packaged:true,flagSet:true,flagRead:true,flagPersisted:true,baseThemeAvailable:true,baseThemeActive:true,installationListed:true,gameLoaded:true,unknownChannelRejected:true}}));";
+}
+
 function nodeFixture(source) {
     return ['-e', source];
 }
@@ -27,37 +33,44 @@ async function waitForProcessGone(pid, timeoutMs = 2_000) {
 }
 
 describe('packaged Tauri smoke runner', () => {
-    test('requires a live Node fixture, captures bounded output, and terminates it', async () => {
-        const evidence = await runPackagedSmoke({
-            executable: process.execPath,
-            args: nodeFixture([
-                "process.stdout.write('o'.repeat(256));",
-                "process.stderr.write('e'.repeat(256));",
-                'setInterval(() => {}, 1000);'
-            ].join(' ')),
-            cwd: path.join(__dirname, '..'),
-            timeoutMs: 1_000,
-            readinessMs: 100,
-            pollMs: 10,
-            outputLimitBytes: 32,
-            terminationTimeoutMs: 3_000
-        });
+    test('waits for initialized fixture evidence, captures bounded output, and terminates it', async () => {
+        const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'deltamod-output-smoke-'));
+        try {
+            const evidence = await runPackagedSmoke({
+                executable: process.execPath,
+                args: nodeFixture([
+                    "process.stdout.write('o'.repeat(256));",
+                    "process.stderr.write('e'.repeat(256));",
+                    capabilitySource(),
+                    'setInterval(() => {}, 1000);'
+                ].join(' ')).concat('--'),
+                dataRoot: temporaryRoot,
+                capabilityProbe: true,
+                expectedVersion: '2.0.13',
+                cwd: path.join(__dirname, '..'),
+                timeoutMs: 1_000,
+                readinessMs: 100,
+                pollMs: 10,
+                outputLimitBytes: 32,
+                terminationTimeoutMs: 3_000
+            });
 
-        expect(evidence.ok).toBe(true);
-        expect(evidence.status).toBe('passed');
-        expect(evidence.readiness).toMatchObject({
-            criterion: 'process-live',
-            reached: true,
-            requiredForMs: 100
-        });
-        expect(evidence.readiness.observedForMs).toBeGreaterThanOrEqual(100);
-        expect(evidence.output.stdout).toMatchObject({ limitBytes: 32, truncated: true });
-        expect(evidence.output.stderr).toMatchObject({ limitBytes: 32, truncated: true });
-        expect(evidence.output.stdout.capturedBytes).toBeLessThanOrEqual(32);
-        expect(evidence.output.stderr.capturedBytes).toBeLessThanOrEqual(32);
-        expect(evidence.output.stdout.totalBytes).toBeGreaterThanOrEqual(256);
-        expect(evidence.output.stderr.totalBytes).toBeGreaterThanOrEqual(256);
-        expect(evidence.termination).toMatchObject({ requested: true, completed: true });
+            expect(evidence.ok).toBe(true);
+            expect(evidence.status).toBe('passed');
+            expect(evidence.readiness).toMatchObject({
+                criterion: 'capability-evidence-and-process-live',
+                reached: true,
+                requiredForMs: 100
+            });
+            expect(evidence.readiness.observedForMs).toBeGreaterThanOrEqual(100);
+            expect(evidence.output.stdout).toMatchObject({ limitBytes: 32, truncated: true });
+            expect(evidence.output.stderr).toMatchObject({ limitBytes: 32, truncated: true });
+            expect(evidence.output.stdout.capturedBytes).toBeLessThanOrEqual(32);
+            expect(evidence.output.stderr.capturedBytes).toBeLessThanOrEqual(32);
+            expect(evidence.output.stdout.totalBytes).toBeGreaterThanOrEqual(256);
+            expect(evidence.output.stderr.totalBytes).toBeGreaterThanOrEqual(256);
+            expect(evidence.termination).toMatchObject({ requested: true, completed: true });
+        } finally { fs.rmSync(temporaryRoot, { recursive: true, force: true }); }
     });
 
     test('fails closed when a fixture exits before the live interval', async () => {
@@ -107,6 +120,8 @@ describe('packaged Tauri smoke runner', () => {
                 '--executable', process.execPath,
                 '--data-root', temporaryRoot,
                 '--evidence-file', evidencePath,
+                '--capability-probe',
+                '--expected-version', '2.0.13',
                 '--timeout-ms', '1000',
                 '--ready-for-ms', '80',
                 '--poll-ms', '10',
@@ -116,6 +131,7 @@ describe('packaged Tauri smoke runner', () => {
                     "if (!process.argv.includes('--data-root')) process.exit(7);",
                     "if (process.env.DELTAMOD_SMOKE_DATA_ROOT !== process.argv[process.argv.indexOf('--data-root') + 1]) process.exit(8);",
                     "require('node:fs').writeFileSync(require('node:path').join(process.env.DELTAMOD_SMOKE_DATA_ROOT, 'initialized'), 'ok');",
+                    capabilitySource(),
                     'setInterval(() => {}, 1000);'
                 ].join(' ')),
                 '--'

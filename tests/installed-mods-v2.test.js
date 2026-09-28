@@ -810,7 +810,7 @@ describe('Installed Mods v2 product UI', () => {
         const model = ProductUI.mapContractsV1Fixture(readFixture(), {
             runtime: {
                 version: '2.0.13',
-                shell: 'electron',
+                shell: 'tauri',
                 platform: 'windows',
                 token: 'must-never-serialize',
                 homePath: 'C:\\Users\\Sensitive'

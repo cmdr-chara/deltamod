@@ -5,8 +5,7 @@ const nextButton = document.getElementById('next');
 const log = document.getElementById('gpl');
 const progress = document.getElementById('patch-progress');
 const percentLabel = document.getElementById('patch-percent');
-const hasLegacyNextPatchStep = window.deltamodBackend.isCommandAvailable('npsCallback');
-if (nextButton && !hasLegacyNextPatchStep) nextButton.title = 'Return to the mod list';
+if (nextButton) nextButton.title = 'Return to the mod list';
 let pending = [];
 let frame = 0;
 let finished = false;
@@ -45,10 +44,6 @@ window.currentPageStack.gpl = function (obj) {
     }
 };
 window.currentPageStack.next = async function () {
-    if (hasLegacyNextPatchStep) {
-        await window.deltamodBackend.invokeOptional('npsCallback', [], false);
-        return;
-    }
     await page('main');
 };
 window.currentPageStack.fp = async function () {

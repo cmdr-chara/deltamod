@@ -78,10 +78,10 @@ function productionRendererJavaScript(webRoot) {
 }
 
 describe('Tauri browser adapter', () => {
-    it('does nothing when the Electron preload bridge is present', () => {
+    it('is idempotent when the native bridge is already installed', () => {
         const backend = {};
         const root = tauriRoot({ deltamodBackend: backend, communityAPI: {}, preloadAPI: {} });
-        expect(installTauriAdapter(root)).toBe('electron');
+        expect(installTauriAdapter(root)).toBe('installed');
         expect(root.deltamodBackend).toBe(backend);
         expect(root.__TAURI__.core.invoke).not.toHaveBeenCalled();
     });
@@ -252,18 +252,18 @@ describe('Tauri browser adapter', () => {
 
         const repo = path.resolve(__dirname, '..');
         const report = buildParity({
-            preloadPath: path.join(repo, 'web', 'preload.js'),
+            contractPath: path.join(repo, 'scripts', 'tauri-parity', 'fixtures', 'renderer-channels.json'),
             rustPath: path.join(repo, 'src-tauri', 'src', 'main.rs')
         });
         expect(report.counts).toEqual({
-            electronInvoke: 129,
-            electronEvents: 18,
+            rendererInvoke: 129,
+            rendererEvents: 18,
             rustKnown: 129,
             rustImplemented: 123,
             rustUnsupported: 6
         });
 
-        const preloadEvents = report.electron.events.map(event => event.name);
+        const preloadEvents = report.renderer.events.map(event => event.name);
         const adapterEvents = extractSet(
             fs.readFileSync(path.join(repo, 'web', 'tauri-adapter.js'), 'utf8'),
             'allowedEvents'
@@ -275,7 +275,7 @@ describe('Tauri browser adapter', () => {
             expect(adapterEvents).not.toContain(event);
         }
 
-        const rendererCommands = report.electron.invokes.map(command => command.name).sort();
+        const rendererCommands = report.renderer.invokes.map(command => command.name).sort();
         const publicRustCommands = report.rust.publicChannels.map(command => command.name).sort();
         expect(rendererCommands).toEqual(publicRustCommands);
         for (const command of RETIRED_RENDERER_COMMANDS) {

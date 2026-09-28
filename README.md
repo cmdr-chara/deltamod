@@ -192,14 +192,28 @@ Never upload copyrighted game files, passwords, tokens, or other private data wh
 <details>
 <summary><strong>Developer setup</strong></summary>
 
-Development requires Node.js 22. Rust and the platform prerequisites for Tauri are required for native builds.
+Development is Tauri-only and requires Node.js 22, Rust, and the platform prerequisites for [Tauri](https://v2.tauri.app/start/prerequisites/). `npm run dev` stages the native workers and verified tools before starting Tauri. There is no Electron fallback.
 
 ```console
 git clone https://github.com/cmdr-chara/deltamod.git
 cd deltamod
 npm ci
+npm run acquire:g3mtool
+# Windows, Linux and Intel macOS only:
+npm run acquire:undertale-mod-tool
 npm run dev
 ```
+
+On Apple Silicon, skip the UndertaleModTool acquisition command. CSX is explicitly
+unavailable there; G3MTool remains supported. Tool downloads are pinned and verified,
+not installed by `npm ci`.
+
+`npm run build:tauri` creates NSIS on Windows, a `.deb` on Linux, and app/DMG bundles
+on macOS. To select another supported architecture on the same operating system,
+set `TAURI_BUILD_TARGET` before the **whole** npm command so tool/worker staging and
+the Tauri CLI agree. Install that Rust target first. Do not pass `--target` after
+`npm run build:tauri`; the wrapper rejects it rather than package mismatched sidecars.
+Use `npm run build:tauri:no-bundle` to compile without an installer.
 
 Common checks:
 

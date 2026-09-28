@@ -26,6 +26,7 @@ jobs:
           components: rustfmt
       - name: Install npm dependencies
         run: node scripts/retry-command.js --label "npm ci" -- npm ci
+      - run: npm run verify:tauri-only
       - run: npm run typecheck
       - run: npm run security:audit
       - run: npm run verify:g3mtool-manifest

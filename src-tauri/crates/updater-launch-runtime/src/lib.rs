@@ -4,6 +4,7 @@ use serde_json::{json, Map, Value};
 use std::{
     collections::BTreeMap,
     env, fmt, fs, io,
+    io::Read,
     path::{Component, Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
     sync::{Arc, Mutex},
@@ -13,6 +14,7 @@ use std::{
 const MAX_CATALOG_FILES: usize = 128;
 const MAX_JSON_BYTES: u64 = 1024 * 1024;
 
+pub mod steam_discovery;
 pub mod updater;
 pub use updater::*;
 
@@ -119,8 +121,21 @@ pub fn sanitized_environment(explicit: &BTreeMap<String, String>) -> BTreeMap<St
         .collect()
 }
 pub fn inherited_non_secret_environment() -> BTreeMap<String, String> {
-    env::vars()
-        .filter(|(key, _)| allowed_inherited_key(key))
+    filtered_inherited_environment(env::vars_os())
+}
+
+fn filtered_inherited_environment(
+    values: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+) -> BTreeMap<String, String> {
+    values
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let key = key.into_string().ok()?;
+            if !allowed_inherited_key(&key) {
+                return None;
+            }
+            Some((key, value.into_string().ok()?))
+        })
         .collect()
 }
 
@@ -242,8 +257,10 @@ impl SteamUri {
             .strip_prefix("steam://run/")
             .or_else(|| raw.strip_prefix("steam://rungameid/"))
             .ok_or(SteamError::InvalidUri)?;
-        let id = rest.split(['/', '?']).next().unwrap_or("");
-        if id.is_empty() || id.parse::<u32>().ok().filter(|n| *n > 0).is_none() || raw.contains('#')
+        if rest.is_empty()
+            || rest.len() > 10
+            || !rest.bytes().all(|c| c.is_ascii_digit())
+            || rest.parse::<u32>().ok().filter(|n| *n > 0).is_none()
         {
             return Err(SteamError::InvalidUri);
         }
@@ -272,10 +289,15 @@ impl SteamOpener for SystemSteamOpener {
             c.arg(uri.as_str());
             c
         };
-        command
+        let status = command
             .status()
-            .map(|_| ())
-            .map_err(|e| SteamError::Io(e.to_string()))
+            .map_err(|e| SteamError::Io(e.to_string()))?;
+        // Explorer can return a nonzero code after handing off a URI. Unix
+        // openers have meaningful exit codes and must not hide failed launches.
+        if !cfg!(target_os = "windows") && !status.success() {
+            return Err(SteamError::Io("Steam URI opener failed".into()));
+        }
+        Ok(())
     }
 }
 
@@ -422,6 +444,7 @@ impl GameRuntime {
     fn catalog(&self) -> Result<Vec<Value>, GameError> {
         let mut entries = fs::read_dir(&self.config.games_dir)
             .map_err(|_| GameError::CatalogUnavailable)?
+            .take(MAX_CATALOG_FILES + 1)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| GameError::CatalogUnavailable)?;
         if entries.len() > MAX_CATALOG_FILES {
@@ -484,9 +507,7 @@ impl GameRuntime {
             .ok_or(GameError::InstallationUnavailable)?;
         let resolution = self.resolve_installation(&store, &game)?;
 
-        if store.get("isSteam").and_then(Value::as_bool) == Some(true)
-            && self.config.host == HostPlatform::Win32
-        {
+        if store.get("isSteam").and_then(Value::as_bool) == Some(true) {
             let app_id = store
                 .get("steamAppId")
                 .and_then(|value| {
@@ -504,8 +525,27 @@ impl GameRuntime {
             let uri = SteamUri::parse(format!("steam://rungameid/{app_id}"))
                 .or_else(|_| SteamUri::run(app_id))
                 .map_err(|_| GameError::InvalidSteamAppId)?;
-            self.steam.open(&uri).map_err(|_| GameError::LaunchFailed)?;
+            let mut state = self
+                .process
+                .lock()
+                .map_err(|_| GameError::RuntimeUnavailable)?;
+            if state.running {
+                return Err(GameError::AlreadyRunning);
+            }
+            state.running = true;
+            drop(state);
+            if self.steam.open(&uri).is_err() {
+                if let Ok(mut state) = self.process.lock() {
+                    state.running = false;
+                }
+                return Err(GameError::LaunchFailed);
+            }
+            // This acknowledges a Steam handoff, not ownership of a game process.
+            // Production exits through this callback; do not restore on opener exit.
             self.lifecycle.steam_launched();
+            if let Ok(mut state) = self.process.lock() {
+                state.running = false;
+            }
             return Ok(true);
         }
 
@@ -552,20 +592,28 @@ impl GameRuntime {
                     .and_then(|mut child| child.wait().ok())
                     .map(|status| status.success())
                     .unwrap_or(false);
+                // Keep launch exclusion through all finalization work. A new
+                // launch must not overlap a restoration callback.
+                lifecycle.finished(success);
                 if let Ok(mut state) = process.lock() {
                     if state.generation == generation {
                         state.running = false;
                     }
                 }
-                lifecycle.finished(success);
             });
         if spawn_result.is_err() {
-            if let Ok(mut state) = self.process.lock() {
-                state.running = false;
-            }
-            if let Ok(mut slot) = child.lock() {
-                if let Some(child) = slot.as_mut() {
+            let reaped = child
+                .lock()
+                .ok()
+                .and_then(|mut slot| slot.take())
+                .is_some_and(|mut child| {
                     let _ = child.kill();
+                    child.wait().is_ok()
+                });
+            self.lifecycle.finished(false);
+            if reaped {
+                if let Ok(mut state) = self.process.lock() {
+                    state.running = false;
                 }
             }
             return Err(GameError::LaunchFailed);
@@ -625,7 +673,18 @@ fn read_bounded_json_file(path: &Path, invalid: GameError) -> Result<Value, Game
     if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > MAX_JSON_BYTES {
         return Err(invalid);
     }
-    let bytes = fs::read(path).map_err(|_| invalid)?;
+    let file = fs::File::open(path).map_err(|_| invalid)?;
+    let opened = file.metadata().map_err(|_| invalid)?;
+    if !opened.is_file() || opened.len() > MAX_JSON_BYTES {
+        return Err(invalid);
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_JSON_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid)?;
+    if bytes.len() as u64 > MAX_JSON_BYTES {
+        return Err(invalid);
+    }
     serde_json::from_slice(&bytes).map_err(|_| invalid)
 }
 
@@ -949,9 +1008,18 @@ mod tests {
     #[test]
     fn steam_uri_is_strict() {
         assert_eq!(
-            SteamUri::parse("steam://run/123?x=y").unwrap().as_str(),
-            "steam://run/123?x=y"
+            SteamUri::parse("steam://run/123").unwrap().as_str(),
+            "steam://run/123"
         );
+        for invalid in [
+            "steam://run/123?x=y",
+            "steam://run/123/args",
+            "steam://run/+1",
+            "steam://run/4294967296",
+            "steam://run/１２３",
+        ] {
+            assert!(SteamUri::parse(invalid).is_err());
+        }
         assert!(SteamUri::parse("steam://run/0").is_err());
         assert!(SteamUri::parse("steam://run/12#x").is_err());
     }
@@ -1115,5 +1183,132 @@ mod tests {
         assert!(allowed_inherited_key("LC_ALL"));
         assert!(!allowed_inherited_key("AWS_ACCESS_KEY_ID"));
         assert!(!allowed_inherited_key("RANDOM_APPLICATION_SETTING"));
+    }
+    #[derive(Default)]
+    struct CaptureSteam(Mutex<Vec<String>>);
+    impl SteamOpener for CaptureSteam {
+        fn open(&self, uri: &SteamUri) -> Result<(), SteamError> {
+            self.0.lock().unwrap().push(uri.as_str().to_owned());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn steam_handoff_uses_steam_not_wine_or_open_on_all_hosts() {
+        for host in [
+            HostPlatform::Win32,
+            HostPlatform::Linux,
+            HostPlatform::Darwin,
+        ] {
+            let (root, mut config) = game_fixture();
+            config.host = host;
+            fs::create_dir(root.0.join("install/Game.app")).unwrap();
+            let mut game: Value =
+                serde_json::from_slice(&fs::read(config.games_dir.join("fixture.json")).unwrap())
+                    .unwrap();
+            game["platforms"] = json!({"darwin": {"executable": "GAME.exe", "dataFiles": ["data.win"], "bundle": "Game.app"}});
+            fs::write(
+                config.games_dir.join("fixture.json"),
+                serde_json::to_vec(&game).unwrap(),
+            )
+            .unwrap();
+            let mut store: Value =
+                serde_json::from_slice(&fs::read(&config.store_path).unwrap()).unwrap();
+            store["isSteam"] = json!(true);
+            store["steamAppId"] = json!(391540);
+            fs::write(&config.store_path, serde_json::to_vec(&store).unwrap()).unwrap();
+            let steam = Arc::new(CaptureSteam::default());
+            let spawner = Arc::new(CaptureSpawner::default());
+            let runtime = GameRuntime::with_adapters(
+                config.clone(),
+                spawner.clone(),
+                steam.clone(),
+                Arc::new(NoopGameLifecycle),
+            );
+            assert_eq!(runtime.start_game(), Ok(true));
+            assert_eq!(*steam.0.lock().unwrap(), ["steam://rungameid/391540"]);
+            assert!(spawner.0.lock().unwrap().is_empty());
+            store["steamAppId"] = json!("391540/--inject");
+            fs::write(&config.store_path, serde_json::to_vec(&store).unwrap()).unwrap();
+            assert_eq!(runtime.start_game(), Err(GameError::InvalidSteamAppId));
+            assert_eq!(steam.0.lock().unwrap().len(), 1);
+        }
+    }
+
+    #[test]
+    fn launch_exclusion_lasts_until_finalization_returns() {
+        struct BlockingLifecycle {
+            entered: std::sync::mpsc::Sender<()>,
+            release: Mutex<std::sync::mpsc::Receiver<()>>,
+        }
+        impl GameLifecycle for BlockingLifecycle {
+            fn finished(&self, _: bool) {
+                self.entered.send(()).unwrap();
+                let _ = self
+                    .release
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(3));
+            }
+        }
+        let (_root, config) = game_fixture();
+        let (entered, receiver) = std::sync::mpsc::channel();
+        let (release, waiter) = std::sync::mpsc::channel();
+        let runtime = GameRuntime::with_adapters(
+            config,
+            Arc::new(CaptureSpawner::default()),
+            Arc::new(RejectSteam),
+            Arc::new(BlockingLifecycle {
+                entered,
+                release: Mutex::new(waiter),
+            }),
+        );
+        runtime.start_game().unwrap();
+        receiver.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert!(runtime.is_running());
+        assert_eq!(runtime.start_game(), Err(GameError::AlreadyRunning));
+        release.send(()).unwrap();
+        for _ in 0..100 {
+            if !runtime.is_running() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        panic!("launch exclusion was not released after finalization");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_unicode_environment_is_skipped_without_panicking() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+        let invalid = OsString::from_vec(vec![0xff]);
+        let values = vec![
+            (invalid.clone(), "ignored".into()),
+            ("HOME".into(), invalid),
+            ("PATH".into(), "/usr/bin".into()),
+            ("NEXUS_TOKEN".into(), "secret".into()),
+        ];
+        assert_eq!(
+            filtered_inherited_environment(values),
+            BTreeMap::from([("PATH".into(), "/usr/bin".into())])
+        );
+    }
+
+    #[test]
+    fn catalog_limits_fail_closed() {
+        let (_root, config) = game_fixture();
+        let runtime = GameRuntime::new(config.clone());
+        fs::write(
+            config.games_dir.join("oversized.json"),
+            vec![b' '; MAX_JSON_BYTES as usize + 1],
+        )
+        .unwrap();
+        assert_eq!(runtime.catalog(), Err(GameError::InvalidCatalog));
+        fs::remove_file(config.games_dir.join("oversized.json")).unwrap();
+        for index in 0..MAX_CATALOG_FILES {
+            fs::write(config.games_dir.join(format!("{index}.json")), b"{}").unwrap();
+        }
+        assert_eq!(runtime.catalog(), Err(GameError::CatalogLimit));
     }
 }

@@ -6,7 +6,7 @@ const root = path.join(__dirname, '..');
 
 describe('Tauri Controller Mode packaging', () => {
     it('packages the pinned Windows utility at its fixed resource path', () => {
-        const config = JSON.parse(fs.readFileSync(path.join(root, 'src-tauri', 'tauri.conf.json')));
+        const config = JSON.parse(fs.readFileSync(path.join(root, 'src-tauri', 'tauri.windows.conf.json')));
         const utility = fs.readFileSync(path.join(root, 'tools', 'cmodeutil.exe'));
 
         expect(config.bundle.resources['../tools/cmodeutil.exe']).toBe('tools/cmodeutil.exe');

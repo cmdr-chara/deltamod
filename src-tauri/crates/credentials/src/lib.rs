@@ -43,11 +43,12 @@ pub struct Secret(String);
 
 impl Secret {
     pub fn new(value: impl Into<String>) -> Result<Self, Error> {
-        let value = value.into();
+        let mut value = value.into();
         if value.is_empty() {
             return Err(Error::InvalidInput);
         }
         if value.len() > MAX_SECRET_BYTES {
+            value.zeroize();
             return Err(Error::SecretTooLarge);
         }
         Ok(Self(value))
@@ -77,8 +78,6 @@ pub enum Error {
     Backend,
     #[error("credential metadata is invalid")]
     Metadata,
-    #[error("migration failed")]
-    Migration,
 }
 
 pub trait Backend: Send + Sync {
@@ -136,23 +135,45 @@ impl<B: Backend> CredentialStore<B> {
         Ok(store)
     }
     pub fn clear(&self, kind: CredentialKind) -> Result<(), Error> {
-        self.backend.delete(kind.user())?;
-        self.update_presence(kind, false)
+        self.metadata()?;
+        self.backend.delete(kind.user())
     }
     pub fn status(&self) -> Result<CredentialMetadata, Error> {
-        let raw = self.backend.get(METADATA_USER)?.ok_or(Error::Metadata)?;
-        serde_json::from_str(&raw).map_err(|_| Error::Metadata)
+        let mut metadata = self.metadata()?;
+        // Presence is a view of the authoritative secure store, not a second
+        // independently committed record. Stale v1 flags are intentionally ignored.
+        metadata.present.clear();
+        for kind in [
+            CredentialKind::GameBananaCookies,
+            CredentialKind::NexusOAuthTokens,
+            CredentialKind::NexusLegacySsoKey,
+        ] {
+            metadata
+                .present
+                .insert(kind.user().to_owned(), self.load(kind)?.is_some());
+        }
+        Ok(metadata)
     }
     pub fn store(&self, kind: CredentialKind, secret: Secret) -> Result<(), Error> {
-        self.backend.set(kind.user(), secret.expose())?;
-        if let Err(error) = self.update_presence(kind, true) {
-            let _ = self.backend.delete(kind.user());
-            return Err(error);
-        }
-        Ok(())
+        self.metadata()?;
+        // Never compensate a failed metadata write by deleting a replacement
+        // credential. Each update is now one authoritative backend operation.
+        self.backend.set(kind.user(), secret.expose())
     }
     pub fn load(&self, kind: CredentialKind) -> Result<Option<Secret>, Error> {
+        self.metadata()?;
         self.backend.get(kind.user())?.map(Secret::new).transpose()
+    }
+    fn metadata(&self) -> Result<CredentialMetadata, Error> {
+        let raw = Zeroizing::new(self.backend.get(METADATA_USER)?.ok_or(Error::Metadata)?);
+        if raw.len() > 4096 {
+            return Err(Error::Metadata);
+        }
+        let value: CredentialMetadata = serde_json::from_str(&raw).map_err(|_| Error::Metadata)?;
+        if value.schema_version != SCHEMA_VERSION {
+            return Err(Error::Metadata);
+        }
+        Ok(value)
     }
     fn ensure_metadata(&self) -> Result<(), Error> {
         if self.backend.get(METADATA_USER)?.is_none() {
@@ -163,47 +184,8 @@ impl<B: Backend> CredentialStore<B> {
             let encoded = serde_json::to_string(&metadata).map_err(|_| Error::Metadata)?;
             self.backend.set(METADATA_USER, &encoded)?;
         }
-        Ok(())
+        self.metadata().map(|_| ())
     }
-    fn update_presence(&self, kind: CredentialKind, present: bool) -> Result<(), Error> {
-        let mut metadata = self.status()?;
-        metadata.present.insert(kind.user().to_owned(), present);
-        let encoded = serde_json::to_string(&metadata).map_err(|_| Error::Metadata)?;
-        self.backend
-            .set(METADATA_USER, &encoded)
-            .map_err(|_| Error::Unavailable)
-    }
-}
-
-pub trait ElectronBlobDecryptor {
-    fn decrypt(&self, blob: &[u8]) -> Result<Vec<u8>, Error>;
-}
-pub trait ElectronBlobMigrator {
-    fn migrate(&self, decrypted: &[u8]) -> Result<Vec<(CredentialKind, Secret)>, Error>;
-}
-
-pub fn migrate_electron_blob<B: Backend, D: ElectronBlobDecryptor, M: ElectronBlobMigrator>(
-    store: &CredentialStore<B>,
-    blob: &[u8],
-    decryptor: &D,
-    migrator: &M,
-) -> Result<usize, Error> {
-    if blob.len() > MAX_SECRET_BYTES {
-        return Err(Error::SecretTooLarge);
-    }
-    let decrypted = Zeroizing::new(decryptor.decrypt(blob).map_err(|_| Error::Migration)?);
-    if decrypted.len() > MAX_SECRET_BYTES {
-        return Err(Error::SecretTooLarge);
-    }
-    let credentials = migrator
-        .migrate(decrypted.as_slice())
-        .map_err(|_| Error::Migration)?;
-    let mut count = 0;
-    for (kind, secret) in credentials {
-        store.store(kind, secret)?;
-        count += 1;
-    }
-    Ok(count)
 }
 
 #[cfg(test)]
@@ -261,6 +243,83 @@ mod tests {
         assert_eq!(
             format!("{:?}", Secret::new("secret").unwrap()),
             "Secret([redacted])"
+        );
+    }
+    #[test]
+    fn newer_or_oversized_metadata_fails_before_mutation() {
+        let backend = Arc::new(Mock::default());
+        let store = CredentialStore::new(backend.clone()).unwrap();
+        store
+            .store(
+                CredentialKind::NexusOAuthTokens,
+                Secret::new("old").unwrap(),
+            )
+            .unwrap();
+        for invalid in [
+            r#"{"schema_version":2,"present":{}}"#.to_owned(),
+            " ".repeat(4097),
+            "{}".into(),
+        ] {
+            backend.set(METADATA_USER, &invalid).unwrap();
+            assert!(matches!(
+                store.store(
+                    CredentialKind::NexusOAuthTokens,
+                    Secret::new("replacement").unwrap()
+                ),
+                Err(Error::Metadata)
+            ));
+            assert!(store.clear(CredentialKind::NexusOAuthTokens).is_err());
+            assert!(store.load(CredentialKind::NexusOAuthTokens).is_err());
+            assert!(CredentialStore::new(backend.clone()).is_err());
+            assert_eq!(
+                backend.get("nexus-oauth-tokens").unwrap().as_deref(),
+                Some("old")
+            );
+        }
+    }
+    #[test]
+    fn status_ignores_stale_presence_flags() {
+        let backend = Arc::new(Mock::default());
+        let store = CredentialStore::new(backend.clone()).unwrap();
+        backend.set(METADATA_USER, r#"{"schema_version":1,"present":{"nexus-oauth-tokens":true,"gamebanana-cookies":false}}"#).unwrap();
+        backend.set("gamebanana-cookies", "a=b").unwrap();
+        let status = store.status().unwrap();
+        assert!(status.present["gamebanana-cookies"]);
+        assert!(!status.present["nexus-oauth-tokens"]);
+    }
+    #[test]
+    fn replacing_a_secret_does_not_rewrite_metadata_or_delete_it() {
+        struct WriteOnceMetadata(Mock);
+        impl Backend for WriteOnceMetadata {
+            fn get(&self, user: &str) -> Result<Option<String>, Error> {
+                self.0.get(user)
+            }
+            fn set(&self, user: &str, value: &str) -> Result<(), Error> {
+                if user == METADATA_USER && self.0.get(user)?.is_some() {
+                    return Err(Error::Backend);
+                }
+                self.0.set(user, value)
+            }
+            fn delete(&self, user: &str) -> Result<(), Error> {
+                self.0.delete(user)
+            }
+        }
+        let store = CredentialStore::new(Arc::new(WriteOnceMetadata(Mock::default()))).unwrap();
+        for value in ["old", "replacement"] {
+            store
+                .store(
+                    CredentialKind::NexusOAuthTokens,
+                    Secret::new(value).unwrap(),
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            store
+                .load(CredentialKind::NexusOAuthTokens)
+                .unwrap()
+                .unwrap()
+                .expose(),
+            "replacement"
         );
     }
 }

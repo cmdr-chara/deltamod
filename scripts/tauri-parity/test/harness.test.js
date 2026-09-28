@@ -13,16 +13,16 @@ const { compare } = require('../compare-contract');
 if (!process.env.DELTAMOD_REPO) throw new Error('DELTAMOD_REPO is required');
 const repo = path.resolve(process.env.DELTAMOD_REPO);
 const paths = {
-    preloadPath: path.join(repo, 'web', 'preload.js'),
+    contractPath: path.join(repo, 'scripts', 'tauri-parity', 'fixtures', 'renderer-channels.json'),
     rustPath: path.join(repo, 'src-tauri', 'src', 'main.rs'),
     rustSourceRoot: path.join(repo, 'src-tauri', 'src')
 };
 const report = buildParity(paths);
-assert.equal(report.counts.electronInvoke, 128);
-assert.equal(report.counts.electronEvents, 18);
-assert.equal(report.counts.rustKnown, 128);
-assert.equal(report.counts.rustImplemented + report.counts.rustUnsupported, 128);
-assert.equal(report.counts.rustImplemented, 122);
+assert.equal(report.counts.rendererInvoke, 129);
+assert.equal(report.counts.rendererEvents, 18);
+assert.equal(report.counts.rustKnown, 129);
+assert.equal(report.counts.rustImplemented + report.counts.rustUnsupported, 129);
+assert.equal(report.counts.rustImplemented, 123);
 assert.equal(report.counts.rustUnsupported, 6);
 assert.equal(report.excludedInternal.length, 5);
 assert.equal(report.gaps.missingFromRust.length, 0);
@@ -56,7 +56,7 @@ for (const [event, expectedFile] of Object.entries(REQUIRED_EVENT_PRODUCERS)) {
     );
     assert.throws(() => assertParity(missingProducerReport), /missing Rust event producers/);
 }
-const rendererEvents = new Set(report.electron.events.map(event => event.name));
+const rendererEvents = new Set(report.renderer.events.map(event => event.name));
 assert.equal(rendererEvents.has('leave-controller-mode'), true);
 assert.equal(rendererEvents.has('protocol-download-progress'), true);
 assert.ok(report.rust.channels.length > 0);

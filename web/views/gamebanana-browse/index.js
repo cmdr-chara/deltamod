@@ -801,8 +801,7 @@ async function browseGameBananaCatalog(url) {
         nativeFailure = error;
     }
 
-    // Electron intentionally leaves GameBanana on its compatibility renderer
-    // path. This fallback also keeps Linux WebKit usable if the native bridge
+    // The public-read fallback keeps Linux WebKit usable if the native bridge
     // is unavailable while the public GameBanana endpoint itself is reachable.
     try {
         return await fetchGameBananaCatalogDirect(url);

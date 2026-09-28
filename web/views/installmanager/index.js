@@ -79,7 +79,7 @@ const setInterval = (handler, delay, ...args) => {
 
                 const details = document.createElement('small');
                 {
-                    const gname = await window.electronAPI
+                    const gname = await window.deltamodBackend
                         .invoke('getGameInfo', [install.pid])
                         .then(g => g?.name || 'Unknown game');
 

@@ -210,7 +210,7 @@
         },
         runtime: {
             version: '2.0.13',
-            shell: window.__TAURI_INTERNALS__ ? 'tauri' : 'electron',
+            shell: window.__TAURI_INTERNALS__ ? 'tauri' : 'unknown',
             platform: /Windows/i.test(window.navigator?.userAgent || '')
                 ? 'windows'
                 : /Macintosh|Mac OS X/i.test(window.navigator?.userAgent || '')

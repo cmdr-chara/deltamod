@@ -87,8 +87,7 @@ async function openView(page, view, { count = 3, width = 1100, beforeScript } = 
                 return false;
             }
         };
-        window.electronAPI = window.deltamodBackend;
-        window.communityAPI = {};
+            window.communityAPI = {};
         document.documentElement.style.cssText = '--theme-color:rgb(205,68,81);--theme-color-hover:rgb(226,98,109);--theme-color-point2:rgba(205,68,81,.2);--theme-color-point3:rgba(205,68,81,.3);--theme-color-ink:white;--theme-color-hover-ink:white';
 
     }, {count, view});

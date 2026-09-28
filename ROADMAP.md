@@ -67,8 +67,9 @@ before deserialization. Unknown newer versions fail closed before any mutation.
   provider contracts.
 - Unified Mod Shop search, filtering, sorting, canonical identities, alternate
   sources, bounded caching, offline states, retry, cancellation, and normalized errors.
-- Game Jolt and itch.io remain outside the Mod Shop. They are used only by the
-  original configured game-download flows with known build/file identifiers.
+- Do not implement itch.io accounts, collections, or Mod Shop integration. Existing
+  configured native game-download identifiers remain compatibility data, not a new provider.
+  Game Jolt remains outside the Mod Shop.
 
 ## Release D — Reproducibility
 
@@ -90,8 +91,8 @@ before deserialization. Unknown newer versions fail closed before any mutation.
   scanner reports no missing channel.
 - Upgrade, uninstall/reinstall, user-data preservation, and rollback are exercised
   against the current Community data layout and stable persisted contracts.
-- One stable Tauri release succeeds before a separate cleanup release removes
-  Electron runtime and packaging.
+- Electron source retirement is authorized separately from release promotion.
+  Removing the old shell does not satisfy any signing, updater, or installed-package gate.
 - Tests are retained or removed by behavioral capability, never by filename alone.
 
 “Tauri/Rust rewrite” means the native shell, IPC, filesystem, network, updater,
@@ -101,21 +102,26 @@ shared tests; replacing that renderer with a Rust UI framework is not part of Re
 
 ## Release F — Electron retirement
 
-This is a cleanup release after one successful stable Tauri release, not part of the
-first Tauri promotion.
+Source retirement is implemented in the current change set. It is not a stable
+release or proof that native packaging works on every target.
 
-- Remove Electron runtime and `electron-builder` dependencies, Electron-only packaging
-  and prerelease workflows, and unreachable shell-only Node/preload/tracer paths.
-- Resolve the six currently explicit Tauri `Unsupported` channels before cleanup:
-  `rebootDev`, `createInstallLink`, `undertaleModTool:openInstallation`,
-  `gamebanana_downloadAllInCollection`, `npsCallback`, and `initialize`.
-  Each must be implemented or deliberately retired from every renderer/preload call site.
-- Keep shared renderer, domain, provider, lifecycle, security, compatibility, and
-  Tauri shell regression tests. Electron-only tests are already outside the release gate.
-- Re-run package-size/startup/memory comparison after Electron assets and dependencies
-  are actually removed; do not fold cleanup gains into the pre-retirement benchmark.
-- Archive the last passing Electron artifact as a rollback reference without continuing
-  to publish Electron as a current product.
+- Removed Electron runtime/entry points, preload/tracer windows, legacy scripts,
+  obsolete release workflows, builder configuration, and runtime dependencies.
+- Preserved shared JavaScript tooling and renderer/domain/security tests. Preserved
+  historical Electron benchmark records and the existing rollback artifact policy.
+- Removed public reset, developer-reboot, and patch-continuation actions. The native
+  boundary still explicitly rejects their retired channel names.
+- Three native product gaps remain visibly capability-gated: collection restore,
+  installation shortcuts, and opening an installation in UndertaleModTool. None is
+  reported as supported merely to pass parity.
+- The native bridge no longer exposes `electronAPI`. The frozen renderer contract
+  validates all 129 known invoke channels, including six explicit rejections.
+- The JavaScript lockfile has 268 fewer package records, with no dependency-version
+  updates. Run the real packaged desktop benchmark again before claiming startup,
+  app-memory, or installed-size gains from retirement.
+
+See [the retirement audit](docs/TAURI-RETIREMENT-AUDIT.md) for implemented fixes,
+actual validation, and remaining platform/recovery work.
 
 ## Storage and retention
 
@@ -216,6 +222,13 @@ Diagnostics must be sanitizable and copyable without opening DevTools.
 
 ## Codebase audit — next work
 
+The 2026-09-28 [retirement audit](docs/TAURI-RETIREMENT-AUDIT.md) supersedes the
+completed items below: stale static contracts, fixture drift, Linux Steam root
+discovery, Steam handoff routing, obsolete reset/developer/continuation actions,
+and source/dependency retirement. Signed platform acceptance and the three
+capability-gated features remain open. Older snapshot findings are retained below
+as historical context, not a claim that those fixes are still missing.
+
 The 2026-09-27 audit was performed against `DeltaMaster@7a9b3a8` and the current
 upstream `deltamodders/deltamod:develop@0a86b85` (2.1.3). The following work was
 found in production code, compatibility fixtures, documentation, and upstream delta.
@@ -267,9 +280,7 @@ found in production code, compatibility fixtures, documentation, and upstream de
 
 ### P2 — Accounts, collections, tools, and packaging
 
-- Decide whether to adopt upstream's itch.io account/collection expansion. If adopted,
-  build it on the Community credentials/provider boundaries rather than importing
-  plaintext account JSON or browser/local-callback token handling.
+- itch.io account/collection expansion is out of scope and must not be implemented.
 - If multi-provider collections are adopted, make collection identity, create/delete,
   export/import, and restore explicitly provider-aware end to end.
 - Re-evaluate upstream's UndertaleModTool `--overwrite` change against Community's
@@ -305,8 +316,8 @@ Current intake priorities:
 - **Adapt rather than merge:** upstream's expanded Linux Steam roots and 2.1.3 Steam
   launch fixes; account/collection work; collection restore; Linux packaging fixes;
   and any UndertaleModTool behavior change demonstrated by a Community regression.
-- **Requires product/provenance decision:** itch.io authenticated accounts and
-  collections, multi-provider collection UX, and the Chapter 3 theme.
+- **Intentional divergence:** itch.io authenticated accounts and collections are excluded.
+- **Requires product/provenance decision:** multi-provider collection UX and the Chapter 3 theme.
 - **Do not copy verbatim across the trust boundary:** Electron/browser credential
   export flows, plaintext account storage, arbitrary persisted launcher commands,
   or direct filesystem mutation paths that bypass the lifecycle transaction model.

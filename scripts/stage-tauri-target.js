@@ -16,7 +16,7 @@ const cargo = process.env.CARGO || (process.platform === 'win32'
   : 'cargo');
 const result = spawnSync(cargo, ['build', '--release', '--locked', '--target', target, '--manifest-path', path.join(workspace, 'Cargo.toml'), ...crates.flatMap(crate => ['--package', `deltamod-${crate}`])], { cwd: root, stdio: 'inherit', shell: false });
 if (result.error) throw result.error;
-if (result.status !== 0) process.exit(result.status);
+if (result.status !== 0) process.exit(Number.isInteger(result.status) ? result.status : 1);
 fs.rmSync(binaries, { recursive: true, force: true });
 fs.mkdirSync(binaries, { recursive: true });
 for (const crate of crates) {

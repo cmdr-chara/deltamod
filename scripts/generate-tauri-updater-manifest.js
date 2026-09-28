@@ -7,22 +7,102 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const MAX_ARTIFACT_BYTES = 512 * 1024 * 1024;
+const MAX_SIGNATURE_BYTES = 16 * 1024;
+const MAX_TREE_ENTRIES = 4096;
+const MAX_TREE_DEPTH = 16;
 const RELEASE_BASE = 'https://github.com/cmdr-chara/deltamod/releases/download';
 
 function walk(directory) {
-    return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
-        const file = path.join(directory, entry.name);
-        return entry.isDirectory() ? walk(file) : [file];
-    });
+    const files = [];
+    const pending = [{ directory, depth: 0 }];
+    let count = 0;
+    while (pending.length) {
+        const current = pending.pop();
+        const metadata = fs.lstatSync(current.directory);
+        if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+            throw new Error('Updater artifact root must be an ordinary directory.');
+        }
+        const dir = fs.opendirSync(current.directory);
+        try {
+            let entry;
+            while ((entry = dir.readSync()) !== null) {
+                if (++count > MAX_TREE_ENTRIES) throw new Error('Updater artifact tree exceeds the entry limit.');
+                const file = path.join(current.directory, entry.name);
+                // Do not follow links, junctions or special files from downloaded artifacts.
+                const stat = fs.lstatSync(file);
+                if (stat.isSymbolicLink()) throw new Error(`Linked updater artifact is not allowed: ${entry.name}`);
+                if (stat.isDirectory()) {
+                    if (current.depth >= MAX_TREE_DEPTH) throw new Error('Updater artifact tree exceeds the depth limit.');
+                    pending.push({ directory: file, depth: current.depth + 1 });
+                } else if (stat.isFile()) {
+                    files.push(file);
+                } else {
+                    throw new Error(`Updater artifact is not a regular file: ${entry.name}`);
+                }
+            }
+        } finally {
+            dir.closeSync();
+        }
+    }
+    return files.sort();
 }
 
 function updaterTarget(file) {
     const name = path.basename(file).toLowerCase();
-    if (name.endsWith('.exe')) return 'windows-x86_64';
-    if (!name.endsWith('.app.tar.gz')) return null;
-    if (/(?:aarch64|arm64)/.test(name)) return 'darwin-aarch64';
-    if (/(?:x86_64|x64)/.test(name)) return 'darwin-x86_64';
-    throw new Error(`Cannot determine macOS updater architecture: ${path.basename(file)}`);
+    if (!name.endsWith('.exe') && !name.endsWith('.app.tar.gz')) return null;
+    const tokens = [...name.matchAll(/(?:^|[_\-. ])(x86_64|x64|amd64|aarch64|arm64|ia32|i686|x86)(?=[_\-. ]|$)/g)];
+    const architectures = new Set(tokens.map(match => {
+        if (['x86_64', 'x64', 'amd64'].includes(match[1])) return 'x86_64';
+        if (['aarch64', 'arm64'].includes(match[1])) return 'aarch64';
+        return 'x86';
+    }));
+    if (architectures.size !== 1) throw new Error(`Missing or ambiguous updater architecture: ${path.basename(file)}`);
+    const [architecture] = architectures;
+    if (name.endsWith('.exe')) {
+        if (architecture !== 'x86_64') throw new Error(`Unsupported Windows updater architecture: ${architecture}`);
+        return 'windows-x86_64';
+    }
+    if (architecture === 'x86') throw new Error('Unsupported macOS updater architecture: x86');
+    return `darwin-${architecture}`;
+}
+
+function readSignature(file) {
+    const before = fs.lstatSync(file);
+    if (!before.isFile() || before.isSymbolicLink()) throw new Error('Updater signature must be a regular file.');
+    if (before.size <= 0 || before.size > MAX_SIGNATURE_BYTES) throw new Error('Updater signature exceeds its size bound or is empty.');
+    const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
+    const fd = fs.openSync(file, flags);
+    try {
+        const opened = fs.fstatSync(fd);
+        if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
+            throw new Error('Updater signature changed while opening.');
+        }
+        // Bound the read itself, not just the earlier stat. A growing file cannot
+        // force readFileSync to allocate an unbounded buffer after the size check.
+        const buffer = Buffer.alloc(MAX_SIGNATURE_BYTES + 1);
+        let length = 0;
+        while (length < buffer.length) {
+            const read = fs.readSync(fd, buffer, length, buffer.length - length, null);
+            if (!read) break;
+            length += read;
+        }
+        if (!length || length > MAX_SIGNATURE_BYTES) throw new Error('Updater signature violates its size bound.');
+        const signature = new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length)).trim();
+        if (!signature || /PRIVATE[ _-]?KEY/i.test(signature) || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(signature)) {
+            throw new Error(`Updater signature is invalid: ${path.basename(file)}`);
+        }
+        return signature;
+    } finally {
+        fs.closeSync(fd);
+    }
+}
+
+function artifactMatchesVersion(name, version) {
+    // Tauri's release names separate the version from the architecture with an
+    // underscore or hyphen. Substrings and prerelease/build suffixes are not a
+    // stable-version match (2.0.1 must not match 12.0.1, 2.0.10 or 2.0.1-beta).
+    const escaped = version.replaceAll('.', '\\.');
+    return new RegExp(`(?:^|[_ -])${escaped}(?:_|-(?=(?:x86_64|x64|amd64|aarch64|arm64)(?:[_ .-]|$)))`).test(name);
 }
 
 function generate(directory, tag, expectedVersion = null) {
@@ -46,16 +126,17 @@ function generate(directory, tag, expectedVersion = null) {
         const target = updaterTarget(artifact);
         if (!target) throw new Error(`Unsupported signed updater artifact: ${path.basename(artifact)}`);
         if (platforms[target]) throw new Error(`Duplicate signed updater target: ${target}`);
-        const size = fs.statSync(artifact).size;
+        const artifactStat = fs.lstatSync(artifact);
+        if (!artifactStat.isFile() || artifactStat.isSymbolicLink()) {
+            throw new Error(`Updater artifact must be a regular file: ${path.basename(artifact)}`);
+        }
+        const size = artifactStat.size;
         if (size <= 0 || size > MAX_ARTIFACT_BYTES) {
             throw new Error(`Updater artifact violates the 512 MiB bound: ${path.basename(artifact)}`);
         }
-        const signature = fs.readFileSync(signatureFile, 'utf8').trim();
-        if (!signature || signature.length > 16 * 1024 || /PRIVATE[ _-]?KEY/i.test(signature)) {
-            throw new Error(`Updater signature is invalid: ${path.basename(signatureFile)}`);
-        }
+        const signature = readSignature(signatureFile);
         const name = path.basename(artifact);
-        if (!name.includes(version)) {
+        if (!artifactMatchesVersion(name, version)) {
             throw new Error(`Updater artifact is not bound to release version ${version}: ${name}`);
         }
         platforms[target] = {
@@ -91,4 +172,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { MAX_ARTIFACT_BYTES, generate, updaterTarget };
+module.exports = { MAX_ARTIFACT_BYTES, MAX_SIGNATURE_BYTES, MAX_TREE_ENTRIES, MAX_TREE_DEPTH, generate, updaterTarget, artifactMatchesVersion };
