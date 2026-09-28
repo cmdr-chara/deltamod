@@ -16,7 +16,10 @@ use deltamod_storage_domain::{
     atomic_write_bytes, atomic_write_json, load_json, parse_legacy_json, InstallationRecord,
     ProfileStore, StorageError,
 };
+use deltamod_tools_runtime::{inspect_directory_identity, StablePathIdentity};
 use serde::{Deserialize, Serialize};
+
+mod recovery;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
@@ -44,6 +47,8 @@ pub enum RuntimeError {
     CommittedOperation(u64),
     #[error("operation {0} was cancelled")]
     Cancelled(u64),
+    #[error("secure filesystem: {0}")]
+    SecurePath(#[from] deltamod_tools_runtime::SecurePathError),
     #[error("journal is invalid: {0}")]
     Journal(String),
     #[error("patch plan: {0}")]
@@ -177,6 +182,7 @@ struct PersistedState {
     selected_id: Option<InstallationId>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Journal {
     version: u32,
     operation_id: u64,
@@ -211,10 +217,53 @@ struct Operations {
 #[derive(Clone)]
 pub struct Runtime {
     root: PathBuf,
+    root_identity: StablePathIdentity,
     state_path: PathBuf,
     operations: Arc<Mutex<Operations>>,
     copy: Arc<dyn CopyBackend>,
     events: Arc<Mutex<Vec<ProgressEvent>>>,
+}
+
+// Every started filesystem operation ends visibly, even when an early error
+// must preserve its journal for recovery. Drop never deletes recovery data.
+struct OperationCompletion<'a> {
+    runtime: &'a Runtime,
+    id: u64,
+}
+impl Drop for OperationCompletion<'_> {
+    fn drop(&mut self) {
+        let failed = if let Ok(mut operations) = self.runtime.operations.lock() {
+            if let Some(entry) = operations.entries.get_mut(&self.id) {
+                if matches!(
+                    entry.state,
+                    OperationState::Running
+                        | OperationState::Cancelling
+                        | OperationState::Committing
+                ) {
+                    entry.state = if entry.cancel {
+                        OperationState::Cancelled
+                    } else {
+                        OperationState::Failed
+                    };
+                }
+                entry.state != OperationState::Completed
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if failed {
+            if let Ok(mut events) = self.runtime.events.lock() {
+                if !events.iter().any(|event| matches!(event, ProgressEvent::Finished { operation_id, .. } if *operation_id == self.id)) {
+                    events.push(ProgressEvent::Finished {
+                        operation_id: self.id, success: false,
+                        message: Some("Operation did not complete. Retained recovery data has not been discarded.".into()),
+                    });
+                }
+            }
+        }
+    }
 }
 
 impl std::fmt::Debug for Runtime {
@@ -234,17 +283,23 @@ impl Runtime {
     ) -> Result<Self, RuntimeError> {
         let root = root.into();
         fs::create_dir_all(&root)?;
+        // Reject links/reparse points before canonicalizing away the evidence.
+        let root_identity = inspect_directory_identity(&root)?;
         let root = fs::canonicalize(root)?;
-        fs::create_dir_all(root.join("installations"))?;
-        fs::create_dir_all(root.join(".runtime-journals"))?;
         let runtime = Self {
             state_path: root.join("installations-adapter.json"),
+            root_identity,
             root,
             operations: Arc::new(Mutex::new(Operations::default())),
             copy,
             events: Arc::new(Mutex::new(Vec::new())),
         };
-        runtime.recover()?;
+        {
+            let _lease = runtime.mutation_lease()?;
+            runtime.ensure_owned_directory(&runtime.root.join("installations"))?;
+            runtime.ensure_owned_directory(&runtime.root.join(".runtime-journals"))?;
+            runtime.recover()?;
+        }
         Ok(runtime)
     }
 
@@ -284,6 +339,7 @@ impl Runtime {
         &self,
         source: &Path,
     ) -> Result<OperationResponse, RuntimeError> {
+        let _lease = self.mutation_lease()?;
         self.copy_operation(
             "official-profile-import",
             source,
@@ -323,6 +379,7 @@ impl Runtime {
         platform: GamePlatform,
         ownership: Ownership,
     ) -> Result<OperationResponse, RuntimeError> {
+        let _lease = self.mutation_lease()?;
         let source = safe_directory(source)?;
         let state = self.state()?;
         let id = allocate_installation_id(
@@ -337,12 +394,30 @@ impl Runtime {
             edition: Edition::Original,
             platform,
             source: source.clone(),
-            install_path: destination.clone(),
+            install_path: if ownership == Ownership::LinkedExternal {
+                source.clone()
+            } else {
+                destination.clone()
+            },
             ownership,
         };
         if ownership == Ownership::LinkedExternal {
+            let operation_id = self.start("installation-link")?;
+            let _completion = OperationCompletion {
+                runtime: self,
+                id: operation_id,
+            };
             self.persist_added(installation)?;
-            return Ok(self.accepted("link"));
+            self.complete_operation(operation_id);
+            self.emit(ProgressEvent::Finished {
+                operation_id,
+                success: true,
+                message: None,
+            });
+            return Ok(OperationResponse {
+                operation_id,
+                accepted: true,
+            });
         }
         self.copy_operation(
             "installation-create",
@@ -356,6 +431,7 @@ impl Runtime {
         id: &InstallationId,
         name: String,
     ) -> Result<OperationResponse, RuntimeError> {
+        let _lease = self.mutation_lease()?;
         let source_installation = self.find(id)?;
         let state = self.state()?;
         let new_id = allocate_installation_id(
@@ -384,7 +460,13 @@ impl Runtime {
         &self,
         id: &InstallationId,
     ) -> Result<OperationResponse, RuntimeError> {
+        let _lease = self.mutation_lease()?;
         let i = self.find(id)?;
+        if i.ownership != Ownership::ManagedCopy {
+            return Err(RuntimeError::Domain(
+                "linked installations cannot be reimported in place".into(),
+            ));
+        }
         let source = i.source.clone();
         let destination = i.install_path.clone();
         self.copy_operation("installation-reimport", &source, &destination, Some(i))
@@ -393,6 +475,7 @@ impl Runtime {
         &self,
         id: &InstallationId,
     ) -> Result<OperationResponse, RuntimeError> {
+        let _lease = self.mutation_lease()?;
         let i = self.find(id)?;
         if i.ownership != Ownership::ManagedCopy {
             return Err(RuntimeError::Domain(
@@ -408,6 +491,7 @@ impl Runtime {
         id: &InstallationId,
         delete_files: bool,
     ) -> Result<OperationResponse, RuntimeError> {
+        let _lease = self.mutation_lease()?;
         let mut state = self.state()?;
         let i = state
             .installations
@@ -415,29 +499,57 @@ impl Runtime {
             .find(|x| &x.id == id)
             .cloned()
             .ok_or_else(|| RuntimeError::Domain("installation not found".into()))?;
+        let operation_id = self.start("installation-delete")?;
+        let _completion = OperationCompletion {
+            runtime: self,
+            id: operation_id,
+        };
+        let mut pending = None;
         if delete_files && i.ownership == Ownership::ManagedCopy {
-            self.validate_managed_install_path(&i.install_path)?;
+            self.validate_copy_destination("installation-create", &i.install_path)?;
+            let trash = self
+                .root
+                .join(".runtime-replacements")
+                .join(format!("delete-{operation_id}"));
+            self.ensure_owned_directory(trash.parent().expect("quarantine parent"))?;
+            self.require_missing(&trash)?;
             let journal = self.prepare(
                 "installation-delete",
                 None,
                 Some(&i.install_path),
                 None,
-                None,
+                Some(&trash),
                 None,
             )?;
-            match fs::remove_dir_all(&i.install_path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error.into()),
+            self.begin_commit(operation_id)?;
+            if self.owned_directory_exists(&i.install_path)? {
+                self.rename_owned_directory(&i.install_path, &trash)?;
             }
-            self.finish_journal(&journal)?;
+            pending = Some((journal, trash));
         }
         state.installations.retain(|x| &x.id != id);
         if state.selected_id.as_ref() == Some(id) {
             state.selected_id = None;
         }
-        self.save_state(&state)?;
-        Ok(self.accepted("installation-delete"))
+        if let Err(error) = self.save_state(&state) {
+            if let Some((journal, trash)) = &pending {
+                if self.owned_directory_exists(trash)?
+                    && self.rename_owned_directory(trash, &i.install_path).is_ok()
+                {
+                    self.abort(operation_id, journal);
+                }
+            }
+            return Err(error);
+        }
+        if let Some((journal, trash)) = pending {
+            self.remove_owned_directory(&trash)?;
+            self.finish_journal(&journal)?;
+        }
+        self.complete_operation(operation_id);
+        Ok(OperationResponse {
+            operation_id,
+            accepted: true,
+        })
     }
     pub fn set_name(
         &self,
@@ -571,6 +683,7 @@ impl Runtime {
         copy_to_managed: bool,
         mut store: serde_json::Map<String, Value>,
     ) -> Result<bool, RuntimeError> {
+        let _lease = self.mutation_lease()?;
         let source = safe_directory(source)?;
         let profile = self.legacy_profile_path(index)?;
         if profile.exists() {
@@ -669,6 +782,7 @@ impl Runtime {
         source: &Path,
         platform: String,
     ) -> Result<LegacyReimportResponse, RuntimeError> {
+        let _lease = self.mutation_lease()?;
         let source = safe_directory(source)?;
         let profile = self.existing_legacy_profile(index)?;
         let store_path = profile.join("store.json");
@@ -729,16 +843,22 @@ impl Runtime {
     }
 
     pub fn legacy_delete_installation(&self, index: u32) -> Result<bool, RuntimeError> {
+        let _lease = self.mutation_lease()?;
         let profile = self.existing_legacy_profile(index)?;
         if let Ok(store) = self.legacy_store(index) {
             remove_legacy_steam_link(&store);
         }
         let operation_id = self.start("legacy-installation-delete")?;
+        let _completion = OperationCompletion {
+            runtime: self,
+            id: operation_id,
+        };
         let trash = self
             .root
             .join(".runtime-replacements")
             .join(format!("legacy-delete-{operation_id}"));
-        fs::create_dir_all(trash.parent().expect("trash has parent"))?;
+        self.ensure_owned_directory(trash.parent().expect("trash has parent"))?;
+        self.require_missing(&trash)?;
         let journal = self.prepare(
             "legacy-profile-delete",
             None,
@@ -747,18 +867,19 @@ impl Runtime {
             Some(&trash),
             None,
         )?;
-        fs::rename(&profile, &trash)?;
+        self.rename_owned_directory(&profile, &trash)?;
         let mut profiles = self.load_legacy_profiles()?;
         profiles
             .installations
             .retain(|record| record.index != Some(index));
         profiles.current_index = Some(0);
         if let Err(error) = atomic_write_json(&self.legacy_profile_store_path(), &profiles, true) {
-            let _ = fs::rename(&trash, &profile);
-            self.abort(operation_id, &journal);
+            if self.rename_owned_directory(&trash, &profile).is_ok() {
+                self.abort(operation_id, &journal);
+            }
             return Err(error.into());
         }
-        fs::remove_dir_all(&trash)?;
+        self.remove_owned_directory(&trash)?;
         self.finish_journal(&journal)?;
         self.complete_operation(operation_id);
         self.emit(ProgressEvent::Finished {
@@ -793,12 +914,18 @@ impl Runtime {
     }
 
     fn next_operation_id(&self) -> Result<u64, RuntimeError> {
-        Ok(self
-            .operations
-            .lock()
-            .map_err(|_| RuntimeError::Journal("operation lock poisoned".into()))?
-            .next
-            + 1)
+        let relative = Path::new(".runtime-sequence.json");
+        let current = match fs::symlink_metadata(self.root.join(relative)) {
+            Ok(_) => serde_json::from_slice::<u64>(
+                &deltamod_tools_runtime::read_relative_regular_file(&self.root, relative, 32)?,
+            )?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+            Err(error) => return Err(error.into()),
+        };
+        current
+            .checked_add(1)
+            .filter(|id| *id <= deltamod_native_core::staged_copy::JS_MAX_SAFE_INTEGER)
+            .ok_or_else(|| RuntimeError::Journal("operation counter exhausted".into()))
     }
 
     fn legacy_profile_path(&self, index: u32) -> Result<PathBuf, RuntimeError> {
@@ -838,10 +965,18 @@ impl Runtime {
 
     fn load_legacy_profiles(&self) -> Result<ProfileStore, RuntimeError> {
         let path = self.legacy_profile_store_path();
-        if path.is_file() {
-            Ok(load_json(&path)?)
-        } else {
-            Ok(ProfileStore::default())
+        match fs::symlink_metadata(&path) {
+            Ok(_) => Ok(parse_legacy_json(
+                &deltamod_tools_runtime::read_relative_regular_file(
+                    &self.root,
+                    Path::new("profiles/installations.json"),
+                    1024 * 1024,
+                )?,
+            )?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(ProfileStore::default())
+            }
+            Err(error) => Err(error.into()),
         }
     }
 
@@ -893,10 +1028,12 @@ impl Runtime {
         destination: &Path,
         installation: Option<Installation>,
     ) -> Result<OperationResponse, RuntimeError> {
+        self.validate_copy_destination(kind, destination)?;
         let id = self.start(kind)?;
+        let _completion = OperationCompletion { runtime: self, id };
         // The staged copier requires a missing destination. Reimports stage beside
         // the live directory and publish only after the complete copy succeeds.
-        let target = if destination.exists() {
+        let target = if self.owned_directory_exists(destination)? {
             self.root
                 .join(".runtime-replacements")
                 .join(format!("{id}"))
@@ -904,11 +1041,16 @@ impl Runtime {
             destination.to_path_buf()
         };
         if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)?;
+            self.ensure_owned_directory(parent)?;
         }
         let staging = target.with_extension(format!("importing-{id}"));
         let backup = (target != destination)
             .then(|| destination.with_extension(format!("deltamod-replacing-{id}")));
+        self.require_missing(&target)?;
+        if let Some(backup) = &backup {
+            self.require_missing(backup)?;
+        }
+        self.require_missing(&staging)?;
         let journal = self.prepare(
             kind,
             Some(source),
@@ -939,44 +1081,64 @@ impl Runtime {
             &cancelled,
             &mut emit_progress,
             &|| {
-                if cancelled() {
-                    Err(StagedCopyError::Cancelled)
-                } else {
-                    Ok(())
-                }
+                self.begin_commit(id).map_err(|error| match error {
+                    RuntimeError::Cancelled(_) => StagedCopyError::Cancelled,
+                    error => StagedCopyError::CopyFailed(std::io::Error::other(error.to_string())),
+                })
             },
         );
         match result {
             Ok(()) => {
-                if target != destination {
-                    if cancelled() {
-                        self.abort(id, &journal);
-                        let _ = fs::remove_dir_all(&target);
-                        return Err(RuntimeError::Cancelled(id));
+                // Cancellation closes atomically at the publication boundary. A caller
+                // must never receive "cancelled" after publication has been accepted.
+                if let Err(error) = self.begin_commit(id) {
+                    if target != destination {
+                        self.remove_owned_directory(&target)?;
+                    } else {
+                        self.remove_owned_directory(destination)?;
                     }
-                    let backup = backup.expect("replacement operations have a backup path");
-                    if let Err(error) = (|| -> Result<(), std::io::Error> {
-                        fs::rename(destination, &backup)?;
-                        if let Err(error) = fs::rename(&target, destination) {
-                            let _ = fs::rename(&backup, destination);
-                            return Err(error);
+                    self.abort(id, &journal);
+                    return Err(error);
+                }
+                if target != destination {
+                    let backup = backup.as_ref().expect("replacement has backup");
+                    self.validate_copy_destination(kind, destination)?;
+                    self.require_missing(backup)?;
+                    self.rename_owned_directory(destination, backup)?;
+                    if let Err(error) = self.rename_owned_directory(&target, destination) {
+                        // Keep the journal and both candidates if rollback also fails.
+                        // Recovery must see this failure rather than forget the backup.
+                        if self.rename_owned_directory(backup, destination).is_ok() {
+                            self.remove_owned_directory(&target)?;
+                            self.abort(id, &journal);
                         }
-                        fs::remove_dir_all(backup)
-                    })() {
-                        self.abort(id, &journal);
-                        let _ = fs::remove_dir_all(&target);
-                        return Err(error.into());
+                        return Err(error);
                     }
                 }
-                self.commit_state(id, journal, installation)?;
+                // Persist metadata before deleting any previous working copy.
+                self.commit_state(id, journal.clone(), installation)?;
+                if let Some(backup) = backup {
+                    self.remove_owned_directory(&backup)?;
+                }
+                self.finish_journal(&journal)?;
+                self.complete_operation(id);
                 self.emit(ProgressEvent::Finished {
                     operation_id: id,
                     success: true,
                     message: None,
                 });
-                Ok(self.accepted(kind))
+                Ok(OperationResponse {
+                    operation_id: id,
+                    accepted: true,
+                })
             }
             Err(e) => {
+                self.remove_owned_directory(&staging)?;
+                if self.owned_directory_exists(&target)? {
+                    return Err(RuntimeError::Journal(
+                        "copy failed with published output; recovery retained".into(),
+                    ));
+                }
                 self.abort(id, &journal);
                 self.emit(ProgressEvent::Finished {
                     operation_id: id,
@@ -996,8 +1158,9 @@ impl Runtime {
             .operations
             .lock()
             .map_err(|_| RuntimeError::Journal("operation lock poisoned".into()))?;
-        o.next += 1;
-        let id = o.next;
+        let id = self.next_operation_id()?;
+        o.next = id;
+        atomic_write_json(&self.root.join(".runtime-sequence.json"), &id, false)?;
         o.entries.insert(
             id,
             OperationEntry {
@@ -1018,23 +1181,24 @@ impl Runtime {
             .and_then(|o| o.entries.get(&id).map(|x| x.cancel))
             .unwrap_or(true)
     }
-    fn accepted(&self, kind: &str) -> OperationResponse {
-        let _ = kind;
-        OperationResponse {
-            operation_id: self.operations.lock().ok().map(|o| o.next).unwrap_or(0),
-            accepted: true,
-        }
-    }
     fn emit(&self, event: ProgressEvent) {
         if let Ok(mut events) = self.events.lock() {
             events.push(event);
         }
     }
     fn state(&self) -> Result<PersistedState, RuntimeError> {
-        if self.state_path.is_file() {
-            Ok(serde_json::from_slice(&fs::read(&self.state_path)?)?)
-        } else {
-            Ok(PersistedState::default())
+        match fs::symlink_metadata(&self.state_path) {
+            Ok(_) => Ok(serde_json::from_slice(
+                &deltamod_tools_runtime::read_relative_regular_file(
+                    &self.root,
+                    Path::new("installations-adapter.json"),
+                    1024 * 1024,
+                )?,
+            )?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(PersistedState::default())
+            }
+            Err(error) => Err(error.into()),
         }
     }
     fn save_state(&self, state: &PersistedState) -> Result<(), RuntimeError> {
@@ -1047,35 +1211,6 @@ impl Runtime {
             .into_iter()
             .find(|x| &x.id == id)
             .ok_or_else(|| RuntimeError::Domain("installation not found".into()))
-    }
-    fn validate_managed_install_path(&self, path: &Path) -> Result<(), RuntimeError> {
-        let managed_root = fs::canonicalize(self.root.join("installations"))?;
-        let parent = path
-            .parent()
-            .ok_or_else(|| RuntimeError::Domain("invalid managed installation path".into()))?;
-        let canonical_parent = fs::canonicalize(parent)?;
-        if canonical_parent != managed_root || path.file_name().is_none() || path == managed_root {
-            return Err(RuntimeError::Domain(
-                "managed installation path is outside the managed root".into(),
-            ));
-        }
-        if let Ok(metadata) = fs::symlink_metadata(path) {
-            if metadata.file_type().is_symlink() {
-                return Err(RuntimeError::Domain(
-                    "managed installation path is a link".into(),
-                ));
-            }
-            #[cfg(windows)]
-            {
-                use std::os::windows::fs::MetadataExt;
-                if metadata.file_attributes() & 0x400 != 0 {
-                    return Err(RuntimeError::Domain(
-                        "managed installation path is a reparse point".into(),
-                    ));
-                }
-            }
-        }
-        Ok(())
     }
     fn persist_added(&self, i: Installation) -> Result<(), RuntimeError> {
         let mut s = self.state()?;
@@ -1107,6 +1242,8 @@ impl Runtime {
             backup: backup.map(|p| p.to_string_lossy().into()),
             status: JournalStatus::Prepared,
         };
+        self.validate_journal(&path, &j)?;
+        self.require_missing(&path)?;
         atomic_write_json(&path, &j, false)?;
         Ok(path)
     }
@@ -1132,12 +1269,12 @@ impl Runtime {
             s.installations.push(i);
             self.save_state(&s)?;
         }
-        self.finish_journal(&path)?;
-        if let Ok(mut o) = self.operations.lock() {
-            if let Some(e) = o.entries.get_mut(&id) {
-                e.state = OperationState::Completed;
-            }
+        let mut journal = self.read_journal(&path)?;
+        if journal.operation_id != id {
+            return Err(RuntimeError::Journal("operation mismatch".into()));
         }
+        journal.status = JournalStatus::Committed;
+        atomic_write_json(&path, &journal, false)?;
         Ok(())
     }
     fn abort(&self, id: u64, journal: &Path) {
@@ -1158,76 +1295,6 @@ impl Runtime {
                 entry.state = OperationState::Completed;
             }
         }
-    }
-    fn recover(&self) -> Result<(), RuntimeError> {
-        for entry in fs::read_dir(self.root.join(".runtime-journals"))? {
-            let path = entry?.path();
-            if path.extension().and_then(|x| x.to_str()) != Some("json") {
-                continue;
-            }
-            let j: Journal = serde_json::from_slice(&fs::read(&path)?)
-                .map_err(|e| RuntimeError::Journal(e.to_string()))?;
-            if j.version != 1 {
-                return Err(RuntimeError::Journal("unsupported version".into()));
-            }
-            if j.kind == "legacy-profile-delete" {
-                let destination =
-                    j.destination.as_deref().map(PathBuf::from).ok_or_else(|| {
-                        RuntimeError::Journal("delete destination missing".into())
-                    })?;
-                let trash =
-                    j.replacement.as_deref().map(PathBuf::from).ok_or_else(|| {
-                        RuntimeError::Journal("delete replacement missing".into())
-                    })?;
-                if !destination.starts_with(&self.root) || !trash.starts_with(&self.root) {
-                    return Err(RuntimeError::Journal("delete path escaped root".into()));
-                }
-                let index = destination
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .and_then(|name| name.strip_prefix("deltamod_system-"))
-                    .and_then(|value| value.parse::<u32>().ok())
-                    .filter(|index| *index <= MAX_LEGACY_INSTALLATION_INDEX)
-                    .ok_or_else(|| RuntimeError::Journal("invalid delete profile".into()))?;
-                let indexed = self
-                    .load_legacy_profiles()?
-                    .installations
-                    .iter()
-                    .any(|record| record.index == Some(index));
-                if indexed && !destination.exists() && trash.exists() {
-                    fs::rename(&trash, &destination)?;
-                } else if trash.exists() {
-                    fs::remove_dir_all(&trash)?;
-                }
-                self.finish_journal(&path)?;
-                continue;
-            }
-            if let Some(staging) = j.staging {
-                let p = PathBuf::from(staging);
-                if p.starts_with(&self.root) {
-                    let _ = fs::remove_dir_all(p);
-                }
-            }
-            if let Some(replacement) = j.replacement {
-                let replacement = PathBuf::from(replacement);
-                if replacement.starts_with(&self.root) {
-                    let _ = fs::remove_dir_all(replacement);
-                }
-            }
-            if let (Some(destination), Some(backup)) = (j.destination, j.backup) {
-                let destination = PathBuf::from(destination);
-                let backup = PathBuf::from(backup);
-                if destination.starts_with(&self.root) && backup.starts_with(&self.root) {
-                    if !destination.exists() && backup.exists() {
-                        fs::rename(&backup, &destination)?;
-                    } else if backup.exists() {
-                        fs::remove_dir_all(backup)?;
-                    }
-                }
-            }
-            self.finish_journal(&path)?;
-        }
-        Ok(())
     }
 }
 
@@ -1597,7 +1664,7 @@ mod tests {
         assert!(!runtime.legacy_remove_steam_integration(0).unwrap());
     }
 
-    fn create_directory_link(target: &Path, link: &Path) {
+    pub(super) fn create_directory_link(target: &Path, link: &Path) {
         #[cfg(unix)]
         std::os::unix::fs::symlink(target, link).unwrap();
 

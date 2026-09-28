@@ -223,8 +223,10 @@ mod tests {
     }
     #[test]
     fn linux_roots_cover_native_flatpak_and_absolute_xdg() {
-        let home = Path::new("/home/test");
-        let roots = linux_steam_roots(home, Some(Path::new("/data")));
+        let home = std::env::temp_dir().join("deltamod-steam-home");
+        let xdg = std::env::temp_dir().join("deltamod-steam-data");
+        let home = home.as_path();
+        let roots = linux_steam_roots(home, Some(&xdg));
         assert_eq!(roots.len(), 5);
         assert!(roots.contains(&home.join(".steam/root")));
         assert!(roots.contains(&home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam")));

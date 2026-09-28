@@ -1,9 +1,84 @@
-use std::{fmt, sync::Arc};
+use std::{
+    fmt,
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc,
+    },
+};
 
 pub const DEFAULT_MAX_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
 pub const UPDATE_AVAILABLE_EVENT: &str = "updateAvailable";
 pub const UPDATER_STATUS_EVENT: &str = "updater-status";
 pub const UPDATER_PROGRESS_EVENT: &str = "updater-progress";
+
+/// Cancellation is independent of the updater mutex: a blocked download must
+/// not prevent the renderer or shutdown path from requesting cancellation.
+#[derive(Clone, Debug, Default)]
+pub struct UpdateControl(Arc<AtomicU8>);
+
+impl UpdateControl {
+    const IDLE: u8 = 0;
+    const DOWNLOADING: u8 = 1;
+    const CANCELLED: u8 = 2;
+    const INSTALLING: u8 = 3;
+
+    pub fn cancel(&self) -> bool {
+        self.0
+            .compare_exchange(
+                Self::DOWNLOADING,
+                Self::CANCELLED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Acquire) == Self::CANCELLED
+    }
+    pub fn active_phase(&self) -> &'static str {
+        match self.0.load(Ordering::Acquire) {
+            Self::DOWNLOADING => "downloading",
+            Self::CANCELLED => "cancelling",
+            Self::INSTALLING => "installing",
+            _ => "checking",
+        }
+    }
+    pub(crate) fn begin_download(&self) -> Result<UpdateSession, UpdateError> {
+        self.0
+            .compare_exchange(
+                Self::IDLE,
+                Self::DOWNLOADING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .map_err(|_| UpdateError::InvalidTransition)?;
+        Ok(UpdateSession(self.clone()))
+    }
+    fn begin_install(&self) -> Result<(), UpdateError> {
+        self.0
+            .compare_exchange(
+                Self::DOWNLOADING,
+                Self::INSTALLING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .map(|_| ())
+            .map_err(|state| {
+                if state == Self::CANCELLED {
+                    UpdateError::Cancelled
+                } else {
+                    UpdateError::InvalidTransition
+                }
+            })
+    }
+}
+
+pub(crate) struct UpdateSession(UpdateControl);
+impl Drop for UpdateSession {
+    fn drop(&mut self) {
+        self.0 .0.store(UpdateControl::IDLE, Ordering::Release);
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateInfo {
@@ -35,11 +110,9 @@ impl UpdateInfo {
     }
 }
 
-/// An artifact downloaded and signature-verified by `tauri-plugin-updater`.
-///
-/// Its payload is deliberately opaque: callers cannot turn an arbitrary path or byte buffer into
-/// an installable artifact. Concrete adapters should construct it only after the plugin's mandatory
-/// minisign verification has completed successfully.
+/// An opaque artifact admitted by the native verified-download boundary.
+/// Hosts must verify the configured publisher key, signature and bounded payload
+/// before constructing this value. The official plugin remains the installer.
 #[derive(Clone)]
 pub struct VerifiedArtifact {
     version: String,
@@ -59,9 +132,9 @@ impl VerifiedArtifact {
         &self.version
     }
 
-    /// Trust boundary for an adapter backed by the official updater plugin.
+    /// Trust boundary for a signature-verifying native host.
     #[cfg_attr(not(any(feature = "tauri-adapter", test)), allow(dead_code))]
-    pub(crate) fn from_verified_plugin_payload<T: Send + Sync + 'static>(
+    pub(crate) fn from_verified_host_payload<T: Send + Sync + 'static>(
         version: impl Into<String>,
         payload: T,
     ) -> Self {
@@ -166,6 +239,7 @@ pub enum UpdateState {
     Installed(String),
     Ignored(String),
     Failed(String),
+    Cancelled(String),
     Unsupported(&'static str),
 }
 
@@ -218,6 +292,7 @@ pub trait UpdateAdapter {
         &mut self,
         info: &UpdateInfo,
         max_bytes: u64,
+        control: &UpdateControl,
         progress: &mut dyn FnMut(u64, Option<u64>) -> Result<(), UpdateError>,
     ) -> Result<VerifiedArtifact, UpdateError>;
     fn install(&mut self, artifact: VerifiedArtifact) -> Result<(), UpdateError>;
@@ -230,6 +305,7 @@ pub struct Updater<A, E> {
     state: UpdateState,
     max_artifact_bytes: u64,
     ignored_for_session: bool,
+    control: UpdateControl,
 }
 
 impl<A: UpdateAdapter, E: UpdateEventSink> Updater<A, E> {
@@ -244,6 +320,7 @@ impl<A: UpdateAdapter, E: UpdateEventSink> Updater<A, E> {
             state,
             max_artifact_bytes: DEFAULT_MAX_ARTIFACT_BYTES,
             ignored_for_session: false,
+            control: UpdateControl::default(),
         }
     }
 
@@ -253,6 +330,10 @@ impl<A: UpdateAdapter, E: UpdateEventSink> Updater<A, E> {
         }
         self.max_artifact_bytes = bytes;
         Ok(self)
+    }
+
+    pub fn control(&self) -> UpdateControl {
+        self.control.clone()
     }
 
     pub fn state(&self) -> &UpdateState {
@@ -282,6 +363,7 @@ impl<A: UpdateAdapter, E: UpdateEventSink> Updater<A, E> {
             UpdateState::Installed(version) => ("installed", false, Some(version.clone()), None),
             UpdateState::Ignored(version) => ("ignored", false, Some(version.clone()), None),
             UpdateState::Failed(message) => ("failed", false, None, Some(message.clone())),
+            UpdateState::Cancelled(version) => ("cancelled", false, Some(version.clone()), None),
             UpdateState::Unsupported(message) => {
                 ("unsupported", false, None, Some((*message).to_owned()))
             }
@@ -299,7 +381,7 @@ impl<A: UpdateAdapter, E: UpdateEventSink> Updater<A, E> {
         self.events.emit(UpdateEvent::Status(self.status()));
     }
 
-    /// Implements Electron's `fireUpdate`: check and emit `updateAvailable`, returning a boolean.
+    /// Implements the renderer's `fireUpdate`: check and emit `updateAvailable`, returning a boolean.
     pub fn fire_update(&mut self) -> Result<bool, UpdateError> {
         if let Some(reason) = self.gate.reason() {
             self.state = UpdateState::Unsupported(reason);
@@ -327,13 +409,13 @@ impl<A: UpdateAdapter, E: UpdateEventSink> Updater<A, E> {
             Err(error) => {
                 self.state = UpdateState::Failed(error.to_string());
                 self.publish_status();
-                // Electron's fireUpdate catches check failures and resolves false.
+                // The renderer check catches check failures and resolves false.
                 Ok(false)
             }
         }
     }
 
-    /// Implements Electron's `ignore-update` for the update currently offered this session.
+    /// Implements the renderer's `ignore-update` for the update currently offered this session.
     pub fn ignore_update(&mut self) -> Result<(), UpdateError> {
         let version = match &self.state {
             UpdateState::Available(info) => info.version.clone(),
@@ -345,18 +427,23 @@ impl<A: UpdateAdapter, E: UpdateEventSink> Updater<A, E> {
         Ok(())
     }
 
-    /// Implements Electron's `start-update`: bounded download, mandatory verification, then install.
+    /// Implements the renderer's `start-update`: bounded download, mandatory verification, then install.
     pub fn start_update(&mut self) -> Result<(), UpdateError> {
         let info = match &self.state {
             UpdateState::Available(info) => info.clone(),
             _ => return Err(UpdateError::InvalidTransition),
         };
+        let _session = self.control.begin_download()?;
         self.state = UpdateState::Downloading(info.clone());
         self.publish_status();
         let limit = self.max_artifact_bytes;
         let events = &self.events;
         let mut completed = 0_u64;
+        let control = &self.control;
         let mut progress = |chunk: u64, total: Option<u64>| {
+            if control.is_cancelled() {
+                return Err(UpdateError::Cancelled);
+            }
             completed = completed
                 .checked_add(chunk)
                 .ok_or(UpdateError::ArtifactTooLarge { limit })?;
@@ -374,16 +461,20 @@ impl<A: UpdateAdapter, E: UpdateEventSink> Updater<A, E> {
             }));
             Ok(())
         };
-        let artifact = match self
-            .adapter
-            .download_and_verify(&info, limit, &mut progress)
-        {
-            Ok(artifact) if artifact.version() == info.version => artifact,
-            Ok(_) => return self.fail(UpdateError::VersionMismatch),
-            Err(error) => return self.fail(error),
-        };
+        let artifact =
+            match self
+                .adapter
+                .download_and_verify(&info, limit, &self.control, &mut progress)
+            {
+                Ok(artifact) if artifact.version() == info.version => artifact,
+                Ok(_) => return self.fail(UpdateError::VersionMismatch),
+                Err(error) => return self.fail(error),
+            };
         self.state = UpdateState::Downloaded(artifact.clone());
         self.publish_status();
+        if let Err(error) = self.control.begin_install() {
+            return self.fail(error);
+        }
         self.state = UpdateState::Installing(artifact.clone());
         self.publish_status();
         if let Err(error) = self.adapter.install(artifact) {
@@ -395,7 +486,16 @@ impl<A: UpdateAdapter, E: UpdateEventSink> Updater<A, E> {
     }
 
     fn fail<T>(&mut self, error: UpdateError) -> Result<T, UpdateError> {
-        self.state = UpdateState::Failed(error.to_string());
+        self.state = if error == UpdateError::Cancelled {
+            let version = match &self.state {
+                UpdateState::Downloading(info) => info.version.clone(),
+                UpdateState::Downloaded(artifact) => artifact.version().to_owned(),
+                _ => String::new(),
+            };
+            UpdateState::Cancelled(version)
+        } else {
+            UpdateState::Failed(error.to_string())
+        };
         self.publish_status();
         Err(error)
     }
@@ -404,6 +504,7 @@ impl<A: UpdateAdapter, E: UpdateEventSink> Updater<A, E> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum UpdateError {
     InvalidTransition,
+    Cancelled,
     InvalidMetadata(&'static str),
     InvalidLimit,
     ArtifactTooLarge { limit: u64 },
@@ -416,6 +517,7 @@ impl fmt::Display for UpdateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidTransition => f.write_str("invalid updater transition"),
+            Self::Cancelled => f.write_str("update download cancelled"),
             Self::InvalidMetadata(field) => write!(f, "invalid update {field}"),
             Self::InvalidLimit => f.write_str("artifact limit must be positive"),
             Self::ArtifactTooLarge { limit } => write!(f, "update artifact exceeds {limit} bytes"),
@@ -435,20 +537,21 @@ pub mod tauri_adapter {
 
     /// Host-side bridge. Implement this with `tauri_plugin_updater::UpdaterExt`; its `Update`
     /// value must remain owned by the payload until `install` consumes it.
-    pub trait OfficialUpdaterPlugin {
+    pub trait VerifiedUpdateHost {
         type VerifiedPayload: Send + Sync + 'static;
         fn check(&mut self) -> Result<Option<UpdateInfo>, UpdateError>;
         fn download_and_verify(
             &mut self,
             info: &UpdateInfo,
             max_bytes: u64,
+            control: &UpdateControl,
             progress: &mut dyn FnMut(u64, Option<u64>) -> Result<(), UpdateError>,
         ) -> Result<Self::VerifiedPayload, UpdateError>;
         fn install_verified(&mut self, payload: &Self::VerifiedPayload) -> Result<(), UpdateError>;
     }
 
     pub struct Adapter<P>(pub P);
-    impl<P: OfficialUpdaterPlugin> UpdateAdapter for Adapter<P> {
+    impl<P: VerifiedUpdateHost> UpdateAdapter for Adapter<P> {
         fn check(&mut self) -> Result<Option<UpdateInfo>, UpdateError> {
             self.0.check()
         }
@@ -456,10 +559,13 @@ pub mod tauri_adapter {
             &mut self,
             info: &UpdateInfo,
             max_bytes: u64,
+            control: &UpdateControl,
             progress: &mut dyn FnMut(u64, Option<u64>) -> Result<(), UpdateError>,
         ) -> Result<VerifiedArtifact, UpdateError> {
-            let payload = self.0.download_and_verify(info, max_bytes, progress)?;
-            Ok(VerifiedArtifact::from_verified_plugin_payload(
+            let payload = self
+                .0
+                .download_and_verify(info, max_bytes, control, progress)?;
+            Ok(VerifiedArtifact::from_verified_host_payload(
                 info.version.clone(),
                 payload,
             ))
@@ -493,6 +599,7 @@ mod tests {
             &mut self,
             _: &UpdateInfo,
             _: u64,
+            _: &UpdateControl,
             progress: &mut dyn FnMut(u64, Option<u64>) -> Result<(), UpdateError>,
         ) -> Result<VerifiedArtifact, UpdateError> {
             if self.oversize {
@@ -501,7 +608,7 @@ mod tests {
                 progress(4, Some(10))?;
                 progress(6, Some(10))?;
             }
-            Ok(VerifiedArtifact::from_verified_plugin_payload(
+            Ok(VerifiedArtifact::from_verified_host_payload(
                 if self.bad_version { "9" } else { "2.1.0" },
                 vec![1_u8],
             ))
@@ -655,6 +762,7 @@ mod tests {
                 &mut self,
                 _: &UpdateInfo,
                 _: u64,
+                _: &UpdateControl,
                 _: &mut dyn FnMut(u64, Option<u64>) -> Result<(), UpdateError>,
             ) -> Result<VerifiedArtifact, UpdateError> {
                 unreachable!()
@@ -666,5 +774,53 @@ mod tests {
         let mut updater = Updater::new(FailingCheck, |_| {}, gate());
         assert!(!updater.fire_update().unwrap());
         assert!(matches!(updater.state(), UpdateState::Failed(_)));
+    }
+    #[test]
+    fn cancellation_cannot_race_past_the_install_boundary() {
+        use std::sync::Barrier;
+        for _ in 0..100 {
+            let control = UpdateControl::default();
+            assert!(!control.cancel());
+            let session = control.begin_download().unwrap();
+            let race = Arc::new(Barrier::new(2));
+            let worker_control = control.clone();
+            let worker_race = race.clone();
+            let worker = std::thread::spawn(move || {
+                worker_race.wait();
+                worker_control.cancel()
+            });
+            race.wait();
+            let installed = control.begin_install().is_ok();
+            let cancelled = worker.join().unwrap();
+            assert_ne!(installed, cancelled);
+            assert!(!control.cancel());
+            drop(session);
+            assert!(control.begin_download().is_ok());
+        }
+    }
+
+    #[test]
+    fn accepted_cancellation_never_reaches_the_installer_and_can_be_rechecked() {
+        let control = UpdateControl::default();
+        let cancel = control.clone();
+        let mut updater = Updater::new(
+            FakeAdapter {
+                install_calls: 0,
+                oversize: false,
+                bad_version: false,
+            },
+            move |event| {
+                if matches!(event, UpdateEvent::Progress(_)) {
+                    cancel.cancel();
+                }
+            },
+            gate(),
+        );
+        updater.control = control;
+        updater.fire_update().unwrap();
+        assert_eq!(updater.start_update(), Err(UpdateError::Cancelled));
+        assert_eq!(updater.adapter.install_calls, 0);
+        assert_eq!(updater.status().state, "cancelled");
+        assert!(updater.fire_update().unwrap());
     }
 }

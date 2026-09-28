@@ -29,11 +29,16 @@ describe('Tauri renderer capability gates', () => {
         const patching = read('web/views/patching/index.js');
 
         for (const channel of [
-            'shouldGoIM', 'executeArgumentCmd', 'start-update', 'ignore-update',
+            'shouldGoIM', 'executeArgumentCmd',
             'getGamebananaUserinfo'
         ]) {
             expect(app).toMatch(new RegExp(`invokeOptional\\(\\s*['\"]${channel}`));
         }
+        // The implemented update path must propagate failures to its notice,
+        // not silently absorb them as an optional legacy command.
+        expect(app).toContain("invoke('start-update', []);");
+        expect(app).toContain("invoke('ignore-update', []);");
+        expect(app).toContain('deltamodUpdateNotice?.failure');
         for (const channel of ['isCMode', 'cmode-on', 'cmode-off']) {
             expect(app).toContain(`.invoke('${channel}'`);
         }

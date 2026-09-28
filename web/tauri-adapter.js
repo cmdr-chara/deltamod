@@ -139,6 +139,7 @@
         'shouldGoIM',
         'showWindow',
         'start-update',
+        'cancel-update',
         'startGame',
         'toggleFullscreen',
         'toggleModState',
@@ -288,6 +289,7 @@
         updates: Object.freeze({
             check: () => invoke('fireUpdate'),
             install: () => invoke('start-update'),
+            cancel: () => invoke('cancel-update'),
             ignore: () => invoke('ignore-update'),
             status: () => invoke('updater-status'),
             onStatus: callback => on('updater-status', callback),

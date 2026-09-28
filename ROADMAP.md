@@ -220,6 +220,19 @@ recovery easier to scan than decorative surfaces.
 The first-run success condition is: **Game ready — you can safely install mods.**
 Diagnostics must be sanitizable and copyable without opening DevTools.
 
+## Recovery and updater implementation — 2026-09-28
+
+Implemented on the Tauri-only branch: fail-closed journal planning, kernel-backed
+profile/install filesystem exclusion, quarantine-before-delete, backup-preserving
+reimport, bounded/alias-safe shared persistence, signed streaming updater budgets,
+responsive cancellation/status and renderer progress. Intel macOS joins full-shell
+CI. See [implementation and evidence](docs/RECOVERY-UPDATER-HARDENING.md).
+
+Still required: explicit intervention/UI for ambiguous v1 recovery, collection
+restore, installation shortcuts, tool-opening parity, coverage-guided native fuzzing,
+and installed/signed updater and rollback evidence on the supported platforms.
+Source implementation and static parity do not satisfy those release gates.
+
 ## Codebase audit — next work
 
 The 2026-09-28 [retirement audit](docs/TAURI-RETIREMENT-AUDIT.md) supersedes the

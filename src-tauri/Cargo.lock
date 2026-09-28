@@ -1044,6 +1044,7 @@ dependencies = [
  "deltamod-installations-domain",
  "deltamod-native-core",
  "deltamod-storage-domain",
+ "deltamod-tools-runtime",
  "serde",
  "serde_json",
  "tempfile",
@@ -1074,6 +1075,7 @@ dependencies = [
 name = "deltamod-storage-domain"
 version = "0.1.0"
 dependencies = [
+ "deltamod-tools-runtime",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -1192,7 +1194,11 @@ dependencies = [
 name = "deltamod-updater-launch-runtime"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
+ "minisign-verify",
+ "reqwest 0.12.28",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

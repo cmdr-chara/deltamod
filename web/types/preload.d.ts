@@ -97,6 +97,7 @@ declare global {
                 onProgress(callback: (event: ProgressEvent) => void): Unsubscribe;
             };
             updates: {
+                cancel(): Promise<boolean>;
                 check(): Promise<unknown>;
                 install(): Promise<void>;
                 ignore(): Promise<void>;

@@ -1,0 +1,9 @@
+// SPDX-FileCopyrightText: 2026 Deltamod Community contributors
+// SPDX-License-Identifier: EUPL-1.2
+// Independent test vectors. Seed bytes 0..31, key ID 0..7, RFC 8032 Ed25519,
+// ED signs BLAKE2b-512(payload), Ed signs payload. The authenticated comment
+// signature covers raw signature bytes followed by the comment, without prefix.
+pub const PAYLOAD: &[u8] = b"Deltamod signed update test payload. Not an executable.\n";
+pub const PUBLIC_KEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IGRldGVybWluaXN0aWMgdGVzdCBrZXksIG5ldmVyIHVzZWQgZm9yIHJlbGVhc2VzClJXUUFBUUlEQkFVR0J3T2hCNy96emhDK0hYRGRHT2RMd0psbjVOWXdtNlVOWHgzY2htUVNWVEc0Cg==";
+pub const SIGNATURE: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHRlc3Qtb25seSBzaWduYXR1cmUKUlVRQUFRSURCQVVHQjY0VkxscDdmeWRrZ2FyQkVnRkljcERiaGJmSElnQUJtOEN1ejMrZE03amxER1Z2NERRMjYyQURVSGdzeFo2R0NFR0J6U3duQWMwUEFpM21ibzF5Q3dZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDowCWZpbGU6dGVzdC1vbmx5LmJpbgptRkpjYm9NSmRHeHZlaGVQSjN1VzZGT1Z3RUd6OTZGTDdwM1RGdUFjbnAyS0VZa0pLTGtuUzVLQXNidFAyeCswa2RCV1BlOUx5V2hyVlZHMmlwZGtEUT09Cg==";
+pub const LEGACY_SIGNATURE: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHRlc3Qtb25seSBzaWduYXR1cmUKUldRQUFRSURCQVVHQnpSVWRKRzRnQlJPRm5TYkRGYUV2bmc2KzNyMUkxWVQ5ZG1EbzhXdG91NmhXK0FrenQrUHNFNk1ZMms1MDR1N01LbG8xdGV6azhEQ3FYN241L0Y0S2d3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDowCWZpbGU6dGVzdC1vbmx5LmJpbgo2MWZKS25LOXlXd3gvODc3SWdVVUkreWtIS045azF3dmJjWTl1VG1oLzBYYmY5VU5JWnRFT3ljY25YUHFQK3MvdENLMTY3N3F2U0N0bTRubzh3YnREQT09Cg==";

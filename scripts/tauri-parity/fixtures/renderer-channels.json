@@ -126,6 +126,7 @@
     "locateDelta",
     "fireUpdate",
     "start-update",
+    "cancel-update",
     "ignore-update",
     "updater-status",
     "initialize",

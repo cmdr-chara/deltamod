@@ -18,6 +18,7 @@
     "tests/tauri-parity-classification.test.js"
   ],
   "tests": [
+    { "path": "tests/updater-notice.test.js", "layer": "renderer", "runtime": "tauri", "retained": true },
     { "path": "tests/knight-cue.test.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/e2e/knight-awakening.spec.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/frontend-refinements.test.js", "layer": "renderer", "runtime": "shared", "retained": true },

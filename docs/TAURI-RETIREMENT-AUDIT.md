@@ -72,12 +72,10 @@ Electron/Tauri desktop comparison remains unchanged.
 
 ## Remaining actionable work
 
-- Legacy profile-install startup recovery still needs a reviewed fix for journal
-  path containment, ignored cleanup failures and ambiguous backup deletion. Do not
-  equate the transactional patch pipeline with proof that every legacy recovery path
-  is safe.
-- Enforce updater download cancellation and limits while receiving, not only after
-  the complete payload is returned.
+- The follow-up [recovery/updater hardening](RECOVERY-UPDATER-HARDENING.md) implements
+  journal containment, backup preservation, kernel leases and in-flight updater
+  cancellation/budgets. Ambiguous v1 recovery still requires intervention; real
+  installed-updater and platform acceptance remain open.
 - Finish collection restore, installation shortcuts and UndertaleModTool installation
   opening. Those three controls remain capability-gated. Retired channel names are
   explicitly rejected at the native boundary for stale-client safety.

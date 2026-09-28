@@ -1,0 +1,37 @@
+{
+  "architecture": "x86_64",
+  "baselineMedianMs": 30.6302015,
+  "baselineMs": [
+    23.81087,
+    28.324645,
+    29.061506,
+    30.406422999999997,
+    30.482091999999998,
+    30.778311,
+    32.720288000000004,
+    33.187237,
+    39.342754,
+    46.835891
+  ],
+  "candidateMedianMs": 0.0418845,
+  "candidateMs": [
+    0.006952,
+    0.007282,
+    0.00825,
+    0.009874,
+    0.041685,
+    0.042083999999999996,
+    0.042302,
+    0.044039,
+    0.062120999999999996,
+    0.099287
+  ],
+  "configuredLimitBytes": 16777216,
+  "inputBytes": 33554432,
+  "note": "Debug build, warm sparse invalid JSON, 10 samples each, alternating order. Not an application benchmark.",
+  "platform": "linux",
+  "schemaVersion": 1,
+  "baseCommit": "ffb3aeb08ab63beab965b55ae8509ac90ea729e4",
+  "command": "cargo test --manifest-path src-tauri/Cargo.toml -p deltamod-storage-domain --locked benchmark_oversized_json_rejection -- --ignored --nocapture",
+  "rustc": "1.98.1"
+}

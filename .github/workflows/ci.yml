@@ -47,6 +47,8 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: macos-26
             target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     env:
       TAURI_BUILD_TARGET: ${{ matrix.target }}
@@ -141,28 +143,9 @@ jobs:
             npm run smoke:game-patching-csx
           fi
 
-  verify-csx-macos-intel:
-    needs: quality
-    runs-on: macos-15-intel
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-      - name: Install npm dependencies
-        run: node scripts/retry-command.js --label "npm ci" -- npm ci
-      - name: Acquire UndertaleModTool
-        run: node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
-      - run: npm run verify:undertale-mod-tool
-      - name: Acquire G3MTool
-        run: node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
-      - run: npm run verify:g3mtool
-      - run: npm run smoke:game-patching-csx
-
   benchmark-on-failure:
-    needs: [verify, verify-csx-macos-intel]
-    if: ${{ always() && (needs.verify.result == 'failure' || needs.verify-csx-macos-intel.result == 'failure') }}
+    needs: verify
+    if: ${{ always() && needs.verify.result == 'failure' }}
     runs-on: windows-latest
     env:
       TAURI_BUILD_TARGET: x86_64-pc-windows-msvc
@@ -267,7 +250,7 @@ jobs:
           Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value 'The raw result is diagnostic only; GitHub-hosted runner hardware is not treated as comparable to the committed same-host release baseline.'
 
   prepare-stable-release:
-    needs: [verify, verify-csx-macos-intel]
+    needs: verify
     if: github.event_name == 'push' && github.ref == 'refs/heads/DeltaMaster'
     runs-on: ubuntu-latest
     permissions:

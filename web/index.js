@@ -1304,9 +1304,16 @@ window.preloadAPI.onUpdateAvailable((info) => {
         ], 
         'update'
     ).then(async () => {
-        await window.deltamodBackend.invokeOptional('start-update', [], false);
-    }).catch(async () => {
-        await window.deltamodBackend.invokeOptional('ignore-update', [], false);
+        try {
+            await window.deltamodBackend.invoke('start-update', []);
+        } catch (error) {
+            // Installation failure is not a user rejection of the initial offer.
+            window.deltamodUpdateNotice?.failure('The update did not finish. Check the update notice, then try again.');
+            console.error('Update failed:', error);
+        }
+    }, async () => {
+        try { await window.deltamodBackend.invoke('ignore-update', []); }
+        catch (error) { console.error('Unable to dismiss update:', error); }
     });
 });
 

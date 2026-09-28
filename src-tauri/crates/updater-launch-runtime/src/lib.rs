@@ -15,6 +15,8 @@ const MAX_CATALOG_FILES: usize = 128;
 const MAX_JSON_BYTES: u64 = 1024 * 1024;
 
 pub mod steam_discovery;
+#[cfg(feature = "tauri-adapter")]
+pub mod update_download;
 pub mod updater;
 pub use updater::*;
 

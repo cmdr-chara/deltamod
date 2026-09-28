@@ -1,0 +1,24 @@
+/* SPDX-FileCopyrightText: 2026 Deltamod Community contributors
+   SPDX-License-Identifier: EUPL-1.2 */
+.community-update-notice {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 1100;
+    box-sizing: border-box;
+    width: min(25rem, calc(100vw - 2rem));
+    max-height: calc(100vh - 2rem);
+    overflow: auto;
+    padding: 1rem;
+    border: 2px solid currentColor;
+    background: #15151b;
+    color: #fff;
+    font: inherit;
+}
+.community-update-notice[hidden] { display: none; }
+.community-update-notice p { margin: .75rem 0; overflow-wrap: anywhere; }
+.community-update-notice progress { display: block; width: 100%; margin-bottom: .75rem; }
+.community-update-notice progress[hidden] { display: none; }
+.community-update-notice button { font: inherit; padding: .4rem .75rem; cursor: pointer; }
+.community-update-notice button:disabled { cursor: default; }
+.community-update-notice button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
