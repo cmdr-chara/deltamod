@@ -7,6 +7,13 @@ GitHub prereleases for manual testing only: updater artifacts and `latest.json`
 must be absent, Windows publisher signing is intentionally absent, and macOS
 notarization is intentionally absent. A preview never satisfies this stable gate.
 
+`Community Tauri Release` also has a non-publishing `validation` mode. It checks
+an exact `DeltaMaster` SHA, builds all four platform packages, installs and smokes
+them, verifies that signing/updater artifacts are absent, and retains a checksum
+manifest. This mode exists so release packaging can stay continuously verified when
+external signing credentials are unavailable. It does not satisfy the publisher-
+identity, updater-signature, notarization, or stable-publication requirements below.
+
 ## Required parity checks
 
 1. `npm ci` succeeds with the committed `package-lock.json`, and `npm run verify:tauri-only` rejects any reintroduced Electron runtime, dependency, or renderer binding.
@@ -40,10 +47,12 @@ notarization is intentionally absent. A preview never satisfies this stable gate
 
 ## External signing prerequisites
 
-The stable and rehearsal workflows fail before compilation unless the repository
+Stable publication and signed rehearsal fail before compilation unless the repository
 provides the Tauri updater key, an exportable Windows code-signing PFX, and an Apple
-Developer ID Application certificate plus notarization credentials. Secret names are
-validated without printing their values. Windows imports the PFX into the disposable
+Developer ID Application certificate plus notarization credentials. Main-branch CI
+checks for those prerequisites before creating a stable tag. If one is absent, it
+leaves the stable tag namespace untouched and dispatches unsigned release validation
+instead. Secret names are validated without printing their values. Windows imports the PFX into the disposable
 runner certificate store, signs with SHA-256 and a timestamp, then verifies the shell,
 NSIS package, and branded bootstrapper against the imported thumbprint. macOS imports
 the Developer ID certificate into a disposable keychain and requires `codesign`,
