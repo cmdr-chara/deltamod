@@ -520,10 +520,8 @@ mod tests {
     fn import_selection_rejects_symlinks_before_canonicalization() {
         use std::os::unix::fs::symlink;
 
-        let root = std::env::temp_dir().join(format!(
-            "deltamod-dialog-symlink-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("deltamod-dialog-symlink-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let target = root.join("background.png");
         let link = root.join("selected.png");

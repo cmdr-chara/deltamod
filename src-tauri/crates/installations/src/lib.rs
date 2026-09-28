@@ -516,11 +516,13 @@ mod tests {
         assert!(
             serde_json::from_value::<InstallationId>(serde_json::json!("x".repeat(129))).is_err()
         );
-        assert!(serde_json::from_value::<InstallationListResponse>(serde_json::json!({
-            "installations": [],
-            "selectedId": "../outside"
-        }))
-        .is_err());
+        assert!(
+            serde_json::from_value::<InstallationListResponse>(serde_json::json!({
+                "installations": [],
+                "selectedId": "../outside"
+            }))
+            .is_err()
+        );
     }
 
     #[test]
