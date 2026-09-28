@@ -118,15 +118,27 @@ pub fn validate_dialog_selection(
     request: &DialogRequest,
     selected: impl AsRef<Path>,
 ) -> Result<PathBuf, AdapterError> {
-    let selected = fs::canonicalize(selected).map_err(|_| AdapterError::InvalidSelection)?;
-    let metadata = fs::symlink_metadata(&selected).map_err(|_| AdapterError::InvalidSelection)?;
+    let selected = selected.as_ref();
+    let metadata = fs::symlink_metadata(selected).map_err(|_| AdapterError::InvalidSelection)?;
+    if metadata.file_type().is_symlink() {
+        return Err(AdapterError::InvalidSelection);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(AdapterError::InvalidSelection);
+        }
+    }
     let expected_type = match request.kind {
-        DialogKind::File => metadata.is_file() && !metadata.file_type().is_symlink(),
-        DialogKind::Folder => metadata.is_dir() && !metadata.file_type().is_symlink(),
+        DialogKind::File => metadata.is_file(),
+        DialogKind::Folder => metadata.is_dir(),
     };
     if !expected_type {
         return Err(AdapterError::InvalidSelection);
     }
+    let selected = fs::canonicalize(selected).map_err(|_| AdapterError::InvalidSelection)?;
     if request.kind == DialogKind::File && !request.filters.is_empty() {
         let extension = selected
             .extension()
@@ -500,6 +512,28 @@ mod tests {
             image.canonicalize().unwrap()
         );
         assert!(validate_dialog_selection(&request, text).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_selection_rejects_symlinks_before_canonicalization() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "deltamod-dialog-symlink-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("background.png");
+        let link = root.join("selected.png");
+        fs::write(&target, b"png").unwrap();
+        symlink(&target, &link).unwrap();
+        let request =
+            DialogRequest::file("Image").filter(DialogFilter::new("Images", ["png"]).unwrap());
+
+        assert!(validate_dialog_selection(&request, &link).is_err());
+
         fs::remove_dir_all(root).unwrap();
     }
 
