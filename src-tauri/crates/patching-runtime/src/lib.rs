@@ -2254,7 +2254,7 @@ name = "Test"
         assert_eq!(fs::read(game.join("data.win")).unwrap(), b"original");
         assert!(!game.join(JOURNAL_NAME).exists());
     }
-    #[cfg(any(unix, windows))]
+    #[cfg(target_os = "macos")]
     #[test]
     fn steam_handoff_keeps_native_mac_patches_until_explicit_startup_recovery() {
         use deltamod_updater_launch_runtime::{
