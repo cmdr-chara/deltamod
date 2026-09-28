@@ -1,0 +1,74 @@
+name: Isolated Tauri candidate
+on:
+  push:
+    branches: [astra/tauri-validation-tools]
+    paths: [.github/workflows/agent-candidate.yml]
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: recipe
+      - uses: actions/checkout@v6
+        with:
+          ref: d451315768e9043cdf5b2b635398a2350f3f1745
+          path: candidate
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Load independently authored audit patch
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const r = await github.rest.git.getBlob({...context.repo, file_sha:'f670d9978d56b84d2c4167de8c16d9face7ed4ab'});
+            fs.writeFileSync(process.env.RUNNER_TEMP+'/audit.patch', Buffer.from(r.data.content, 'base64'));
+      - name: Assemble source changes
+        working-directory: candidate
+        run: |
+          git apply --recount --check "$RUNNER_TEMP/audit.patch"
+          git apply --recount "$RUNNER_TEMP/audit.patch"
+          python ../recipe/.audit/prepare.py pre
+          python ../recipe/.audit/retire.py
+          python ../recipe/.audit/prepare.py post
+          for part in helpers native tests docs; do
+            if [ -f "../recipe/.audit/$part.py" ]; then python "../recipe/.audit/$part.py"; fi
+          done
+      - name: Regenerate only the pruned dependency closure
+        working-directory: candidate
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Focused shared checks
+        working-directory: candidate
+        run: |
+          npm run test:audit
+          npm run verify:tauri:contract
+          DELTAMOD_REPO=. node scripts/tauri-parity/test/harness.test.js
+          npm run verify:tauri-only
+          npm run typecheck
+          npm run build:boot
+          npm test
+      - name: Source review inventory
+        if: always()
+        working-directory: candidate
+        run: |
+          git add -N .
+          git diff --stat
+          git diff --check
+          echo '=== Remaining runtime imports and retired channel context ==='
+          rg -n 'Unsupported\(channel\)|npsCallback|deleteall|require\(.electron|from .electron' src-tauri/src/main.rs web node scripts tests || true
+          echo '=== Candidate change set ==='
+          git diff --name-status
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: candidate-review
+          path: candidate/scripts/tauri-parity/output
+          if-no-files-found: ignore
+          retention-days: 2
+# Assembly revision: 1
