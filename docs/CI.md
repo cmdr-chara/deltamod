@@ -30,11 +30,29 @@ branch-protection configuration is not changed by these source files.
 - CI actions are pinned to their reviewed commit IDs. Dependabot tracks GitHub
   Actions separately from npm and Cargo dependencies. Workflow syntax/expression
   lint uses actionlint 1.7.12 with an archive SHA-256 check before extraction.
-  It covers the four validation workflows changed in this update. ShellCheck and
-  Pyflakes integration are disabled rather than installed implicitly.
+  It covers the validation workflows plus the Dependabot merge policy. ShellCheck
+  and Pyflakes integration are disabled rather than installed implicitly.
 
 These remove redundant work. They do not claim a measured end-to-end speedup on
 comparable hosted runners or change desktop benchmarks.
+
+## Dependabot auto-merge
+
+`.github/workflows/dependabot-automerge.yml` listens only to completed validation
+workflow runs. It does not check out or execute pull-request code with its write
+token. Before merging, it resolves the exact workflow head SHA back to one open,
+non-draft PR authored by `dependabot[bot]`, targeting `DeltaMaster` from this
+repository.
+
+Community CI, Community Provenance and Secure Updater Policy must all have a current
+successful pull-request run for that exact head. Original frontend refinement is
+also required when the changed paths match that workflow's path filter. Missing,
+pending, failed, cancelled or ambiguous evidence leaves the PR open. The head SHA
+and bot/base identity are checked again immediately before the merge request.
+
+GitHub still owns final mergeability and repository-rule enforcement. Conflicted or
+otherwise unmergeable Dependabot PRs remain open. Human-authored PRs are never
+eligible for this workflow.
 
 ## Diagnostics and local reproduction
 
