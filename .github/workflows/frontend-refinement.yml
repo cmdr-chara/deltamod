@@ -2,10 +2,13 @@
 name: Original frontend refinement
 on:
   pull_request:
-    paths: ['web/**', 'tests/**', 'scripts/tauri-parity/fixtures/test-classification.json', '.github/workflows/frontend-refinement.yml']
+    paths: ['web/**', 'tests/**', 'scripts/**', 'package.json', 'package-lock.json', 'playwright.config.js', 'vite.boot.config.js', '.github/workflows/frontend-refinement.yml']
   push:
     branches: [DeltaMaster]
-    paths: ['web/**', 'tests/**', '.github/workflows/frontend-refinement.yml']
+    paths: ['web/**', 'tests/**', 'scripts/**', 'package.json', 'package-lock.json', 'playwright.config.js', 'vite.boot.config.js', '.github/workflows/frontend-refinement.yml']
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -17,27 +20,32 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-      - run: node scripts/retry-command.js --label "npm ci" -- npm ci
-      - run: npm run typecheck
+      - name: Install browser-test dependencies
+        timeout-minutes: 5
+        run: node scripts/retry-command.js --label "npm ci" -- npm ci --no-audit --no-fund
       - run: npm run build:boot
-      - run: cargo build --workspace --locked --manifest-path native/Cargo.toml
-      - run: npm test
-      - run: npx playwright install --with-deps chromium
+      - name: Install Chromium and system dependencies
+        timeout-minutes: 5
+        run: node scripts/retry-command.js --label "Playwright installation" -- npx playwright install --with-deps chromium
+      # The four-platform Community CI matrix owns unit tests and native builds.
       - name: Original UI behavior and theme contracts
-        run: npx playwright test tests/e2e/frontend-refinement.spec.js tests/e2e/frontend-workflow-reliability.spec.js tests/e2e/shop-recovery.spec.js tests/e2e/tauri-themes.spec.js tests/e2e/tauri-localization.spec.js
+        env:
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: ci-results/playwright.xml
+        run: npm run test:e2e -- --reporter=line,junit
       - name: UI evidence
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: original-frontend-evidence-${{ matrix.os }}
-          path: test-results/
+          name: original-frontend-evidence-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ci-results/
+            test-results/
           retention-days: 7
           if-no-files-found: ignore

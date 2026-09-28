@@ -528,15 +528,11 @@ fn open_relative_regular(
         .map_err(windows_error)?
         .into_directory();
     for name in &names[..names.len() - 1] {
-        directory = directory
-            .open_named_child(name)
-            .map_err(windows_error)?
+        directory = open_windows_child(&directory, name)?
             .into_directory()
             .map_err(windows_error)?;
     }
-    let node = directory
-        .open_named_child(&names[names.len() - 1])
-        .map_err(windows_error)?;
+    let node = open_windows_child(&directory, &names[names.len() - 1])?;
     let metadata = node.metadata();
     if metadata.kind != NodeKind::RegularFile || metadata.link_count != 1 {
         return Err(SecurePathError::Unsafe);
@@ -557,6 +553,28 @@ fn open_relative_regular(
     };
     opened.verify()?;
     Ok(opened)
+}
+
+// The pinned dependency reports both absence and an identity race as
+// IdentityChanged in open_named_child. Resolve absence from the pinned directory
+// inventory, then let open_child retain its no-follow identity verification.
+#[cfg(windows)]
+fn open_windows_child(
+    directory: &fence_windows::DirectoryHandle,
+    name: &std::ffi::OsStr,
+) -> Result<fence_windows::NodeHandle, SecurePathError> {
+    let entry = directory
+        .entries()
+        .map_err(windows_error)?
+        .into_iter()
+        .find(|entry| entry.name == name)
+        .ok_or_else(|| {
+            SecurePathError::Io(io::Error::new(
+                io::ErrorKind::NotFound,
+                "child does not exist",
+            ))
+        })?;
+    directory.open_child(&entry).map_err(windows_error)
 }
 
 #[cfg(windows)]
@@ -672,7 +690,11 @@ fn inspect_directory_identity_impl(_: &Path) -> Result<StablePathIdentity, Secur
 
 #[cfg(windows)]
 fn windows_error(error: fence_windows::WindowsError) -> SecurePathError {
-    SecurePathError::Io(io::Error::other(error.to_string()))
+    match error {
+        fence_windows::WindowsError::Io { source, .. } => SecurePathError::Io(source),
+        fence_windows::WindowsError::IdentityChanged => SecurePathError::Changed,
+        other => SecurePathError::Io(io::Error::other(other.to_string())),
+    }
 }
 
 #[cfg(unix)]
@@ -682,6 +704,42 @@ fn unix_error(error: rustix::io::Errno) -> SecurePathError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn missing_relative_files_remain_distinct_from_invalid_or_changed_paths() {
+        let root = tempfile::tempdir().unwrap();
+        for name in ["__variant", "absent/manifest.xml"] {
+            assert!(matches!(
+                read_relative_regular_file(root.path(), Path::new(name), 64),
+                Err(SecurePathError::Io(error)) if error.kind() == io::ErrorKind::NotFound
+            ));
+        }
+        fs::write(root.path().join("__variant"), b"modding.xml").unwrap();
+        assert_eq!(
+            read_relative_regular_file(root.path(), Path::new("__variant"), 64).unwrap(),
+            b"modding.xml"
+        );
+        assert!(!matches!(
+            read_relative_regular_file(root.path(), Path::new("../escape"), 64),
+            Err(SecurePathError::Io(error)) if error.kind() == io::ErrorKind::NotFound
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_identity_races_are_not_missing_optional_files() {
+        assert!(matches!(
+            windows_error(fence_windows::WindowsError::IdentityChanged),
+            SecurePathError::Changed
+        ));
+        assert!(matches!(
+            windows_error(fence_windows::WindowsError::Io {
+                operation: "test permission denial",
+                source: io::Error::from(io::ErrorKind::PermissionDenied),
+            }),
+            SecurePathError::Io(error) if error.kind() == io::ErrorKind::PermissionDenied
+        ));
+    }
+
     #[test]
     fn relative_hash_is_bounded_and_rejects_aliases() {
         let root = tempfile::tempdir().unwrap();

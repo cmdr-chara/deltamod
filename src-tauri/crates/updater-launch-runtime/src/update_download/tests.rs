@@ -3,7 +3,7 @@
 use super::*;
 use std::{
     io::{Read, Write},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
@@ -50,20 +50,21 @@ impl Server {
                     Err(e) => panic!("test listener: {e}"),
                 }
             };
-            socket
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            socket
-                .set_write_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
+            configure_test_socket(&socket).unwrap();
             let mut request = Vec::new();
             let mut chunk = [0; 512];
             while request.len() < 8192 && !request.windows(4).any(|w| w == b"\r\n\r\n") {
                 match socket.read(&mut chunk) {
-                    Ok(0) | Err(_) => return,
+                    Ok(0) => return,
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) => panic!("test request read failed: {error}"),
                     Ok(n) => request.extend_from_slice(&chunk[..n]),
                 }
             }
+            assert!(
+                request.windows(4).any(|w| w == b"\r\n\r\n"),
+                "test request headers exceeded the bound"
+            );
             observed_request.store(true, Ordering::Release);
             for (delay, bytes) in parts {
                 let start = Instant::now();
@@ -96,6 +97,47 @@ impl Drop for Server {
         }
     }
 }
+fn configure_test_socket(socket: &TcpStream) -> std::io::Result<()> {
+    // macOS/BSD may inherit the listener's nonblocking flag. A read timeout
+    // does not clear it: an early request read otherwise closes a healthy peer.
+    socket.set_nonblocking(false)?;
+    socket.set_read_timeout(Some(Duration::from_secs(2)))?;
+    socket.set_write_timeout(Some(Duration::from_secs(2)))
+}
+
+#[test]
+fn test_server_socket_waits_for_a_request_after_nonblocking_accept() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    let (mut socket, _) = listener.accept().unwrap();
+    // Reproduce the inherited state on Linux too, not only on macOS runners.
+    socket.set_nonblocking(true).unwrap();
+    configure_test_socket(&socket).unwrap();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let worker = thread::spawn(move || {
+        started_tx.send(()).unwrap();
+        let mut byte = [0];
+        done_tx
+            .send(socket.read_exact(&mut byte).map(|()| byte))
+            .unwrap();
+    });
+    started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    let early = done_rx.recv_timeout(Duration::from_millis(100));
+    // Always release and join the reader, including when the assertion fails.
+    let sent = client.write_all(b"x");
+    let result = match early {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            done_rx.recv_timeout(Duration::from_secs(2)).unwrap()
+        }
+        Err(error) => panic!("test reader disconnected: {error}"),
+    };
+    worker.join().unwrap();
+    sent.unwrap();
+    assert_eq!(result.unwrap(), [b'x']);
+}
+
 fn immediate(bytes: Vec<u8>) -> Vec<(Duration, Vec<u8>)> {
     vec![(Duration::ZERO, bytes)]
 }
@@ -123,7 +165,9 @@ async fn download_test(
             .get(server.url.clone())
             .send()
             .await
-            .map_err(|_| UpdateError::Adapter("test request failed".into()))?;
+            .map_err(|error| {
+                UpdateError::Adapter(format!("loopback test request failed: {error}"))
+            })?;
         receive_response(response, &verifier, limit, control, progress).await
     })
     .await

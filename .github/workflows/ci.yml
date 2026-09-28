@@ -8,24 +8,60 @@ on:
   push:
     branches: [DeltaMaster]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      benchmark:
+        description: 'Also build and measure an unsigned Windows diagnostic package (not a release)'
+        type: boolean
+        default: false
+
+# Superseded PR checks can stop. Main-branch release preparation cannot.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: '1'
+
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
         with:
+          toolchain: stable
           components: rustfmt
       - name: Install npm dependencies
-        run: node scripts/retry-command.js --label "npm ci" -- npm ci
+        timeout-minutes: 5
+        run: node scripts/retry-command.js --label "npm ci" -- npm ci --no-audit --no-fund
+      - name: Lint workflows and test the CI result gate
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl --fail --silent --show-error --location --retry 2 --connect-timeout 15 --max-time 60 \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            --output "$archive"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/actionlint"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/actionlint" actionlint
+          "$RUNNER_TEMP/actionlint/actionlint" -shellcheck= -pyflakes= \
+            .github/workflows/ci.yml .github/workflows/frontend-refinement.yml \
+            .github/workflows/provenance.yml .github/workflows/secure-updater-policy.yml
+          node --test scripts/ci/gate.test.cjs
       - run: npm run verify:tauri-only
       - run: npm run typecheck
       - run: npm run security:audit
@@ -50,16 +86,20 @@ jobs:
           - os: macos-15-intel
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     env:
       TAURI_BUILD_TARGET: ${{ matrix.target }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
         with:
+          toolchain: stable
           components: rustfmt, clippy
       - name: Restore Rust dependency build cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -67,8 +107,11 @@ jobs:
           workspaces: |
             native -> target
             src-tauri -> target
-          save-if: ${{ github.ref == 'refs/heads/DeltaMaster' }}
+          # PR merge-ref caches are isolated from the base branch. Only save
+          # successful main/same-repository PR builds, never fork contributions.
+          save-if: ${{ github.ref == 'refs/heads/DeltaMaster' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
       - name: Install Linux Tauri dependencies
+        timeout-minutes: 16
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -100,67 +143,132 @@ jobs:
             install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - name: Install npm dependencies
-        run: node scripts/retry-command.js --label "npm ci" -- npm ci
+        timeout-minutes: 5
+        run: node scripts/retry-command.js --label "npm ci" -- npm ci --no-audit --no-fund
       - name: Acquire G3MTool
+        timeout-minutes: 5
         run: node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
       - name: Acquire UndertaleModTool
+        timeout-minutes: 5
         run: node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
         if: matrix.target != 'aarch64-apple-darwin'
+      - name: Initialize diagnostic evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci-results
+          {
+            git rev-parse HEAD
+            node --version
+            rustc --version --verbose
+            printf 'Target: %s\n' "$TAURI_BUILD_TARGET"
+          } > ci-results/environment.txt
+      - run: npm run build:boot
       - run: npm run build:native-sidecars:target -- ${{ matrix.target }}
       - run: npm run build:tauri:resources -- ${{ matrix.target }}
-      - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
-      - run: cargo test --workspace --all-targets --locked --manifest-path native/Cargo.toml
-      - run: cargo build --workspace --locked --manifest-path native/Cargo.toml
+      - name: Native worker Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings 2>&1 | tee ci-results/native-clippy.log
+      - name: Native worker tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --all-targets --locked --manifest-path native/Cargo.toml 2>&1 | tee ci-results/native-tests.log
+      - name: Build debug workers for JavaScript integration tests
+        run: cargo build --workspace --locked --manifest-path native/Cargo.toml
       - name: Run platform-sensitive JavaScript tests
-        run: npm test
-      - run: cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml -- -D warnings
-      - run: cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test -- --reporter=default --reporter=github-actions --reporter=junit --outputFile.junit=ci-results/vitest.xml 2>&1 | tee ci-results/javascript-tests.log
+      - name: Tauri workspace Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml -- -D warnings 2>&1 | tee ci-results/tauri-clippy.log
+      - name: Tauri workspace tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml 2>&1 | tee ci-results/tauri-tests.log
       - name: Install Playwright Chromium
+        timeout-minutes: 5
         if: runner.os == 'macOS'
         run: node scripts/retry-command.js --label "Playwright Chromium installation" -- npx playwright install chromium
       - name: Renderer and Tauri browser E2E
         id: renderer_e2e
         if: runner.os == 'macOS'
-        run: npm run test:e2e
-      - name: Upload Playwright failure diagnostics
-        if: failure() && steps.renderer_e2e.outcome == 'failure'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: playwright-failure-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
-          if-no-files-found: warn
-          retention-days: 7
-          path: test-results/
+        env:
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: ci-results/playwright.xml
+        run: npm run test:e2e -- --reporter=line,junit
       - name: Native tool smoke checks
+        timeout-minutes: 5
         shell: bash
         run: |
-          node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
+          set -euo pipefail
+          # These exact tools were acquired and staged above. Verify, do not reacquire.
           npm run verify:g3mtool
           if [[ "$RUNNER_OS" == "macOS" && "$RUNNER_ARCH" == "ARM64" ]]; then
             echo "UndertaleModTool CSX is intentionally unavailable on macOS ARM."
           else
-            node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
             npm run verify:undertale-mod-tool
             npm run smoke:game-patching-csx
           fi
+      - name: Upload target diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ci-evidence-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ci-results/
+            test-results/
+
+  ci-result:
+    name: Native CI result
+    if: ${{ always() }}
+    needs: [quality, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - name: Require every native validation job to pass
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci/gate.cjs quality verify
 
   benchmark-on-failure:
     needs: verify
-    if: ${{ always() && needs.verify.result == 'failure' }}
+    name: Optional Windows benchmark
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.benchmark && needs.verify.result == 'success' }}
     runs-on: windows-latest
+    timeout-minutes: 45
     env:
       TAURI_BUILD_TARGET: x86_64-pc-windows-msvc
-      BENCHMARK_INCLUDED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      BENCHMARK_INCLUDED_REVISION: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
         with:
+          toolchain: stable
           targets: x86_64-pc-windows-msvc
       - name: Install npm dependencies
-        run: node scripts/retry-command.js --label "npm ci" -- npm ci
+        timeout-minutes: 5
+        run: node scripts/retry-command.js --label "npm ci" -- npm ci --no-audit --no-fund
       - name: Acquire benchmark resources
         shell: pwsh
         run: |
@@ -232,11 +340,11 @@ jobs:
               }
             }
           }
-      - name: Upload failure benchmark diagnostics
+      - name: Upload optional benchmark diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ci-failure-benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ci-diagnostic-benchmark-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
           path: ${{ runner.temp }}/deltamod-ci-benchmark/*
       - name: Summarize benchmark diagnostic
@@ -245,25 +353,29 @@ jobs:
         env:
           BENCHMARK_OUTCOME: ${{ steps.benchmark.outcome }}
         run: |
-          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '### Windows failure benchmark'
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '### Optional Windows benchmark'
           Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Capture outcome: ``$env:BENCHMARK_OUTCOME``"
           Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value 'The raw result is diagnostic only; GitHub-hosted runner hardware is not treated as comparable to the committed same-host release baseline.'
 
   prepare-stable-release:
-    needs: verify
+    needs: ci-result
     if: github.event_name == 'push' && github.ref == 'refs/heads/DeltaMaster'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: deltamod-stable-release-preparation
+      cancel-in-progress: false
     permissions:
       contents: write
       actions: write
     steps:
-      - name: Check out validated DeltaMaster
-        uses: actions/checkout@v6
+      - name: Check out the exact validated revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: DeltaMaster
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
@@ -277,6 +389,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin DeltaMaster --tags --force
+          test "$(git rev-parse HEAD)" = "$VALIDATED_SHA"
           current="$(git rev-parse origin/DeltaMaster)"
           if [ "$current" != "$VALIDATED_SHA" ]; then
             echo "release=false" >> "$GITHUB_OUTPUT"
