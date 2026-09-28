@@ -13,8 +13,8 @@ if sys.argv[1]=='pre':
         assert 'npsCallback' not in s
         return s
     edit('web/views/patching/index.js',patching)
+    edit('src-tauri/src/main.rs',lambda s:s.replace('        BackendChannel::Unsupported(name) => Err(error::unavailable(&name)),\n',''))
 else:
-    # Current active-contract field names, not legacy Electron fixture names.
     for folder in ['scripts/tauri-parity','tests']:
         for p in Path(folder).rglob('*.js'):
             if p.name.startswith('audit-'): continue
@@ -29,11 +29,7 @@ else:
     s=s.replace('toHaveLength(122)','toHaveLength(123)')
     s=re.sub(r'^.*await root\.communityAPI\.tools\.openInstallationInUndertaleModTool\([^\n]*\n','',s,flags=re.M)
     s=re.sub(r'^.*openInstallationInUndertaleModTool\([^\n]*\n','',s,flags=re.M)
-    # Remove only the obsolete invocation expectation; new native surface checks cover retirement.
     s=re.sub(r"\s*expect\(invoke\)\.toHaveBeenNthCalledWith\(2,\s*'backend_invoke',\s*\{\s*channel: 'undertaleModTool:openInstallation',\s*data: \[[^]]*\]\s*\}\);",'',s,flags=re.S)
     p.write_text(s)
-    # The pure policy test no longer imports the retired Electron handler.
-    p=Path('tests/nexus-ui-policy.test.js'); s=p.read_text()
-    s=s.replace('node/IPCHandlers.js','src-tauri/src/channels/nexus_oauth.rs')
-    p.write_text(s)
-    print('Contract consumer names migrated; behavioral tests will verify remaining expectations.')
+    p=Path('tests/nexus-ui-policy.test.js'); s=p.read_text().replace('node/IPCHandlers.js','src-tauri/src/channels/nexus_oauth.rs'); p.write_text(s)
+    print('Contract consumer names migrated; behavioral tests verify remaining expectations.')
