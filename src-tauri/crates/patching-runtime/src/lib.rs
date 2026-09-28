@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod selection;
 mod staging;
 
 pub use staging::{
@@ -24,16 +25,16 @@ use deltamod_product_contracts::{
     ProviderItemKind, ProviderRef, ProviderResourceId, ValidatedRelativePath,
 };
 use deltamod_tools_runtime::{
-    g3m_apply, g3m_merge, inspect_regular_file, run_bounded_with_cancel_probe, sha256_file,
-    undertale_mod_cli, verify_tool, RuntimeError as ToolRuntimeError, ToolKind, ToolPath,
-    DEFAULT_TIMEOUT, MAX_OUTPUT_BYTES,
+    g3m_apply, g3m_merge, inspect_regular_file, inspect_relative_regular_file,
+    read_relative_regular_file, run_bounded_with_cancel_probe, sha256_file, undertale_mod_cli,
+    verify_tool, RuntimeError as ToolRuntimeError, ToolKind, ToolPath, DEFAULT_TIMEOUT,
+    MAX_OUTPUT_BYTES,
 };
 use deltamod_updater_launch_runtime::{GameRuntime, LaunchDisposition};
-use roxmltree::Document;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     fs::{self, File},
     io::{self, Write},
     path::{Component, Path, PathBuf},
@@ -54,6 +55,8 @@ static TRANSACTION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 pub enum Error {
     #[error("The selected mod list is invalid.")]
     InvalidSelection,
+    #[error("A selected mod is missing, unreadable, or has a duplicated identity. Refresh the mod list and select it again.")]
+    SelectionUnavailable,
     #[error("The current game directory is unavailable.")]
     GameUnavailable,
     #[error("The community mod store is unavailable.")]
@@ -344,183 +347,101 @@ impl Runtime {
     /// Returns legacy `__deltaID.json` objects and clears their `new` marker only
     /// after a successful commit, matching the Electron `finishedPatch` payload.
     pub fn mark_selected_patched(&self, selected: &[String]) -> Result<Vec<Value>, Error> {
-        validate_selection(selected)?;
-        let selected = selected.iter().map(String::as_str).collect::<HashSet<_>>();
+        let selected_roots = selection::resolve(self, selected)?;
+        for (id, root) in selected_roots {
+            let path = root.join("__deltaID.json");
+            let mut value = read_bounded_json(&path)?;
+            if value.get("uniqueId").and_then(Value::as_str) != Some(id.as_str()) {
+                return Err(Error::SelectionUnavailable);
+            }
+            value["new"] = Value::Bool(false);
+            atomic_json(&path, &value)?;
+        }
         let mut result = Vec::new();
-        for entry in fs::read_dir(&self.mod_root)? {
+        for entry in fs::read_dir(&self.mod_root)?.take(selection::MAX_STORE_ENTRIES) {
             let entry = entry?;
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let path = entry.path().join("__deltaID.json");
-            let mut value = read_bounded_json(&path)?;
-            let Some(id) = value.get("uniqueId").and_then(Value::as_str) else {
+            let Ok(value) = read_bounded_json(&entry.path().join("__deltaID.json")) else {
                 continue;
             };
-            if selected.contains(id) {
-                value["new"] = Value::Bool(false);
-                atomic_json(&path, &value)?;
+            if value.get("uniqueId").and_then(Value::as_str).is_some() {
+                result.push(value);
             }
-            result.push(value);
         }
         Ok(result)
     }
 
     pub fn build_plan(&self, selected: &[String]) -> Result<PatchPlan, Error> {
-        self.build_plan_inner(selected, true)
+        self.build_plan_from_candidates(self.selection_candidates(selected)?, true)
     }
 
-    fn build_staging_plan(&self, selected: &[String]) -> Result<PatchPlan, Error> {
-        self.build_plan_inner(selected, false)
-    }
-
-    fn unsupported_staging_mechanism(
-        &self,
-        selected: &[String],
-    ) -> Result<Option<PatchMechanism>, Error> {
-        validate_selection(selected)?;
+    fn selection_candidates(&self, selected: &[String]) -> Result<Vec<PatchCandidate>, Error> {
         require_directory(&self.game_root, Error::GameUnavailable)?;
-        require_directory(&self.mod_root, Error::ModStoreUnavailable)?;
-        let selected = selected.iter().map(String::as_str).collect::<HashSet<_>>();
-        for entry in fs::read_dir(&self.mod_root)? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
-            }
-            let root = entry.path();
-            let identity = read_bounded_json(&root.join("__deltaID.json"))?;
-            let Some(id) = identity.get("uniqueId").and_then(Value::as_str) else {
-                continue;
-            };
-            if !selected.contains(id) {
-                continue;
-            }
-            let name =
-                read_mod_name(&root).unwrap_or_else(|| entry.file_name().to_string_lossy().into());
-            let manifest = variant_manifest(&root)?;
-            if !manifest.is_file() {
-                return Err(Error::MissingManifest(name));
-            }
-            let xml = fs::read_to_string(&manifest)?;
-            let wrapped;
-            let document = match Document::parse(&xml) {
-                Ok(document) => document,
-                Err(_) => {
-                    wrapped = format!("<deltamod>{xml}</deltamod>");
-                    Document::parse(&wrapped).map_err(|_| Error::InvalidManifest(name.clone()))?
-                }
-            };
-            for node in document
-                .descendants()
-                .filter(|node| node.has_tag_name("patch"))
-            {
-                let kind = node.attribute("type").unwrap_or("").to_ascii_lowercase();
-                let patch_type =
-                    parse_patch_type(&kind).ok_or_else(|| Error::UnsupportedPatch {
-                        mod_name: name.clone(),
-                        patch_type: kind,
-                    })?;
-                match patch_type {
-                    PatchType::Override | PatchType::Copy => {}
-                    PatchType::Xdelta | PatchType::G3mPatch => {
-                        return Ok(Some(PatchMechanism::G3m));
-                    }
-                    PatchType::Csx => return Ok(Some(PatchMechanism::Csx)),
-                }
-            }
+        let mut candidates = Vec::new();
+        for (id, root) in selection::resolve(self, selected)? {
+            selection::append_packet(self, &id, &root, &mut candidates)?;
         }
-        Ok(None)
+        Ok(candidates)
     }
 
-    fn build_plan_inner(
+    /// Metadata-only capability check for a packet already enumerated by the native
+    /// catalogue. This is not an executable plan or a game-version/hash approval.
+    pub fn packet_staging_readiness(&self, folder: &str) -> Result<(), StagingError> {
+        let relative = Path::new(folder);
+        if folder.contains(['/', '\\'])
+            || relative.components().count() != 1
+            || !matches!(relative.components().next(), Some(Component::Normal(_)))
+        {
+            return Err(staging::invalid_request());
+        }
+        let mut candidates = Vec::new();
+        selection::append_packet(
+            self,
+            "catalogue",
+            &self.mod_root.join(relative),
+            &mut candidates,
+        )
+        .map_err(staging::runtime_error)?;
+        staging::validate_mechanisms(&candidates)
+    }
+
+    fn build_plan_from_candidates(
         &self,
-        selected: &[String],
+        candidates: Vec<PatchCandidate>,
         snapshot_csx_resources: bool,
     ) -> Result<PatchPlan, Error> {
-        validate_selection(selected)?;
-        require_directory(&self.game_root, Error::GameUnavailable)?;
-        require_directory(&self.mod_root, Error::ModStoreUnavailable)?;
-        let selected = selected.iter().map(String::as_str).collect::<HashSet<_>>();
-        let mut patches = Vec::new();
-        for entry in fs::read_dir(&self.mod_root)? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
-            }
-            let root = entry.path();
-            let identity = read_bounded_json(&root.join("__deltaID.json"))?;
-            let Some(id) = identity.get("uniqueId").and_then(Value::as_str) else {
-                continue;
-            };
-            if !selected.contains(id) {
-                continue;
-            }
-            let name =
-                read_mod_name(&root).unwrap_or_else(|| entry.file_name().to_string_lossy().into());
-            let manifest = variant_manifest(&root)?;
-            if !manifest.is_file() {
-                return Err(Error::MissingManifest(name));
-            }
-            let xml = fs::read_to_string(&manifest)?;
-            let wrapped;
-            let document = match Document::parse(&xml) {
-                Ok(document) => document,
-                Err(_) => {
-                    wrapped = format!("<deltamod>{xml}</deltamod>");
-                    Document::parse(&wrapped).map_err(|_| Error::InvalidManifest(name.clone()))?
-                }
-            };
-            for node in document
-                .descendants()
-                .filter(|node| node.has_tag_name("patch"))
-            {
-                let kind = node.attribute("type").unwrap_or("").to_ascii_lowercase();
-                let patch_name = node.attribute("patch").unwrap_or("").to_owned();
-                let to = node.attribute("to").unwrap_or("").to_owned();
-                if patch_name.is_empty() || to.is_empty() {
-                    return Err(Error::InvalidManifest(name.clone()));
-                }
-                let patch_type =
-                    parse_patch_type(&kind).ok_or_else(|| Error::UnsupportedPatch {
-                        mod_name: name.clone(),
-                        patch_type: kind,
-                    })?;
-                let patch_relative = checked_relative(&patch_name)
-                    .map_err(|_| Error::InvalidManifest(name.clone()))?;
-                let mapped_target = self.definition.map_patch_target(&to)?;
-                let target_relative =
-                    checked_relative(&mapped_target).map_err(|_| Error::InvalidTarget)?;
-                let source = root.join(&patch_relative);
-                patches.push(Patch {
-                    source_sha256: sha256_file(&source)
-                        .map_err(|error| Error::Plan(error.to_string()))?,
-                    mod_tree_sha256: (patch_type == PatchType::Csx && snapshot_csx_resources)
-                        .then(|| tree_sha256(&root))
-                        .transpose()?,
-                    source,
-                    target: self.game_root.join(&target_relative),
-                    candidate: PatchCandidate {
-                        patch_type,
-                        patch: patch_name,
-                        to,
-                        mapped_target,
-                        mod_name: name.clone(),
-                        mod_id: id.to_owned(),
-                        mod_root: root.clone(),
-                    },
-                });
-            }
-        }
+        // Approve every source and target before reading any patch body. A forged
+        // filename must not cause an unbounded read or a blocking FIFO open.
         let request = PatchPlanRequest {
             game_root: self.game_root.clone(),
             platform: self.platform,
-            patches: patches
-                .iter()
-                .map(|patch| patch.candidate.clone())
-                .collect(),
+            patches: candidates,
         };
         let approval =
             validate_patch_plan(&request).map_err(|error| Error::Plan(error.to_string()))?;
+        let mut patches = Vec::with_capacity(request.patches.len());
+        let mut remaining_bytes = MAX_STAGED_TOTAL_BYTES;
+        for candidate in request.patches {
+            let relative = checked_relative(&candidate.patch).map_err(|_| Error::InvalidTarget)?;
+            let inspected = inspect_relative_regular_file(
+                &candidate.mod_root,
+                &relative,
+                MAX_STAGED_ARTIFACT_BYTES.min(remaining_bytes),
+            )
+            .map_err(|error| Error::Plan(error.to_string()))?;
+            remaining_bytes -= inspected.size();
+            patches.push(Patch {
+                source: candidate.mod_root.join(&relative),
+                source_sha256: inspected.sha256().to_owned(),
+                mod_tree_sha256: (candidate.patch_type == PatchType::Csx && snapshot_csx_resources)
+                    .then(|| tree_sha256(&candidate.mod_root))
+                    .transpose()?,
+                target: self.game_root.join(&candidate.mapped_target),
+                candidate,
+            });
+        }
         Ok(PatchPlan {
             game_root: self.game_root.clone(),
             patches,
@@ -529,23 +450,9 @@ impl Runtime {
     }
 
     pub fn check_selected_legacy_mods(&self, selected: &[String]) -> Result<(), Error> {
-        validate_selection(selected)?;
-        let selected = selected.iter().map(String::as_str).collect::<HashSet<_>>();
         let mut requirements = Vec::new();
         let mut names = BTreeMap::new();
-        for entry in fs::read_dir(&self.mod_root)? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
-            }
-            let root = entry.path();
-            let identity = read_bounded_json(&root.join("__deltaID.json"))?;
-            let Some(id) = identity.get("uniqueId").and_then(Value::as_str) else {
-                continue;
-            };
-            if !selected.contains(id) {
-                continue;
-            }
+        for (id, root) in selection::resolve(self, selected)? {
             let name = read_mod_name(&root).unwrap_or_else(|| id.to_owned());
             let required =
                 read_legacy_required_files(&root).map_err(|reason| Error::IncompatibleMod {
@@ -1486,17 +1393,10 @@ fn load_hash_cache(path: &Path) -> HashCache {
 }
 
 fn read_legacy_required_files(root: &Path) -> Result<Vec<RequiredFile>, String> {
-    let path = root.join("meta.toml");
-    let metadata = fs::symlink_metadata(&path).map_err(|_| "Missing meta.toml.".to_owned())?;
-    if !metadata.is_file()
-        || metadata.file_type().is_symlink()
-        || metadata.len() > MAX_METADATA_BYTES
-    {
-        return Err("Unsafe meta.toml.".into());
-    }
-    let value: toml::Value =
-        toml::from_str(&fs::read_to_string(path).map_err(|_| "Unreadable meta.toml.".to_owned())?)
-            .map_err(|_| "Malformed meta.toml.".to_owned())?;
+    let bytes = read_relative_regular_file(root, Path::new("meta.toml"), MAX_METADATA_BYTES)
+        .map_err(|_| "Missing, unreadable, or unsafe meta.toml.".to_owned())?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| "Malformed meta.toml.".to_owned())?;
+    let value: toml::Value = toml::from_str(text).map_err(|_| "Malformed meta.toml.".to_owned())?;
     let Some(required) = value.get("neededFiles") else {
         return Ok(Vec::new());
     };
@@ -1580,33 +1480,23 @@ fn require_directory(path: &Path, error: Error) -> Result<(), Error> {
     }
 }
 fn read_bounded_json(path: &Path) -> Result<Value, Error> {
-    let metadata = fs::symlink_metadata(path)?;
-    if !metadata.is_file()
-        || metadata.file_type().is_symlink()
-        || metadata.len() > MAX_METADATA_BYTES
-    {
-        return Ok(Value::Null);
-    }
-    serde_json::from_slice(&fs::read(path)?)
-        .map_err(|_| Error::InvalidManifest(path.display().to_string()))
+    let parent = path.parent().ok_or(Error::InvalidTarget)?;
+    let name = path.file_name().ok_or(Error::InvalidTarget)?;
+    let bytes = read_relative_regular_file(parent, Path::new(name), MAX_METADATA_BYTES)
+        .map_err(|_| Error::SelectionUnavailable)?;
+    serde_json::from_slice(&bytes).map_err(|_| Error::SelectionUnavailable)
 }
 fn read_mod_name(root: &Path) -> Option<String> {
-    let text = fs::read_to_string(root.join("meta.toml")).ok()?;
-    toml::from_str::<toml::Value>(&text)
+    let bytes =
+        read_relative_regular_file(root, Path::new("meta.toml"), MAX_METADATA_BYTES).ok()?;
+    let text = std::str::from_utf8(&bytes).ok()?;
+    toml::from_str::<toml::Value>(text)
         .ok()?
         .get("metadata")?
         .get("name")?
         .as_str()
+        .filter(|name| name.len() <= MAX_ID_BYTES && !name.chars().any(char::is_control))
         .map(str::to_owned)
-}
-fn variant_manifest(root: &Path) -> Result<PathBuf, Error> {
-    let marker = root.join("__variant");
-    let relative = if marker.is_file() {
-        fs::read_to_string(marker)?.trim().to_owned()
-    } else {
-        "modding.xml".into()
-    };
-    Ok(root.join(checked_relative(&relative).map_err(|_| Error::InvalidTarget)?))
 }
 fn parse_patch_type(value: &str) -> Option<PatchType> {
     Some(match value {

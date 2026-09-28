@@ -4,9 +4,11 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { TextDecoder } = require('node:util');
 
 const MAX_INPUT_BYTES = 1024 * 1024;
 const MAX_OUTPUT_BYTES = 8 * 1024;
+const MAX_TIMEOUT_MS = 30_000;
 const VALIDATION_CODES = new Set(['PATCH_PLAN_INVALID', 'PATCH_PLAN_IO']);
 
 function nativeFailure(message) {
@@ -29,10 +31,6 @@ function sidecarPath(override) {
     if (process.platform !== 'win32' || process.arch !== 'x64') return null;
 
     const executable = 'deltamod-patch-plan-worker.exe';
-    if (process.resourcesPath) {
-        const unpacked = path.join(process.resourcesPath, 'app.asar.unpacked', 'native', 'patch-plan-worker', 'bin', 'win32-x64', executable);
-        if (fs.existsSync(unpacked)) return unpacked;
-    }
     const packaged = path.join(__dirname, '..', '..', 'native', 'patch-plan-worker', 'bin', 'win32-x64', executable);
     if (fs.existsSync(packaged)) return packaged;
     return path.join(__dirname, '..', '..', 'native', 'target', 'debug', executable);
@@ -68,7 +66,72 @@ function parseResponse(output) {
     throw nativeFailure('invalid response schema');
 }
 
+function runWorker(executable, input, timeoutMs, signal, start = spawn) {
+    return new Promise((resolve, reject) => {
+        if (signal?.aborted) { reject(nativeFailure('request was cancelled')); return; }
+        let child;
+        try {
+            child = start(executable, [], {
+                windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe']
+            });
+        } catch { reject(nativeFailure('worker could not be started')); return; }
+        const chunks = [];
+        let stdoutBytes = 0;
+        let failure = null;
+        let closed = false;
+        const fail = message => {
+            if (closed || failure) return;
+            failure = nativeFailure(message);
+            // The native validator has no child-process API. Terminate this owned
+            // worker, but settle only on close, after its pipes have been reaped.
+            child.kill('SIGKILL');
+        };
+        const abort = () => fail('request was cancelled');
+        const timer = setTimeout(() => fail('worker deadline exceeded'), timeoutMs);
+        signal?.addEventListener('abort', abort, { once: true });
+        child.stdout.on('data', chunk => {
+            if (failure || closed) return;
+            if (chunk.length > MAX_OUTPUT_BYTES - stdoutBytes) {
+                fail('response exceeds size limit');
+                return;
+            }
+            stdoutBytes += chunk.length;
+            chunks.push(chunk);
+        });
+        child.stderr.on('data', chunk => {
+            if (chunk.length) fail('worker wrote unexpected diagnostics');
+        });
+        child.on('error', () => fail('worker could not be started'));
+        child.stdout.on('error', () => fail('worker output could not be read'));
+        child.stderr.on('error', () => fail('worker diagnostics could not be read'));
+        child.stdin.on('error', () => fail('worker input could not be written'));
+        child.on('close', (code, signalName) => {
+            if (closed) return;
+            closed = true;
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', abort);
+            if (failure) { reject(failure); return; }
+            if (code !== 0 || signalName) { reject(nativeFailure('worker did not exit successfully')); return; }
+            let output;
+            try { output = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks, stdoutBytes)); }
+            catch { reject(nativeFailure('response is not valid UTF-8')); return; }
+            try { resolve(parseResponse(output)); } catch (error) { reject(error); }
+        });
+        if (signal?.aborted) abort();
+        if (!failure) child.stdin.end(input);
+    });
+}
+
 function validatePatchPlanNative(request, options = {}) {
+    const timeoutMs = options.timeoutMs ?? MAX_TIMEOUT_MS;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) {
+        return Promise.reject(nativeFailure('invalid worker deadline'));
+    }
+    if (options.signal && (typeof options.signal.addEventListener !== 'function'
+        || typeof options.signal.removeEventListener !== 'function')) {
+        return Promise.reject(nativeFailure('invalid cancellation signal'));
+    }
+    if (options.signal?.aborted) return Promise.reject(nativeFailure('request was cancelled'));
     let input;
     try { input = `${JSON.stringify(request)}\n`; } catch { return Promise.reject(nativeFailure('request is not serializable')); }
     if (Buffer.byteLength(input) > MAX_INPUT_BYTES) return Promise.reject(nativeFailure('request exceeds size limit'));
@@ -79,42 +142,11 @@ function validatePatchPlanNative(request, options = {}) {
         if (options.sidecarPath) return null;
         return Promise.reject(nativeFailure('worker binary is missing'));
     }
-
-    return new Promise((resolve, reject) => {
-        const child = spawn(executable, [], {
-            windowsHide: true,
-            shell: false,
-            stdio: ['pipe', 'pipe', 'pipe']
-        });
-        let stdout = Buffer.alloc(0);
-        let stderrBytes = 0;
-        let failure = null;
-        child.stdout.on('data', chunk => {
-            if (failure) return;
-            stdout = Buffer.concat([stdout, chunk]);
-            if (stdout.length > MAX_OUTPUT_BYTES) {
-                failure = nativeFailure('response exceeds size limit');
-                child.kill();
-            }
-        });
-        child.stderr.on('data', chunk => {
-            stderrBytes += chunk.length;
-            if (stderrBytes > MAX_OUTPUT_BYTES) child.kill();
-        });
-        child.on('error', error => { failure ||= nativeFailure(error.message); });
-        child.on('close', code => {
-            if (failure) { reject(failure); return; }
-            if (stderrBytes !== 0) { reject(nativeFailure('worker wrote unexpected diagnostics')); return; }
-            if (code !== 0) { reject(nativeFailure(`worker exited with code ${code}`)); return; }
-            try { resolve(parseResponse(stdout.toString('utf8'))); } catch (error) { reject(error); }
-        });
-        child.stdin.on('error', error => { failure ||= nativeFailure(error.message); });
-        child.stdin.end(input);
-    });
+    return runWorker(executable, input, timeoutMs, options.signal);
 }
 
 module.exports = {
     validatePatchPlanNative,
     sidecarPath,
-    _protocol: { parseResponse }
+    _protocol: { parseResponse, runWorker }
 };

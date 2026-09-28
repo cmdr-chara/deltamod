@@ -2,7 +2,7 @@ use super::{
     checked_relative, progress_event, validate_operation_id, Error, PatchPlan, Progress, Runtime,
 };
 use deltamod_native_core::patch_plan::{
-    validate_patch_plan, PatchPlanRequest, PatchPlatform, PatchType,
+    validate_patch_plan, PatchCandidate, PatchPlanRequest, PatchPlatform, PatchType,
 };
 use deltamod_tools_runtime::{
     copy_relative_regular_file_verified, inspect_directory_identity, inspect_regular_file,
@@ -441,24 +441,13 @@ pub(super) fn stage_patch_outputs(
 ) -> Result<StagedPatchSet, StagingError> {
     validate_operation_id(operation_id).map_err(StagingError::from_runtime)?;
     check_cancel(&cancelled)?;
-    if let Some(mechanism) = runtime
-        .unsupported_staging_mechanism(selected)
-        .map_err(StagingError::from_runtime)?
-    {
-        return Err(StagingError::new(
-            StagingErrorCode::SandboxUnavailable,
-            Some(mechanism),
-        ));
-    }
-    let plan = runtime
-        .build_staging_plan(selected)
+    let candidates = runtime
+        .selection_candidates(selected)
         .map_err(StagingError::from_runtime)?;
-    if let Some(mechanism) = unsupported_mechanism(&plan) {
-        return Err(StagingError::new(
-            StagingErrorCode::SandboxUnavailable,
-            Some(mechanism),
-        ));
-    }
+    validate_mechanisms(&candidates)?;
+    let plan = runtime
+        .build_plan_from_candidates(candidates, false)
+        .map_err(StagingError::from_runtime)?;
     check_cancel(&cancelled)?;
     revalidate_plan(runtime, &plan)?;
 
@@ -557,14 +546,30 @@ fn revalidate_plan(runtime: &Runtime, plan: &PatchPlan) -> Result<(), StagingErr
     })
 }
 
-fn unsupported_mechanism(plan: &PatchPlan) -> Option<PatchMechanism> {
-    plan.patches
-        .iter()
-        .find_map(|patch| match patch.candidate.patch_type {
-            PatchType::Override | PatchType::Copy => None,
-            PatchType::Xdelta | PatchType::G3mPatch => Some(PatchMechanism::G3m),
-            PatchType::Csx => Some(PatchMechanism::Csx),
-        })
+pub(super) fn invalid_request() -> StagingError {
+    StagingError::new(
+        StagingErrorCode::InvalidRequest,
+        Some(PatchMechanism::Internal),
+    )
+}
+
+pub(super) fn runtime_error(error: Error) -> StagingError {
+    StagingError::from_runtime(error)
+}
+
+pub(super) fn validate_mechanisms(candidates: &[PatchCandidate]) -> Result<(), StagingError> {
+    for candidate in candidates {
+        let mechanism = match candidate.patch_type {
+            PatchType::Override | PatchType::Copy => continue,
+            PatchType::Xdelta | PatchType::G3mPatch => PatchMechanism::G3m,
+            PatchType::Csx => PatchMechanism::Csx,
+        };
+        return Err(StagingError::new(
+            StagingErrorCode::SandboxUnavailable,
+            Some(mechanism),
+        ));
+    }
+    Ok(())
 }
 
 fn operation_paths(workspace: &Path, index: usize) -> Result<(PathBuf, PathBuf), StagingError> {

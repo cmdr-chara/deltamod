@@ -94,6 +94,15 @@ pub fn inspect_regular_file(path: &Path, max_bytes: u64) -> Result<VerifiedFile,
     hash_opened(open_regular(path, max_bytes)?, max_bytes)
 }
 
+/// Hash a bounded file without following any component below the caller-owned root.
+pub fn inspect_relative_regular_file(
+    root: &Path,
+    relative: &Path,
+    max_bytes: u64,
+) -> Result<VerifiedFile, SecurePathError> {
+    hash_opened(open_relative_regular(root, relative, max_bytes)?, max_bytes)
+}
+
 /// Validate a regular file's identity and link count without reading its body.
 /// Use hash-bearing inspection when file content, rather than shape, is trusted.
 pub fn inspect_regular_file_size(path: &Path, max_bytes: u64) -> Result<u64, SecurePathError> {
@@ -673,6 +682,35 @@ fn unix_error(error: rustix::io::Errno) -> SecurePathError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn relative_hash_is_bounded_and_rejects_aliases() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("input"), b"payload").unwrap();
+        let actual = inspect_relative_regular_file(root.path(), Path::new("input"), 7).unwrap();
+        assert_eq!(
+            actual,
+            inspect_regular_file(&root.path().join("input"), 7).unwrap()
+        );
+        assert!(matches!(
+            inspect_relative_regular_file(root.path(), Path::new("input"), 6),
+            Err(SecurePathError::TooLarge)
+        ));
+        std::fs::hard_link(root.path().join("input"), root.path().join("alias")).unwrap();
+        assert!(matches!(
+            inspect_relative_regular_file(root.path(), Path::new("input"), 7),
+            Err(SecurePathError::Unsafe)
+        ));
+        #[cfg(unix)]
+        {
+            let outside = tempfile::tempdir().unwrap();
+            std::fs::write(outside.path().join("input"), b"payload").unwrap();
+            std::os::unix::fs::symlink(outside.path(), root.path().join("outside")).unwrap();
+            assert!(
+                inspect_relative_regular_file(root.path(), Path::new("outside/input"), 7).is_err()
+            );
+        }
+    }
+
     use super::*;
 
     #[test]

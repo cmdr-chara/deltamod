@@ -7,8 +7,8 @@ pub use owned_tree::{remove_owned_tree, rename_owned_tree};
 pub use secure_path::{
     copy_relative_regular_file_to_open_file_verified, copy_relative_regular_file_verified,
     inspect_directory_identity, inspect_regular_file, inspect_regular_file_size,
-    read_relative_regular_file, try_lock_relative_file, ExclusiveFileLease, SecurePathError,
-    StablePathIdentity, VerifiedFile,
+    inspect_relative_regular_file, read_relative_regular_file, try_lock_relative_file,
+    ExclusiveFileLease, SecurePathError, StablePathIdentity, VerifiedFile,
 };
 
 use sha2::{Digest, Sha256};

@@ -165,3 +165,41 @@ applied and the game was not launched rather than silently returning to the menu
 Real Steam/LaunchServices lifetime behavior, installed app signing/quarantine and
 specific mod compatibility still need exact-version native acceptance. A successful
 unit test or CI build alone is not evidence that the screenshot's exact case is fixed.
+
+
+## Selection and capability follow-up
+
+Base: `e3380db83b39bba81d96855b27a3e2c294c4958b`.
+
+- Resolve every selected packet identity exactly once, reject missing/ambiguous IDs,
+  preserve caller load order and deduplicate repeated selection. An empty selection
+  still permits vanilla launch. A selected empty manifest is now an error, not a
+  successful no-op. Unrelated incomplete packets cannot derail a healthy selection
+  or its post-patch acknowledgement.
+- Share one bounded XML parser between staging and capability reporting. Identity,
+  variant and metadata reads use the existing no-follow file boundary. XML bytes,
+  node count, patch count and packet enumeration are bounded. Source/target paths
+  are validated before hashing any patch body, and relative hashes use no-follow
+  ancestors plus individual and aggregate byte budgets.
+- Normalize archive path separators consistently so Windows-authored patch paths
+  can reference real files on Linux/macOS. Game-version checks are unchanged.
+- Report unsupported external patch mechanisms in the installed packet catalogue,
+  independently of optional hash checks. A download or matching hash does not make
+  xdelta/G3M/CSX execution available. This does not enable unconfined external tools.
+- Bound the shared Node native-validator process with a deadline and cancellation,
+  terminate it on invalid output, wait for pipe closure before settling, reject invalid
+  UTF-8 and remove its dead ASAR resource lookup. Its Windows regression previously
+  let a non-worker executable consume the entire test deadline.
+
+Validation on Linux x64: six behavioral regressions fail against the unchanged parent
+planner and pass with the fix. The complete affected test runs passed: 33 patch-runtime
+unit tests, 13 tool-runtime unit tests, 12 process integration tests and 45 focused
+JavaScript tests. Strict all-target Clippy for both changed Rust crates, typecheck,
+static IPC validation and formatting passed. The new catalogue integration test is
+included in full-shell CI, not claimed as a locally executed GUI test.
+
+The parent's Linux, Intel macOS and Apple Silicon full-shell jobs passed. Its Windows CI failure
+was the unbounded validator fixture above. Exact new-head cross-platform results
+belong to the PR checks. These changes do not establish installed-game acceptance,
+resolve the screenshot's unknown mod/version, or waive the external-tool confinement
+and stable-release gates. No new desktop performance claim or dependency upgrade.
