@@ -118,15 +118,27 @@ pub fn validate_dialog_selection(
     request: &DialogRequest,
     selected: impl AsRef<Path>,
 ) -> Result<PathBuf, AdapterError> {
-    let selected = fs::canonicalize(selected).map_err(|_| AdapterError::InvalidSelection)?;
-    let metadata = fs::symlink_metadata(&selected).map_err(|_| AdapterError::InvalidSelection)?;
+    let selected = selected.as_ref();
+    let metadata = fs::symlink_metadata(selected).map_err(|_| AdapterError::InvalidSelection)?;
+    if metadata.file_type().is_symlink() {
+        return Err(AdapterError::InvalidSelection);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(AdapterError::InvalidSelection);
+        }
+    }
     let expected_type = match request.kind {
-        DialogKind::File => metadata.is_file() && !metadata.file_type().is_symlink(),
-        DialogKind::Folder => metadata.is_dir() && !metadata.file_type().is_symlink(),
+        DialogKind::File => metadata.is_file(),
+        DialogKind::Folder => metadata.is_dir(),
     };
     if !expected_type {
         return Err(AdapterError::InvalidSelection);
     }
+    let selected = fs::canonicalize(selected).map_err(|_| AdapterError::InvalidSelection)?;
     if request.kind == DialogKind::File && !request.filters.is_empty() {
         let extension = selected
             .extension()
@@ -218,25 +230,43 @@ pub fn validate_https_external(raw: &str, allowed_hosts: &[&str]) -> Result<Url,
 pub struct ValidatedFolder(PathBuf);
 
 impl ValidatedFolder {
+    fn canonical_backend_folder(path: &Path) -> Result<PathBuf, AdapterError> {
+        let metadata = fs::symlink_metadata(path).map_err(|_| AdapterError::InvalidFolder)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(AdapterError::InvalidFolder);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+            if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                return Err(AdapterError::InvalidFolder);
+            }
+        }
+        fs::canonicalize(path).map_err(|_| AdapterError::InvalidFolder)
+    }
+
     /// Only backend-derived paths should be passed here; renderer strings must not be accepted.
     pub fn from_backend(
         path: impl AsRef<Path>,
         approved_roots: &[PathBuf],
     ) -> Result<Self, AdapterError> {
-        let path = fs::canonicalize(path).map_err(|_| AdapterError::InvalidFolder)?;
-        let metadata = fs::metadata(&path).map_err(|_| AdapterError::InvalidFolder)?;
-        if !metadata.is_dir() {
-            return Err(AdapterError::InvalidFolder);
-        }
+        let path = Self::canonical_backend_folder(path.as_ref())?;
         let approved = approved_roots
             .iter()
-            .filter_map(|root| fs::canonicalize(root).ok())
+            .filter_map(|root| Self::canonical_backend_folder(root).ok())
             .any(|root| path.starts_with(root));
         if !approved {
             return Err(AdapterError::FolderNotAllowed);
         }
         Ok(Self(path))
     }
+
+    /// Validates an exact folder chosen by backend state rather than renderer input.
+    pub fn from_backend_exact(path: impl AsRef<Path>) -> Result<Self, AdapterError> {
+        Self::canonical_backend_folder(path.as_ref()).map(Self)
+    }
+
     pub fn path(&self) -> &Path {
         &self.0
     }
@@ -460,6 +490,19 @@ mod tests {
             ValidatedFolder::from_backend(std::env::temp_dir(), std::slice::from_ref(&child))
                 .is_err()
         );
+        assert_eq!(
+            ValidatedFolder::from_backend_exact(&child)
+                .unwrap()
+                .path(),
+            child.canonicalize().unwrap()
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let linked = root.join("linked");
+            symlink(&child, &linked).unwrap();
+            assert!(ValidatedFolder::from_backend_exact(&linked).is_err());
+        }
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -500,6 +543,26 @@ mod tests {
             image.canonicalize().unwrap()
         );
         assert!(validate_dialog_selection(&request, text).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_selection_rejects_symlinks_before_canonicalization() {
+        use std::os::unix::fs::symlink;
+
+        let root =
+            std::env::temp_dir().join(format!("deltamod-dialog-symlink-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("background.png");
+        let link = root.join("selected.png");
+        fs::write(&target, b"png").unwrap();
+        symlink(&target, &link).unwrap();
+        let request =
+            DialogRequest::file("Image").filter(DialogFilter::new("Images", ["png"]).unwrap());
+
+        assert!(validate_dialog_selection(&request, &link).is_err());
+
         fs::remove_dir_all(root).unwrap();
     }
 

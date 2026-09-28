@@ -573,11 +573,10 @@ pub fn dispatch(
         "openInstallationFolder" => {
             let folder = state
                 .profile_runtime
-                .legacy_managed_folder(legacy_index(data, "openInstallationFolder")?)
+                .legacy_game_folder(legacy_index(data, "openInstallationFolder")?)
                 .map_err(|_| error::internal())?;
-            let folder =
-                ValidatedFolder::from_backend(&folder, std::slice::from_ref(&state.data_root.root))
-                    .map_err(|_| error::unavailable("openInstallationFolder"))?;
+            let folder = ValidatedFolder::from_backend_exact(&folder)
+                .map_err(|_| error::unavailable("openInstallationFolder"))?;
             app.opener()
                 .open_path(folder.path().to_string_lossy(), None::<&str>)
                 .map_err(|_| error::internal())?;

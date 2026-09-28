@@ -51,7 +51,7 @@ pub enum Request {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Ord, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Ord, PartialOrd)]
 #[serde(transparent)]
 pub struct InstallationId(pub String);
 
@@ -67,6 +67,16 @@ impl InstallationId {
             return Err(DomainError::InvalidId);
         }
         Ok(Self(v))
+    }
+}
+
+impl<'de> Deserialize<'de> for InstallationId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(serde::de::Error::custom)
     }
 }
 
@@ -492,6 +502,29 @@ mod tests {
             allocate_installation_id(source, GamePlatform::Wine, &empty)
         );
     }
+    #[test]
+    fn installation_id_deserialization_enforces_constructor_invariants() {
+        let valid: InstallationId = serde_json::from_str(r#""install_1-a""#).unwrap();
+        assert_eq!(valid, InstallationId::new("install_1-a").unwrap());
+
+        for invalid in ["", "../outside", "has space"] {
+            assert!(
+                serde_json::from_value::<InstallationId>(serde_json::json!(invalid)).is_err(),
+                "{invalid:?}"
+            );
+        }
+        assert!(
+            serde_json::from_value::<InstallationId>(serde_json::json!("x".repeat(129))).is_err()
+        );
+        assert!(
+            serde_json::from_value::<InstallationListResponse>(serde_json::json!({
+                "installations": [],
+                "selectedId": "../outside"
+            }))
+            .is_err()
+        );
+    }
+
     #[test]
     fn platform_parity_and_paths() {
         assert_eq!(
