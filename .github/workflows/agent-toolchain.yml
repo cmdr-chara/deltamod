@@ -1,0 +1,54 @@
+name: Isolated audit toolchain
+on:
+  push:
+    branches: [astra/tauri-validation-tools]
+    paths: [.github/workflows/agent-toolchain.yml]
+permissions:
+  contents: read
+jobs:
+  tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Fetch locked Rust dependencies
+        run: |
+          cargo fetch --locked --manifest-path src-tauri/Cargo.toml
+          cargo fetch --locked --manifest-path native/Cargo.toml
+      - name: Prepare Tauri-only Node tooling
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const p = JSON.parse(fs.readFileSync('package.json'));
+          for (const name of ['electron','electron-builder']) delete p.devDependencies[name];
+          for (const name of ['@chainsafe/xdelta3-node','@sentry/node','create-desktop-shortcuts','electron-updater','mime-types','windows-elevate','yoctocolors-cjs']) delete p.dependencies[name];
+          Object.assign(p.devDependencies, p.dependencies);
+          delete p.dependencies;
+          fs.writeFileSync('package.json', JSON.stringify(p, null, 2));
+          NODE
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Bundle validation tools
+        run: |
+          mkdir -p audit-tools
+          cp -a "$HOME/.rustup/toolchains/$(rustup show active-toolchain | cut -d' ' -f1)" audit-tools/rust
+          mkdir -p audit-tools/cargo
+          cp -a "$HOME/.cargo/registry" audit-tools/cargo/
+          mv node_modules audit-tools/node_modules
+          tar -czf audit-tools.tar.gz audit-tools
+          sha256sum audit-tools.tar.gz > audit-tools.sha256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deltamod-offline-validation-tools
+          path: |
+            audit-tools.tar.gz
+            audit-tools.sha256
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
