@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 Deltamod Community contributors
+// SPDX-FileCopyrightText: 2026 cmdr-chara
 // SPDX-License-Identifier: EUPL-1.2
 //! Bounded update transport and publisher verification. `Update::download` in
 //! the pinned plugin cannot stop when a progress callback rejects a chunk, so

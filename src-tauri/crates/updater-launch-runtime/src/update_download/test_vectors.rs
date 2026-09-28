@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 Deltamod Community contributors
+// SPDX-FileCopyrightText: 2026 cmdr-chara
 // SPDX-License-Identifier: EUPL-1.2
 // Independent test vectors. Seed bytes 0..31, key ID 0..7, RFC 8032 Ed25519,
 // ED signs BLAKE2b-512(payload), Ed signs payload. The authenticated comment

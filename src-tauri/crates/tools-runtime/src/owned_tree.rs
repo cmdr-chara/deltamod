@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 Deltamod Community contributors
+// SPDX-FileCopyrightText: 2026 cmdr-chara
 // SPDX-License-Identifier: EUPL-1.2
 //! Handle-relative mutations for adapter-owned transaction directories. Never
 //! recurse through links, follow a replaced ancestor, or replace a destination.

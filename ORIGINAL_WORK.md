@@ -35,6 +35,16 @@ The machine-readable source of truth is [`provenance/community-original-work.jso
 | `scripts/tauri-parity/test/audit-contract.test.js` | [`c0e76c9e02101bffb2c2656388e9c0322e64829c`](https://github.com/cmdr-chara/deltamod/commit/c0e76c9e02101bffb2c2656388e9c0322e64829c) | 2026-09-28 | Added as a new file |
 | `scripts/tauri-parity/test/audit-updater.test.js` | [`c0e76c9e02101bffb2c2656388e9c0322e64829c`](https://github.com/cmdr-chara/deltamod/commit/c0e76c9e02101bffb2c2656388e9c0322e64829c) | 2026-09-28 | Added as a new file |
 | `benchmarks/tooling/updater-manifest.cjs` | [`c0e76c9e02101bffb2c2656388e9c0322e64829c`](https://github.com/cmdr-chara/deltamod/commit/c0e76c9e02101bffb2c2656388e9c0322e64829c) | 2026-09-28 | Added as a new file |
+| `src-tauri/crates/profile-install/src/recovery.rs` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
+| `src-tauri/crates/profile-install/src/recovery/tests.rs` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
+| `src-tauri/crates/storage/src/hardening_tests.rs` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
+| `src-tauri/crates/tools-runtime/src/owned_tree.rs` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
+| `src-tauri/crates/updater-launch-runtime/src/update_download.rs` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
+| `src-tauri/crates/updater-launch-runtime/src/update_download/test_vectors.rs` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
+| `src-tauri/crates/updater-launch-runtime/src/update_download/tests.rs` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
+| `tests/updater-notice.test.js` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
+| `web/modules/updater-notice.css` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
+| `web/modules/updater-notice.js` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
 
 ## What the record proves
 

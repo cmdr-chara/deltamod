@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 Deltamod Community contributors
+// SPDX-FileCopyrightText: 2026 cmdr-chara
 // SPDX-License-Identifier: EUPL-1.2
 (function (root, factory) {
     const mount = factory();

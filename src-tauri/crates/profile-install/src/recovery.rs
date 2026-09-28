@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 Deltamod Community contributors
+// SPDX-FileCopyrightText: 2026 cmdr-chara
 // SPDX-License-Identifier: EUPL-1.2
 //! The legacy adapter's recovery boundary. Journals are untrusted descriptions,
 //! never filesystem authority. Only operation-derived paths may be acted upon.
