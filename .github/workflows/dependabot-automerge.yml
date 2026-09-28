@@ -1,0 +1,151 @@
+# SPDX-FileCopyrightText: 2026 cmdr-chara
+# SPDX-License-Identifier: EUPL-1.2
+
+name: Dependabot auto-merge
+
+on:
+  workflow_run:
+    workflows:
+      - Community CI
+      - Community Provenance
+      - Secure Updater Policy
+      - Original frontend refinement
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: dependabot-automerge-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge green Dependabot pull request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          candidates="$(gh api             -H 'Accept: application/vnd.github+json'             "repos/$REPO/commits/$HEAD_SHA/pulls")"
+
+          matches="$(jq             --arg repo "$REPO"             --arg sha "$HEAD_SHA"             '[.[]
+              | select(.state == "open")
+              | select(.draft == false)
+              | select(.base.ref == "DeltaMaster")
+              | select(.head.sha == $sha)
+              | select(.head.repo.full_name == $repo)
+              | select(.user.login == "dependabot[bot]")
+            ]' <<<"$candidates")"
+
+          match_count="$(jq 'length' <<<"$matches")"
+          if [[ "$match_count" == "0" ]]; then
+            echo "No open Dependabot PR owns $HEAD_SHA; nothing to do."
+            exit 0
+          fi
+          if [[ "$match_count" != "1" ]]; then
+            echo "::error::Expected one Dependabot PR for $HEAD_SHA, found $match_count."
+            exit 1
+          fi
+
+          pr_number="$(jq -r '.[0].number' <<<"$matches")"
+          pr="$(gh api             -H 'Accept: application/vnd.github+json'             "repos/$REPO/pulls/$pr_number")"
+
+          current_head="$(jq -r '.head.sha' <<<"$pr")"
+          author="$(jq -r '.user.login' <<<"$pr")"
+          base="$(jq -r '.base.ref' <<<"$pr")"
+          draft="$(jq -r '.draft' <<<"$pr")"
+          changed_files="$(jq -r '.changed_files' <<<"$pr")"
+
+          if [[ "$current_head" != "$HEAD_SHA" ||
+                "$author" != "dependabot[bot]" ||
+                "$base" != "DeltaMaster" ||
+                "$draft" != "false" ]]; then
+            echo "::notice::PR #$pr_number changed while checks were running; leaving it open."
+            exit 0
+          fi
+
+          if (( changed_files > 100 )); then
+            echo "::error::Dependabot PR #$pr_number changes $changed_files files; refusing automatic path classification."
+            exit 1
+          fi
+
+          files="$(gh api             -H 'Accept: application/vnd.github+json'             "repos/$REPO/pulls/$pr_number/files?per_page=100")"
+
+          frontend_required="false"
+          while IFS= read -r file; do
+            case "$file" in
+              web/*|tests/*|scripts/*|package.json|package-lock.json|playwright.config.js|vite.boot.config.js|.github/workflows/frontend-refinement.yml)
+                frontend_required="true"
+                ;;
+            esac
+          done < <(jq -r '.[].filename' <<<"$files")
+
+          runs="$(gh api             -H 'Accept: application/vnd.github+json'             "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100")"
+
+          run_count="$(jq -r '.total_count' <<<"$runs")"
+          if (( run_count > 100 )); then
+            echo "::error::More than 100 workflow runs exist for $HEAD_SHA; refusing an incomplete status view."
+            exit 1
+          fi
+
+          workflow_green() {
+            local name="$1"
+            local latest status conclusion
+            latest="$(jq -c --arg name "$name"               '[.workflow_runs[] | select(.name == $name)]
+               | sort_by(.run_number, .run_attempt, .id)
+               | last // empty' <<<"$runs")"
+            if [[ -z "$latest" ]]; then
+              echo "::notice::$name has not reported for PR #$pr_number yet."
+              return 1
+            fi
+            status="$(jq -r '.status' <<<"$latest")"
+            conclusion="$(jq -r '.conclusion // ""' <<<"$latest")"
+            if [[ "$status" != "completed" || "$conclusion" != "success" ]]; then
+              echo "::notice::$name is $status/$conclusion for PR #$pr_number."
+              return 1
+            fi
+          }
+
+          for required in             "Community CI"             "Community Provenance"             "Secure Updater Policy"; do
+            if ! workflow_green "$required"; then
+              exit 0
+            fi
+          done
+
+          if [[ "$frontend_required" == "true" ]] &&
+             ! workflow_green "Original frontend refinement"; then
+            exit 0
+          fi
+
+          fresh="$(gh api             -H 'Accept: application/vnd.github+json'             "repos/$REPO/pulls/$pr_number")"
+          if [[ "$(jq -r '.head.sha' <<<"$fresh")" != "$HEAD_SHA" ||
+                "$(jq -r '.state' <<<"$fresh")" != "open" ||
+                "$(jq -r '.user.login' <<<"$fresh")" != "dependabot[bot]" ||
+                "$(jq -r '.base.ref' <<<"$fresh")" != "DeltaMaster" ]]; then
+            echo "::notice::PR #$pr_number changed after validation; leaving it open."
+            exit 0
+          fi
+
+          if response="$(gh api             --method PUT             -H 'Accept: application/vnd.github+json'             "repos/$REPO/pulls/$pr_number/merge"             -f sha="$HEAD_SHA"             -f merge_method="merge" 2>&1)"; then
+            if [[ "$(jq -r '.merged // false' <<<"$response")" == "true" ]]; then
+              echo "Merged Dependabot PR #$pr_number at $HEAD_SHA."
+              exit 0
+            fi
+            echo "::notice::GitHub did not merge PR #$pr_number: $(jq -r '.message // "unknown reason"' <<<"$response")"
+            exit 0
+          fi
+
+          echo "::notice::PR #$pr_number is not currently mergeable; GitHub left it open."
