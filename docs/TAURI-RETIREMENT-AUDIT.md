@@ -1,6 +1,7 @@
 # Tauri retirement and hardening audit — 2026-09-28
 
 Base: `DeltaMaster@d451315768e9043cdf5b2b635398a2350f3f1745`.
+Implementation commit: `c0e76c9e02101bffb2c2656388e9c0322e64829c`.
 This is an implemented source change, not a signed release or a completed security audit.
 
 ## Implemented
@@ -25,6 +26,8 @@ This is an implemented source change, not a signed release or a completed securi
 - Kept staging and Tauri CLI targets identical, handled Windows invocation without a
   shell, selected platform bundle formats, and scoped the Windows controller utility
   to the Windows resource override.
+- Preserved all Windows resource overrides when disabling signing for the CI-only
+  diagnostic package, with an executable configuration regression test.
 - Replaced two smoke-fixture PID-alive assumptions with explicit initialization
   evidence. This tests the runner, not an actual installed app.
 
@@ -38,10 +41,12 @@ This is an implemented source change, not a signed release or a completed securi
 | `npm run verify:tauri:contract` and parity harness | Passed. 129 invoke channels, 18 events, 123 implemented classifications and six explicit rejections. Static evidence only |
 | Rust credentials and updater/launch runtime | 30 tests and strict all-target Clippy passed on Linux x64 with locked dependencies |
 | Native workers | All five debug worker binaries built on Linux x64 |
-| Formatting | Touched Rust files passed rustfmt checks |
+| Formatting | Full Tauri workspace `cargo fmt --all --check` passed |
 | Tauri CLI wrapper | Real installed CLI `build --help` succeeded through the wrapper |
 | Full Linux GUI build | Not run: GTK 3 and WebKitGTK 4.1 development packages are absent locally |
 | Windows, macOS x64/arm64 installed apps | Not run locally. Native CI, signing and installed-package evidence remain required |
+
+The follow-up Windows diagnostic configuration regression passed separately.
 
 The dependency-pruned local installation was used for JavaScript checks. The lockfile
 contains 186 package records instead of 454: 268 removed, no new records, no retained

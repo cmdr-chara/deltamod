@@ -52,6 +52,48 @@
       "firstCommit": "3e936db6887d55fa8f27e4ad90745d2fae965c3a",
       "firstCommitDate": "2026-08-08",
       "evidence": "added"
+    },
+    {
+      "path": "scripts/tauri-command.js",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/verify-tauri-only.js",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "tests/tauri-command.test.js",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "src-tauri/crates/updater-launch-runtime/src/steam_discovery.rs",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/tauri-parity/test/audit-contract.test.js",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/tauri-parity/test/audit-updater.test.js",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "benchmarks/tooling/updater-manifest.cjs",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
     }
   ]
 }

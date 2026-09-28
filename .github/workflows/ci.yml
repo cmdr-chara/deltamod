@@ -197,8 +197,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
           try {
             # CI diagnostics are unsigned and must not attempt updater artifact signing.
-            '{"bundle":{"createUpdaterArtifacts":false}}' |
-              Set-Content -LiteralPath 'src-tauri/tauri.windows.conf.json' -Encoding utf8
+            node -e "const fs = require('node:fs'); const p = 'src-tauri/tauri.windows.conf.json'; const c = JSON.parse(fs.readFileSync(p, 'utf8')); c.bundle.createUpdaterArtifacts = false; fs.writeFileSync(p, JSON.stringify(c, null, 2) + '\n');"
+            if ($LASTEXITCODE -ne 0) { throw "Failed to disable updater signing for the diagnostic package" }
 
             npm run build:boot
             if ($LASTEXITCODE -ne 0) { throw "Boot build failed with exit code $LASTEXITCODE" }

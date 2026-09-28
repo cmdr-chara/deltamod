@@ -28,6 +28,13 @@ The machine-readable source of truth is [`provenance/community-original-work.jso
 | `scripts/smoke-game-patching-csx.js` | [`3e936db6887d55fa8f27e4ad90745d2fae965c3a`](https://github.com/cmdr-chara/deltamod/commit/3e936db6887d55fa8f27e4ad90745d2fae965c3a) | 2026-08-08 | Added as a new file |
 | `scripts/verify-undertale-mod-tool.js` | [`3e936db6887d55fa8f27e4ad90745d2fae965c3a`](https://github.com/cmdr-chara/deltamod/commit/3e936db6887d55fa8f27e4ad90745d2fae965c3a) | 2026-08-08 | Added as a new file |
 | `tests/undertale-mod-tool-provenance.test.js` | [`3e936db6887d55fa8f27e4ad90745d2fae965c3a`](https://github.com/cmdr-chara/deltamod/commit/3e936db6887d55fa8f27e4ad90745d2fae965c3a) | 2026-08-08 | Added as a new file |
+| `scripts/tauri-command.js` | [`c0e76c9e02101bffb2c2656388e9c0322e64829c`](https://github.com/cmdr-chara/deltamod/commit/c0e76c9e02101bffb2c2656388e9c0322e64829c) | 2026-09-28 | Added as a new file |
+| `scripts/verify-tauri-only.js` | [`c0e76c9e02101bffb2c2656388e9c0322e64829c`](https://github.com/cmdr-chara/deltamod/commit/c0e76c9e02101bffb2c2656388e9c0322e64829c) | 2026-09-28 | Added as a new file |
+| `tests/tauri-command.test.js` | [`c0e76c9e02101bffb2c2656388e9c0322e64829c`](https://github.com/cmdr-chara/deltamod/commit/c0e76c9e02101bffb2c2656388e9c0322e64829c) | 2026-09-28 | Added as a new file |
+| `src-tauri/crates/updater-launch-runtime/src/steam_discovery.rs` | [`c0e76c9e02101bffb2c2656388e9c0322e64829c`](https://github.com/cmdr-chara/deltamod/commit/c0e76c9e02101bffb2c2656388e9c0322e64829c) | 2026-09-28 | Added as a new file |
+| `scripts/tauri-parity/test/audit-contract.test.js` | [`c0e76c9e02101bffb2c2656388e9c0322e64829c`](https://github.com/cmdr-chara/deltamod/commit/c0e76c9e02101bffb2c2656388e9c0322e64829c) | 2026-09-28 | Added as a new file |
+| `scripts/tauri-parity/test/audit-updater.test.js` | [`c0e76c9e02101bffb2c2656388e9c0322e64829c`](https://github.com/cmdr-chara/deltamod/commit/c0e76c9e02101bffb2c2656388e9c0322e64829c) | 2026-09-28 | Added as a new file |
+| `benchmarks/tooling/updater-manifest.cjs` | [`c0e76c9e02101bffb2c2656388e9c0322e64829c`](https://github.com/cmdr-chara/deltamod/commit/c0e76c9e02101bffb2c2656388e9c0322e64829c) | 2026-09-28 | Added as a new file |
 
 ## What the record proves
 
