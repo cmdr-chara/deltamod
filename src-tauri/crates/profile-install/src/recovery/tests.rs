@@ -73,23 +73,40 @@ fn rejects_forged_paths_kinds_and_operation_identities() {
     let outside = dir.path().join("outside");
     directory_with_data(&outside, b"original");
     let (path, original) = copy_journal(&runtime, 1);
+    let replacement = runtime.root.join(".runtime-replacements").join("1");
+    // Build the alias as raw text. PathBuf construction normalizes a middle "."
+    // component on Windows before it can reach the persisted-journal boundary.
+    let aliased_replacement = format!(
+        "{}{sep}.{sep}{}",
+        replacement.parent().unwrap().display(),
+        replacement.file_name().unwrap().to_string_lossy(),
+        sep = std::path::MAIN_SEPARATOR
+    );
     let attacks = [
-        runtime.root.clone(),
-        outside.clone(),
-        runtime.root.join("..").join("outside"),
-        runtime.root.join("profiles"),
-        runtime.root.join(".runtime-replacements/2"),
-        runtime.root.join(".runtime-replacements/./1"),
+        runtime.root.to_string_lossy().into_owned(),
+        outside.to_string_lossy().into_owned(),
+        runtime
+            .root
+            .join("..")
+            .join("outside")
+            .to_string_lossy()
+            .into_owned(),
+        runtime.root.join("profiles").to_string_lossy().into_owned(),
+        runtime
+            .root
+            .join(".runtime-replacements/2")
+            .to_string_lossy()
+            .into_owned(),
+        aliased_replacement,
     ];
     for attack in attacks {
         for field in ["destination", "staging", "replacement", "backup"] {
             let mut value = serde_json::to_value(&original).unwrap();
-            value[field] = json!(attack);
+            value[field] = json!(&attack);
             fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
             assert!(
                 Runtime::open(&runtime.root).is_err(),
-                "{field}: {}",
-                attack.display()
+                "{field}: {attack}"
             );
             assert!(path.exists());
             assert_eq!(fs::read(outside.join("data.win")).unwrap(), b"original");
