@@ -619,7 +619,7 @@ jobs:
           if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $env:DELTAMOD_WINDOWS_CERT_THUMBPRINT) {
             throw 'The branded setup publisher signature is invalid.'
           }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact }}
           if-no-files-found: error
@@ -645,7 +645,7 @@ jobs:
       - run: npm ci
       - run: npm run archive:g3mtool-source -- "G3MTool-1.2.5-source.zip"
       - run: npm run archive:undertale-mod-tool-source -- "UndertaleModTool-0.9.1.2-source.zip"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: third-party-source
           if-no-files-found: error
