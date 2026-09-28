@@ -1,11 +1,19 @@
 use crate::{ProgressEnvelope, RuntimeError};
 use futures_util::StreamExt;
 use reqwest::{header, Method, Url};
-use std::path::PathBuf;
+use std::{
+    future::Future,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 use tempfile::NamedTempFile;
-use tokio::{io::AsyncWriteExt, sync::watch, time::sleep};
+use tokio::{io::AsyncWriteExt, sync::watch};
 
 const MAX_URL_BYTES: usize = 4096;
+// API responses have short deadlines. A game/mod transfer may legitimately take
+// longer, but still has a whole-operation deadline and an idle-read deadline.
+pub(super) const TRANSFER_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const TRANSFER_STALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug)]
 pub struct DownloadPolicy {
@@ -106,11 +114,42 @@ pub fn validate_download_url(raw: &str, hosts: HostAllowlist) -> Result<(), Runt
     validate_url(raw, hosts).map(|_| ())
 }
 
-fn valid_operation_id(value: &str) -> bool {
+pub(super) fn valid_operation_id(value: &str) -> bool {
     (1..=128).contains(&value.len())
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+/// A closed channel is a non-cancellable caller, not a cancellation request.
+/// Keep the boolean contract while waking immediately during queued/idle I/O.
+pub(super) async fn cancellable<T>(
+    cancel: &watch::Receiver<bool>,
+    work: impl Future<Output = Result<T, RuntimeError>>,
+) -> Result<T, RuntimeError> {
+    let mut changed = cancel.clone();
+    let cancelled = async {
+        loop {
+            if *changed.borrow_and_update() {
+                return;
+            }
+            if changed.changed().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+    tokio::select! {
+        biased;
+        _ = cancelled => Err(RuntimeError::Cancelled),
+        result = work => result,
+    }
+}
+
+fn transfer_request(client: &reqwest::Client, url: Url) -> reqwest::RequestBuilder {
+    client
+        .request(Method::GET, url)
+        .header(header::ACCEPT_ENCODING, "identity")
+        .timeout(TRANSFER_TIMEOUT)
 }
 
 impl crate::Client {
@@ -121,7 +160,7 @@ impl crate::Client {
         hosts: HostAllowlist,
         policy: DownloadPolicy,
         cancel: &watch::Receiver<bool>,
-        mut progress: F,
+        progress: F,
     ) -> Result<DownloadedFile, RuntimeError>
     where
         F: FnMut(ProgressEnvelope) + Send,
@@ -131,115 +170,167 @@ impl crate::Client {
                 "invalid download operation or byte limit".into(),
             ));
         }
-        if *cancel.borrow() {
-            return Err(RuntimeError::Cancelled);
-        }
-
-        let permit = self
-            .pace
-            .acquire()
-            .await
-            .map_err(|_| RuntimeError::Cancelled)?;
         let mut url = validate_url(source, hosts)?;
-        let mut redirects = 0_u8;
-        let response = loop {
-            if *cancel.borrow() {
-                return Err(RuntimeError::Cancelled);
-            }
-            let response = self.http.request(Method::GET, url.clone()).send().await?;
-            if !response.status().is_redirection() {
-                break response;
-            }
-            if redirects >= policy.maximum_redirects {
-                return Err(RuntimeError::Url("redirect limit exceeded".into()));
-            }
-            let location = response
-                .headers()
-                .get(header::LOCATION)
-                .and_then(|value| value.to_str().ok())
-                .ok_or_else(|| RuntimeError::Url("redirect without Location".into()))?;
-            let next = url
-                .join(location)
-                .map_err(|error| RuntimeError::Url(error.to_string()))?;
-            url = validate_url(next.as_str(), hosts)?;
-            redirects += 1;
-        };
-        drop(permit);
+        cancellable(cancel, async {
+            tokio::time::timeout(TRANSFER_TIMEOUT, async {
+                // Keep the permit through the body and disk writes. Releasing it
+                // at the headers allows unlimited simultaneous large downloads.
+                let _permit = self
+                    .transfers
+                    .acquire()
+                    .await
+                    .map_err(|_| RuntimeError::Cancelled)?;
+                let mut redirects = 0_u8;
+                let response = loop {
+                    let response = tokio::time::timeout(
+                        TRANSFER_STALL_TIMEOUT,
+                        transfer_request(&self.http, url.clone()).send(),
+                    )
+                    .await
+                    .map_err(|_| RuntimeError::DownloadTimeout)??;
+                    if !response.status().is_redirection() {
+                        break response;
+                    }
+                    if redirects >= policy.maximum_redirects {
+                        return Err(RuntimeError::Url("redirect limit exceeded".into()));
+                    }
+                    let location = response
+                        .headers()
+                        .get(header::LOCATION)
+                        .and_then(|value| value.to_str().ok())
+                        .ok_or_else(|| RuntimeError::Url("redirect without Location".into()))?;
+                    let next = url
+                        .join(location)
+                        .map_err(|error| RuntimeError::Url(error.to_string()))?;
+                    url = validate_url(next.as_str(), hosts)?;
+                    redirects += 1;
+                };
+                receive_download(
+                    response,
+                    operation_id,
+                    url,
+                    policy.maximum_bytes,
+                    self.min_interval,
+                    progress,
+                )
+                .await
+            })
+            .await
+            .map_err(|_| RuntimeError::DownloadTimeout)?
+        })
+        .await
+    }
+}
 
-        if !response.status().is_success() {
-            let status = response.status();
-            return Err(RuntimeError::Http {
-                status: status.as_u16(),
+pub(super) async fn receive_download<F: FnMut(ProgressEnvelope)>(
+    response: reqwest::Response,
+    operation_id: String,
+    url: Url,
+    maximum_bytes: u64,
+    progress_interval: Duration,
+    mut progress: F,
+) -> Result<DownloadedFile, RuntimeError> {
+    if !response.status().is_success() {
+        let status = response.status();
+        return Err(RuntimeError::Http {
+            status: status.as_u16(),
+            message: status
+                .canonical_reason()
+                .unwrap_or("download failed")
+                .to_owned(),
+            envelope: Box::new(crate::ErrorEnvelope {
+                operation_id: Some(operation_id),
+                code: format!("HTTP_{}", status.as_u16()),
                 message: status
                     .canonical_reason()
                     .unwrap_or("download failed")
                     .to_owned(),
-                envelope: Box::new(crate::ErrorEnvelope {
-                    operation_id: Some(operation_id),
-                    code: format!("HTTP_{}", status.as_u16()),
-                    message: status
-                        .canonical_reason()
-                        .unwrap_or("download failed")
-                        .to_owned(),
-                    status: Some(status.as_u16()),
-                    retry_after_ms: None,
-                    quota: Default::default(),
-                }),
-            });
-        }
-
-        let total = response.content_length();
-        if total.is_some_and(|bytes| bytes > policy.maximum_bytes) {
-            return Err(RuntimeError::TooLarge {
-                limit: policy.maximum_bytes,
-            });
-        }
-        let temporary = NamedTempFile::new()?;
-        let path = temporary.path().to_path_buf();
-        let mut output = tokio::fs::File::from_std(temporary.reopen()?);
-        let mut stream = response.bytes_stream();
-        let mut completed = 0_u64;
-        while let Some(chunk) = stream.next().await {
-            if *cancel.borrow() {
-                drop(output);
-                let _ = std::fs::remove_file(&path);
-                return Err(RuntimeError::Cancelled);
-            }
-            let chunk = chunk?;
-            completed =
-                completed
-                    .checked_add(chunk.len() as u64)
-                    .ok_or(RuntimeError::TooLarge {
-                        limit: policy.maximum_bytes,
-                    })?;
-            if completed > policy.maximum_bytes {
-                drop(output);
-                let _ = std::fs::remove_file(&path);
-                return Err(RuntimeError::TooLarge {
-                    limit: policy.maximum_bytes,
-                });
-            }
-            output.write_all(&chunk).await?;
+                status: Some(status.as_u16()),
+                retry_after_ms: None,
+                quota: Default::default(),
+            }),
+        });
+    }
+    if response
+        .headers()
+        .get(header::CONTENT_ENCODING)
+        .is_some_and(|value| value != "identity")
+    {
+        return Err(RuntimeError::IncompleteDownload);
+    }
+    let mut lengths = response.headers().get_all(header::CONTENT_LENGTH).iter();
+    let declared = lengths
+        .next()
+        .map(|value| {
+            value
+                .to_str()
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .ok_or(RuntimeError::IncompleteDownload)
+        })
+        .transpose()?;
+    if lengths.next().is_some() {
+        return Err(RuntimeError::IncompleteDownload);
+    }
+    let total = declared.or_else(|| response.content_length());
+    if total.is_some_and(|bytes| bytes > maximum_bytes) {
+        return Err(RuntimeError::TooLarge {
+            limit: maximum_bytes,
+        });
+    }
+    let temporary = NamedTempFile::new()?;
+    let path = temporary.path().to_path_buf();
+    let mut output = tokio::fs::File::from_std(temporary.reopen()?);
+    let mut stream = response.bytes_stream();
+    let mut completed = 0_u64;
+    let mut last_progress = None::<Instant>;
+    loop {
+        let chunk = tokio::time::timeout(TRANSFER_STALL_TIMEOUT, stream.next())
+            .await
+            .map_err(|_| RuntimeError::DownloadTimeout)?;
+        let Some(chunk) = chunk else {
+            break;
+        };
+        let chunk = chunk?;
+        completed = completed
+            .checked_add(chunk.len() as u64)
+            .filter(|bytes| *bytes <= maximum_bytes)
+            .ok_or(RuntimeError::TooLarge {
+                limit: maximum_bytes,
+            })?;
+        output.write_all(&chunk).await?;
+        if last_progress.is_none_or(|last| last.elapsed() >= progress_interval) {
             progress(ProgressEnvelope {
                 operation_id: operation_id.clone(),
                 completed,
                 total,
-                current_item: Some(url.to_string()),
+                // Signed download query parameters must never become progress/log text.
+                current_item: url.host_str().map(str::to_owned),
             });
-            if !self.min_interval.is_zero() {
-                sleep(self.min_interval).await;
-            }
+            last_progress = Some(Instant::now());
         }
-        output.flush().await?;
-        drop(output);
-        temporary.keep().map_err(|error| error.error)?;
-        Ok(DownloadedFile {
-            path,
-            bytes: completed,
-            total,
-            final_url: url.to_string(),
-        })
+        // Rate-limit UI notifications, never network chunks. A 100 ms sleep per
+        // 16 KiB TLS record previously capped transfers near 160 KiB/s.
     }
+    if completed == 0 || total.is_some_and(|expected| expected != completed) {
+        return Err(RuntimeError::IncompleteDownload);
+    }
+    output.flush().await?;
+    output.sync_all().await?;
+    drop(output);
+    progress(ProgressEnvelope {
+        operation_id,
+        completed,
+        total,
+        current_item: url.host_str().map(str::to_owned),
+    });
+    temporary.keep().map_err(|error| error.error)?;
+    Ok(DownloadedFile {
+        path,
+        bytes: completed,
+        total,
+        final_url: url.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -360,5 +451,131 @@ mod tests {
         assert!(path.is_file());
         drop(downloaded);
         assert!(!path.exists());
+    }
+    fn response(chunks: usize, declared: Option<u64>) -> reqwest::Response {
+        let stream = futures_util::stream::iter(
+            (0..chunks).map(|_| Ok::<_, std::io::Error>(vec![42_u8; 1024])),
+        );
+        let mut response = hyper::Response::builder();
+        if let Some(size) = declared {
+            response = response.header(header::CONTENT_LENGTH, size);
+        }
+        response
+            .body(reqwest::Body::wrap_stream(stream))
+            .unwrap()
+            .into()
+    }
+    fn test_url() -> Url {
+        Url::parse("https://files.gamebanana.com/mod.zip?secret=must-not-be-logged").unwrap()
+    }
+    #[tokio::test]
+    async fn transfer_notifications_are_throttled_without_throttling_chunks() {
+        let mut events = Vec::new();
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            receive_download(
+                response(128, Some(128 * 1024)),
+                "mod-1".into(),
+                test_url(),
+                1024 * 1024,
+                Duration::from_secs(60),
+                |event| events.push(event),
+            ),
+        )
+        .await
+        .expect("progress interval must not sleep between chunks")
+        .unwrap();
+        assert_eq!(result.bytes, 128 * 1024);
+        assert_eq!(
+            std::fs::read(&result.path).unwrap(),
+            vec![42_u8; 128 * 1024]
+        );
+        assert_eq!(events.len(), 2);
+        assert_eq!(events.last().unwrap().completed, result.bytes);
+        assert!(events
+            .iter()
+            .all(|event| event.current_item.as_deref() == Some("files.gamebanana.com")));
+        let path = result.path.clone();
+        drop(result);
+        assert!(!path.exists());
+    }
+    #[tokio::test]
+    async fn transfers_reject_empty_truncated_and_over_limit_bodies() {
+        for (chunks, declared, limit) in
+            [(0, Some(0), 4096), (1, Some(2048), 4096), (2, None, 1024)]
+        {
+            assert!(receive_download(
+                response(chunks, declared),
+                "mod-1".into(),
+                test_url(),
+                limit,
+                Duration::ZERO,
+                |_| {}
+            )
+            .await
+            .is_err());
+        }
+    }
+    #[tokio::test]
+    async fn cancellation_wakes_queued_transfers_without_sending_a_request() {
+        let client = crate::Client::new(Duration::from_millis(20), 1, Duration::ZERO).unwrap();
+        let held = client.transfers.acquire().await.unwrap();
+        let (sender, receiver) = watch::channel(false);
+        let cancel = async {
+            tokio::task::yield_now().await;
+            sender.send(true).unwrap();
+        };
+        let work = client.download_allowlisted(
+            "queued".into(),
+            "https://gamebanana.com/dl/1",
+            HostAllowlist::GAMEBANANA,
+            DownloadPolicy::mods(),
+            &receiver,
+            |_| panic!("queued transfer progressed"),
+        );
+        let (result, _) =
+            tokio::time::timeout(Duration::from_secs(1), async { tokio::join!(work, cancel) })
+                .await
+                .unwrap();
+        assert!(matches!(result, Err(RuntimeError::Cancelled)));
+        drop(held);
+        assert_eq!(client.transfers.available_permits(), 1);
+    }
+    #[tokio::test]
+    async fn cancellation_interrupts_pending_io_and_closed_channels_are_not_cancellation() {
+        let (sender, receiver) = watch::channel(false);
+        let pending = cancellable(
+            &receiver,
+            std::future::pending::<Result<(), RuntimeError>>(),
+        );
+        let cancel = async {
+            tokio::task::yield_now().await;
+            sender.send(true).unwrap();
+        };
+        let (result, _) = tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::join!(pending, cancel)
+        })
+        .await
+        .unwrap();
+        assert!(matches!(result, Err(RuntimeError::Cancelled)));
+        let (sender, receiver) = watch::channel(false);
+        drop(sender);
+        assert_eq!(cancellable(&receiver, async { Ok(7) }).await.unwrap(), 7);
+    }
+    #[test]
+    fn transfer_request_has_its_own_bounded_deadline() {
+        let client =
+            crate::Client::new(Duration::from_secs(20), 2, Duration::from_millis(100)).unwrap();
+        let request = transfer_request(&client.http, test_url()).build().unwrap();
+        assert_eq!(request.timeout().copied(), Some(TRANSFER_TIMEOUT));
+        assert!(TRANSFER_TIMEOUT > Duration::from_secs(20));
+    }
+    #[test]
+    fn oversized_retry_after_is_rejected_without_overflow() {
+        let mut headers = header::HeaderMap::new();
+        headers.insert(header::RETRY_AFTER, u64::MAX.to_string().parse().unwrap());
+        assert_eq!(crate::retry_after(&headers), None);
+        headers.insert(header::RETRY_AFTER, "10".parse().unwrap());
+        assert_eq!(crate::retry_after(&headers), Some(10_000));
     }
 }

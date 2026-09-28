@@ -10,8 +10,8 @@ const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf
 
 describe('Nexus renderer policy', () => {
     it('exposes OAuth PKCE only and never renders a pasted credential control', () => {
-        const ipc = read('node/IPCHandlers.js');
-        const preload = read('web/preload.js');
+        const oauth = read('src-tauri/src/channels/nexus_oauth.rs');
+        const preload = read('web/tauri-adapter.js');
         const types = read('web/types/preload.d.ts');
         const options = read('web/views/options/index.js');
         const sources = `${preload}\n${types}\n${options}`;
@@ -21,10 +21,11 @@ describe('Nexus renderer policy', () => {
         expect(options).toContain('startNexusSso');
         expect(options).toContain('NEXUS_SSO_NOT_REGISTERED');
         expect(options).toContain('status.ssoAvailable === true');
-        expect(ipc).toMatch(/handle\('modSources:setNexusKey',[\s\S]*?throw createNexusPersonalKeyDisabledError\(\)/);
-        expect(ipc).toMatch(/getNexusAuthMethod\(\) !== 'oauth-pkce'[\s\S]*?clearNexusCredentialFiles\(\)[\s\S]*?return null/);
-        expect(ipc).toContain('DELTAMOD_NEXUS_OAUTH_CLIENT_ID');
-        expect(ipc).not.toContain('DELTAMOD_NEXUS_SSO_APP_ID');
+        expect(oauth).toContain('code_challenge_method');
+        expect(oauth).toContain('S256');
+        expect(oauth).toContain('http://127.0.0.1:52817/callback');
+        expect(oauth).toContain('DELTAMOD_NEXUS_OAUTH_CLIENT_ID');
+        expect(oauth).not.toContain('DELTAMOD_NEXUS_SSO_APP_ID');
     });
 
     it('serializes external refreshes and presents typed Nexus quota waits', () => {

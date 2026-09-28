@@ -1,0 +1,76 @@
+{
+  "baseCommit": "be6128dd2d5b3914ea5fe60d4537739c05d95943",
+  "sourceSha256": {
+    "baseline": "404b27ea14601f22cf58fa68f241d45f3970195b4e0249e18b0589ba37a17e6c",
+    "candidate": "55ee46f1bbf409e3d091cf1415f343cf0e7d784f5a123328d412ba76470595c1"
+  },
+  "note": "Identical temporary ignored timing harness. Debug build, Linux container overlay filesystem, one warmup and five samples, inventory+copy+durability included. Not packaged/macOS performance.",
+  "schemaVersion": 1,
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "sourcePath": "native/core/src/staged_copy.rs",
+  "order": [
+    "baseline",
+    "candidate"
+  ],
+  "harness": "\n    #[test]\n    #[ignore]\n    fn measured_staged_copy() {\n        for (name, files, size) in [(\"small-files\", 200, 16 * 1024), (\"large-files\", 4, 8 * 1024 * 1024)] {\n            let root = tempdir().unwrap();\n            let source = root.path().join(\"source\");\n            fs::create_dir(&source).unwrap();\n            for i in 0..files { fs::write(source.join(format!(\"file-{i}\")), vec![42_u8; size]).unwrap(); }\n            let mut samples = Vec::new();\n            for iteration in 0..6 {\n                let start = std::time::Instant::now();\n                let inventory = inspect_source_tree(&source).unwrap();\n                let destination = root.path().join(format!(\"copy-{iteration}\"));\n                copy_directory_staged(&inventory,&destination,&root.path().join(format!(\"stage-{iteration}\")),1024 * 1024,|_,_|Ok(()),||Ok(()),||false).unwrap();\n                if iteration > 0 { samples.push(start.elapsed().as_secs_f64() * 1000.0); }\n                fs::remove_dir_all(destination).unwrap();\n            }\n            println!(\"COPY_BENCH {}\", serde_json::json!({\"scenario\":name,\"files\":files,\"fileBytes\":size,\"milliseconds\":samples}));\n        }\n    }\n",
+  "harnessNote": "Append this ignored test inside the existing staged_copy.rs tests module in two isolated checkouts, with distinct CARGO_TARGET_DIR values. Run cargo test -p deltamod-native-core measured_staged_copy -- --ignored --nocapture. Do not commit the temporary harness.",
+  "samples": {
+    "baseline": [
+      {
+        "fileBytes": 16384,
+        "files": 200,
+        "milliseconds": [
+          10.53306,
+          10.10496,
+          10.203966999999999,
+          10.078790000000001,
+          10.517517
+        ],
+        "scenario": "small-files",
+        "medianMs": 10.203966999999999
+      },
+      {
+        "fileBytes": 8388608,
+        "files": 4,
+        "milliseconds": [
+          4.892245,
+          5.222199000000001,
+          4.5398369999999995,
+          4.442621,
+          4.644293
+        ],
+        "scenario": "large-files",
+        "medianMs": 4.644293
+      }
+    ],
+    "candidate": [
+      {
+        "fileBytes": 16384,
+        "files": 200,
+        "milliseconds": [
+          11.808369,
+          9.223078,
+          9.128828,
+          9.714205,
+          9.160195
+        ],
+        "scenario": "small-files",
+        "medianMs": 9.223078
+      },
+      {
+        "fileBytes": 8388608,
+        "files": 4,
+        "milliseconds": [
+          5.815516,
+          6.057423999999999,
+          6.324579,
+          5.878150000000001,
+          5.2638609999999995
+        ],
+        "scenario": "large-files",
+        "medianMs": 5.878150000000001
+      }
+    ]
+  },
+  "interpretation": "Small-file median improved in this run. Large-file median increased with file sync_all durability. These short warm-cache debug samples on overlay storage do not establish desktop, macOS or cold-disk performance."
+}

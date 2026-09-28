@@ -12,7 +12,7 @@ const {
 
 const root = path.join(__dirname, '..');
 const paths = {
-    preloadPath: path.join(root, 'web', 'preload.js'),
+    contractPath: path.join(root, 'scripts/tauri-parity/fixtures/renderer-channels.json'),
     rustPath: path.join(root, 'src-tauri', 'src', 'main.rs'),
     rustSourceRoot: path.join(root, 'src-tauri', 'src')
 };

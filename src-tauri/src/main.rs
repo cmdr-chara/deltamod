@@ -656,6 +656,7 @@ impl FromStr for BackendChannel {
             "undertaleModTool:status"
             | "fireUpdate"
             | "start-update"
+            | "cancel-update"
             | "ignore-update"
             | "updater-status" => Self::Implemented(channel.to_owned()),
             "rebootDev"
@@ -1808,6 +1809,9 @@ fn main() {
             event,
             tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
         ) {
+            if let Some(state) = app.try_state::<state::AppState>() {
+                state.updater_control.cancel();
+            }
             controller::protocol_shutdown(app);
         }
     });
@@ -2157,6 +2161,7 @@ mod tests {
             "gamebanana_getCollections",
             "fireUpdate",
             "start-update",
+            "cancel-update",
             "ignore-update",
             "updater-status",
         ] {

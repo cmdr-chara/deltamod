@@ -305,7 +305,7 @@ function classify(name) {
 }
 
 // These are implementation channels used by the Tauri shell, not renderer
-// compatibility invokes. They must never be added to preload's public bridge.
+// compatibility invokes. They must never be added to the renderer's public bridge.
 const INTERNAL_TAURI_CHANNELS = new Set([
   'protocol:parseDeepLink',
   'protocol:planRange',
@@ -314,17 +314,27 @@ const INTERNAL_TAURI_CHANNELS = new Set([
   'modSources:validateUrl'
 ]);
 
-function buildParity({ preloadPath, rustPath, rustSourceRoot, rustSources }) {
-  const preload = fs.readFileSync(preloadPath, 'utf8');
+function buildParity({ contractPath, rustPath, rustSourceRoot, rustSources }) {
+  const contract = JSON.parse(fs.readFileSync(contractPath, 'utf8'));
+  if (contract.schemaVersion !== 1) throw new Error('Unsupported renderer contract version');
+  const channels = (name) => {
+    const values = contract[name];
+    if (!Array.isArray(values) || values.length === 0 || values.length > 512
+      || values.some(value => typeof value !== 'string' || !value || value.length > 128)
+      || new Set(values).size !== values.length) {
+      throw new Error(`Invalid renderer contract ${name}`);
+    }
+    return values.map(name => ({ name }));
+  };
   const rust = fs.readFileSync(rustPath, 'utf8');
-  const invokes = extractSet(preload, 'ALLOWED_INVOKE_CHANNELS');
-  const events = extractSet(preload, 'ALLOWED_EVENT_CHANNELS');
+  const invokes = channels('invokes');
+  const events = channels('events');
   const backend = extractRustChannels(rust);
-  const electron = new Set(invokes.map(x => x.name));
+  const renderer = new Set(invokes.map(x => x.name));
   const publicBackend = backend.filter(x => !INTERNAL_TAURI_CHANNELS.has(x.name));
   const rustByName = new Map(publicBackend.map(x => [x.name, x]));
   const missing = invokes.filter(x => !rustByName.has(x.name));
-  const rustOnly = publicBackend.filter(x => !electron.has(x.name));
+  const rustOnly = publicBackend.filter(x => !renderer.has(x.name));
   const fakeSuccess = [];
   const implemented = publicBackend.filter(x => x.classification === 'implemented');
   const unsupported = publicBackend.filter(x => x.classification === 'unsupported');
@@ -335,9 +345,9 @@ function buildParity({ preloadPath, rustPath, rustSourceRoot, rustSources }) {
   const producerReport = eventProducerReport(rustSources || readRustSources(sourceRoot, repoRoot));
   return {
     schemaVersion: 1,
-    sources: { preload: path.resolve(preloadPath), rust: path.resolve(rustPath) },
-    counts: { electronInvoke: invokes.length, electronEvents: events.length, rustKnown: publicBackend.length, rustImplemented: implemented.length, rustUnsupported: unsupported.length },
-    electron: { invokes, events },
+    sources: { contract: path.resolve(contractPath), rust: path.resolve(rustPath) },
+    counts: { rendererInvoke: invokes.length, rendererEvents: events.length, rustKnown: publicBackend.length, rustImplemented: implemented.length, rustUnsupported: unsupported.length },
+    renderer: { invokes, events },
     rust: {
       channels: backend,
       publicChannels: publicBackend,

@@ -1231,7 +1231,7 @@
             schemaVersion: 1,
             application: {
                 version: diagnosticToken(runtime.version, /^[a-z0-9.+_-]+$/i),
-                shell: diagnosticToken(runtime.shell, /^(electron|tauri|unknown)$/),
+                shell: diagnosticToken(runtime.shell, /^(tauri|unknown)$/),
                 platform: diagnosticToken(runtime.platform, /^(windows|linux|macos|unknown)$/)
             },
             lifecycle: {

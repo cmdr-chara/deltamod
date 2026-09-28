@@ -38,3 +38,40 @@ describe('Patch menu UI', () => {
         expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.patch-toggle-track::after[\s\S]*transition: none/);
     });
 });
+
+describe('patch failure visibility', () => {
+    it('shows the native rejection instead of launching vanilla or hiding the failure', async () => {
+        const { runInNewContext } = require('node:vm');
+        const source = read('web/views/main/index.js');
+        const action = source.slice(source.indexOf('async function patchAndRun()'), source.indexOf('window.currentPageStack.patchAndRun ='));
+        const calls = [];
+        const alerts = [];
+        const reason = 'This build cannot safely run G3MTool. The mod was not applied and the game was not launched.';
+        const launchButton = { disabled: false };
+        let synced = 0;
+        const patchAndRun = runInNewContext('let launching = false; ' + action + '; patchAndRun', {
+            pageIsActive: () => true, listReady: true, pendingWrites: new Set(),
+            hasUnsavedEnabledVariants: () => false, launchButton, noMergeMods: [],
+            pageTable: { querySelectorAll: () => [{ id: 'modcheck-one', checked: true }] },
+            page: async name => calls.push(['page', name]),
+            window: { deltamodBackend: { invoke: async channel => {
+                calls.push(['invoke', channel]);
+                throw new Error(reason);
+            } } },
+            console: { log() {} }, t: (_, fallback) => fallback,
+            htmlAlert: async (...args) => alerts.push(args),
+            syncLaunchButton: () => { synced++; }
+        });
+        await patchAndRun();
+        await patchAndRun();
+        expect(alerts.map(a => a[1])).toEqual([reason, reason]);
+        expect(calls.filter(([kind]) => kind === 'invoke').map(([, channel]) => channel)).toEqual(['patchAndRun', 'patchAndRun']);
+        expect(synced).toBe(2);
+    });
+    it('keeps restoration ownership in the native runtime and rejects failed IPC', () => {
+        const handler = read('src-tauri/src/channels/patching.rs');
+        const failed = handler.slice(handler.lastIndexOf('Err(error) =>'));
+        expect(failed).toContain('Err(error.to_string())');
+        expect(handler).not.toContain('state.patching.restore()');
+    });
+});

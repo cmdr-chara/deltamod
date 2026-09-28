@@ -40,14 +40,12 @@ describe('G3MTool provenance', () => {
         expect(targetForCurrentPlatform()).toBe(`${process.platform}-${process.arch}`);
     });
 
-    it('packages unsigned macOS DMG and ZIP artifacts for Intel and Apple Silicon', () => {
-        expect(packageJson.scripts['build-macos']).toContain('electron-builder --mac');
-        expect(packageJson.build.mac.category).toBe('public.app-category.utilities');
-        expect(packageJson.build.mac.icon).toBe('build/icon-macos.png');
-        expect(packageJson.build.mac.target).toEqual([
-            { target: 'dmg', arch: ['x64', 'arm64'] },
-            { target: 'zip', arch: ['x64', 'arm64'] }
-        ]);
+    it('packages native macOS apps and DMGs without disabling updater signing', () => {
+        const config = JSON.parse(fs.readFileSync(path.join(root, 'src-tauri', 'tauri.macos.conf.json')));
+        expect(packageJson.scripts['build:tauri']).toContain('scripts/tauri-command.js build');
+        expect(config.bundle.targets).toEqual(['app', 'dmg']);
+        expect(config.bundle.createUpdaterArtifacts).toBe(true);
+        expect(packageJson.build).toBeUndefined();
     });
 
     it('rejects an unapproved source or incomplete checksum', () => {

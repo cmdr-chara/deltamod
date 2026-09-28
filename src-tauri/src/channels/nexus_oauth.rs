@@ -63,7 +63,7 @@ impl OAuthFailure {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthTokens {
     schema_version: u8,
@@ -73,6 +73,12 @@ pub struct OAuthTokens {
     issued_at: u64,
     expires_at: u64,
     scope: String,
+}
+
+impl std::fmt::Debug for OAuthTokens {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OAuthTokens([redacted])")
+    }
 }
 
 #[derive(Deserialize)]
@@ -877,5 +883,14 @@ mod tests {
         assert_eq!(REDIRECT_URI, "http://127.0.0.1:52817/callback");
         assert_eq!(CALLBACK_PORT, 52817);
         assert_eq!(CALLBACK_HOST, "127.0.0.1");
+    }
+    #[test]
+    fn token_debug_output_never_contains_credentials() {
+        let tokens: OAuthTokens = serde_json::from_value(json!({
+            "schemaVersion": 1, "accessToken": "private-access", "refreshToken": "private-refresh",
+            "tokenType": "Bearer", "issuedAt": 1, "expiresAt": 2, "scope": "private-scope"
+        }))
+        .unwrap();
+        assert_eq!(format!("{tokens:?}"), "OAuthTokens([redacted])");
     }
 }

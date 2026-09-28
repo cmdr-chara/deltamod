@@ -6,7 +6,7 @@ const viewsRoot = path.join(root, 'web', 'views');
 const themeRoot = path.join(root, 'web', 'themes');
 const read = file => fs.readFileSync(file, 'utf8');
 const viewNames = fs.readdirSync(viewsRoot, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && entry.name !== 'electron-tracer')
+    .filter(entry => entry.isDirectory())
     .map(entry => entry.name)
     .sort();
 const themeFiles = fs.readdirSync(path.join(themeRoot, 'data'))

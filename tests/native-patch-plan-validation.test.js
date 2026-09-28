@@ -5,6 +5,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { EventEmitter } = require('node:events');
+const { PassThrough } = require('node:stream');
 const { approvePatchPlan, buildPatchPlan } = require('../node/GamePatching');
 const { validatePatchPlanNative, _protocol } = require('../node/security/NativePatchPlanValidation');
 
@@ -156,10 +158,94 @@ describe('native patch-plan approval', () => {
 
     it('fails closed for present failing workers and oversized input', async () => {
         const data = fixture();
-        await expect(validatePatchPlanNative(request(data, [{}]), { sidecarPath: process.execPath }))
+        await expect(validatePatchPlanNative(request(data, [{}]), { sidecarPath: process.execPath, timeoutMs: 1_000 }))
             .rejects.toMatchObject({ code: 'PATCH_PLAN_NATIVE_FAILED' });
         const oversized = request(data, [{ modName: 'x'.repeat(1024 * 1024) }]);
         await expect(validatePatchPlanNative(oversized, { sidecarPath: debugBinary() }))
             .rejects.toMatchObject({ code: 'PATCH_PLAN_NATIVE_FAILED' });
+    });
+});
+
+
+describe('native patch-plan worker lifetime', () => {
+    function fixtureWorker() {
+        const child = new EventEmitter();
+        child.stdin = new PassThrough();
+        child.stdout = new PassThrough();
+        child.stderr = new PassThrough();
+        child.kill = vi.fn(() => true);
+        return child;
+    }
+    afterEach(() => vi.useRealTimers());
+
+    it('kills an unresponsive worker at its deadline and waits for close', async () => {
+        vi.useFakeTimers();
+        const child = fixtureWorker();
+        let settled = false;
+        const promise = _protocol.runWorker('worker', '{}\n', 100, undefined, () => child);
+        const observed = promise.catch(error => { settled = true; return error; });
+        await vi.advanceTimersByTimeAsync(100);
+        expect(child.kill).toHaveBeenCalledExactlyOnceWith('SIGKILL');
+        expect(settled).toBe(false);
+        child.emit('close', null, 'SIGKILL');
+        expect((await observed).message).toMatch(/deadline/i);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('cancels a running worker and removes its listener after close', async () => {
+        const child = fixtureWorker();
+        const controller = new AbortController();
+        const remove = vi.spyOn(controller.signal, 'removeEventListener');
+        const promise = _protocol.runWorker('worker', '{}\n', 1000, controller.signal, () => child);
+        const observed = promise.catch(error => error);
+        controller.abort();
+        expect(child.kill).toHaveBeenCalledExactlyOnceWith('SIGKILL');
+        child.emit('close', null, 'SIGKILL');
+        expect((await observed).message).toMatch(/cancelled/i);
+        expect(remove).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects excessive output before buffering and never accepts a late success', async () => {
+        const child = fixtureWorker();
+        const promise = _protocol.runWorker('worker', '{}\n', 1000, undefined, () => child);
+        const observed = promise.catch(error => error);
+        child.stdout.emit('data', Buffer.alloc(8193));
+        child.stdout.emit('data', Buffer.from('{"ok":true,"operationCount":1,"patchCount":1,"snapshotCount":1}\n'));
+        child.emit('close', 0);
+        expect((await observed).message).toMatch(/size limit/i);
+        expect(child.kill).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats any diagnostic or malformed UTF-8 as failure', async () => {
+        for (const stream of ['stderr', 'stdout']) {
+            const child = fixtureWorker();
+            const promise = _protocol.runWorker('worker', '{}\n', 1000, undefined, () => child);
+            const observed = promise.catch(error => error);
+            child[stream].emit('data', Buffer.from([0xff]));
+            child.emit('close', 0);
+            expect((await observed).code).toBe('PATCH_PLAN_NATIVE_FAILED');
+        }
+    });
+
+    it('clears the deadline after valid completion', async () => {
+        vi.useFakeTimers();
+        const child = fixtureWorker();
+        const promise = _protocol.runWorker('worker', '{}\n', 100, undefined, () => child);
+        child.stdout.emit('data', Buffer.from('{"ok":true,"operationCount":1,"patchCount":1,"snapshotCount":1}\n'));
+        child.emit('close', 0);
+        expect(await promise).toEqual({operationCount: 1, patchCount: 1, snapshotCount: 1});
+        await vi.advanceTimersByTimeAsync(200);
+        expect(child.kill).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('rejects invalid deadlines and pre-cancelled requests without starting a worker', async () => {
+        for (const timeoutMs of [0, -1, 1.5, Infinity, 30001]) {
+            await expect(validatePatchPlanNative({}, { timeoutMs })).rejects.toThrow(/deadline/i);
+        }
+        const start = vi.fn();
+        await expect(_protocol.runWorker('worker', '{}\n', 100, AbortSignal.abort(), start))
+            .rejects.toThrow(/cancelled/i);
+        expect(start).not.toHaveBeenCalled();
     });
 });

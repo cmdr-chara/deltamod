@@ -309,29 +309,14 @@ fn legacy_mod_records(state: &AppState) -> Vec<Value> {
             continue;
         }
         let folder = entry.file_name().to_string_lossy().into_owned();
-        let identity_path = path.join("__deltaID.json");
-        let manifest_path = path.join("meta.toml");
-        let (Ok(identity_meta), Ok(manifest_meta)) = (
-            fs::symlink_metadata(&identity_path),
-            fs::symlink_metadata(&manifest_path),
+        let Ok(identity_bytes) = deltamod_tools_runtime::read_relative_regular_file(
+            &path,
+            Path::new("__deltaID.json"),
+            64 * 1024,
         ) else {
             continue;
         };
-        if !identity_meta.is_file()
-            || identity_meta.file_type().is_symlink()
-            || identity_meta.len() > 64 * 1024
-            || !manifest_meta.is_file()
-            || manifest_meta.file_type().is_symlink()
-            || manifest_meta.len() == 0
-            || manifest_meta.len() > MAX_MOD_METADATA_BYTES
-        {
-            continue;
-        }
-        let Ok(identity) = fs::read(&identity_path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .ok_or(())
-        else {
+        let Ok(identity) = serde_json::from_slice::<Value>(&identity_bytes) else {
             continue;
         };
         let Some(uid) = identity
@@ -341,10 +326,16 @@ fn legacy_mod_records(state: &AppState) -> Vec<Value> {
         else {
             continue;
         };
-        let Ok(manifest) = fs::read_to_string(&manifest_path)
+        let Ok(manifest_bytes) = deltamod_tools_runtime::read_relative_regular_file(
+            &path,
+            Path::new("meta.toml"),
+            MAX_MOD_METADATA_BYTES,
+        ) else {
+            continue;
+        };
+        let Some(manifest) = std::str::from_utf8(&manifest_bytes)
             .ok()
-            .and_then(|text| toml::from_str::<toml::Value>(&text).ok())
-            .ok_or(())
+            .and_then(|text| toml::from_str::<toml::Value>(text).ok())
         else {
             continue;
         };
@@ -391,6 +382,7 @@ fn legacy_mod_records(state: &AppState) -> Vec<Value> {
                 "id": gamebanana_id,
                 "model": gamebanana_model
             },
+            "_patchSupportError": state.patching.packet_staging_readiness(&folder).err().map(|error| error.to_string()),
             "_neededFiles": needed_files
         }));
     }
@@ -493,6 +485,15 @@ pub(crate) fn mod_list(state: &AppState, channel: &str) -> Result<Value, String>
                     json!(compatibility.hash_different_files),
                 );
             }
+        }
+    }
+    // A matching game hash cannot make a disabled patch mechanism runnable.
+    // Keep this independent of HASHCHECKS and reuse the launch parser/policy.
+    for record in records.iter_mut() {
+        let object = record.as_object_mut().ok_or_else(error::internal)?;
+        if let Some(Value::String(reason)) = object.remove("_patchSupportError") {
+            object.insert("isIncompatible".into(), json!(true));
+            object.insert("incompatibilityReason".into(), json!(reason));
         }
     }
     if let Some(active_game) = active_game_id(state) {
@@ -1190,7 +1191,11 @@ gamebanana_model = "Mod"
                 format!(r#"{{"uniqueId":"{uid}"}}"#),
             )
             .unwrap();
-            fs::write(packet.join("modding.xml"), "<mod/>").unwrap();
+            fs::write(
+                packet.join("modding.xml"),
+                r#"<mod><patch type="override" patch="new.bin" to="data.win"/></mod>"#,
+            )
+            .unwrap();
         }
 
         let result = dispatch(&state, "getModList", &[]).unwrap().unwrap();
@@ -1209,6 +1214,43 @@ gamebanana_model = "Mod"
             .as_str()
             .unwrap()
             .contains("toby.undertale"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn catalogue_reports_external_patch_blockers_even_with_hash_checks_disabled() {
+        let (state, root) = state();
+        let packet = import_variant_packet(&state, &root);
+        for enabled in [false, true] {
+            state
+                .preferences
+                .lock()
+                .unwrap()
+                .unique_flags
+                .insert("HASHCHECKS".into(), enabled);
+            for (kind, blocked) in [
+                ("override", false),
+                ("xdelta", true),
+                ("g3mpatch", true),
+                ("csx", true),
+            ] {
+                fs::write(
+                    packet.join("modding.xml"),
+                    format!(r#"<mod><patch type="{kind}" patch="new.bin" to="data.win"/></mod>"#),
+                )
+                .unwrap();
+                let result = dispatch(&state, "getModList", &[]).unwrap().unwrap();
+                let record = &result["modList"][0];
+                assert_eq!(record["isIncompatible"], json!(blocked), "{kind}");
+                assert!(record.get("_patchSupportError").is_none());
+                if blocked {
+                    assert!(record["incompatibilityReason"]
+                        .as_str()
+                        .unwrap()
+                        .contains("cannot safely run"));
+                }
+            }
+        }
         let _ = fs::remove_dir_all(root);
     }
 

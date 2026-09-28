@@ -970,7 +970,6 @@ const PAGE_REGISTRY = Object.freeze(Object.fromEntries([
     'collection-exportchoose',
     'collections',
     'credits',
-    'deleteall',
     'gamebanana-browse',
     'gamebanana-leave-comment',
     'goc-dl',
@@ -1039,7 +1038,7 @@ function loadPageScript(pageDefinition) {
 }
 
 /**
- * Wrapper for invoking Electron IPC calls.
+ * Wrapper for invoking the native backend.
  */
 async function invoke(...params) {
     return window.deltamodBackend.invoke(...params);
@@ -1305,9 +1304,16 @@ window.preloadAPI.onUpdateAvailable((info) => {
         ], 
         'update'
     ).then(async () => {
-        await window.deltamodBackend.invokeOptional('start-update', [], false);
-    }).catch(async () => {
-        await window.deltamodBackend.invokeOptional('ignore-update', [], false);
+        try {
+            await window.deltamodBackend.invoke('start-update', []);
+        } catch (error) {
+            // Installation failure is not a user rejection of the initial offer.
+            window.deltamodUpdateNotice?.failure('The update did not finish. Check the update notice, then try again.');
+            console.error('Update failed:', error);
+        }
+    }, async () => {
+        try { await window.deltamodBackend.invoke('ignore-update', []); }
+        catch (error) { console.error('Unable to dismiss update:', error); }
     });
 });
 
@@ -1370,7 +1376,7 @@ async function offerOfficialProfileImport() {
     return false;
 }
 
-// Override console methods to tunnel logs through Electron IPC
+// Override console methods to forward logs to the native backend
 console.log = function(...args) { window.deltamodBackend.invoke('log', [args.join(' '), 'LOG', pageN]); };
 console.warn = function(...args) { window.deltamodBackend.invoke('log', [args.join(' '), 'WARN', pageN]); };
 console.error = function(...args) { window.deltamodBackend.invoke('log', [args.join(' '), 'ERROR', pageN]); };
@@ -1866,7 +1872,7 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
-if (!window.electronAPI) {
+if (!window.deltamodBackend) {
     window.alert('This application cannot run in this environment.');
     window.close();
     window.location.href = 'about:blank';

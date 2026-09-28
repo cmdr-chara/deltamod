@@ -244,10 +244,13 @@ fn provider_failure_kind(error: &RuntimeError) -> ProviderFailureKind {
         | RuntimeError::Auth(_) => ProviderFailureKind::AuthenticationRequired,
         RuntimeError::Http { status: 429, .. } => ProviderFailureKind::RateLimited,
         RuntimeError::Http { .. } => ProviderFailureKind::Http,
-        RuntimeError::Request(_) | RuntimeError::Io(_) => ProviderFailureKind::Offline,
-        RuntimeError::Json(_) | RuntimeError::Xml(_) | RuntimeError::TooLarge { .. } => {
-            ProviderFailureKind::InvalidPayload
+        RuntimeError::Request(_) | RuntimeError::Io(_) | RuntimeError::DownloadTimeout => {
+            ProviderFailureKind::Offline
         }
+        RuntimeError::Json(_)
+        | RuntimeError::Xml(_)
+        | RuntimeError::TooLarge { .. }
+        | RuntimeError::IncompleteDownload => ProviderFailureKind::InvalidPayload,
         RuntimeError::Cancelled => ProviderFailureKind::Cancelled,
         RuntimeError::Url(_) | RuntimeError::InvalidInput(_) => ProviderFailureKind::InvalidRequest,
         RuntimeError::Unsupported(_) => ProviderFailureKind::UnsupportedCapability,

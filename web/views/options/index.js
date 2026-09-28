@@ -510,17 +510,6 @@ window.currentPageStack.cat = async function(cat) {
             await addButton("Open mod folder", "Open the folder where your mods are stored.", async () => {
                 await window.deltamodBackend.invoke('openSysFolder', ['mods']);
             }, "Open");
-            await addButton(
-                localize('community_delete_data_title', "Delete all Community data"),
-                localize('community_delete_data_desc', "Deletes Community installations, mods, and options. Official Deltamod data is not changed."),
-                async () => {
-                page('deleteall');
-                },
-                "Delete",
-                true,
-                '',
-                'red'
-            );
             await addCheckboxOption("Prompt controller mode when available", "When enabled, you will be asked to activate Controller Mode when a compatible controller is attached. Currently only compatible with DualSense.", 'CONTROLLER');
             await addCheckboxOption(
                 localize('community_hash_title', "Enable hash checks"),
@@ -696,19 +685,6 @@ window.currentPageStack.cat = async function(cat) {
         }
         case 'adv':
             await addRowHeader(icon('warning', '20px') + ' ' + "Please only change these settings if you know what they do.");
-            const canRebootDev = window.deltamodBackend.isCommandAvailable('rebootDev');
-
-            await addButton("Reboot in Developer Mode", "Reboots in developer mode, a mode which allows you to use the DevTools.", async () => {
-                var goOn = await htmlAlert(
-                        'Warning', 
-                        "Warning: this is only for users who know what they're doing. Are you sure you want to reboot in developer mode?", 
-                        [{text:"Yes",resolveWith:'ok'}, {text:"No",rejectWith:'cancel'}]
-                    );
-                await window.deltamodBackend.invoke('rebootDev', [])
-            }, "Open", canRebootDev && !await window.deltamodBackend.invoke('isDevMode', []), canRebootDev
-                ? "You are already in developer mode."
-                : "Developer-mode reboot is unavailable in this app build.");
-
             let hashButton;
             hashButton = await addButton("Precalculate game hashes", "Builds the Community-owned cache used by advanced mod checks. Game files are not modified.", async () => {
                 hashButton.disabled = true;

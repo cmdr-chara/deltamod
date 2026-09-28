@@ -12,7 +12,7 @@ describe('Tauri renderer capability gates', () => {
         const collections = read('web/views/collections/index.js');
 
         for (const channel of [
-            'removeSteamIntegration', 'rebootDev', 'installDeltamodCLI',
+            'removeSteamIntegration', 'installDeltamodCLI',
             'openFlagDatabase', 'cmode-on', 'loginGamebanana'
         ]) {
             expect(options).toContain(`isCommandAvailable('${channel}')`);
@@ -25,22 +25,28 @@ describe('Tauri renderer capability gates', () => {
 
     it('uses optional invocation for unsupported startup and event-driven commands', () => {
         const app = read('web/index.js');
-        const deleteAll = read('web/views/deleteall/index.js');
+        const options = read('web/views/options/index.js');
         const patching = read('web/views/patching/index.js');
 
         for (const channel of [
-            'shouldGoIM', 'executeArgumentCmd', 'start-update', 'ignore-update',
+            'shouldGoIM', 'executeArgumentCmd',
             'getGamebananaUserinfo'
         ]) {
             expect(app).toMatch(new RegExp(`invokeOptional\\(\\s*['\"]${channel}`));
         }
+        // The implemented update path must propagate failures to its notice,
+        // not silently absorb them as an optional legacy command.
+        expect(app).toContain("invoke('start-update', []);");
+        expect(app).toContain("invoke('ignore-update', []);");
+        expect(app).toContain('deltamodUpdateNotice?.failure');
         for (const channel of ['isCMode', 'cmode-on', 'cmode-off']) {
             expect(app).toContain(`.invoke('${channel}'`);
         }
-        expect(deleteAll).toContain("invokeOptional('initialize'");
-        expect(deleteAll).toContain("isCommandAvailable('initialize')");
-        expect(patching).toContain("invokeOptional('npsCallback'");
-        expect(patching).toContain("isCommandAvailable('npsCallback')");
+        expect(fs.existsSync(path.join(root, 'web/views/deleteall'))).toBe(false);
+        expect(app).not.toContain("'deleteall'");
+        expect(options).not.toContain('rebootDev');
+        expect(options).not.toContain("page('deleteall')");
+        expect(patching).not.toContain('npsCallback');
         expect(patching).toContain("await page('main')");
         expect(patching).not.toContain('nextButton.disabled = true');
     });

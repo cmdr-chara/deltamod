@@ -1,5 +1,8 @@
 {
   "bundle": {
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "resources": {
+      "../tools/cmodeutil.exe": "tools/cmodeutil.exe"
+    }
   }
 }

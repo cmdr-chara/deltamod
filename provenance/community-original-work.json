@@ -52,6 +52,126 @@
       "firstCommit": "3e936db6887d55fa8f27e4ad90745d2fae965c3a",
       "firstCommitDate": "2026-08-08",
       "evidence": "added"
+    },
+    {
+      "path": "scripts/tauri-command.js",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/verify-tauri-only.js",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "tests/tauri-command.test.js",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "src-tauri/crates/updater-launch-runtime/src/steam_discovery.rs",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/tauri-parity/test/audit-contract.test.js",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/tauri-parity/test/audit-updater.test.js",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "benchmarks/tooling/updater-manifest.cjs",
+      "firstCommit": "c0e76c9e02101bffb2c2656388e9c0322e64829c",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "src-tauri/crates/profile-install/src/recovery.rs",
+      "firstCommit": "c1e492d3df15a78358dcfe477f0485de9fdc6db5",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "src-tauri/crates/profile-install/src/recovery/tests.rs",
+      "firstCommit": "c1e492d3df15a78358dcfe477f0485de9fdc6db5",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "src-tauri/crates/storage/src/hardening_tests.rs",
+      "firstCommit": "c1e492d3df15a78358dcfe477f0485de9fdc6db5",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "src-tauri/crates/tools-runtime/src/owned_tree.rs",
+      "firstCommit": "c1e492d3df15a78358dcfe477f0485de9fdc6db5",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "src-tauri/crates/updater-launch-runtime/src/update_download.rs",
+      "firstCommit": "c1e492d3df15a78358dcfe477f0485de9fdc6db5",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "src-tauri/crates/updater-launch-runtime/src/update_download/test_vectors.rs",
+      "firstCommit": "c1e492d3df15a78358dcfe477f0485de9fdc6db5",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "src-tauri/crates/updater-launch-runtime/src/update_download/tests.rs",
+      "firstCommit": "c1e492d3df15a78358dcfe477f0485de9fdc6db5",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "tests/updater-notice.test.js",
+      "firstCommit": "c1e492d3df15a78358dcfe477f0485de9fdc6db5",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "web/modules/updater-notice.css",
+      "firstCommit": "c1e492d3df15a78358dcfe477f0485de9fdc6db5",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "web/modules/updater-notice.js",
+      "firstCommit": "c1e492d3df15a78358dcfe477f0485de9fdc6db5",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "src-tauri/crates/patching-runtime/src/selection.rs",
+      "firstCommit": "344a6c0646a7cd3677931a726d02ceb88925b7eb",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/ci/gate.cjs",
+      "firstCommit": "55f7e058824e92028cc108e4338f9167695ad040",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/ci/gate.test.cjs",
+      "firstCommit": "55f7e058824e92028cc108e4338f9167695ad040",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
     }
   ]
 }

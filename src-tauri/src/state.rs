@@ -16,11 +16,12 @@ use deltamod_profile_install_runtime::Runtime as ProfileRuntime;
 use deltamod_protocol_domain::{AssetRoots, PendingQueue};
 use deltamod_storage_domain::{DataRoot, ProfileStore};
 use deltamod_updater_launch_runtime::tauri_adapter::{
-    Adapter as TrustedUpdateAdapter, OfficialUpdaterPlugin,
+    Adapter as TrustedUpdateAdapter, VerifiedUpdateHost,
 };
 use deltamod_updater_launch_runtime::{
     GameLifecycle, GameRuntime, GameRuntimeConfig, HostPlatform, SystemProcessSpawner,
-    SystemSteamOpener, UpdateError, UpdateEvent, UpdateEventSink, UpdateInfo, Updater, UpdaterGate,
+    SystemSteamOpener, UpdateControl, UpdateError, UpdateEvent, UpdateEventSink, UpdateInfo,
+    Updater, UpdaterGate,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -42,7 +43,7 @@ const UPDATE_ENDPOINT: &str =
 
 pub(crate) struct DownloadedUpdate {
     update: TauriUpdate,
-    bytes: Vec<u8>,
+    artifact: deltamod_updater_launch_runtime::update_download::VerifiedDownload,
 }
 
 pub(crate) struct TauriUpdaterHost {
@@ -62,16 +63,26 @@ impl TauriUpdaterHost {
     }
 }
 
-impl OfficialUpdaterPlugin for TauriUpdaterHost {
+impl VerifiedUpdateHost for TauriUpdaterHost {
     type VerifiedPayload = DownloadedUpdate;
 
     fn check(&mut self) -> Result<Option<UpdateInfo>, UpdateError> {
-        let updater = self.app()?.updater().map_err(plugin_error)?;
+        let updater = self
+            .app()?
+            .updater_builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(plugin_error)?;
         let update = tauri::async_runtime::block_on(updater.check()).map_err(plugin_error)?;
         self.pending = update;
         self.pending
             .as_ref()
-            .map(|update| UpdateInfo::available(update.version.clone(), update.body.clone()))
+            .map(|update| {
+                UpdateInfo::available(
+                    update.version.clone(),
+                    Some(format!("Deltamod Community {}", update.version)),
+                )
+            })
             .transpose()
     }
 
@@ -79,6 +90,7 @@ impl OfficialUpdaterPlugin for TauriUpdaterHost {
         &mut self,
         info: &UpdateInfo,
         max_bytes: u64,
+        control: &UpdateControl,
         progress: &mut dyn FnMut(u64, Option<u64>) -> Result<(), UpdateError>,
     ) -> Result<Self::VerifiedPayload, UpdateError> {
         let update = self
@@ -88,27 +100,33 @@ impl OfficialUpdaterPlugin for TauriUpdaterHost {
         if update.version != info.version {
             return Err(UpdateError::VersionMismatch);
         }
-        let mut progress_error = None;
-        let bytes = tauri::async_runtime::block_on(update.download(
-            |chunk, total| {
-                if progress_error.is_none() {
-                    progress_error = progress(chunk as u64, total).err();
-                }
-            },
-            || {},
-        ))
-        .map_err(plugin_error)?;
-        if let Some(error) = progress_error {
-            return Err(error);
-        }
-        if bytes.len() as u64 > max_bytes {
-            return Err(UpdateError::ArtifactTooLarge { limit: max_bytes });
-        }
-        Ok(DownloadedUpdate { update, bytes })
+        let app = self.app()?;
+        let public_key = app
+            .config()
+            .plugins
+            .0
+            .get("updater")
+            .and_then(|config| config.get("pubkey"))
+            .and_then(|key| key.as_str())
+            .ok_or(UpdateError::InvalidMetadata("publisher key"))?;
+        let artifact = tauri::async_runtime::block_on(
+            deltamod_updater_launch_runtime::update_download::download_verified(
+                &update.download_url,
+                public_key,
+                &update.signature,
+                max_bytes,
+                control,
+                progress,
+            ),
+        )?;
+        Ok(DownloadedUpdate { update, artifact })
     }
 
     fn install_verified(&mut self, payload: &Self::VerifiedPayload) -> Result<(), UpdateError> {
-        payload.update.install(&payload.bytes).map_err(plugin_error)
+        payload
+            .update
+            .install(payload.artifact.as_bytes())
+            .map_err(plugin_error)
     }
 }
 
@@ -216,6 +234,7 @@ pub struct AppState {
     pub easter_egg_window: Arc<Mutex<EasterEggWindowState>>,
     pub game_store_path: PathBuf,
     pub updater: Mutex<ShellUpdater>,
+    pub updater_control: UpdateControl,
 }
 
 impl AppState {
@@ -364,6 +383,7 @@ impl AppState {
             startup_recovery_errors: Mutex::new(Vec::new()),
             easter_egg_window: Arc::new(Mutex::new(EasterEggWindowState::default())),
             game_store_path,
+            updater_control: updater.control(),
             updater: Mutex::new(updater),
         })
     }

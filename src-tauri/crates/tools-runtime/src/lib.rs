@@ -1,11 +1,14 @@
 #![forbid(unsafe_code)]
 
+mod owned_tree;
 mod secure_path;
+pub use owned_tree::{remove_owned_tree, rename_owned_tree};
 
 pub use secure_path::{
     copy_relative_regular_file_to_open_file_verified, copy_relative_regular_file_verified,
-    inspect_directory_identity, inspect_regular_file, SecurePathError, StablePathIdentity,
-    VerifiedFile,
+    inspect_directory_identity, inspect_regular_file, inspect_regular_file_size,
+    inspect_relative_regular_file, read_relative_regular_file, try_lock_relative_file,
+    ExclusiveFileLease, SecurePathError, StablePathIdentity, VerifiedFile,
 };
 
 use sha2::{Digest, Sha256};

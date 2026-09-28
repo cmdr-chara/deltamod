@@ -5,18 +5,18 @@
   "nexusOAuthClientId": "deltamod_community",
   "nexusOAuthScope": "",
   "description": "Community-maintained Deltarune mod manager",
-  "main": "node/Runner.js",
   "discordAPI": "https://discord.com/api/guilds/1390331292993982484/widget.json",
   "featureFlags": [
     "GB-OneClick"
   ],
   "scripts": {
     "build:boot": "vite build --config vite.boot.config.js",
-    "dev": "electron . --developer",
-    "predev": "npm run build:boot",
+    "dev": "node scripts/tauri-command.js dev",
+    "predev": "npm run build:tauri:prepare",
     "preview:heart": "vite --host 127.0.0.1 --open /preview-heart/",
     "verify:secure-updater": "node scripts/verify-secure-updater-config.js --self-test && node scripts/verify-secure-updater-config.js",
-    "test": "npm run verify:secure-updater && vitest run",
+    "test": "npm run verify:tauri-only && npm run verify:secure-updater && npm run test:audit && vitest run",
+    "test:audit": "node --test scripts/tauri-parity/test/audit-contract.test.js scripts/tauri-parity/test/audit-updater.test.js",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:tauri": "npm test && playwright test tests/e2e/tauri-themes.spec.js tests/e2e/tauri-localization.spec.js && cargo test --workspace --all-targets --locked --manifest-path src-tauri/Cargo.toml",
@@ -33,10 +33,10 @@
     "build:tauri:butler": "node scripts/stage-butler.js",
     "build:tauri:prepare": "npm run build:boot && npm run build:native-sidecars:target && npm run build:tauri:resources && npm run build:tauri:butler",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev --config src-tauri/tauri.conf.json",
+    "tauri:dev": "node scripts/tauri-command.js dev",
     "tauri:check": "tauri info",
-    "build:tauri": "npm run build:tauri:prepare && tauri build --config src-tauri/tauri.conf.json",
-    "build:tauri:no-bundle": "npm run build:tauri:prepare && tauri build --config src-tauri/tauri.conf.json --no-bundle",
+    "build:tauri": "npm run build:tauri:prepare && node scripts/tauri-command.js build",
+    "build:tauri:no-bundle": "npm run build:tauri:prepare && node scripts/tauri-command.js build --no-bundle",
     "build:installer": "node scripts/build-installer.js",
     "verify:tauri-staging": "node scripts/verify-tauri-staging.js",
     "verify:tauri-package": "node scripts/verify-tauri-package.js",
@@ -55,112 +55,8 @@
     "smoke:game-patching-csx": "node scripts/smoke-game-patching-csx.js",
     "verify:undertale-mod-tool-manifest": "node scripts/verify-undertale-mod-tool.js --manifest-only",
     "archive:undertale-mod-tool-source": "node scripts/archive-undertale-mod-tool-source.js",
-    "build-windows": "electron-builder --win --publish never",
-    "prebuild-windows": "npm run build:boot && npm run build:native-sidecars",
-    "build-linux": "electron-builder --linux --publish never",
-    "prebuild-linux": "npm run build:boot",
-    "build-macos": "electron-builder --mac --publish never",
-    "prebuild-macos": "npm run build:boot",
-    "erase-data": "scripts/legacy/erase-data.bat"
-  },
-  "build": {
-    "appId": "io.github.cmdr-chara.deltamod-community",
-    "productName": "Deltamod Community",
-    "icon": "build/icon-big.png",
-    "asar": true,
-    "artifactName": "deltamod-community-${version}-${os}-${arch}.${ext}",
-    "directories": {
-      "output": "dist"
-    },
-    "asarUnpack": [
-      "tools/**/*",
-      "node_modules/7zip-bin/win",
-      "node_modules/7zip-bin/linux",
-      "node_modules/7zip-bin/mac",
-      "node_modules/7zip-bin/7x.sh",
-      "gm3p",
-      "native/hash-worker/bin/**/*",
-      "native/security-worker/bin/**/*",
-      "native/copy-worker/bin/**/*",
-      "native/patch-plan-worker/bin/**/*",
-      "native/patch-transaction-worker/bin/**/*"
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "signAndEditExecutable": true
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Deltamod Community",
-      "installerHeader": "build/installer/installerHeader.bmp",
-      "installerSidebar": "build/installer/installerSidebar.bmp",
-      "uninstallerSidebar": "build/installer/installerSidebar.bmp",
-      "uninstallDisplayName": "Deltamod Community ${version}"
-    },
-    "files": [
-      "!output{,/**/*}",
-      "!dist{,/**/*}",
-      "!coverage{,/**/*}",
-      "!tests{,/**/*}",
-      "!installbuilder{,/**/*}",
-      "!.codex-run{,/**/*}",
-      "!.github{,/**/*}",
-      "!scripts{,/**/*}",
-      "!playwright.config.js",
-      "!vitest.config.js",
-      "!tsconfig.json"
-    ],
-    "linux": {
-      "target": "AppImage",
-      "category": "Utility",
-      "icon": "build/icon-big.png"
-    },
-    "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "category": "public.app-category.utilities",
-      "icon": "build/icon-macos.png"
-    },
-    "protocols": [
-      {
-        "name": "Deltamod Community",
-        "schemes": [
-          "deltamod-community"
-        ]
-      }
-    ],
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "cmdr-chara",
-        "repo": "deltamod",
-        "releaseType": "release"
-      }
-    ]
+    "pretauri:dev": "npm run build:tauri:prepare",
+    "verify:tauri-only": "node scripts/verify-tauri-only.js"
   },
   "author": "Deltamod contributors",
   "license": "EUPL-1.2",
@@ -170,29 +66,22 @@
     "@types/node": "^26.6.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.3.0",
-    "electron": "^44.4.5",
-    "electron-builder": "^26.16.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.1"
   },
   "dependencies": {
     "@chainsafe/xdelta3-node": "^1.0.2",
-    "@sentry/node": "^10.75.0",
     "7zip-bin": "5.2.0",
     "7zip-min": "^3.0.1",
     "axios": "^1.20.0",
     "cheerio": "^1.2.0",
-    "create-desktop-shortcuts": "^1.12.0",
-    "electron-updater": "^6.8.9",
     "js-toml": "^2.0.1",
     "mime-types": "^3.0.2",
     "react": "^19.2.8",
     "react-dom": "^19.3.0",
     "semver": "^7.8.5",
-    "windows-elevate": "^1.0.1",
     "xml-js": "^1.6.11",
-    "yoctocolors-cjs": "^2.1.3",
     "zod": "^4.6.5"
   },
   "overrides": {

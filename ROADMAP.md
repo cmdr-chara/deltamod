@@ -67,8 +67,9 @@ before deserialization. Unknown newer versions fail closed before any mutation.
   provider contracts.
 - Unified Mod Shop search, filtering, sorting, canonical identities, alternate
   sources, bounded caching, offline states, retry, cancellation, and normalized errors.
-- Game Jolt and itch.io remain outside the Mod Shop. They are used only by the
-  original configured game-download flows with known build/file identifiers.
+- Do not implement itch.io accounts, collections, or Mod Shop integration. Existing
+  configured native game-download identifiers remain compatibility data, not a new provider.
+  Game Jolt remains outside the Mod Shop.
 
 ## Release D — Reproducibility
 
@@ -90,8 +91,8 @@ before deserialization. Unknown newer versions fail closed before any mutation.
   scanner reports no missing channel.
 - Upgrade, uninstall/reinstall, user-data preservation, and rollback are exercised
   against the current Community data layout and stable persisted contracts.
-- One stable Tauri release succeeds before a separate cleanup release removes
-  Electron runtime and packaging.
+- Electron source retirement is authorized separately from release promotion.
+  Removing the old shell does not satisfy any signing, updater, or installed-package gate.
 - Tests are retained or removed by behavioral capability, never by filename alone.
 
 “Tauri/Rust rewrite” means the native shell, IPC, filesystem, network, updater,
@@ -101,21 +102,26 @@ shared tests; replacing that renderer with a Rust UI framework is not part of Re
 
 ## Release F — Electron retirement
 
-This is a cleanup release after one successful stable Tauri release, not part of the
-first Tauri promotion.
+Source retirement is implemented in the current change set. It is not a stable
+release or proof that native packaging works on every target.
 
-- Remove Electron runtime and `electron-builder` dependencies, Electron-only packaging
-  and prerelease workflows, and unreachable shell-only Node/preload/tracer paths.
-- Resolve the six currently explicit Tauri `Unsupported` channels before cleanup:
-  `rebootDev`, `createInstallLink`, `undertaleModTool:openInstallation`,
-  `gamebanana_downloadAllInCollection`, `npsCallback`, and `initialize`.
-  Each must be implemented or deliberately retired from every renderer/preload call site.
-- Keep shared renderer, domain, provider, lifecycle, security, compatibility, and
-  Tauri shell regression tests. Electron-only tests are already outside the release gate.
-- Re-run package-size/startup/memory comparison after Electron assets and dependencies
-  are actually removed; do not fold cleanup gains into the pre-retirement benchmark.
-- Archive the last passing Electron artifact as a rollback reference without continuing
-  to publish Electron as a current product.
+- Removed Electron runtime/entry points, preload/tracer windows, legacy scripts,
+  obsolete release workflows, builder configuration, and runtime dependencies.
+- Preserved shared JavaScript tooling and renderer/domain/security tests. Preserved
+  historical Electron benchmark records and the existing rollback artifact policy.
+- Removed public reset, developer-reboot, and patch-continuation actions. The native
+  boundary still explicitly rejects their retired channel names.
+- Three native product gaps remain visibly capability-gated: collection restore,
+  installation shortcuts, and opening an installation in UndertaleModTool. None is
+  reported as supported merely to pass parity.
+- The native bridge no longer exposes `electronAPI`. The frozen renderer contract
+  validates all 129 known invoke channels, including six explicit rejections.
+- The JavaScript lockfile has 268 fewer package records, with no dependency-version
+  updates. Run the real packaged desktop benchmark again before claiming startup,
+  app-memory, or installed-size gains from retirement.
+
+See [the retirement audit](docs/TAURI-RETIREMENT-AUDIT.md) for implemented fixes,
+actual validation, and remaining platform/recovery work.
 
 ## Storage and retention
 
@@ -214,7 +220,27 @@ recovery easier to scan than decorative surfaces.
 The first-run success condition is: **Game ready — you can safely install mods.**
 Diagnostics must be sanitizable and copyable without opening DevTools.
 
+## Recovery and updater implementation — 2026-09-28
+
+Implemented on the Tauri-only branch: fail-closed journal planning, kernel-backed
+profile/install filesystem exclusion, quarantine-before-delete, backup-preserving
+reimport, bounded/alias-safe shared persistence, signed streaming updater budgets,
+responsive cancellation/status and renderer progress. Intel macOS joins full-shell
+CI. See [implementation and evidence](docs/RECOVERY-UPDATER-HARDENING.md).
+
+Still required: explicit intervention/UI for ambiguous v1 recovery, collection
+restore, installation shortcuts, tool-opening parity, coverage-guided native fuzzing,
+and installed/signed updater and rollback evidence on the supported platforms.
+Source implementation and static parity do not satisfy those release gates.
+
 ## Codebase audit — next work
+
+The 2026-09-28 [retirement audit](docs/TAURI-RETIREMENT-AUDIT.md) supersedes the
+completed items below: stale static contracts, fixture drift, Linux Steam root
+discovery, Steam handoff routing, obsolete reset/developer/continuation actions,
+and source/dependency retirement. Signed platform acceptance and the three
+capability-gated features remain open. Older snapshot findings are retained below
+as historical context, not a claim that those fixes are still missing.
 
 The 2026-09-27 audit was performed against `DeltaMaster@7a9b3a8` and the current
 upstream `deltamodders/deltamod:develop@0a86b85` (2.1.3). The following work was
@@ -267,9 +293,7 @@ found in production code, compatibility fixtures, documentation, and upstream de
 
 ### P2 — Accounts, collections, tools, and packaging
 
-- Decide whether to adopt upstream's itch.io account/collection expansion. If adopted,
-  build it on the Community credentials/provider boundaries rather than importing
-  plaintext account JSON or browser/local-callback token handling.
+- itch.io account/collection expansion is out of scope and must not be implemented.
 - If multi-provider collections are adopted, make collection identity, create/delete,
   export/import, and restore explicitly provider-aware end to end.
 - Re-evaluate upstream's UndertaleModTool `--overwrite` change against Community's
@@ -305,8 +329,8 @@ Current intake priorities:
 - **Adapt rather than merge:** upstream's expanded Linux Steam roots and 2.1.3 Steam
   launch fixes; account/collection work; collection restore; Linux packaging fixes;
   and any UndertaleModTool behavior change demonstrated by a Community regression.
-- **Requires product/provenance decision:** itch.io authenticated accounts and
-  collections, multi-provider collection UX, and the Chapter 3 theme.
+- **Intentional divergence:** itch.io authenticated accounts and collections are excluded.
+- **Requires product/provenance decision:** multi-provider collection UX and the Chapter 3 theme.
 - **Do not copy verbatim across the trust boundary:** Electron/browser credential
   export flows, plaintext account storage, arbitrary persisted launcher commands,
   or direct filesystem mutation paths that bypass the lifecycle transaction model.
@@ -346,3 +370,14 @@ Current intake priorities:
 | Documentation/test metadata debt | Update stale game-download integration notes and keep classification metadata gated against the current shared/Tauri test surface. |
 | Pre/post rewrite benchmark | Clean Electron baseline captured and recorded (7 measured launches; 1,513.96 ms median ready; 728.60 MiB median peak working set). The current unsigned Windows NSIS candidate completed the identical one-warm-up plus seven-launch protocol with fresh Deltamod/WebView2 profiles, the same bounded fixture, and renderer-authenticated main-route readiness: 1,664.31 ms median, 422.67 MiB median peak working set, and a 294.67 MiB installer. The comparator accepts the pair: +9.93% readiness, -41.99% memory, and -66.57% packaged size versus Electron. This is performance evidence only; signing and the remaining Release E gates still apply. |
 | Releases B–E | A2 update/verify/repair/game-health/restore, executable A3 transactional profile switching with exact lockfile source resolution, and A4 internal patch staging are accepted and integrated. A3 uses one outer journal/lease and atomically couples the active-profile pointer to the committed manifest. Tauri `patchAndRun` adopts the exact verified baseline, publishes staged patch output through the journaled Rust lifecycle filesystem boundary, and restores the previous generation after game exit or before the next patch session. Windows uses `fence-windows`; Linux and macOS use pinned device/inode identities plus rustix `openat`/`renameat`/`unlinkat` no-follow operations. The boundary rejects hardlinks/link escapes and rediscovers interrupted workspaces after restart; the legacy compatibility publisher is no longer reachable from `patchAndRun`. Recovery retention now measures and identity-binds exact workspaces, records durable deletion tombstones, quarantines before purge, reconciles interrupted deletion at startup, and compacts the append log without losing sequence authority. The complete locked Tauri workspace and strict all-target Clippy pass on Windows; native Linux/macOS adversarial execution remains a Release E package gate. The tools runtime bounds aggregate output, propagates live cancellation into external G3M/CSX execution, and terminates/reaps full process trees on cancellation, timeout, overflow, and completion. The release workflow now fails closed on missing updater/publisher credentials, verifies Authenticode on every distributed Windows executable, and requires Developer ID, Gatekeeper, and notarization evidence on both macOS architectures. Native signed execution and one stable Tauri publication remain external Release E gates. |
+| macOS download/launch investigation | Implemented separate bounded transfer policy without per-chunk sleeps, full-body concurrency/cancellation, executable-bit preservation in copied games, Finder-wrapper handling, native compatibility-hash mapping, launch reservations spanning patch/restore, retained Steam handoff patches, and visible import/patch failures. Focused Linux and synthetic macOS-layout regressions pass. See `docs/TAURI-RETIREMENT-AUDIT.md`. Actual macOS installed-app and specific-mod acceptance remain open. |
+| External patch execution | P1: implement and verify confined xdelta/G3M/CSX staging before enabling it in Tauri. Do not bypass the current fail-closed boundary or present successful download/import as proof of patch compatibility. Include macOS ARM tool availability and cross-restart Steam/game-lifetime recovery in acceptance. |
+
+
+### Selection/capability hardening follow-up
+
+Completed: exact selected-packet identity resolution, stable load order, bounded
+no-follow manifest/source reads, shared staging/capability parsing, native catalogue
+warnings for blocked external patch types, and bounded validator worker lifetime.
+See `docs/TAURI-RETIREMENT-AUDIT.md` for regression evidence. Real macOS mod acceptance
+and safe external-tool execution remain open, not inferred from successful downloads.

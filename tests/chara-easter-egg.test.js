@@ -41,15 +41,19 @@ describe('Chara theme-selector encounter', () => {
             'utf8'
         );
         const mainSource = fs.readFileSync(
-            path.join(projectRoot, 'node', 'IPCHandlers.js'),
+            path.join(projectRoot, 'src-tauri', 'src', 'main.rs'),
             'utf8'
         );
-        const handlerStart = mainSource.indexOf("handle('quitCommunityForEasterEgg'");
-        const handlerEnd = mainSource.indexOf("handle('sampleError'", handlerStart);
+        const handlerStart = mainSource.indexOf("BackendChannel::Quit => {");
+        const handlerEnd = mainSource.indexOf("BackendChannel::Log =>", handlerStart);
         const quitHandler = mainSource.slice(handlerStart, handlerEnd);
 
         expect(rendererSource).toContain('window.communityAPI.app.quitForEasterEgg()');
-        expect(quitHandler).toContain('app.quit()');
+        expect(mainSource).toContain('"quitCommunityForEasterEgg" => Self::Quit');
+        expect(quitHandler).toContain('schedule_exit(app.clone(), false)');
+        const exit = mainSource.slice(mainSource.indexOf('fn schedule_exit('), mainSource.indexOf('fn set_app_icon('));
+        expect(exit).toContain('app.exit(0)');
+        expect(exit).not.toMatch(/\b(?:remove_dir|remove_file|rename|write|initialize)\w*\s*\(/);
         expect(quitHandler).not.toMatch(/\b(?:rm|unlink|rename|writeFile|initialize)\w*\s*\(/);
     });
 

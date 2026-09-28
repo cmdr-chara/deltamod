@@ -1084,8 +1084,18 @@ fn validate_tree(
 
 fn identify_content_root(staging: &Path) -> Result<PathBuf, ImportError> {
     let entries = fs::read_dir(staging)?.collect::<Result<Vec<_>, _>>()?;
-    if entries.len() == 1 && entries[0].file_type()?.is_dir() {
-        Ok(entries[0].path())
+    let content = entries
+        .iter()
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name != "__MACOSX" && name != ".DS_Store" && !name.starts_with("._")
+        })
+        .collect::<Vec<_>>();
+    // Wrapper detection ignores Finder metadata only after the entire archive
+    // was inventoried, size-bounded, extracted and link/path-validated.
+    if content.len() == 1 && content[0].file_type()?.is_dir() {
+        Ok(content[0].path())
     } else {
         Ok(staging.to_path_buf())
     }
@@ -1525,5 +1535,53 @@ mod tests {
             })
             .is_err()
         );
+    }
+    #[test]
+    fn finder_sidecars_do_not_hide_a_wrapped_mod_manifest() {
+        for sidecar in ["__MACOSX/._Mod", ".DS_Store", "._Mod"] {
+            let archive = zip_fixture(&[
+                (
+                    "Mod/meta.toml",
+                    b"[metadata]\npackageID='test.finder'\ngame='toby.undertale'\n",
+                ),
+                ("Mod/modding.xml", b"<root/>"),
+                (sidecar, b"finder metadata"),
+            ]);
+            let packets = tempfile::tempdir().unwrap();
+            let result = import_archive(
+                archive.path(),
+                packets.path(),
+                Limits::default(),
+                || false,
+                |_| DuplicateDecision::KeepExisting,
+            )
+            .unwrap();
+            assert!(result.destination.join("meta.toml").is_file());
+            assert!(!result.destination.join("Mod").exists());
+        }
+    }
+
+    #[test]
+    fn finder_metadata_is_not_a_bypass_for_path_validation_or_ambiguous_roots() {
+        for extra in ["__MACOSX/../../outside", "other/readme.txt"] {
+            let archive = zip_fixture(&[
+                (
+                    "Mod/meta.toml",
+                    b"[metadata]\npackageID='test.finder'\ngame='toby.undertale'\n",
+                ),
+                ("Mod/modding.xml", b"<root/>"),
+                (extra, b"untrusted"),
+            ]);
+            let packets = tempfile::tempdir().unwrap();
+            assert!(import_archive(
+                archive.path(),
+                packets.path(),
+                Limits::default(),
+                || false,
+                |_| DuplicateDecision::KeepExisting
+            )
+            .is_err());
+            assert_eq!(fs::read_dir(packets.path()).unwrap().count(), 0);
+        }
     }
 }

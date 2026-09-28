@@ -97,6 +97,7 @@ declare global {
                 onProgress(callback: (event: ProgressEvent) => void): Unsubscribe;
             };
             updates: {
+                cancel(): Promise<boolean>;
                 check(): Promise<unknown>;
                 install(): Promise<void>;
                 ignore(): Promise<void>;
@@ -153,9 +154,6 @@ declare global {
                 }): Promise<unknown>;
                 onProgress(callback: (event: ProgressEvent) => void): Unsubscribe;
             };
-        };
-        electronAPI: {
-            invoke<T = unknown>(channel: string, data?: unknown[]): Promise<T>;
         };
         preloadAPI: {
             onPage(callback: (page: string) => void): Unsubscribe;

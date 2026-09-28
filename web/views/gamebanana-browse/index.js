@@ -545,13 +545,16 @@ function updateModDownloadStatus({ phase = 'download', completed = 0, total = 0,
         import: 'Importing mod…',
         complete: 'Mod imported successfully',
         manual: 'Website confirmation required',
-        failed: 'Download or import failed'
+        failed: 'Download or import failed',
+        cancelled: 'Import cancelled or existing mod kept'
     };
 
     panel.hidden = false;
     panel.dataset.phase = phase;
     title.textContent = titles[phase] || titles.download;
-    percent.textContent = phase === 'import'
+    percent.textContent = phase === 'cancelled'
+        ? 'Not imported'
+        : phase === 'import'
         ? 'Importing'
         : phase === 'manual'
             ? 'Website'
@@ -570,7 +573,7 @@ function updateModDownloadStatus({ phase = 'download', completed = 0, total = 0,
 }
 
 function setDownloadButtonIcon(button, glyph) {
-    button.innerHTML = shopIcon(glyph);
+    if (button) button.innerHTML = shopIcon(glyph);
 }
 
 window.currentPageStack.updateModDownloadStatus = updateModDownloadStatus;
@@ -690,14 +693,21 @@ async function dlmod(dlurl, buttonElem=null, modid, modmodel, currentItem = `Gam
             total: info.total,
             currentItem
         });
-        buttonElem.style.transition = 'none';
-        buttonElem.classList.add('download-progress');
-        buttonElem.style.setProperty('--download-progress', `${p}%`);
+        if (buttonElem) {
+            buttonElem.style.transition = 'none';
+            buttonElem.classList.add('download-progress');
+            buttonElem.style.setProperty('--download-progress', `${p}%`);
+        }
 
     };
 
     try {
-        await window.deltamodBackend.invoke('dlmodURL',[dlurl, queryme, modid, modmodel]);
+        const result = await window.deltamodBackend.invoke('dlmodURL',[dlurl, queryme, modid, modmodel]);
+        if (result === false) {
+            if (isCurrentShopPage()) updateModDownloadStatus({ phase: 'cancelled', currentItem });
+            return false;
+        }
+        if (result !== true) throw new Error('The importer did not confirm a completed import. Please retry.');
         imported = true;
         if (!isCurrentShopPage()) return true;
         setDownloadButtonIcon(buttonElem, 'done_outline');
@@ -801,8 +811,7 @@ async function browseGameBananaCatalog(url) {
         nativeFailure = error;
     }
 
-    // Electron intentionally leaves GameBanana on its compatibility renderer
-    // path. This fallback also keeps Linux WebKit usable if the native bridge
+    // The public-read fallback keeps Linux WebKit usable if the native bridge
     // is unavailable while the public GameBanana endpoint itself is reachable.
     try {
         return await fetchGameBananaCatalogDirect(url);

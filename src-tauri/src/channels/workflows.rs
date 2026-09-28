@@ -2,11 +2,13 @@ use crate::{error, state::AppState};
 use deltamod_installations_domain::{Edition, GamePlatform, InstallationId, Ownership};
 use deltamod_profile_install_runtime::{PatchPlanInput, ProgressEvent, Runtime as ProfileRuntime};
 use deltamod_tauri_os_adapters::{DialogBackend, DialogRequest, ValidatedFolder};
+use deltamod_updater_launch_runtime::steam_discovery::{steam_library_roots, MAX_VDF_BYTES};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::{
     collections::BTreeMap,
     fs,
+    io::Read,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -63,7 +65,10 @@ fn game_definition(root: &Path, id: &str, channel: &'static str) -> Result<Value
     }
     let path = root.join("games").join(format!("{id}.json"));
     let metadata = fs::symlink_metadata(&path).map_err(|_| error::invalid(channel))?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 1024 * 1024 {
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.len() > MAX_VDF_BYTES as u64
+    {
         return Err(error::invalid(channel));
     }
     serde_json::from_slice(&fs::read(path).map_err(|_| error::internal())?)
@@ -120,23 +125,6 @@ fn push_unique(paths: &mut Vec<PathBuf>, path: PathBuf) {
     }
 }
 
-fn steam_library_roots(contents: &str) -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    for line in contents.lines() {
-        let quoted = line.split('"').skip(1).step_by(2).collect::<Vec<_>>();
-        for pair in quoted.windows(2) {
-            if !pair[0].eq_ignore_ascii_case("path") {
-                continue;
-            }
-            let value = pair[1].replace("\\\\", "\\");
-            if !value.is_empty() {
-                push_unique(&mut roots, PathBuf::from(value));
-            }
-        }
-    }
-    roots
-}
-
 fn steam_common_folders() -> Vec<PathBuf> {
     let mut steam_roots = Vec::new();
     #[cfg(target_os = "windows")]
@@ -157,10 +145,16 @@ fn steam_common_folders() -> Vec<PathBuf> {
         }
     }
     #[cfg(target_os = "linux")]
-    if let Some(home) = std::env::var_os("HOME") {
-        push_unique(
-            &mut steam_roots,
-            PathBuf::from(home).join(".local/share/Steam"),
+    {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        let xdg = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from);
+        steam_roots.extend(
+            deltamod_updater_launch_runtime::steam_discovery::linux_steam_roots(
+                &home,
+                xdg.as_deref(),
+            ),
         );
     }
     #[cfg(target_os = "macos")]
@@ -177,11 +171,22 @@ fn steam_common_folders() -> Vec<PathBuf> {
         let Ok(metadata) = fs::symlink_metadata(&manifest) else {
             continue;
         };
-        if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 1024 * 1024
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.len() > MAX_VDF_BYTES as u64
         {
             continue;
         }
-        if let Ok(contents) = fs::read_to_string(manifest) {
+        let Ok(file) = fs::File::open(manifest) else {
+            continue;
+        };
+        let mut contents = String::new();
+        if file
+            .take(MAX_VDF_BYTES as u64 + 1)
+            .read_to_string(&mut contents)
+            .is_ok()
+            && contents.len() <= MAX_VDF_BYTES
+        {
             for library in steam_library_roots(&contents) {
                 push_unique(&mut library_roots, library);
             }
@@ -190,7 +195,13 @@ fn steam_common_folders() -> Vec<PathBuf> {
 
     let mut common = Vec::new();
     for root in library_roots {
-        push_unique(&mut common, root.join("steamapps/common"));
+        // Native, compatibility and Flatpak roots often resolve to the same
+        // directory. Skip unavailable libraries and deduplicate canonical roots.
+        if let Ok(folder) = fs::canonicalize(root.join("steamapps/common")) {
+            if folder.is_dir() {
+                push_unique(&mut common, folder);
+            }
+        }
     }
     common
 }
@@ -728,6 +739,6 @@ mod tests {
             "path" "E:\\SteamLibrary"
             "#,
         );
-        assert_eq!(roots, vec![PathBuf::from(r"E:\SteamLibrary")]);
+        assert!(roots.is_empty());
     }
 }

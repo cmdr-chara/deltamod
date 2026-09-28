@@ -13,12 +13,12 @@ describe('retry-command', () => {
         expect(parseArguments([
             '--attempts', '4',
             '--delay-ms', '250',
-            '--label', 'Electron download',
+            '--label', 'Tool download',
             '--', 'npm', 'ci'
         ])).toEqual({
             attempts: 4,
             delayMs: 250,
-            label: 'Electron download',
+            label: 'Tool download',
             command: 'npm',
             args: ['ci']
         });

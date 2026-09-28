@@ -94,6 +94,73 @@ pub fn inspect_regular_file(path: &Path, max_bytes: u64) -> Result<VerifiedFile,
     hash_opened(open_regular(path, max_bytes)?, max_bytes)
 }
 
+/// Hash a bounded file without following any component below the caller-owned root.
+pub fn inspect_relative_regular_file(
+    root: &Path,
+    relative: &Path,
+    max_bytes: u64,
+) -> Result<VerifiedFile, SecurePathError> {
+    hash_opened(open_relative_regular(root, relative, max_bytes)?, max_bytes)
+}
+
+/// Validate a regular file's identity and link count without reading its body.
+/// Use hash-bearing inspection when file content, rather than shape, is trusted.
+pub fn inspect_regular_file_size(path: &Path, max_bytes: u64) -> Result<u64, SecurePathError> {
+    let opened = open_regular(path, max_bytes)?;
+    opened.verify()?;
+    Ok(opened.size)
+}
+
+/// Read a bounded, ordinary single-link file through no-follow directory handles.
+/// Both its identity and length must still match when the read completes.
+pub fn read_relative_regular_file(
+    root: &Path,
+    relative: &Path,
+    max_bytes: u64,
+) -> Result<Vec<u8>, SecurePathError> {
+    let mut opened = open_relative_regular(root, relative, max_bytes)?;
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut opened.file)
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(SecurePathError::TooLarge);
+    }
+    opened.verify()?;
+    if bytes.len() as u64 != opened.size {
+        return Err(SecurePathError::Changed);
+    }
+    Ok(bytes)
+}
+
+/// Holds a kernel file lock. The persistent lock file must never be unlinked:
+/// removing it would allow a second process to lock a different inode.
+pub struct ExclusiveFileLease {
+    opened: OpenedRegular,
+}
+
+impl ExclusiveFileLease {
+    pub fn verify(&self) -> Result<(), SecurePathError> {
+        self.opened.verify()
+    }
+}
+
+pub fn try_lock_relative_file(
+    root: &Path,
+    relative: &Path,
+) -> Result<ExclusiveFileLease, SecurePathError> {
+    let opened = open_relative_regular(root, relative, 0)?;
+    opened.file.try_lock().map_err(|error| match error {
+        std::fs::TryLockError::WouldBlock => SecurePathError::Io(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "another filesystem operation is active",
+        )),
+        std::fs::TryLockError::Error(error) => SecurePathError::Io(error),
+    })?;
+    opened.verify()?;
+    Ok(ExclusiveFileLease { opened })
+}
+
 pub(crate) struct PinnedRegularFile {
     #[cfg_attr(windows, allow(dead_code))]
     opened: OpenedRegular,
@@ -215,7 +282,7 @@ pub fn copy_relative_regular_file_to_open_file_verified(
     Ok((copied, hex::encode(digest.finalize())))
 }
 
-fn checked_relative_names(relative: &Path) -> Result<Vec<OsString>, SecurePathError> {
+pub(super) fn checked_relative_names(relative: &Path) -> Result<Vec<OsString>, SecurePathError> {
     if relative.as_os_str().is_empty() || relative.is_absolute() {
         return Err(SecurePathError::Unsafe);
     }
@@ -312,37 +379,12 @@ fn unix_file_generation(metadata: &fs::Metadata) -> (i64, i64) {
 
 #[cfg(unix)]
 fn open_regular(path: &Path, max_bytes: u64) -> Result<OpenedRegular, SecurePathError> {
-    use std::os::unix::fs::MetadataExt as _;
-
-    let path_metadata = fs::symlink_metadata(path)?;
-    if !path_metadata.is_file()
-        || path_metadata.file_type().is_symlink()
-        || path_metadata.nlink() != 1
-    {
-        return Err(SecurePathError::Unsafe);
-    }
-    if path_metadata.len() > max_bytes {
-        return Err(SecurePathError::TooLarge);
-    }
-    let file = File::open(path)?;
-    let metadata = file.metadata()?;
-    let identity = unix_regular_identity(&metadata);
-    let path_identity = unix_regular_identity(&path_metadata);
-    if !metadata.is_file()
-        || metadata.nlink() != 1
-        || identity != path_identity
-        || metadata.len() != path_metadata.len()
-    {
-        return Err(SecurePathError::Changed);
-    }
-    let opened = OpenedRegular {
-        file,
-        identity,
-        size: metadata.len(),
-        path: path.to_owned(),
-    };
-    opened.verify()?;
-    Ok(opened)
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let name = path.file_name().ok_or(SecurePathError::Unsafe)?;
+    open_relative_regular(parent, Path::new(name), max_bytes)
 }
 
 #[cfg(unix)]
@@ -380,7 +422,10 @@ fn open_relative_regular(
     let descriptor = rustix::fs::openat(
         &directory,
         &names[names.len() - 1],
-        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::NONBLOCK
+            | rustix::fs::OFlags::CLOEXEC,
         rustix::fs::Mode::empty(),
     )
     .map_err(unix_error)?;
@@ -483,15 +528,11 @@ fn open_relative_regular(
         .map_err(windows_error)?
         .into_directory();
     for name in &names[..names.len() - 1] {
-        directory = directory
-            .open_named_child(name)
-            .map_err(windows_error)?
+        directory = open_windows_child(&directory, name)?
             .into_directory()
             .map_err(windows_error)?;
     }
-    let node = directory
-        .open_named_child(&names[names.len() - 1])
-        .map_err(windows_error)?;
+    let node = open_windows_child(&directory, &names[names.len() - 1])?;
     let metadata = node.metadata();
     if metadata.kind != NodeKind::RegularFile || metadata.link_count != 1 {
         return Err(SecurePathError::Unsafe);
@@ -512,6 +553,28 @@ fn open_relative_regular(
     };
     opened.verify()?;
     Ok(opened)
+}
+
+// The pinned dependency reports both absence and an identity race as
+// IdentityChanged in open_named_child. Resolve absence from the pinned directory
+// inventory, then let open_child retain its no-follow identity verification.
+#[cfg(windows)]
+fn open_windows_child(
+    directory: &fence_windows::DirectoryHandle,
+    name: &std::ffi::OsStr,
+) -> Result<fence_windows::NodeHandle, SecurePathError> {
+    let entry = directory
+        .entries()
+        .map_err(windows_error)?
+        .into_iter()
+        .find(|entry| entry.name == name)
+        .ok_or_else(|| {
+            SecurePathError::Io(io::Error::new(
+                io::ErrorKind::NotFound,
+                "child does not exist",
+            ))
+        })?;
+    directory.open_child(&entry).map_err(windows_error)
 }
 
 #[cfg(windows)]
@@ -627,7 +690,11 @@ fn inspect_directory_identity_impl(_: &Path) -> Result<StablePathIdentity, Secur
 
 #[cfg(windows)]
 fn windows_error(error: fence_windows::WindowsError) -> SecurePathError {
-    SecurePathError::Io(io::Error::other(error.to_string()))
+    match error {
+        fence_windows::WindowsError::Io { source, .. } => SecurePathError::Io(source),
+        fence_windows::WindowsError::IdentityChanged => SecurePathError::Changed,
+        other => SecurePathError::Io(io::Error::other(other.to_string())),
+    }
 }
 
 #[cfg(unix)]
@@ -637,6 +704,71 @@ fn unix_error(error: rustix::io::Errno) -> SecurePathError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn missing_relative_files_remain_distinct_from_invalid_or_changed_paths() {
+        let root = tempfile::tempdir().unwrap();
+        for name in ["__variant", "absent/manifest.xml"] {
+            assert!(matches!(
+                read_relative_regular_file(root.path(), Path::new(name), 64),
+                Err(SecurePathError::Io(error)) if error.kind() == io::ErrorKind::NotFound
+            ));
+        }
+        fs::write(root.path().join("__variant"), b"modding.xml").unwrap();
+        assert_eq!(
+            read_relative_regular_file(root.path(), Path::new("__variant"), 64).unwrap(),
+            b"modding.xml"
+        );
+        assert!(!matches!(
+            read_relative_regular_file(root.path(), Path::new("../escape"), 64),
+            Err(SecurePathError::Io(error)) if error.kind() == io::ErrorKind::NotFound
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_identity_races_are_not_missing_optional_files() {
+        assert!(matches!(
+            windows_error(fence_windows::WindowsError::IdentityChanged),
+            SecurePathError::Changed
+        ));
+        assert!(matches!(
+            windows_error(fence_windows::WindowsError::Io {
+                operation: "test permission denial",
+                source: io::Error::from(io::ErrorKind::PermissionDenied),
+            }),
+            SecurePathError::Io(error) if error.kind() == io::ErrorKind::PermissionDenied
+        ));
+    }
+
+    #[test]
+    fn relative_hash_is_bounded_and_rejects_aliases() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("input"), b"payload").unwrap();
+        let actual = inspect_relative_regular_file(root.path(), Path::new("input"), 7).unwrap();
+        assert_eq!(
+            actual,
+            inspect_regular_file(&root.path().join("input"), 7).unwrap()
+        );
+        assert!(matches!(
+            inspect_relative_regular_file(root.path(), Path::new("input"), 6),
+            Err(SecurePathError::TooLarge)
+        ));
+        std::fs::hard_link(root.path().join("input"), root.path().join("alias")).unwrap();
+        assert!(matches!(
+            inspect_relative_regular_file(root.path(), Path::new("input"), 7),
+            Err(SecurePathError::Unsafe)
+        ));
+        #[cfg(unix)]
+        {
+            let outside = tempfile::tempdir().unwrap();
+            std::fs::write(outside.path().join("input"), b"payload").unwrap();
+            std::os::unix::fs::symlink(outside.path(), root.path().join("outside")).unwrap();
+            assert!(
+                inspect_relative_regular_file(root.path(), Path::new("outside/input"), 7).is_err()
+            );
+        }
+    }
+
     use super::*;
 
     #[test]

@@ -92,7 +92,7 @@
 </style>
 <script>
     async function showDiagnostic(element) {
-        element.innerText = await window.electronAPI.invoke('diagnosticInfo', []);
+        element.innerText = await window.deltamodBackend.invoke('diagnosticInfo', []);
     }
     showDiagnostic(document.querySelector('.credit'));
     var audio = new Audio('./ost.mp3');
@@ -100,7 +100,7 @@
     audio.play();
 
     (async () => {
-        document.querySelector('.error').innerText = await window.electronAPI.invoke('fetchSharedVariable', ['errorMessage']);
+        document.querySelector('.error').innerText = await window.deltamodBackend.invoke('fetchSharedVariable', ['errorMessage']);
     })();
 </script>
 </html>
