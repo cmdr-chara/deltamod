@@ -1,3 +1,26 @@
+# Deltamod Community 2.0.22
+
+Released 2026-09-28.
+
+## Changes
+
+- docs: refresh roadmap from codebase and upstream audit (`7ac8aa5`).
+- test: retire Electron-specific validation (`d451315`).
+- refactor: retire Electron and harden Tauri platform boundaries (`c0e76c9`).
+- fix(ci): preserve Windows resources and record Tauri hardening provenance (`ffb3aeb`).
+- fix: make recovery fail closed and add cancellable verified updates (`c1e492d`).
+- docs: register original recovery and updater implementation provenance (`8734194`).
+- fix: qualify application state in updater shutdown hook (`be6128d`).
+- fix: repair macOS imports, bounded transfers and patch launch ownership (`e3380db`).
+- fix: make mod selection exact, bounded and capability-aware (`344a6c0`).
+- docs: record exact provenance for native selection hardening (`b6fc3a1`).
+- ci: deduplicate validation, retain diagnostics and harden platform regressions (`55f7e05`).
+- docs: record the CI result gate's original-work provenance (`ce704d7`).
+- test: run macOS Steam lifecycle fixture only on macOS (`e248b1a`).
+- test: preserve Windows recovery alias fixture spelling (`6931023`).
+- style: apply rustfmt to recovery alias regression (`b5aae7e`).
+- Merge pull request #104 from cmdr-chara/astra/tauri-only-hardening (`32569e4`).
+
 # Deltamod Community 2.0.18
 
 Planned stable release.
