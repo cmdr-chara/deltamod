@@ -759,7 +759,7 @@ jobs:
           Rehearsal tag: \`${RELEASE_TAG}\`
           EOF
       - name: Prepare unsigned preview notes
-        if: needs.validate.outputs.unsigned_preview == 'true'
+        if: needs.validate.outputs.unsigned_preview == 'true' && needs.validate.outputs.validation != 'true'
         shell: bash
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
@@ -777,12 +777,32 @@ jobs:
 
           EOF
           tail -n +2 preview-changes.md | sed "s/community-v${RELEASE_VERSION}/${RELEASE_TAG}/g" >> release-notes.md
+      - name: Record unsigned release validation
+        if: needs.validate.outputs.validation == 'true'
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ needs.validate.outputs.candidate_sha }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          test ! -e release-artifacts/latest.json
+          printf '### Release validation\n\n- Candidate: `%s`\n- Version: `%s`\n- Windows/Linux/Intel macOS/Apple Silicon packages passed install and smoke validation.\n- Artifacts are intentionally unsigned and were not published.\n' \
+            "$CANDIDATE_SHA" "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload release-validation manifest
+        if: needs.validate.outputs.validation == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-validation-${{ needs.validate.outputs.candidate_sha }}
+          retention-days: 7
+          if-no-files-found: error
+          path: release-artifacts/SHA256SUMS.txt
       - name: Attest release artifacts
+        if: needs.validate.outputs.validation != 'true'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: release-artifacts/*
       - name: Publish stable signed release
-        if: needs.validate.outputs.rehearsal != 'true' && needs.validate.outputs.unsigned_preview != 'true'
+        if: needs.validate.outputs.validation != 'true' && needs.validate.outputs.rehearsal != 'true' && needs.validate.outputs.unsigned_preview != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
@@ -792,7 +812,7 @@ jobs:
           test "${#artifacts[@]}" -eq 26
           gh release create "$RELEASE_TAG" "${artifacts[@]}" --verify-tag --latest --notes-file release-notes.md --title "Deltamod Community ${RELEASE_TAG#community-v}"
       - name: Publish isolated signed updater rehearsal
-        if: needs.validate.outputs.rehearsal == 'true'
+        if: needs.validate.outputs.validation != 'true' && needs.validate.outputs.rehearsal == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
@@ -807,7 +827,7 @@ jobs:
             --notes-file release-notes.md \
             --title "Signed updater rehearsal ${RELEASE_VERSION} (run ${GITHUB_RUN_ID})"
       - name: Publish unsigned Tauri preview
-        if: needs.validate.outputs.unsigned_preview == 'true'
+        if: needs.validate.outputs.validation != 'true' && needs.validate.outputs.unsigned_preview == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
