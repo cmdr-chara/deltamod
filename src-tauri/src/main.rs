@@ -1809,7 +1809,7 @@ fn main() {
             event,
             tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
         ) {
-            if let Some(state) = app.try_state::<AppState>() {
+            if let Some(state) = app.try_state::<state::AppState>() {
                 state.updater_control.cancel();
             }
             controller::protocol_shutdown(app);
