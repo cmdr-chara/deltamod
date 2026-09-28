@@ -61,7 +61,7 @@ jobs:
           "$RUNNER_TEMP/actionlint/actionlint" -shellcheck= -pyflakes= \
             .github/workflows/ci.yml .github/workflows/frontend-refinement.yml \
             .github/workflows/provenance.yml .github/workflows/secure-updater-policy.yml \
-            .github/workflows/dependabot-automerge.yml
+            .github/workflows/dependabot-automerge.yml .github/workflows/tauri-release.yml
           node --test scripts/ci/gate.test.cjs
       - run: npm run verify:tauri-only
       - run: npm run typecheck
