@@ -1,0 +1,89 @@
+name: Publish validated preview 2.0.18 run 11
+
+on:
+  push:
+    branches: [DeltaMaster]
+    paths:
+      - .github/workflows/publish-preview-2.0.18-run-11.yml
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: publish-preview-2.0.18-run-11
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Verify validated candidate, create tag, and dispatch release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: 72eca0f65e0794a2cae74afc976318cafe2b072b
+          PREVIEW_TAG: community-tauri-preview-v2.0.18-run-11
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git merge-base --is-ancestor "$CANDIDATE_SHA" HEAD
+          version="$(git show "$CANDIDATE_SHA:package.json" | jq -r '.version')"
+          test "$version" = "2.0.18"
+
+          deadline=$((SECONDS + 3300))
+          required=(
+            "Community CI"
+            "Community Provenance"
+            "Secure Updater Policy"
+            "Community Tauri Release"
+          )
+
+          while :; do
+            runs="$(gh api -H 'Accept: application/vnd.github+json' \
+              "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$CANDIDATE_SHA&per_page=100")"
+            pending=false
+            for workflow in "${required[@]}"; do
+              latest="$(jq -c --arg workflow "$workflow" \
+                '[.workflow_runs[] | select(.name == $workflow)]
+                 | sort_by(.run_number, .run_attempt, .id)
+                 | last // empty' <<<"$runs")"
+              if [[ -z "$latest" ]]; then
+                pending=true
+                continue
+              fi
+              status="$(jq -r '.status' <<<"$latest")"
+              conclusion="$(jq -r '.conclusion // ""' <<<"$latest")"
+              if [[ "$status" == "completed" && "$conclusion" == "success" ]]; then
+                continue
+              fi
+              if [[ "$status" == "completed" ]]; then
+                echo "::error::$workflow completed with $conclusion for $CANDIDATE_SHA"
+                exit 1
+              fi
+              pending=true
+            done
+
+            if [[ "$pending" == "false" ]]; then
+              break
+            fi
+            if (( SECONDS >= deadline )); then
+              echo "::error::Timed out waiting for release validation of $CANDIDATE_SHA"
+              exit 1
+            fi
+            sleep 30
+          done
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$PREVIEW_TAG" >/dev/null 2>&1; then
+            echo "::error::Preview tag already exists: $PREVIEW_TAG"
+            exit 1
+          fi
+
+          git tag "$PREVIEW_TAG" "$CANDIDATE_SHA"
+          git push origin "refs/tags/$PREVIEW_TAG"
+
+          gh workflow run tauri-release.yml --ref "$PREVIEW_TAG"
