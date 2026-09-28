@@ -421,8 +421,60 @@ jobs:
 
           echo "release=true" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve stable release version
+      - name: Select signed publication or unsigned release validation
         if: steps.candidate.outputs.release == 'true'
+        id: release_route
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            TAURI_SIGNING_PRIVATE_KEY
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+            WINDOWS_CERTIFICATE
+            WINDOWS_CERTIFICATE_PASSWORD
+            APPLE_CERTIFICATE
+            APPLE_CERTIFICATE_PASSWORD
+            KEYCHAIN_PASSWORD
+            APPLE_ID
+            APPLE_PASSWORD
+            APPLE_TEAM_ID
+          )
+          missing=()
+          for name in "${required[@]}"; do
+            [ -n "${!name:-}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            printf 'Signing credentials unavailable (%s); running unsigned release validation instead of creating a stable tag.\n' "$(IFS=,; echo "${missing[*]}")"
+          fi
+
+      - name: Dispatch unsigned release validation
+        if: steps.candidate.outputs.release == 'true' && steps.release_route.outputs.publish != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run tauri-release.yml --ref DeltaMaster \
+            -f release_mode=validation \
+            -f candidate_sha="$VALIDATED_SHA"
+
+      - name: Resolve stable release version
+        if: steps.candidate.outputs.release == 'true' && steps.release_route.outputs.publish == 'true'
         id: version
         shell: bash
         run: |
@@ -444,7 +496,7 @@ jobs:
           echo "tag=community-v$version" >> "$GITHUB_OUTPUT"
 
       - name: Synchronize release manifests
-        if: steps.candidate.outputs.release == 'true'
+        if: steps.candidate.outputs.release == 'true' && steps.release_route.outputs.publish == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           VALIDATED_SHA: ${{ github.sha }}
@@ -519,7 +571,7 @@ jobs:
           PY
 
       - name: Commit detached release metadata, tag, and dispatch stable release
-        if: steps.candidate.outputs.release == 'true'
+        if: steps.candidate.outputs.release == 'true' && steps.release_route.outputs.publish == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ steps.version.outputs.tag }}
