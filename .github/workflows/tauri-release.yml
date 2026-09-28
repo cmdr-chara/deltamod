@@ -2,19 +2,27 @@ name: Community Tauri Release
 
 on:
   push:
+    branches: [DeltaMaster]
     tags:
       - community-v*
       - community-tauri-preview-v*
+    paths:
+      - .github/workflows/tauri-release.yml
   workflow_dispatch:
     inputs:
       release_mode:
-        description: Publish a stable tag or an isolated signed-updater rehearsal
+        description: Publish stable, rehearse signing, or validate unsigned packages
         required: true
         default: stable
         type: choice
         options:
           - stable
           - rehearsal
+          - validation
+      candidate_sha:
+        description: Exact DeltaMaster commit to validate in validation mode
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -31,8 +39,13 @@ jobs:
       release_version: ${{ steps.release.outputs.release_version }}
       rehearsal: ${{ steps.release.outputs.rehearsal }}
       unsigned_preview: ${{ steps.release.outputs.unsigned_preview }}
+      validation: ${{ steps.release.outputs.validation }}
+      candidate_sha: ${{ steps.release.outputs.candidate_sha }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_mode == 'validation' && inputs.candidate_sha || github.ref }}
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
@@ -75,11 +88,28 @@ jobs:
         id: release
         shell: bash
         env:
-          RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.release_mode || 'stable' }}
+          RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.release_mode || (github.event_name == 'push' && github.ref_type == 'branch' && 'validation') || 'stable' }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REQUESTED_CANDIDATE_SHA: ${{ inputs.candidate_sha || '' }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF_NAME" == community-tauri-preview-v* ]]; then
+          candidate_sha="$(git rev-parse HEAD)"
+          validation=false
+          if [ "$RELEASE_MODE" = validation ]; then
+            test "$GITHUB_REF_TYPE" = branch
+            test "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH"
+            if [ -n "$REQUESTED_CANDIDATE_SHA" ]; then
+              [[ "$REQUESTED_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+              test "$candidate_sha" = "$REQUESTED_CANDIDATE_SHA"
+            fi
+            git fetch origin "$DEFAULT_BRANCH" --no-tags
+            git merge-base --is-ancestor "$candidate_sha" "origin/$DEFAULT_BRANCH"
+            release_version="$(node -p "require('./package.json').version")"
+            release_tag="release-validation-v${release_version}-run-${GITHUB_RUN_ID}"
+            rehearsal=false
+            unsigned_preview=true
+            validation=true
+          elif [[ "$GITHUB_REF_NAME" == community-tauri-preview-v* ]]; then
             test "$GITHUB_EVENT_NAME" = push
             test "$GITHUB_REF_TYPE" = tag
             release_tag="$GITHUB_REF_NAME"
@@ -87,6 +117,7 @@ jobs:
             release_version="${preview_version%%-run-*}"
             rehearsal=false
             unsigned_preview=true
+            validation=false
           elif [ "$RELEASE_MODE" = rehearsal ]; then
             test "$GITHUB_EVENT_NAME" = workflow_dispatch
             test "$GITHUB_REF_TYPE" = branch
@@ -95,6 +126,7 @@ jobs:
             release_tag="updater-rehearsal-v${release_version}-run-${GITHUB_RUN_ID}"
             rehearsal=true
             unsigned_preview=false
+            validation=false
           else
             test "$RELEASE_MODE" = stable
             test "$GITHUB_REF_TYPE" = tag
@@ -102,6 +134,7 @@ jobs:
             release_version="${release_tag#community-v}"
             rehearsal=false
             unsigned_preview=false
+            validation=false
           fi
           RELEASE_TAG="$release_tag" RELEASE_VERSION="$release_version" node <<'NODE'
           const fs = require('node:fs');
@@ -114,7 +147,8 @@ jobs:
           const escapedVersion = releaseVersion.replaceAll('.', '\\.');
           const unsignedPreviewTag = new RegExp(`^community-tauri-preview-v${escapedVersion}(?:-run-[1-9]\\d*)?$`);
           const rehearsalTag = new RegExp(`^updater-rehearsal-v${releaseVersion.replaceAll('.', '\\.')}-run-\\d+$`);
-          if (releaseTag !== stableTag && !unsignedPreviewTag.test(releaseTag) && !rehearsalTag.test(releaseTag)) {
+          const validationTag = new RegExp(`^release-validation-v${escapedVersion}-run-[1-9]\\d*$`);
+          if (releaseTag !== stableTag && !unsignedPreviewTag.test(releaseTag) && !rehearsalTag.test(releaseTag) && !validationTag.test(releaseTag)) {
             throw new Error(`Release tag is not bound to ${releaseVersion}: ${releaseTag}`);
           }
           const packageVersion = require('./package.json').version;
@@ -138,6 +172,8 @@ jobs:
           echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
           echo "rehearsal=$rehearsal" >> "$GITHUB_OUTPUT"
           echo "unsigned_preview=$unsigned_preview" >> "$GITHUB_OUTPUT"
+          echo "validation=$validation" >> "$GITHUB_OUTPUT"
+          echo "candidate_sha=$candidate_sha" >> "$GITHUB_OUTPUT"
       - name: Require release-signing credentials
         if: steps.release.outputs.unsigned_preview != 'true'
         shell: bash
