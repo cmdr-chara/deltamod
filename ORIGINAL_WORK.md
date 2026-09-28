@@ -45,6 +45,7 @@ The machine-readable source of truth is [`provenance/community-original-work.jso
 | `tests/updater-notice.test.js` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
 | `web/modules/updater-notice.css` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
 | `web/modules/updater-notice.js` | [`c1e492d3df15a78358dcfe477f0485de9fdc6db5`](https://github.com/cmdr-chara/deltamod/commit/c1e492d3df15a78358dcfe477f0485de9fdc6db5) | 2026-09-28 | Added as a new file |
+| `src-tauri/crates/patching-runtime/src/selection.rs` | [`344a6c0646a7cd3677931a726d02ceb88925b7eb`](https://github.com/cmdr-chara/deltamod/commit/344a6c0646a7cd3677931a726d02ceb88925b7eb) | 2026-09-28 | Added as a new file |
 
 ## What the record proves
 

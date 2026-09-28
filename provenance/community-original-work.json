@@ -154,6 +154,12 @@
       "firstCommit": "c1e492d3df15a78358dcfe477f0485de9fdc6db5",
       "firstCommitDate": "2026-09-28",
       "evidence": "added"
+    },
+    {
+      "path": "src-tauri/crates/patching-runtime/src/selection.rs",
+      "firstCommit": "344a6c0646a7cd3677931a726d02ceb88925b7eb",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
     }
   ]
 }
