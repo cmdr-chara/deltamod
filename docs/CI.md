@@ -93,5 +93,14 @@ This diagnostic job cannot publish a release. Its existing raw performance evide
 remains separate from the same-host release benchmark and signed release gates.
 Stable-release preparation runs only after a successful main-branch native result,
 checks out the exact validated SHA, refuses a stale candidate and serializes tag
-preparation. It does not force-move a release tag or bypass the release workflow's
-installed-package, signing, provenance, upgrade or rollback gates.
+preparation. When every signing credential is present it may create the immutable
+stable tag and dispatch the signed release. If any signing credential is absent, it
+does not create a stable tag. Instead it dispatches `Community Tauri Release` in
+`validation` mode for that exact SHA.
+
+Release validation builds and installs the Windows, Linux, Intel macOS and Apple
+Silicon packages, runs the packaged smoke/protocol/sidecar checks, verifies that the
+candidate contains no updater signatures or `latest.json`, and retains a SHA-256
+manifest for seven days. Validation artifacts are intentionally unsigned and are not
+published. A green validation run is packaging evidence, not authorization to call a
+stable release signed or publishable.
