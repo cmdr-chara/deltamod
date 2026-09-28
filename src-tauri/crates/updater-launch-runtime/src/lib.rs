@@ -351,6 +351,42 @@ impl GameRuntimeConfig {
     }
 }
 
+/// The OS opener is not the Steam game's process. Callers must leave the
+/// verified patch generation installed on handoff and recover it on next startup.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LaunchDisposition {
+    OwnedProcess,
+    SteamHandoff,
+}
+
+/// Excludes competing launches before a patcher starts mutating the game.
+/// Dropping an unlaunched reservation releases it, including cancelled staging.
+pub struct LaunchReservation<'a> {
+    runtime: &'a GameRuntime,
+    generation: u64,
+    launched: bool,
+}
+impl LaunchReservation<'_> {
+    pub fn launch(&mut self) -> Result<LaunchDisposition, GameError> {
+        if self.launched {
+            return Err(GameError::AlreadyRunning);
+        }
+        // A failed observer setup can leave an owned process alive. This lease
+        // is single-use even when launch reports an error.
+        self.launched = true;
+        self.runtime.launch_reserved()
+    }
+}
+impl Drop for LaunchReservation<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.runtime.process.lock() {
+            if state.generation == self.generation {
+                state.reserved = false;
+            }
+        }
+    }
+}
+
 pub trait GameLifecycle: Send + Sync {
     fn launched(&self) {}
     fn finished(&self, _success: bool) {}
@@ -364,6 +400,7 @@ impl GameLifecycle for NoopGameLifecycle {}
 #[derive(Default)]
 struct ProcessState {
     running: bool,
+    reserved: bool,
     generation: u64,
 }
 
@@ -427,7 +464,10 @@ impl GameRuntime {
                 Ok(Some(value))
             }
             "loadedDeltarune" => Ok(Some(self.loaded_deltarune())),
-            "startGame" => Ok(Some(json!(self.start_game()?))),
+            "startGame" => {
+                self.launch_game()?;
+                Ok(Some(json!(true)))
+            }
             // Electron has no such handler. Do not silently give it startGame semantics.
             "startGameVanilla" => Err(GameError::UnsupportedChannel),
             // The Electron handler is deliberately a no-op and resolves undefined.
@@ -498,7 +538,28 @@ impl GameRuntime {
         }
     }
 
-    fn start_game(&self) -> Result<bool, GameError> {
+    pub fn reserve_launch(&self) -> Result<LaunchReservation<'_>, GameError> {
+        let mut state = self
+            .process
+            .lock()
+            .map_err(|_| GameError::RuntimeUnavailable)?;
+        if state.running || state.reserved {
+            return Err(GameError::AlreadyRunning);
+        }
+        state.reserved = true;
+        state.generation = state.generation.wrapping_add(1);
+        Ok(LaunchReservation {
+            runtime: self,
+            generation: state.generation,
+            launched: false,
+        })
+    }
+
+    pub fn launch_game(&self) -> Result<LaunchDisposition, GameError> {
+        self.reserve_launch()?.launch()
+    }
+
+    fn launch_reserved(&self) -> Result<LaunchDisposition, GameError> {
         let store = self.store()?;
         let id = store
             .get("gamePid")
@@ -527,28 +588,16 @@ impl GameRuntime {
             let uri = SteamUri::parse(format!("steam://rungameid/{app_id}"))
                 .or_else(|_| SteamUri::run(app_id))
                 .map_err(|_| GameError::InvalidSteamAppId)?;
-            let mut state = self
-                .process
+            self.steam.open(&uri).map_err(|_| GameError::LaunchFailed)?;
+            self.process
                 .lock()
-                .map_err(|_| GameError::RuntimeUnavailable)?;
-            if state.running {
-                return Err(GameError::AlreadyRunning);
-            }
-            state.running = true;
-            drop(state);
-            if self.steam.open(&uri).is_err() {
-                if let Ok(mut state) = self.process.lock() {
-                    state.running = false;
-                }
-                return Err(GameError::LaunchFailed);
-            }
+                .map_err(|_| GameError::RuntimeUnavailable)?
+                .running = true;
             // This acknowledges a Steam handoff, not ownership of a game process.
             // Production exits through this callback; do not restore on opener exit.
             self.lifecycle.steam_launched();
-            if let Ok(mut state) = self.process.lock() {
-                state.running = false;
-            }
-            return Ok(true);
+            // Retain exclusion until shutdown; Steam is not a reaped child.
+            return Ok(LaunchDisposition::SteamHandoff);
         }
 
         if self.config.host == HostPlatform::Linux
@@ -567,15 +616,11 @@ impl GameRuntime {
             .process
             .lock()
             .map_err(|_| GameError::RuntimeUnavailable)?;
-        if state.running {
-            return Err(GameError::AlreadyRunning);
-        }
         let child = self
             .spawner
             .spawn(&spec)
             .map_err(|_| GameError::LaunchFailed)?;
         state.running = true;
-        state.generation = state.generation.wrapping_add(1);
         let generation = state.generation;
         drop(state);
         self.lifecycle.launched();
@@ -620,7 +665,7 @@ impl GameRuntime {
             }
             return Err(GameError::LaunchFailed);
         }
-        Ok(true)
+        Ok(LaunchDisposition::OwnedProcess)
     }
 
     fn resolve_installation(
@@ -753,9 +798,9 @@ impl GameResolution {
         match self.platform.as_str() {
             "darwin" => {
                 let bundle = self.bundle.as_ref().ok_or(GameError::InvalidCatalog)?;
-                LaunchSpec::new(Platform::Macos, "open", &self.root)
+                LaunchSpec::new(Platform::Macos, "/usr/bin/open", &self.root)
                     .map_err(|_| GameError::InvalidCatalog)
-                    .map(|spec| spec.arg("-W").arg(bundle.to_string_lossy()))
+                    .map(|spec| spec.arg("-n").arg("-W").arg(bundle.to_string_lossy()))
             }
             "linux" => LaunchSpec::new(Platform::Linux, "sh", &self.root)
                 .map_err(|_| GameError::InvalidCatalog)
@@ -1227,12 +1272,20 @@ mod tests {
                 steam.clone(),
                 Arc::new(NoopGameLifecycle),
             );
-            assert_eq!(runtime.start_game(), Ok(true));
+            assert_eq!(runtime.launch_game(), Ok(LaunchDisposition::SteamHandoff));
             assert_eq!(*steam.0.lock().unwrap(), ["steam://rungameid/391540"]);
             assert!(spawner.0.lock().unwrap().is_empty());
+            assert!(runtime.is_running());
+            assert_eq!(runtime.launch_game(), Err(GameError::AlreadyRunning));
+            let runtime = GameRuntime::with_adapters(
+                config.clone(),
+                spawner.clone(),
+                steam.clone(),
+                Arc::new(NoopGameLifecycle),
+            );
             store["steamAppId"] = json!("391540/--inject");
             fs::write(&config.store_path, serde_json::to_vec(&store).unwrap()).unwrap();
-            assert_eq!(runtime.start_game(), Err(GameError::InvalidSteamAppId));
+            assert_eq!(runtime.launch_game(), Err(GameError::InvalidSteamAppId));
             assert_eq!(steam.0.lock().unwrap().len(), 1);
         }
     }
@@ -1265,10 +1318,10 @@ mod tests {
                 release: Mutex::new(waiter),
             }),
         );
-        runtime.start_game().unwrap();
+        runtime.launch_game().unwrap();
         receiver.recv_timeout(Duration::from_secs(3)).unwrap();
         assert!(runtime.is_running());
-        assert_eq!(runtime.start_game(), Err(GameError::AlreadyRunning));
+        assert_eq!(runtime.launch_game(), Err(GameError::AlreadyRunning));
         release.send(()).unwrap();
         for _ in 0..100 {
             if !runtime.is_running() {
@@ -1312,5 +1365,53 @@ mod tests {
             fs::write(config.games_dir.join(format!("{index}.json")), b"{}").unwrap();
         }
         assert_eq!(runtime.catalog(), Err(GameError::CatalogLimit));
+    }
+    #[test]
+    fn reservation_excludes_launches_until_patcher_finalization() {
+        let (_root, config) = game_fixture();
+        let runtime = GameRuntime::with_adapters(
+            config,
+            Arc::new(CaptureSpawner::default()),
+            Arc::new(RejectSteam),
+            Arc::new(NoopGameLifecycle),
+        );
+        let mut reserved = runtime.reserve_launch().unwrap();
+        assert!(matches!(
+            runtime.reserve_launch(),
+            Err(GameError::AlreadyRunning)
+        ));
+        assert_eq!(runtime.launch_game(), Err(GameError::AlreadyRunning));
+        assert_eq!(reserved.launch(), Ok(LaunchDisposition::OwnedProcess));
+        assert_eq!(reserved.launch(), Err(GameError::AlreadyRunning));
+        for _ in 0..100 {
+            if !runtime.is_running() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!runtime.is_running());
+        // The child exited, but restoration is not finished until the lease drops.
+        assert!(matches!(
+            runtime.reserve_launch(),
+            Err(GameError::AlreadyRunning)
+        ));
+        drop(reserved);
+        assert!(runtime.reserve_launch().is_ok());
+    }
+
+    #[test]
+    fn mac_launch_requests_a_new_instance_of_the_exact_bundle() {
+        let root = PathBuf::from(if cfg!(windows) { "C:/Games" } else { "/Games" });
+        let bundle = root.join("Game With Spaces.app");
+        let resolution = GameResolution {
+            root: root.clone(),
+            platform: "darwin".into(),
+            executable: bundle.join("Contents/MacOS/runner"),
+            bundle: Some(bundle.clone()),
+        };
+        let spec = resolution.launch_spec(HostPlatform::Darwin).unwrap();
+        assert_eq!(spec.executable, PathBuf::from("/usr/bin/open"));
+        assert_eq!(spec.args, vec!["-n", "-W", bundle.to_str().unwrap()]);
+        assert_eq!(spec.cwd, root);
     }
 }

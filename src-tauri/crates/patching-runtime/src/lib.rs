@@ -28,7 +28,7 @@ use deltamod_tools_runtime::{
     undertale_mod_cli, verify_tool, RuntimeError as ToolRuntimeError, ToolKind, ToolPath,
     DEFAULT_TIMEOUT, MAX_OUTPUT_BYTES,
 };
-use deltamod_updater_launch_runtime::GameRuntime;
+use deltamod_updater_launch_runtime::{GameRuntime, LaunchDisposition};
 use roxmltree::Document;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -104,7 +104,20 @@ impl PlatformDefinition {
         checked_relative(&normalized).map_err(|_| Error::InvalidTarget)?;
         if normalized.eq_ignore_ascii_case("data.win") {
             if let Some(data) = self.data_files.first() {
-                return Ok(data.clone());
+                checked_relative(data).map_err(|_| Error::InvalidTarget)?;
+                // Preserve the spelling of an unchanged target on case-sensitive
+                // volumes. Only translate an actual platform alias.
+                return Ok(if data.eq_ignore_ascii_case(&normalized) {
+                    normalized
+                } else {
+                    data.clone()
+                });
+            }
+        }
+        if let Some(content_root) = &self.content_root {
+            checked_relative(content_root).map_err(|_| Error::InvalidTarget)?;
+            if normalized.starts_with(&format!("{content_root}/")) {
+                return Ok(normalized);
             }
         }
         let mapped = match self.patch_layout.as_str() {
@@ -242,7 +255,10 @@ impl Runtime {
                     invalid_reason = Some("Invalid neededFiles checksum.".to_owned());
                     break;
                 }
-                let relative_path = match checked_relative(&relative.replace('\\', "/")) {
+                let mapped = self.definition.map_patch_target(relative);
+                let relative_path = match mapped
+                    .and_then(|value| checked_relative(&value).map_err(|_| Error::InvalidTarget))
+                {
                     Ok(path) => path,
                     Err(_) => {
                         invalid_reason = Some(format!("Unsafe required game file: {relative}"));
@@ -743,6 +759,11 @@ impl Runtime {
         emit: impl FnMut(Progress),
         cancelled: impl Fn() -> bool,
     ) -> Result<PatchResult, Error> {
+        // Reserve before staging/publication, not after another launch may have
+        // started using the installation. RAII releases on validation/cancel errors.
+        let mut launch = game
+            .reserve_launch()
+            .map_err(|error| Error::Launch(error.to_string()))?;
         let result = self.patch_staged_lifecycle(
             selected,
             operation_id,
@@ -751,14 +772,22 @@ impl Runtime {
             emit,
             cancelled,
         )?;
-        game.dispatch("startGame", &[]).map_err(|error| {
-            let _ = self.uninstall_active_patch_set(
-                operation_id,
-                &lifecycle.store,
-                &lifecycle.workspace,
-            );
-            Error::Launch(error.to_string())
+        let disposition = launch.launch().map_err(|error| {
+            // A failed observer must not restore while an unreaped game may still
+            // be reading patched files. The durable generation remains available.
+            if game.is_running() {
+                return Error::Launch(format!("{error}. Game lifetime is unknown; close the game before recovering its files."));
+            }
+            match self.uninstall_active_patch_set(operation_id, &lifecycle.store, &lifecycle.workspace) {
+                Ok(_) => Error::Launch(error.to_string()),
+                Err(recovery) => Error::Launch(format!("{error}. Recovery requires attention: {recovery}")),
+            }
         })?;
+        if disposition == LaunchDisposition::SteamHandoff {
+            // Steam opens asynchronously. Its URI handler exiting does not mean
+            // the game exited. Keep the durable recovery generation installed.
+            return Ok(result);
+        }
         // GameRuntime owns and reaps the child; keeping this operation alive ensures
         // the lifecycle recovery generation restores originals after exit.
         while game.is_running() {
@@ -2334,5 +2363,185 @@ name = "Test"
         assert!(matches!(error, Error::Staging(_)));
         assert_eq!(fs::read(game.join("data.win")).unwrap(), b"original");
         assert!(!game.join(JOURNAL_NAME).exists());
+    }
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn steam_handoff_keeps_native_mac_patches_until_explicit_startup_recovery() {
+        use deltamod_updater_launch_runtime::{
+            ChildProcess, GameRuntimeConfig, HostPlatform, LaunchError, LaunchSpec,
+            NoopGameLifecycle, ProcessSpawner, SteamError, SteamOpener, SteamUri,
+        };
+        use std::sync::Arc;
+        struct NoChild;
+        impl ProcessSpawner for NoChild {
+            fn spawn(&self, _: &LaunchSpec) -> Result<Box<dyn ChildProcess>, LaunchError> {
+                panic!("Steam must not spawn a direct game child");
+            }
+        }
+        struct InspectSteam {
+            target: PathBuf,
+            fail: bool,
+        }
+        impl SteamOpener for InspectSteam {
+            fn open(&self, _: &SteamUri) -> Result<(), SteamError> {
+                assert_eq!(fs::read(&self.target).unwrap(), b"patched");
+                if self.fail {
+                    Err(SteamError::InvalidUri)
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        for fail in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let game_root = root.path().join("game");
+            let data = "Game.app/Contents/Resources/game.ios";
+            let runner = "Game.app/Contents/MacOS/runner";
+            let target = game_root.join(data);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::create_dir_all(game_root.join(runner).parent().unwrap()).unwrap();
+            fs::write(&target, b"original").unwrap();
+            fs::write(game_root.join(runner), b"fixture").unwrap();
+            let games = root.path().join("games");
+            fs::create_dir(&games).unwrap();
+            fs::write(games.join("game.json"), serde_json::to_vec(&serde_json::json!({
+                "id":"test.game", "platforms":{"darwin":{"executable":runner,"dataFiles":[data],"bundle":"Game.app"}}
+            })).unwrap()).unwrap();
+            let store = root.path().join("store.json");
+            fs::write(&store, serde_json::to_vec(&serde_json::json!({
+                "gamePid":"test.game","gamePath":game_root,"gamePlatform":"darwin","isSteam":true,"steamAppId":"391540"
+            })).unwrap()).unwrap();
+            let game = GameRuntime::with_adapters(
+                GameRuntimeConfig::new(games, store, HostPlatform::Darwin),
+                Arc::new(NoChild),
+                Arc::new(InspectSteam {
+                    target: target.clone(),
+                    fail,
+                }),
+                Arc::new(NoopGameLifecycle),
+            );
+            let mods = root.path().join("mods");
+            let packet = mods.join("one");
+            fs::create_dir_all(&packet).unwrap();
+            fs::write(packet.join("new.bin"), b"patched").unwrap();
+            fs::write(packet.join("__deltaID.json"), r#"{"uniqueId":"id"}"#).unwrap();
+            fs::write(packet.join("meta.toml"), "[metadata]\nname='Test'\n").unwrap();
+            fs::write(
+                packet.join("modding.xml"),
+                r#"<root><patch type="override" patch="new.bin" to="data.win"/></root>"#,
+            )
+            .unwrap();
+            let runtime = Runtime {
+                game_root,
+                mod_root: mods,
+                tools_root: root.path().join("tools"),
+                hash_cache_path: root.path().join("hash.json"),
+                platform: PatchPlatform::Darwin,
+                platform_name: "darwin".into(),
+                arch: "arm64".into(),
+                definition: PlatformDefinition {
+                    data_files: vec![data.into()],
+                    patch_layout: "gamemaker-mac-resources".into(),
+                    content_root: Some("Game.app/Contents/Resources".into()),
+                },
+            };
+            let lifecycle = LifecycleStorageRoots {
+                store: root.path().join("lifecycle"),
+                workspace: root.path().join("workspace"),
+            };
+            let result = runtime.patch_and_run(
+                &["id".into()],
+                "test-steam",
+                &lifecycle,
+                &game,
+                |_| {},
+                || false,
+            );
+            if fail {
+                assert!(matches!(result, Err(Error::Launch(_))));
+                assert_eq!(fs::read(&target).unwrap(), b"original");
+                assert!(game.reserve_launch().is_ok());
+            } else {
+                assert!(result.unwrap().patched);
+                assert_eq!(fs::read(&target).unwrap(), b"patched");
+                // A second patch request must fail before touching the first session.
+                assert!(runtime
+                    .patch_and_run(
+                        &["id".into()],
+                        "second-steam",
+                        &lifecycle,
+                        &game,
+                        |_| {},
+                        || false
+                    )
+                    .is_err());
+                assert_eq!(fs::read(&target).unwrap(), b"patched");
+                runtime.recover_startup_lifecycle(&lifecycle).unwrap();
+                assert_eq!(fs::read(&target).unwrap(), b"original");
+            }
+        }
+    }
+
+    #[test]
+    fn required_file_checks_use_the_same_native_mapping_as_patch_publication() {
+        for (layout, content, data, platform) in [
+            (
+                "gamemaker-mac-resources",
+                "Game.app/Contents/Resources",
+                "Game.app/Contents/Resources/game.ios",
+                PatchPlatform::Darwin,
+            ),
+            (
+                "gamemaker-linux-assets",
+                "assets",
+                "assets/game.unx",
+                PatchPlatform::Linux,
+            ),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let game = root.path().join("game");
+            fs::create_dir_all(game.join(content)).unwrap();
+            fs::write(game.join(data), b"native game data").unwrap();
+            let runtime = Runtime {
+                game_root: game,
+                mod_root: root.path().join("mods"),
+                tools_root: root.path().join("tools"),
+                hash_cache_path: root.path().join("hash.json"),
+                platform,
+                platform_name: "unused".into(),
+                arch: "unused".into(),
+                definition: PlatformDefinition {
+                    data_files: vec![data.into()],
+                    patch_layout: layout.into(),
+                    content_root: Some(content.into()),
+                },
+            };
+            assert_eq!(runtime.definition.map_patch_target(data).unwrap(), data);
+            let required = vec![
+                (
+                    "match".into(),
+                    vec![RequiredFile {
+                        file: Some("data.win".into()),
+                        checksum: Some(sha2_digest(b"native game data")),
+                    }],
+                ),
+                (
+                    "wrong-version".into(),
+                    vec![RequiredFile {
+                        file: Some("data.win".into()),
+                        checksum: Some(sha2_digest(b"other version")),
+                    }],
+                ),
+            ];
+            let result = runtime.check_required_files(&required).unwrap();
+            assert!(!result["match"].is_incompatible);
+            assert!(result["wrong-version"].is_incompatible);
+        }
+        let unsafe_definition = PlatformDefinition {
+            data_files: vec!["../outside".into()],
+            patch_layout: "windows-root".into(),
+            content_root: None,
+        };
+        assert!(unsafe_definition.map_patch_target("data.win").is_err());
     }
 }

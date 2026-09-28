@@ -19,6 +19,8 @@ struct Server {
     url: Url,
     worker: Option<thread::JoinHandle<()>>,
     stop: Arc<AtomicBool>,
+    received: Arc<AtomicBool>,
+    sent_parts: Arc<AtomicUsize>,
 }
 impl Server {
     fn new(parts: Vec<(Duration, Vec<u8>)>) -> Self {
@@ -31,6 +33,10 @@ impl Server {
         listener.set_nonblocking(true).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = stop.clone();
+        let received = Arc::new(AtomicBool::new(false));
+        let sent_parts = Arc::new(AtomicUsize::new(0));
+        let observed_request = received.clone();
+        let observed_parts = sent_parts.clone();
         let worker = thread::spawn(move || {
             let mut socket = loop {
                 if stopped.load(Ordering::SeqCst) {
@@ -58,6 +64,7 @@ impl Server {
                     Ok(n) => request.extend_from_slice(&chunk[..n]),
                 }
             }
+            observed_request.store(true, Ordering::Release);
             for (delay, bytes) in parts {
                 let start = Instant::now();
                 while start.elapsed() < delay {
@@ -69,12 +76,15 @@ impl Server {
                 if socket.write_all(&bytes).is_err() {
                     return;
                 }
+                observed_parts.fetch_add(1, Ordering::Release);
             }
         });
         Self {
             url,
             worker: Some(worker),
             stop,
+            received,
+            sent_parts,
         }
     }
 }
@@ -294,16 +304,33 @@ fn cancellation_interrupts_both_stalled_headers_and_stalled_body() {
         let server = Server::new(parts);
         let control = UpdateControl::default();
         let _session = control.begin_download().unwrap();
-        let cancellation = control.clone();
-        let thread = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(50));
-            assert!(cancellation.cancel());
+        run(async {
+            let cancel_after_request = async {
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    while !server.received.load(Ordering::Acquire)
+                        || (!before_headers && server.sent_parts.load(Ordering::Acquire) == 0)
+                    {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await
+                .expect("test server did not observe the request/headers");
+                let started = Instant::now();
+                assert!(control.cancel());
+                started
+            };
+            let mut progress = |_, _| Ok(());
+            let (result, cancelled_at) = tokio::join!(
+                download_test(&server, 1024, &control, &mut progress),
+                cancel_after_request
+            );
+            assert!(
+                matches!(result, Err(UpdateError::Cancelled)),
+                "unexpected result: {:?}",
+                result.err()
+            );
+            assert!(cancelled_at.elapsed() < Duration::from_secs(1));
         });
-        let started = Instant::now();
-        let result = run(download_test(&server, 1024, &control, &mut |_, _| Ok(())));
-        assert!(matches!(result, Err(UpdateError::Cancelled)));
-        assert!(started.elapsed() < Duration::from_secs(1));
-        thread.join().unwrap();
     }
 }
 #[test]

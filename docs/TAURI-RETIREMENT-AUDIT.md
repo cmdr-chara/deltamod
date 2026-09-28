@@ -90,3 +90,78 @@ Electron/Tauri desktop comparison remains unchanged.
 No itch.io integration was implemented. Previously reviewed upstream issue/commit
 behavior was used only as problem context. No upstream implementation was copied,
 cherry-picked or transplanted. New fixes stay within the Community Rust/Tauri model.
+
+
+## macOS download and launch investigation
+
+Investigated the report of mod downloads failing on macOS and one downloaded mod
+not appearing in-game against `be6128dd2d5b3914ea5fe60d4537739c05d95943`.
+The report does not establish the tester's installed app version, CPU architecture,
+game edition or exact mod archive. These are independently reproduced code defects,
+not a claim that that particular installation or mod was reproduced.
+
+### Implemented corrections
+
+- Mod/game transfers no longer inherit the short API request timeout or sleep after
+  every network chunk. They have a 30-minute whole-transfer budget and 30-second
+  idle/header deadlines, bounded full-transfer concurrency, immediate queued/idle
+  cancellation, stream byte limits, strict size/encoding checks and complete-file
+  flushing. Progress is throttled separately and does not expose signed query strings.
+- Game-directory copies preserve Unix executable bits, discard privilege/write bits
+  that should not be imported, detect permission changes during inventory/copy and
+  sync copied files before publication. One buffer is reused across the file set.
+  Two regression tests fail on the unchanged parent implementation and pass here.
+- Finder sidecars no longer make a singly wrapped archive appear to lack its manifest.
+  All entries still undergo the original traversal/link/expansion validation.
+- Required-file hashes and patch publication use the same macOS/Linux data-path
+  mapping. Existing spelling and already-qualified paths are preserved. A wrong
+  game-version hash is still incompatible, not bypassed.
+- An owned launch reservation spans staging, game launch and restoration. A concurrent
+  launch cannot start during publication or restoration. Steam handoff is explicitly
+  distinct from a reaped child, so opener exit no longer immediately restores original
+  files. Failed handoff restores originals, and successful handoff retains durable
+  recovery data. This does not add cross-restart Steam process detection: close the
+  game before restarting the manager/recovering its files.
+- macOS launches request a new instance of the exact bundle via `/usr/bin/open -n -W`.
+  The flag contract is tested with injected adapters, not a real LaunchServices session.
+- The importer requires an affirmative native acknowledgement before showing success.
+  Cancellation/existing-copy decisions remain retryable, malformed acknowledgements
+  show errors, and buttonless requests handle progress safely.
+- Native patch errors reach the existing user-visible launch alert instead of returning
+  a success acknowledgement after navigating away. The channel no longer attempts
+  an unowned legacy rollback after the runtime has handled recovery.
+- The updater cancellation fixture waits for observed request/header state before
+  cancelling, rather than depending on a 50 ms cross-thread scheduling assumption.
+  Production cancellation, signature and deadline checks are not relaxed.
+
+### Local validation
+
+Linux x64: 35 native-core tests plus copy-worker compilation, 22 network tests,
+24 patch-runtime tests and 40 updater/launch-runtime tests passed. These include the
+synthetic macOS-bundle Steam patch/retain/recover scenario. Fourteen focused renderer
+tests passed, as did typecheck, affected-crate strict Clippy and static IPC checks.
+The archive library compiles locally. Its GUI-coupled integration tests and full native
+shell tests must run in CI with the real platform SDK/development libraries.
+
+The original two new Unix copy tests reproduce lost executable bits and unobserved
+permission mutation. Tests use synthetic game data only, with no commercial game files
+or downloaded mod implementation committed.
+
+Copy timing samples and the exact temporary reproducer are in
+[`macos-import-copy-20260928.json`](../benchmarks/tooling/macos-import-copy-20260928.json).
+The debug, warm-cache overlay-filesystem run improved the 200-small-file median from
+10.204 to 9.223 ms, while four 8 MiB files increased from 4.644 to 5.878 ms with the
+new per-file durability sync. These are not packaged app or macOS benchmarks, nor a
+claim that all copying became faster.
+
+### Still not established
+
+External xdelta/G3M/CSX patch execution remains blocked in the Tauri staging pipeline
+until a verified confinement implementation exists. Downloading a package does not
+make its patch mechanism or Windows-specific game hashes compatible with macOS.
+macOS ARM CSX remains unavailable. The error now explicitly says that the mod was not
+applied and the game was not launched rather than silently returning to the menu.
+
+Real Steam/LaunchServices lifetime behavior, installed app signing/quarantine and
+specific mod compatibility still need exact-version native acceptance. A successful
+unit test or CI build alone is not evidence that the screenshot's exact case is fixed.

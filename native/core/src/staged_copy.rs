@@ -58,6 +58,8 @@ struct Snapshot {
     modified: Option<SystemTime>,
     kind: EntryKind,
     links: u64,
+    #[cfg(unix)]
+    mode: u32,
 }
 
 #[cfg(unix)]
@@ -376,6 +378,8 @@ where
         live: true,
     };
     let mut completed = 0_u64;
+    // Reuse one bounded buffer, rather than allocating 1 MiB for every game file.
+    let mut buffer = vec![0_u8; 1024 * 1024];
 
     for entry in &inventory.entries {
         if cancelled() {
@@ -408,6 +412,7 @@ where
                         completed,
                         &mut progress,
                         &cancelled,
+                        &mut buffer,
                     ) {
                         Ok(()) => {
                             last_error = None;
@@ -528,6 +533,7 @@ fn copy_one_file<F, C>(
     completed: u64,
     progress: &mut F,
     cancelled: &C,
+    buffer: &mut [u8],
 ) -> Result<(), StagedCopyError>
 where
     F: FnMut(u64, &str) -> Result<(), StagedCopyError>,
@@ -564,15 +570,12 @@ where
         .create_new(true)
         .open(target)
         .map_err(StagedCopyError::CopyFailed)?;
-    let mut buffer = vec![0_u8; 1024 * 1024];
     let mut copied = 0_u64;
     loop {
         if cancelled() {
             return Err(StagedCopyError::Cancelled);
         }
-        let read = input
-            .read(&mut buffer)
-            .map_err(StagedCopyError::CopyFailed)?;
+        let read = input.read(buffer).map_err(StagedCopyError::CopyFailed)?;
         if read == 0 {
             break;
         }
@@ -617,6 +620,16 @@ where
     if after_snapshot != *expected {
         return Err(StagedCopyError::SourceChanged);
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // A game copy must retain executable runners/helpers. Never import
+        // setuid/setgid/sticky bits or grant group/world write access.
+        output
+            .set_permissions(fs::Permissions::from_mode(0o600 | (expected.mode & 0o111)))
+            .map_err(StagedCopyError::CopyFailed)?;
+    }
+    output.sync_all().map_err(StagedCopyError::CopyFailed)?;
     Ok(())
 }
 
@@ -810,6 +823,11 @@ fn snapshot(
         modified: metadata.modified().ok(),
         kind,
         links: link_count(path, metadata)?,
+        #[cfg(unix)]
+        mode: {
+            use std::os::unix::fs::PermissionsExt;
+            metadata.permissions().mode()
+        },
     })
 }
 
@@ -1260,5 +1278,74 @@ mod tests {
             inspect_source_tree(&source),
             Err(StagedCopyError::SourceNotDirectory)
         ));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn game_copy_preserves_executable_bits_but_not_privileges() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempdir().unwrap();
+        let source = root.path().join("source");
+        let runner = source.join("Game.app/Contents/MacOS/runner");
+        fs::create_dir_all(runner.parent().unwrap()).unwrap();
+        fs::write(&runner, b"#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&runner, fs::Permissions::from_mode(0o6755)).unwrap();
+        fs::write(source.join("data.win"), b"original").unwrap();
+        let inventory = inspect_source_tree(&source).unwrap();
+        let destination = root.path().join("copy");
+        copy_directory_staged(
+            &inventory,
+            &destination,
+            &root.path().join("stage"),
+            1,
+            |_, _| Ok(()),
+            || Ok(()),
+            || false,
+        )
+        .unwrap();
+        let copied = destination.join("Game.app/Contents/MacOS/runner");
+        assert_eq!(
+            fs::metadata(&copied).unwrap().permissions().mode() & 0o7777,
+            0o711
+        );
+        assert_eq!(
+            fs::metadata(destination.join("data.win"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert!(std::process::Command::new(copied)
+            .status()
+            .unwrap()
+            .success());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn changing_executable_permissions_invalidates_the_copy_inventory() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempdir().unwrap();
+        let source = root.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let runner = source.join("runner");
+        fs::write(&runner, b"runner").unwrap();
+        fs::set_permissions(&runner, fs::Permissions::from_mode(0o755)).unwrap();
+        let inventory = inspect_source_tree(&source).unwrap();
+        fs::set_permissions(&runner, fs::Permissions::from_mode(0o644)).unwrap();
+        let destination = root.path().join("copy");
+        assert!(matches!(
+            copy_directory_staged(
+                &inventory,
+                &destination,
+                &root.path().join("stage"),
+                1,
+                |_, _| Ok(()),
+                || Ok(()),
+                || false
+            ),
+            Err(StagedCopyError::SourceChanged)
+        ));
+        assert!(!destination.exists());
     }
 }

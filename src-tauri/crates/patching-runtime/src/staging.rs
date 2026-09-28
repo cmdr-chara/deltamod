@@ -164,7 +164,7 @@ impl fmt::Display for StagingError {
             StagingErrorCode::SandboxUnavailable => {
                 write!(
                     formatter,
-                    "A confinement boundary for {mechanism} is unavailable."
+                    "This build cannot safely run {mechanism}. The mod was not applied and the game was not launched."
                 )
             }
             StagingErrorCode::ToolUnavailable => {
@@ -1039,5 +1039,8 @@ mod tests {
             "PATCH_STAGING_SANDBOX_UNAVAILABLE"
         );
         assert!(!error.to_string().contains(['\\', '/']));
+        assert!(error
+            .to_string()
+            .contains("The mod was not applied and the game was not launched."));
     }
 }

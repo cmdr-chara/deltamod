@@ -26,8 +26,10 @@ npm run dev
 ```
 
 On Apple Silicon, skip the UndertaleModTool acquisition command. CSX is explicitly
-unavailable there; G3MTool remains supported. Tool downloads are pinned and verified,
-not installed by `npm ci`.
+unavailable there. G3MTool binaries can be acquired, but external xdelta/G3M/CSX
+execution in the Tauri transactional staging path remains disabled until its process
+confinement boundary is implemented and verified. Internal full-file override staging
+is separate. Tool downloads are pinned and verified, not installed by `npm ci`.
 
 `npm run build:tauri` creates NSIS on Windows, a `.deb` on Linux, and app/DMG bundles
 on macOS. To select another supported architecture on the same operating system,

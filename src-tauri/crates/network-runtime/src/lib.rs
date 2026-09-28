@@ -8,9 +8,8 @@ use futures_util::StreamExt;
 use reqwest::{header, Method, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
-use tempfile::NamedTempFile;
 use thiserror::Error;
-use tokio::{io::AsyncWriteExt, sync::Semaphore, time::sleep};
+use tokio::sync::Semaphore;
 
 pub const MAX_REDIRECTS: u8 = 5;
 pub const DEFAULT_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
@@ -78,6 +77,10 @@ pub enum RuntimeError {
     TooLarge { limit: u64 },
     #[error("operation cancelled")]
     Cancelled,
+    #[error("download timed out while waiting for data")]
+    DownloadTimeout,
+    #[error("download is empty or incomplete")]
+    IncompleteDownload,
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("request: {0}")]
@@ -120,6 +123,7 @@ pub struct Client {
     http: reqwest::Client,
     max_redirects: u8,
     pace: Arc<Semaphore>,
+    transfers: Arc<Semaphore>,
     min_interval: Duration,
 }
 impl Client {
@@ -132,10 +136,17 @@ impl Client {
             http: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(timeout)
+                .connect_timeout(Duration::from_secs(15))
+                .read_timeout(Duration::from_secs(30))
+                .no_gzip()
+                .no_brotli()
+                .no_deflate()
+                .no_zstd()
                 .user_agent("DeltamodNetworkRuntime/0.1")
                 .build()?,
             max_redirects: MAX_REDIRECTS,
             pace: Arc::new(Semaphore::new(max_concurrent.max(1) as usize)),
+            transfers: Arc::new(Semaphore::new(max_concurrent.max(1) as usize)),
             min_interval,
         })
     }
@@ -164,7 +175,7 @@ fn retry_after(h: &header::HeaderMap) -> Option<u64> {
     h.get(header::RETRY_AFTER)
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse::<u64>().ok())
-        .map(|s| s * 1000)
+        .and_then(|s| s.checked_mul(1000))
 }
 fn quota(h: &header::HeaderMap) -> BTreeMap<String, QuotaWindow> {
     let mut m = BTreeMap::new();
@@ -190,6 +201,13 @@ fn quota(h: &header::HeaderMap) -> BTreeMap<String, QuotaWindow> {
     }
     m
 }
+#[derive(Clone, Copy, PartialEq)]
+enum RequestPolicy {
+    Api,
+    AllowHttpError,
+    Transfer,
+}
+
 impl Client {
     async fn send(
         &self,
@@ -199,7 +217,7 @@ impl Client {
         auth: Option<Authentication<'_>>,
         body: Option<serde_json::Value>,
     ) -> Result<reqwest::Response, RuntimeError> {
-        self.send_with_error_policy(provider, method, start, auth, body, false)
+        self.send_with_error_policy(provider, method, start, auth, body, RequestPolicy::Api)
             .await
     }
 
@@ -210,7 +228,7 @@ impl Client {
         start: &str,
         auth: Option<Authentication<'_>>,
         body: Option<serde_json::Value>,
-        allow_http_error: bool,
+        policy: RequestPolicy,
     ) -> Result<reqwest::Response, RuntimeError> {
         let permit = self
             .pace
@@ -220,6 +238,11 @@ impl Client {
         let mut url = safe_url(provider, start)?;
         for hop in 0..=self.max_redirects {
             let mut r = self.http.request(method.clone(), url.clone());
+            if policy == RequestPolicy::Transfer {
+                r = r
+                    .header(header::ACCEPT_ENCODING, "identity")
+                    .timeout(import_download::TRANSFER_TIMEOUT);
+            }
             if provider == Provider::Nexus && url.host_str() == Some("api.nexusmods.com") {
                 r = r
                     .header("application-name", "Deltamod Community")
@@ -253,7 +276,7 @@ impl Client {
                 continue;
             }
             drop(permit);
-            if !response.status().is_success() && !allow_http_error {
+            if !response.status().is_success() && policy != RequestPolicy::AllowHttpError {
                 let env = ErrorEnvelope {
                     operation_id: None,
                     code: format!("HTTP_{}", response.status().as_u16()),
@@ -337,44 +360,48 @@ impl Client {
             Provider::GameBanana => Authentication::GameBananaCookie(value),
             Provider::ModDb => Authentication::GameBananaCookie(value),
         });
-        let response = self.send(provider, Method::GET, url, auth, None).await?;
-        let total = response.content_length();
-        if total.is_some_and(|n| n > max_bytes) {
-            return Err(RuntimeError::TooLarge { limit: max_bytes });
+        if !import_download::valid_operation_id(&operation_id) || max_bytes == 0 {
+            return Err(RuntimeError::InvalidInput(
+                "invalid download operation or byte limit".into(),
+            ));
         }
-        let tmp = NamedTempFile::new()?;
-        let path = tmp.path().to_path_buf();
-        let mut file = tokio::fs::File::from_std(tmp.reopen()?);
-        let mut done: u64 = 0;
-        let mut stream = response.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            if *cancel.borrow() {
-                drop(file);
-                let _ = std::fs::remove_file(&path);
-                return Err(RuntimeError::Cancelled);
-            }
-            let chunk = chunk?;
-            done = done.saturating_add(chunk.len() as u64);
-            if done > max_bytes {
-                drop(file);
-                let _ = std::fs::remove_file(&path);
-                return Err(RuntimeError::TooLarge { limit: max_bytes });
-            }
-            file.write_all(&chunk).await?;
-            progress(ProgressEnvelope {
-                operation_id: operation_id.clone(),
-                completed: done,
-                total,
-                current_item: None,
-            });
-            if !self.min_interval.is_zero() {
-                sleep(self.min_interval).await
-            }
-        }
-        file.flush().await?;
-        drop(file);
-        tmp.keep().map_err(|e| e.error)?;
-        Ok(path)
+        let url = safe_url(provider, url)?;
+        import_download::cancellable(cancel, async {
+            tokio::time::timeout(import_download::TRANSFER_TIMEOUT, async {
+                let _permit = self
+                    .transfers
+                    .acquire()
+                    .await
+                    .map_err(|_| RuntimeError::Cancelled)?;
+                let response = self
+                    .send_with_error_policy(
+                        provider,
+                        Method::GET,
+                        url.as_str(),
+                        auth,
+                        None,
+                        RequestPolicy::Transfer,
+                    )
+                    .await?;
+                let mut downloaded = import_download::receive_download(
+                    response,
+                    operation_id,
+                    url,
+                    max_bytes,
+                    self.min_interval,
+                    |mut event| {
+                        event.current_item = None;
+                        progress(event);
+                    },
+                )
+                .await?;
+                // This legacy API transfers temporary-file ownership to its caller.
+                Ok(std::mem::take(&mut downloaded.path))
+            })
+            .await
+            .map_err(|_| RuntimeError::DownloadTimeout)?
+        })
+        .await
     }
 }
 
@@ -985,7 +1012,7 @@ impl<'a> GameBanana<'a> {
                 url,
                 Some(self.credential()?),
                 Some(serde_json::json!({})),
-                true,
+                RequestPolicy::AllowHttpError,
             )
             .await?;
         let status = response.status().as_u16();

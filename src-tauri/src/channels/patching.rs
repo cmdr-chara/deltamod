@@ -83,7 +83,7 @@ pub fn dispatch(
                 );
                 let _ = app.emit("audio", true);
                 let _ = app.emit("page", "main");
-                return Ok(Some(json!(false)));
+                return Err("A selected mod is unavailable or incompatible with the active game installation.".into());
             }
             state.patch_cancelled.store(false, Ordering::Release);
             let id = operation_id(state, "patch");
@@ -149,17 +149,18 @@ pub fn dispatch(
                     Ok(Some(Value::Null))
                 }
                 Ok(_) => {
-                    let _ = state.patching.restore();
                     let _ = app.emit("audio", true);
                     let _ = app.emit("page", "main");
                     Ok(Some(json!(false)))
                 }
                 Err(error) => {
                     let _ = app.emit("gplog", json!({"log": error.to_string(), "percent": -1.0}));
-                    let _ = state.patching.restore();
                     let _ = app.emit("audio", true);
                     let _ = app.emit("page", "main");
-                    Ok(Some(json!(false)))
+                    // The runtime owns rollback and launch reservations. Do not
+                    // perform an unowned legacy restore here, or hide the failure
+                    // behind a successful IPC acknowledgement and page change.
+                    Err(error.to_string())
                 }
             }
         }

@@ -63,3 +63,81 @@ describe('provider Mod Shop shell wiring', () => {
         expect(renderer).not.toContain("SHOP_PROVIDER === 'itch'");
     });
 });
+
+// Exercise the actual page action without executing catalogue fetch/startup code.
+function downloadHarness(outcome) {
+    const { runInNewContext } = require('node:vm');
+    const phases = [];
+    const icons = [];
+    const alerts = [];
+    const buttons = [{ disabled: false }, { disabled: true }];
+    const button = {
+        disabled: false,
+        setAttribute() {}, removeAttribute() {},
+        style: { setProperty() {}, removeProperty() {} },
+        classList: { add() {}, remove() {} }
+    };
+    const state = { current: true };
+    const window = { _onClosePage: [], currentPageStack: { qms: {} } };
+    window.deltamodBackend = { invoke: async (channel, args) => {
+        expect(channel).toBe('dlmodURL');
+        window.currentPageStack.qms[args[1]]({ progress: 42, downloaded: 42, total: 100 });
+        if (outcome instanceof Error) throw outcome;
+        return outcome;
+    } };
+    const action = renderer.slice(renderer.indexOf('async function dlmod('), renderer.indexOf('window.currentPageStack.dlmod ='));
+    expect(action).toContain('finally');
+    const dlmod = runInNewContext('let gameBananaDownloadActive = false; let pageActive = true; ' + action + '; dlmod', {
+        window, document: { querySelectorAll: () => buttons },
+        isCurrentShopPage: () => state.current,
+        setDownloadButtonIcon: (button, icon) => icons.push(icon),
+        updateModDownloadStatus: status => phases.push(status.phase),
+        htmlAlert: async (...args) => alerts.push(args)
+    });
+    return { dlmod, window, button, buttons, state, phases, icons, alerts };
+}
+
+describe('mod download completion and retry', () => {
+    it('reports success only after an affirmative native import result', async () => {
+        const h = downloadHarness(true);
+        expect(await h.dlmod('https://gamebanana.com/mmdl/1', h.button, 1, 'Mod')).toBe(true);
+        expect(h.phases.at(-1)).toBe('complete');
+        expect(h.icons).toContain('done_outline');
+        expect(h.button.disabled).toBe(true);
+        expect(h.buttons.map(b => b.disabled)).toEqual([false, true]);
+        expect(Object.keys(h.window.currentPageStack.qms)).toEqual([]);
+        expect(h.window._onClosePage).toEqual([]);
+    });
+    it('keeps cancellation or an existing-copy decision retryable instead of claiming success', async () => {
+        const h = downloadHarness(false);
+        for (let attempt = 0; attempt < 2; attempt++) {
+            expect(await h.dlmod('https://gamebanana.com/mmdl/1', h.button, 1, 'Mod')).toBe(false);
+        }
+        expect(h.phases).not.toContain('complete');
+        expect(h.phases.at(-1)).toBe('cancelled');
+        expect(h.icons).not.toContain('done_outline');
+        expect(h.button.disabled).toBe(false);
+        expect(h.alerts).toEqual([]);
+        expect(h.buttons.map(b => b.disabled)).toEqual([false, true]);
+        expect(Object.keys(h.window.currentPageStack.qms)).toEqual([]);
+    });
+    it('shows errors and malformed acknowledgements without disabling retry', async () => {
+        for (const outcome of [null, undefined, new Error('Archive rejected')]) {
+            const h = downloadHarness(outcome);
+            expect(await h.dlmod('https://gamebanana.com/mmdl/1', h.button, 1, 'Mod')).toBe(false);
+            expect(h.phases.at(-1)).toBe('failed');
+            expect(h.phases).not.toContain('complete');
+            expect(h.alerts).toHaveLength(1);
+            expect(h.button.disabled).toBe(false);
+        }
+    });
+    it('allows progress for buttonless requests and ignores late page acknowledgements', async () => {
+        const h = downloadHarness(true);
+        const pending = h.dlmod('https://gamebanana.com/mmdl/1', null, 1, 'Mod');
+        h.state.current = false;
+        expect(await pending).toBe(true);
+        expect(h.phases).not.toContain('complete');
+        expect(Object.keys(h.window.currentPageStack.qms)).toEqual([]);
+        expect(h.buttons.map(b => b.disabled)).toEqual([false, true]);
+    });
+});
