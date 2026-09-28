@@ -8,7 +8,7 @@ permissions:
 jobs:
   candidate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
         with:
@@ -20,6 +20,9 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - name: Load independently authored audit patch
         uses: actions/github-script@v8
         with:
@@ -35,40 +38,76 @@ jobs:
           python ../recipe/.audit/prepare.py pre
           python ../recipe/.audit/retire.py
           python ../recipe/.audit/prepare.py post
-          for part in helpers native tests docs; do
+          for part in helpers native recovery tests docs; do
             if [ -f "../recipe/.audit/$part.py" ]; then python "../recipe/.audit/$part.py"; fi
           done
+          git add -N .
+          python - <<'PY'
+          import subprocess
+          from pathlib import Path
+          files = subprocess.check_output(['git','diff','HEAD','--name-only','--diff-filter=AM'],text=True).splitlines()
+          for file in files:
+              if file.endswith('.rs'):
+                  subprocess.run(['rustfmt','--edition','2021','--config','skip_children=true',file],check=True)
+          PY
       - name: Regenerate only the pruned dependency closure
         working-directory: candidate
         run: |
+          cp package-lock.json "$RUNNER_TEMP/original-package-lock.json"
           npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const before = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/original-package-lock.json')).packages;
+          const after = JSON.parse(fs.readFileSync('package-lock.json')).packages;
+          for (const [name, value] of Object.entries(after)) {
+            if (before[name] && before[name].version !== value.version) throw new Error('Unintended dependency upgrade: '+name);
+          }
+          console.log('Dependency entries removed:', Object.keys(before).length - Object.keys(after).length);
+          NODE
           npm ci --ignore-scripts --no-audit --no-fund
       - name: Focused shared checks
         working-directory: candidate
         run: |
           npm run test:audit
           npm run verify:tauri:contract
-          DELTAMOD_REPO=. node scripts/tauri-parity/test/harness.test.js
+          DELTAMOD_REPO=. node --test scripts/tauri-parity/test/harness.test.js
           npm run verify:tauri-only
           npm run typecheck
           npm run build:boot
           npm test
+      - name: Native dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libsecret-1-dev pkg-config
+      - name: Focused native tests
+        working-directory: candidate
+        run: |
+          cargo test --locked --manifest-path src-tauri/Cargo.toml -p deltamod-installations-domain -p deltamod-credentials-adapter -p deltamod-updater-launch-runtime -p deltamod-profile-install-runtime -p deltamod-patching-runtime
       - name: Source review inventory
         if: always()
         working-directory: candidate
         run: |
+          mkdir -p ../review
           git add -N .
-          git diff --stat
-          git diff --check
-          echo '=== Remaining runtime imports and retired channel context ==='
-          rg -n 'Unsupported\(channel\)|npsCallback|deleteall|require\(.electron|from .electron' src-tauri/src/main.rs web node scripts tests || true
-          echo '=== Candidate change set ==='
-          git diff --name-status
+          git diff HEAD --stat
+          git diff HEAD --check
+          git diff HEAD --binary > ../review/candidate.diff
+          git diff HEAD --name-status > ../review/changed-files.txt
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          patterns = re.compile(r'npsCallback|deleteall|require\([\x27\x22]electron|from [\x27\x22]electron|Unsupported\(name\)')
+          for folder in ['web','node','scripts','tests']:
+              for p in Path(folder).rglob('*'):
+                  if p.suffix not in ['.js','.html','.ts']: continue
+                  for n,line in enumerate(p.read_text(errors='replace').splitlines(),1):
+                      if patterns.search(line): print(f'{p}:{n}:{line[:220]}')
+          PY
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: candidate-review
-          path: candidate/scripts/tauri-parity/output
-          if-no-files-found: ignore
+          path: review
+          if-no-files-found: error
           retention-days: 2
-# Assembly revision: 1
+# Assembly revision: 2
