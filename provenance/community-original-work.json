@@ -160,6 +160,18 @@
       "firstCommit": "344a6c0646a7cd3677931a726d02ceb88925b7eb",
       "firstCommitDate": "2026-09-28",
       "evidence": "added"
+    },
+    {
+      "path": "scripts/ci/gate.cjs",
+      "firstCommit": "55f7e058824e92028cc108e4338f9167695ad040",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
+    },
+    {
+      "path": "scripts/ci/gate.test.cjs",
+      "firstCommit": "55f7e058824e92028cc108e4338f9167695ad040",
+      "firstCommitDate": "2026-09-28",
+      "evidence": "added"
     }
   ]
 }
