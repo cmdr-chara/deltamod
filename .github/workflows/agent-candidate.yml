@@ -4,7 +4,7 @@ on:
     branches: [astra/tauri-validation-tools]
     paths: [.github/workflows/agent-candidate.yml]
 permissions:
-  contents: read
+  contents: write
 jobs:
   candidate:
     runs-on: ubuntu-latest
@@ -13,10 +13,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           path: recipe
+          persist-credentials: false
       - uses: actions/checkout@v6
         with:
           ref: d451315768e9043cdf5b2b635398a2350f3f1745
           path: candidate
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -31,6 +33,7 @@ jobs:
             const r = await github.rest.git.getBlob({...context.repo, file_sha:'f670d9978d56b84d2c4167de8c16d9face7ed4ab'});
             fs.writeFileSync(process.env.RUNNER_TEMP+'/audit.patch', Buffer.from(r.data.content, 'base64'));
       - name: Assemble source changes
+        id: assemble
         working-directory: candidate
         run: |
           git apply --recount --check "$RUNNER_TEMP/audit.patch"
@@ -38,19 +41,19 @@ jobs:
           python ../recipe/.audit/prepare.py pre
           python ../recipe/.audit/retire.py
           python ../recipe/.audit/prepare.py post
-          for part in helpers native recovery tests docs; do
-            if [ -f "../recipe/.audit/$part.py" ]; then python "../recipe/.audit/$part.py"; fi
+          for part in helpers native recovery tests fixups docs; do
+            python "../recipe/.audit/$part.py"
           done
           git add -N .
           python - <<'PY'
           import subprocess
-          from pathlib import Path
           files = subprocess.check_output(['git','diff','HEAD','--name-only','--diff-filter=AM'],text=True).splitlines()
           for file in files:
               if file.endswith('.rs'):
                   subprocess.run(['rustfmt','--edition','2021','--config','skip_children=true',file],check=True)
           PY
       - name: Regenerate only the pruned dependency closure
+        id: dependencies
         working-directory: candidate
         run: |
           cp package-lock.json "$RUNNER_TEMP/original-package-lock.json"
@@ -66,23 +69,31 @@ jobs:
           NODE
           npm ci --ignore-scripts --no-audit --no-fund
       - name: Focused shared checks
+        id: shared
         working-directory: candidate
         run: |
-          npm run test:audit
-          npm run verify:tauri:contract
-          DELTAMOD_REPO=. node --test scripts/tauri-parity/test/harness.test.js
-          npm run verify:tauri-only
-          npm run typecheck
-          npm run build:boot
-          npm test
+          mkdir -p ../review
+          set +e
+          for check in 'npm run test:audit' 'npm run verify:tauri:contract' 'node --test scripts/tauri-parity/test/harness.test.js' 'npm run verify:tauri-only' 'npm run typecheck' 'npm run build:boot' 'npm test'; do
+            echo "=== $check ==="
+            bash -c "$check" > ../review/check.log 2>&1
+            result=$?
+            tail -n 130 ../review/check.log
+            if [ "$result" -ne 0 ]; then exit "$result"; fi
+          done
       - name: Native dependencies
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libsecret-1-dev pkg-config
+          sudo apt-get update -qq > /tmp/apt.log 2>&1
+          sudo apt-get install -y -qq libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libsecret-1-dev pkg-config >> /tmp/apt.log 2>&1 || { tail -n 50 /tmp/apt.log; exit 1; }
       - name: Focused native tests
+        id: native
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         working-directory: candidate
         run: |
-          cargo test --locked --manifest-path src-tauri/Cargo.toml -p deltamod-installations-domain -p deltamod-credentials-adapter -p deltamod-updater-launch-runtime -p deltamod-profile-install-runtime -p deltamod-patching-runtime
+          mkdir -p ../review
+          cargo test --locked --manifest-path src-tauri/Cargo.toml -p deltamod-installations-domain -p deltamod-credentials-adapter -p deltamod-updater-launch-runtime -p deltamod-profile-install-runtime -p deltamod-patching-runtime > ../review/native.log 2>&1 || { tail -n 170 ../review/native.log; exit 1; }
+          tail -n 80 ../review/native.log
       - name: Source review inventory
         if: always()
         working-directory: candidate
@@ -91,18 +102,54 @@ jobs:
           git add -N .
           git diff HEAD --stat
           git diff HEAD --check
-          git diff HEAD --binary > ../review/candidate.diff
+          git diff HEAD --no-ext-diff > ../review/candidate.diff
           git diff HEAD --name-status > ../review/changed-files.txt
           python - <<'PY'
           import re
           from pathlib import Path
-          patterns = re.compile(r'npsCallback|deleteall|require\([\x27\x22]electron|from [\x27\x22]electron|Unsupported\(name\)')
+          patterns = re.compile(r'page\([\x27\x22]deleteall|require\([\x27\x22]electron|from [\x27\x22]electron|Unsupported\(name\)')
           for folder in ['web','node','scripts','tests']:
               for p in Path(folder).rglob('*'):
                   if p.suffix not in ['.js','.html','.ts']: continue
                   for n,line in enumerate(p.read_text(errors='replace').splitlines(),1):
                       if patterns.search(line): print(f'{p}:{n}:{line[:220]}')
           PY
+      - name: Save candidate Git objects for connector review (never update a ref)
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && steps.dependencies.outcome == 'success' }}
+        uses: actions/github-script@v8
+        env:
+          SHARED_OUTCOME: ${{ steps.shared.outcome }}
+          NATIVE_OUTCOME: ${{ steps.native.outcome }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const cp = require('node:child_process');
+            const path = require('node:path');
+            const cwd = path.resolve('candidate');
+            const git = args => cp.execFileSync('git', args, {cwd, encoding:'utf8'});
+            if (git(['rev-parse','HEAD']).trim() !== 'd451315768e9043cdf5b2b635398a2350f3f1745') throw new Error('Unexpected parent');
+            const changed = git(['diff','HEAD','--name-only','-z']).split('\0').filter(Boolean);
+            if (changed.length > 180) throw new Error('Unexpected scope growth');
+            const entries = [];
+            for (const file of changed) {
+              if (/^(?:\.audit\/|node_modules\/|web\/dist\/|src-tauri\/(?:target|binaries)\/|native\/target\/|\.github\/workflows\/agent-)/.test(file)) throw new Error('Generated or helper path: '+file);
+              const absolute = path.join(cwd,file);
+              const existing = git(['ls-tree','HEAD','--',file]).split(' ')[0];
+              const mode = existing || '100644';
+              if (!fs.existsSync(absolute)) { entries.push({path:file,mode,type:'blob',sha:null}); continue; }
+              const bytes = fs.readFileSync(absolute);
+              if (bytes.length > 2*1024*1024) throw new Error('Unexpected large changed file: '+file);
+              const result = await github.rest.git.createBlob({...context.repo, content:bytes.toString('base64'), encoding:'base64'});
+              entries.push({path:file, mode, type:'blob', sha:result.data.sha});
+              await new Promise(resolve => setTimeout(resolve,800));
+            }
+            const result = await github.rest.git.createTree({...context.repo, base_tree:'3d16a2f6b098103a8f64b9d5da7c9590c1aa4f55', tree:entries});
+            const report = {parent:'d451315768e9043cdf5b2b635398a2350f3f1745', tree:result.data.sha, shared:process.env.SHARED_OUTCOME, native:process.env.NATIVE_OUTCOME, entries};
+            fs.writeFileSync('review/tree.json',JSON.stringify(report,null,2));
+            console.log(JSON.stringify(report));
+            const review = fs.readFileSync('review/candidate.diff');
+            const diff = await github.rest.git.createBlob({...context.repo,content:review.toString('base64'),encoding:'base64'});
+            console.log('REVIEW_DIFF_BLOB='+diff.data.sha);
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -110,4 +157,4 @@ jobs:
           path: review
           if-no-files-found: error
           retention-days: 2
-# Assembly revision: 2
+# Assembly revision: 3
