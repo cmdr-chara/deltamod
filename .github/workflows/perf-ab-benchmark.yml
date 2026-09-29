@@ -73,7 +73,7 @@ jobs:
           foreach ($root in @('baseline', 'candidate')) {
             Push-Location $root
             try {
-              node -e "const fs=require('node:fs');const p='src-tauri/tauri.windows.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.bundle.createUpdaterArtifacts=false;fs.writeFileSync(p,JSON.stringify(c,null,2)+'\\n');"
+              node -e "const fs=require('node:fs');const p='src-tauri/tauri.windows.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.bundle.createUpdaterArtifacts=false;fs.writeFileSync(p,JSON.stringify(c,null,2));"
               if ($LASTEXITCODE -ne 0) { throw "Updater-artifact override failed for $root" }
               npm run build:boot
               if ($LASTEXITCODE -ne 0) { throw "Boot build failed for $root" }
