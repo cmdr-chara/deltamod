@@ -5,6 +5,7 @@ on:
     branches: [DeltaMaster]
     paths:
       - .github/release-notes/community-v*.md
+      - .github/workflows/refresh-release-notes.yml
   workflow_dispatch:
 
 permissions:
@@ -15,6 +16,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Normalize preview releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.tag_name | startswith("community-tauri-preview-v")) | select(.prerelease == false) | [.id, .tag_name] | @tsv' |
+          while IFS="$(printf '\t')" read -r release_id tag; do
+            [ -n "${release_id:-}" ] || continue
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F prerelease=true >/dev/null
+            echo "Marked $tag as a prerelease."
+          done
 
       - name: Sync curated notes to matching GitHub Releases
         env:
