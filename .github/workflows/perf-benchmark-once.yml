@@ -1,4 +1,5 @@
 name: One-off performance benchmark
+# Temporary benchmark workflow for PR #120; remove after capture.
 
 on:
   push:
