@@ -33,7 +33,7 @@ jobs:
           workspaces: |
             native -> target
             src-tauri -> target
-          save-if: false
+          save-if: true
       - name: Install npm dependencies
         timeout-minutes: 5
         run: node scripts/retry-command.js --label "npm ci" -- npm ci --no-audit --no-fund
@@ -55,17 +55,7 @@ jobs:
           $installRoot = Join-Path $env:RUNNER_TEMP 'deltamod-ci-benchmark-install'
           New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
           try {
-            @'
-            const fs = require('node:fs');
-            const p = 'web/index.js';
-            let s = fs.readFileSync(p, 'utf8');
-            s = s.replace(
-              'signalBenchmarkReadiness().catch(() => {});',
-              'signalBenchmarkReadiness().catch(error => console.error("[benchmark readiness]", error));'
-            );
-            fs.writeFileSync(p, s);
-            '@ | Set-Content -LiteralPath benchmark-readiness-debug.cjs -Encoding utf8
-            node benchmark-readiness-debug.cjs
+            node scripts/desktop-benchmark/instrument-readiness.cjs
             if ($LASTEXITCODE -ne 0) { throw "Failed to instrument benchmark readiness" }
             node -e "const fs = require('node:fs'); const p = 'src-tauri/tauri.windows.conf.json'; const c = JSON.parse(fs.readFileSync(p, 'utf8')); c.bundle.createUpdaterArtifacts = false; fs.writeFileSync(p, JSON.stringify(c, null, 2) + '\n');"
             if ($LASTEXITCODE -ne 0) { throw "Failed to disable updater signing for the diagnostic package" }
