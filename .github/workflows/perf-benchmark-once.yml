@@ -27,7 +27,7 @@ jobs:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
       - name: Restore Rust dependency build cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fc7e3dddab59af2b6
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           workspaces: |
             native -> target
