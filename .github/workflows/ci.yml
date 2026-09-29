@@ -395,6 +395,12 @@ jobs:
             exit 0
           fi
 
+          force_release=false
+          if git log -1 --format=%B "$VALIDATED_SHA" | grep -Fq '[stable-release]'; then
+            force_release=true
+            echo "Explicit stable release requested by commit marker."
+          fi
+
           if [ -n "$BEFORE_SHA" ] && ! [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
             changed="$(git diff --name-only "$BEFORE_SHA" "$VALIDATED_SHA")"
             release_relevant=false
@@ -409,7 +415,7 @@ jobs:
                   ;;
               esac
             done <<< "$changed"
-            if [ "$release_relevant" != "true" ]; then
+            if [ "$release_relevant" != "true" ] && [ "$force_release" != "true" ]; then
               echo "release=false" >> "$GITHUB_OUTPUT"
               echo "Only documentation or release-infrastructure files changed; no application release is required."
               exit 0
