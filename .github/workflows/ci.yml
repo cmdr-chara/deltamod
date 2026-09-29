@@ -247,7 +247,7 @@ jobs:
   benchmark-on-failure:
     needs: verify
     name: Optional Windows benchmark
-    if: ${{ !cancelled() && needs.verify.result == 'success' && ((github.event_name == 'workflow_dispatch' && inputs.benchmark) || (github.event_name == 'push' && github.ref == 'refs/heads/astra/perf-benchmark-20260929')) }}
+    if: ${{ !cancelled() && needs.verify.result == 'success' && ((github.event_name == 'workflow_dispatch' && inputs.benchmark) || (github.event_name == 'pull_request' && github.head_ref == 'astra/perf-benchmark-20260929')) }}
     runs-on: windows-latest
     timeout-minutes: 45
     env:
