@@ -390,7 +390,10 @@ mod tests {
             assert_eq!(result.stored_at_ms, stored_at);
         }
         assert_eq!(std::fs::read(&path).unwrap(), before);
-        assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), modified);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            modified
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -448,9 +451,10 @@ mod tests {
             .write(true)
             .open(&old)
             .unwrap()
-            .set_times(std::fs::FileTimes::new().set_modified(
-                super::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000),
-            ))
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(super::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000)),
+            )
             .unwrap();
         cache.max_bytes = 3;
         cache.prune();
