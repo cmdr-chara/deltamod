@@ -1,0 +1,219 @@
+name: One-off Tauri A/B benchmark
+
+on:
+  push:
+    branches:
+      - bench/perf-tauri-ab-20260929
+    paths:
+      - .github/workflows/perf-ab-benchmark.yml
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      TAURI_BUILD_TARGET: x86_64-pc-windows-msvc
+      BASELINE_SHA: 0fcc544603bd7db8bb33484ce4d33968ceb4e5a8
+      CANDIDATE_SHA: d3b748b222887116c3f891d6490ce48eb9c52b57
+    steps:
+      - name: Check out benchmark harness
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          path: harness
+
+      - name: Check out baseline
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          ref: ${{ env.BASELINE_SHA }}
+          path: baseline
+
+      - name: Check out candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies and verified tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($root in @('baseline', 'candidate')) {
+            Push-Location $root
+            try {
+              node scripts/retry-command.js --label "npm ci ($root)" -- npm ci --no-audit --no-fund
+              if ($LASTEXITCODE -ne 0) { throw "npm ci failed for $root" }
+              node scripts/retry-command.js --label "G3MTool ($root)" -- npm run acquire:g3mtool
+              if ($LASTEXITCODE -ne 0) { throw "G3MTool acquisition failed for $root" }
+              node scripts/retry-command.js --label "UndertaleModTool ($root)" -- npm run acquire:undertale-mod-tool
+              if ($LASTEXITCODE -ne 0) { throw "UndertaleModTool acquisition failed for $root" }
+            } finally {
+              Pop-Location
+            }
+          }
+
+      - name: Build both production NSIS packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($root in @('baseline', 'candidate')) {
+            Push-Location $root
+            try {
+              node -e "const fs=require('node:fs');const p='src-tauri/tauri.windows.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.bundle.createUpdaterArtifacts=false;fs.writeFileSync(p,JSON.stringify(c,null,2)+'\\n');"
+              if ($LASTEXITCODE -ne 0) { throw "Updater-artifact override failed for $root" }
+              npm run build:boot
+              if ($LASTEXITCODE -ne 0) { throw "Boot build failed for $root" }
+              npm run build:native-sidecars:target -- x86_64-pc-windows-msvc
+              if ($LASTEXITCODE -ne 0) { throw "Sidecar staging failed for $root" }
+              npm run build:tauri:resources -- x86_64-pc-windows-msvc
+              if ($LASTEXITCODE -ne 0) { throw "Resource staging failed for $root" }
+              npm run build:tauri:butler -- x86_64-pc-windows-msvc
+              if ($LASTEXITCODE -ne 0) { throw "Butler staging failed for $root" }
+              npx tauri build --target x86_64-pc-windows-msvc --bundles nsis
+              if ($LASTEXITCODE -ne 0) { throw "Tauri build failed for $root" }
+            } finally {
+              Pop-Location
+            }
+          }
+
+      - name: Install, measure, and capture baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:RUNNER_TEMP 'perf-ab'
+          $install = Join-Path $env:RUNNER_TEMP 'perf-ab-baseline-install'
+          New-Item -ItemType Directory -Force -Path $out, $install | Out-Null
+          $bundle = Get-ChildItem -LiteralPath 'baseline/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter '*.exe' -File | Select-Object -First 1
+          if (-not $bundle) { throw 'Baseline NSIS bundle not found' }
+          $proc = Start-Process -FilePath $bundle.FullName -ArgumentList '/S', "/D=$install" -Wait -PassThru -WindowStyle Hidden
+          if ($proc.ExitCode -ne 0) { throw "Baseline install failed: $($proc.ExitCode)" }
+          $exe = Get-ChildItem -LiteralPath $install -Filter 'deltamod-tauri-shell.exe' -File -Recurse | Select-Object -First 1
+          if (-not $exe) { throw 'Baseline executable not found' }
+          $files = @(Get-ChildItem -LiteralPath $install -File -Recurse)
+          $bytes = [int64](($files | Measure-Object -Property Length -Sum).Sum)
+          [pscustomobject]@{
+            revision = $env:BASELINE_SHA
+            installedFileCount = $files.Count
+            installedBytes = $bytes
+            installedMiB = [math]::Round($bytes / 1MB, 2)
+            installerBytes = [int64]$bundle.Length
+            installerMiB = [math]::Round($bundle.Length / 1MB, 2)
+            executableBytes = [int64]$exe.Length
+            executableMiB = [math]::Round($exe.Length / 1MB, 2)
+          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $out 'baseline-storage.json') -Encoding utf8
+
+          Push-Location baseline
+          try {
+            node scripts/desktop-benchmark/capture-windows.js --executable $exe.FullName --artifact $bundle.FullName --output (Join-Path $out 'baseline.json') --readiness-file '{readyFile}' --source-revision $env:BASELINE_SHA --includes-revision $env:BASELINE_SHA
+            if ($LASTEXITCODE -ne 0) { throw "Baseline capture failed: $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+          Get-Process deltamod-tauri-shell -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $uninstaller = Get-ChildItem -LiteralPath $install -Filter 'uninstall*.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($uninstaller) { Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue }
+
+      - name: Install, measure, and capture candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:RUNNER_TEMP 'perf-ab'
+          $install = Join-Path $env:RUNNER_TEMP 'perf-ab-candidate-install'
+          New-Item -ItemType Directory -Force -Path $out, $install | Out-Null
+          $bundle = Get-ChildItem -LiteralPath 'candidate/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter '*.exe' -File | Select-Object -First 1
+          if (-not $bundle) { throw 'Candidate NSIS bundle not found' }
+          $proc = Start-Process -FilePath $bundle.FullName -ArgumentList '/S', "/D=$install" -Wait -PassThru -WindowStyle Hidden
+          if ($proc.ExitCode -ne 0) { throw "Candidate install failed: $($proc.ExitCode)" }
+          $exe = Get-ChildItem -LiteralPath $install -Filter 'deltamod-tauri-shell.exe' -File -Recurse | Select-Object -First 1
+          if (-not $exe) { throw 'Candidate executable not found' }
+          $files = @(Get-ChildItem -LiteralPath $install -File -Recurse)
+          $bytes = [int64](($files | Measure-Object -Property Length -Sum).Sum)
+          [pscustomobject]@{
+            revision = $env:CANDIDATE_SHA
+            installedFileCount = $files.Count
+            installedBytes = $bytes
+            installedMiB = [math]::Round($bytes / 1MB, 2)
+            installerBytes = [int64]$bundle.Length
+            installerMiB = [math]::Round($bundle.Length / 1MB, 2)
+            executableBytes = [int64]$exe.Length
+            executableMiB = [math]::Round($exe.Length / 1MB, 2)
+          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $out 'candidate-storage.json') -Encoding utf8
+
+          Push-Location candidate
+          try {
+            node scripts/desktop-benchmark/capture-windows.js --executable $exe.FullName --artifact $bundle.FullName --output (Join-Path $out 'candidate.json') --readiness-file '{readyFile}' --source-revision $env:CANDIDATE_SHA --includes-revision $env:CANDIDATE_SHA
+            if ($LASTEXITCODE -ne 0) { throw "Candidate capture failed: $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+          Get-Process deltamod-tauri-shell -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $uninstaller = Get-ChildItem -LiteralPath $install -Filter 'uninstall*.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($uninstaller) { Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue }
+
+      - name: Produce A/B report
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:RUNNER_TEMP 'perf-ab'
+          $base = Get-Content -Raw -LiteralPath (Join-Path $out 'baseline.json') | ConvertFrom-Json
+          $cand = Get-Content -Raw -LiteralPath (Join-Path $out 'candidate.json') | ConvertFrom-Json
+          $baseStorage = Get-Content -Raw -LiteralPath (Join-Path $out 'baseline-storage.json') | ConvertFrom-Json
+          $candStorage = Get-Content -Raw -LiteralPath (Join-Path $out 'candidate-storage.json') | ConvertFrom-Json
+          function Metric($before, $after) {
+            [pscustomobject]@{
+              baseline = [double]$before
+              candidate = [double]$after
+              absoluteDelta = [double]$after - [double]$before
+              percentDelta = (([double]$after - [double]$before) / [double]$before) * 100
+              reductionPercent = (([double]$before - [double]$after) / [double]$before) * 100
+            }
+          }
+          $report = [pscustomobject]@{
+            capturedAt = (Get-Date).ToUniversalTime().ToString('o')
+            environment = $cand.environment
+            baselineRevision = $env:BASELINE_SHA
+            candidateRevision = $env:CANDIDATE_SHA
+            protocol = $cand.protocol
+            readyMedianMs = Metric $base.summary.readyMs.median $cand.summary.readyMs.median
+            readyP95Ms = Metric $base.summary.readyMs.p95NearestRank $cand.summary.readyMs.p95NearestRank
+            peakWorkingSetMedianBytes = Metric $base.summary.peakWorkingSetBytes.median $cand.summary.peakWorkingSetBytes.median
+            peakWorkingSetP95Bytes = Metric $base.summary.peakWorkingSetBytes.p95NearestRank $cand.summary.peakWorkingSetBytes.p95NearestRank
+            installedBytes = Metric $baseStorage.installedBytes $candStorage.installedBytes
+            installerBytes = Metric $baseStorage.installerBytes $candStorage.installerBytes
+            executableBytes = Metric $baseStorage.executableBytes $candStorage.executableBytes
+          }
+          $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $out 'comparison.json') -Encoding utf8
+
+          Add-Content $env:GITHUB_STEP_SUMMARY '## Same-runner Tauri A/B benchmark'
+          Add-Content $env:GITHUB_STEP_SUMMARY ''
+          Add-Content $env:GITHUB_STEP_SUMMARY "| Metric | Baseline | Candidate | Change |"
+          Add-Content $env:GITHUB_STEP_SUMMARY "| --- | ---: | ---: | ---: |"
+          Add-Content $env:GITHUB_STEP_SUMMARY ("| Startup median | {0:N1} ms | {1:N1} ms | {2:N2}% |" -f $base.summary.readyMs.median, $cand.summary.readyMs.median, $report.readyMedianMs.percentDelta)
+          Add-Content $env:GITHUB_STEP_SUMMARY ("| Startup p95 | {0:N1} ms | {1:N1} ms | {2:N2}% |" -f $base.summary.readyMs.p95NearestRank, $cand.summary.readyMs.p95NearestRank, $report.readyP95Ms.percentDelta)
+          Add-Content $env:GITHUB_STEP_SUMMARY ("| Peak memory median | {0:N2} MiB | {1:N2} MiB | {2:N2}% |" -f ($base.summary.peakWorkingSetBytes.median/1MB), ($cand.summary.peakWorkingSetBytes.median/1MB), $report.peakWorkingSetMedianBytes.percentDelta)
+          Add-Content $env:GITHUB_STEP_SUMMARY ("| Peak memory p95 | {0:N2} MiB | {1:N2} MiB | {2:N2}% |" -f ($base.summary.peakWorkingSetBytes.p95NearestRank/1MB), ($cand.summary.peakWorkingSetBytes.p95NearestRank/1MB), $report.peakWorkingSetP95Bytes.percentDelta)
+          Add-Content $env:GITHUB_STEP_SUMMARY ("| Installed files | {0:N2} MiB | {1:N2} MiB | {2:N2}% |" -f ($baseStorage.installedBytes/1MB), ($candStorage.installedBytes/1MB), $report.installedBytes.percentDelta)
+          Add-Content $env:GITHUB_STEP_SUMMARY ("| NSIS installer | {0:N2} MiB | {1:N2} MiB | {2:N2}% |" -f ($baseStorage.installerBytes/1MB), ($candStorage.installerBytes/1MB), $report.installerBytes.percentDelta)
+          Add-Content $env:GITHUB_STEP_SUMMARY ("| Main executable | {0:N2} MiB | {1:N2} MiB | {2:N2}% |" -f ($baseStorage.executableBytes/1MB), ($candStorage.executableBytes/1MB), $report.executableBytes.percentDelta)
+
+      - name: Upload benchmark evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: tauri-ab-benchmark-${{ github.run_id }}
+          retention-days: 14
+          if-no-files-found: error
+          path: ${{ runner.temp }}/perf-ab/
