@@ -25,24 +25,7 @@ jobs:
           set -euo pipefail
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --jq '.[] | select(.tag_name | startswith("community-tauri-preview-v")) | select(.prerelease == false) | [.id, .tag_name] | @tsv' |
-          while IFS=        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          notes_files=(.github/release-notes/community-v*.md)
-          test "${#notes_files[@]}" -gt 0
-          for notes in "${notes_files[@]}"; do
-            tag="$(basename "$notes" .md)"
-            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$notes"
-              echo "Updated release notes for $tag"
-            else
-              echo "$tag is not published; keeping the curated notes ready for later."
-            fi
-          done
-\t' read -r release_id tag; do
+          while IFS="$(printf '\t')" read -r release_id tag; do
             [ -n "${release_id:-}" ] || continue
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F prerelease=true >/dev/null
             echo "Marked $tag as a prerelease."
