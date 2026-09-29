@@ -59,7 +59,11 @@ the Developer ID certificate into a disposable keychain and requires `codesign`,
 Gatekeeper, and stapled-ticket validation on both architectures.
 
 Certificates, private keys, Apple credentials, and their passwords are external
-release authority and must never be committed. If the Windows certificate is hardware-
+release authority and must never be committed. A maintainer may explicitly request the
+stable publication path on a `DeltaMaster` push by including `[stable-release]` in
+the commit message. That marker only bypasses the "application files changed" filter.
+It does not bypass CI, signing credentials, package verification, updater signatures,
+notarization, provenance, or any other stable-release gate. If the Windows certificate is hardware-
 backed or cloud-held rather than exportable, replace the PFX import with the issuer's
 Tauri `signCommand` integration and retain the same post-build publisher checks.
 
