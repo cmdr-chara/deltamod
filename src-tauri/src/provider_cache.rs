@@ -1,27 +1,30 @@
-use deltamod_product_contracts::DEFAULT_CACHE_LIMIT_BYTES;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     fmt::Write as _,
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 const CACHE_SCHEMA_VERSION: u32 = 1;
 const MAX_CATALOG_ENTRY_BYTES: u64 = 4 * 1024 * 1024;
+// Catalogue JSON is redownloadable metadata, not an archive or recovery copy.
+const MAX_CATALOG_CACHE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_CATALOG_ENTRIES: usize = 512;
+const ACCESS_WRITE_INTERVAL_MS: u64 = 60 * 1_000;
 const FRESH_TTL_MS: u64 = 10 * 60 * 1_000;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CatalogCacheEntry {
+struct CatalogCacheEntry<T = Value> {
     schema_version: u32,
     request_key: String,
     stored_at_ms: u64,
     last_accessed_at_ms: u64,
-    result: Value,
+    result: T,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,10 +57,14 @@ impl ProviderCatalogCache {
         }
         fs::create_dir_all(&root).map_err(|_| ())?;
         let root = fs::canonicalize(root).map_err(|_| ())?;
-        Ok(Self {
+        let cache = Self {
             root,
-            max_bytes: DEFAULT_CACHE_LIMIT_BYTES,
-        })
+            max_bytes: MAX_CATALOG_CACHE_BYTES,
+        };
+        // Apply the smaller budget to existing caches too. This scans metadata
+        // only and never touches downloaded archives or recovery generations.
+        cache.prune();
+        Ok(cache)
     }
 
     pub fn request_key(parts: &[&str]) -> String {
@@ -80,13 +87,24 @@ impl ProviderCatalogCache {
         let path = self.entry_path(request_key)?;
         let metadata = fs::symlink_metadata(&path).ok()?;
         if !metadata.is_file()
-            || metadata.file_type().is_symlink()
+            || is_link_or_reparse(&metadata)
             || metadata.len() == 0
             || metadata.len() > MAX_CATALOG_ENTRY_BYTES
         {
             return None;
         }
-        let mut entry: CatalogCacheEntry = serde_json::from_slice(&fs::read(&path).ok()?).ok()?;
+        // Bound the actual read as well as the stat: a file can grow between them.
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        fs::File::open(&path)
+            .ok()?
+            .take(MAX_CATALOG_ENTRY_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        if bytes.len() as u64 > MAX_CATALOG_ENTRY_BYTES {
+            return None;
+        }
+        let mut entry: CatalogCacheEntry = serde_json::from_slice(&bytes).ok()?;
+        drop(bytes);
         if entry.schema_version != CACHE_SCHEMA_VERSION
             || entry.request_key != request_key
             || !entry.result.is_object()
@@ -99,8 +117,13 @@ impl ProviderCatalogCache {
         } else {
             CacheFreshness::Stale
         };
-        entry.last_accessed_at_ms = now;
-        let _ = self.write_entry(&path, &entry);
+        // Approximate LRU is sufficient for redownloadable catalogue pages.
+        // Coalesce access updates so repeated hits do not serialize and fsync
+        // the complete response. Access never extends the provider freshness TTL.
+        if now.saturating_sub(entry.last_accessed_at_ms) >= ACCESS_WRITE_INTERVAL_MS {
+            entry.last_accessed_at_ms = now;
+            let _ = self.write_entry(&path, &entry);
+        }
         Some(CachedCatalog {
             freshness,
             stored_at_ms: entry.stored_at_ms,
@@ -118,7 +141,7 @@ impl ProviderCatalogCache {
             request_key: request_key.to_owned(),
             stored_at_ms: now,
             last_accessed_at_ms: now,
-            result: result.clone(),
+            result,
         };
         let path = self.entry_path(request_key).ok_or(())?;
         self.write_entry(&path, &entry)?;
@@ -127,7 +150,9 @@ impl ProviderCatalogCache {
     }
 
     pub fn usage_bytes(&self) -> u64 {
-        self.entries().into_iter().map(|(_, size, _)| size).sum()
+        self.entries()
+            .into_iter()
+            .fold(0u64, |total, (_, size, _)| total.saturating_add(size))
     }
 
     pub fn clear_redownloadable(&self) -> Result<u64, ()> {
@@ -143,13 +168,20 @@ impl ProviderCatalogCache {
     }
 
     fn entry_path(&self, request_key: &str) -> Option<PathBuf> {
-        if request_key.len() != 64 || !request_key.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        if !valid_request_key(request_key) || !self.root_is_trusted() {
             return None;
         }
         Some(self.root.join(format!("{request_key}.json")))
     }
 
-    fn write_entry(&self, path: &Path, entry: &CatalogCacheEntry) -> Result<(), ()> {
+    fn write_entry<T: Serialize>(
+        &self,
+        path: &Path,
+        entry: &CatalogCacheEntry<T>,
+    ) -> Result<(), ()> {
+        if !self.root_is_trusted() {
+            return Err(());
+        }
         let bytes = serde_json::to_vec(entry).map_err(|_| ())?;
         if bytes.is_empty() || bytes.len() as u64 > MAX_CATALOG_ENTRY_BYTES {
             return Err(());
@@ -179,19 +211,27 @@ impl ProviderCatalogCache {
 
     fn prune(&self) {
         let mut entries = self.entries();
-        let mut total = entries.iter().map(|entry| entry.1).sum::<u64>();
-        entries.sort_by_key(|entry| entry.0);
+        let mut total = entries
+            .iter()
+            .fold(0u64, |total, entry| total.saturating_add(entry.1));
+        let mut count = entries.len();
+        // Sorting is unnecessary for the common, under-budget case.
+        if total <= self.max_bytes && count <= MAX_CATALOG_ENTRIES {
+            return;
+        }
+        entries.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.2.cmp(&b.2)));
         for (_, size, path) in entries {
-            if total <= self.max_bytes {
+            if total <= self.max_bytes && count <= MAX_CATALOG_ENTRIES {
                 break;
             }
             if fs::remove_file(path).is_ok() {
                 total = total.saturating_sub(size);
+                count -= 1;
             }
         }
     }
 
-    fn entries(&self) -> Vec<(u64, u64, PathBuf)> {
+    fn entries(&self) -> Vec<(SystemTime, u64, PathBuf)> {
         if !self.root_is_trusted() {
             return Vec::new();
         }
@@ -203,14 +243,18 @@ impl ProviderCatalogCache {
                 let path = entry.path();
                 let metadata = fs::symlink_metadata(&path).ok()?;
                 if !metadata.is_file()
-                    || metadata.file_type().is_symlink()
+                    || is_link_or_reparse(&metadata)
                     || path.extension().and_then(|value| value.to_str()) != Some("json")
+                    || !path
+                        .file_stem()
+                        .and_then(|value| value.to_str())
+                        .is_some_and(valid_request_key)
                 {
                     return None;
                 }
-                let accessed = serde_json::from_slice::<CatalogCacheEntry>(&fs::read(&path).ok()?)
-                    .map(|entry| entry.last_accessed_at_ms)
-                    .unwrap_or(0);
+                // Writes and coalesced access updates refresh mtime. Inspecting
+                // usage or choosing victims must not read/parse every JSON body.
+                let accessed = metadata.modified().unwrap_or(UNIX_EPOCH);
                 Some((accessed, metadata.len(), path))
             })
             .collect()
@@ -224,6 +268,10 @@ impl ProviderCatalogCache {
                 .ok()
                 .is_some_and(|canonical| canonical == self.root)
     }
+}
+
+fn valid_request_key(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
@@ -297,6 +345,141 @@ mod tests {
         let mut cache = ProviderCatalogCache::open(&root).unwrap();
         assert!(cache.get("../../outside").is_none());
         assert!(cache.put("../../outside", &json!({})).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn temporary_cache(label: &str) -> (std::path::PathBuf, ProviderCatalogCache) {
+        let root = std::env::temp_dir().join(format!(
+            "deltamod-provider-cache-{label}-{}-{}",
+            std::process::id(),
+            super::now_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let cache = ProviderCatalogCache::open(&root).unwrap();
+        (root, cache)
+    }
+
+    #[test]
+    fn catalog_budget_is_separate_from_download_and_recovery_budgets() {
+        let (root, cache) = temporary_cache("budget");
+        assert_eq!(cache.max_bytes, 64 * 1024 * 1024);
+        assert!(cache.max_bytes < deltamod_product_contracts::DEFAULT_CACHE_LIMIT_BYTES);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn repeated_hits_do_not_rewrite_or_extend_freshness() {
+        let (root, mut cache) = temporary_cache("hits");
+        let key = ProviderCatalogCache::request_key(&["hits"]);
+        let path = cache.entry_path(&key).unwrap();
+        let now = super::now_ms();
+        let stored_at = now - super::FRESH_TTL_MS - 1;
+        let entry = super::CatalogCacheEntry {
+            schema_version: super::CACHE_SCHEMA_VERSION,
+            request_key: key.clone(),
+            stored_at_ms: stored_at,
+            last_accessed_at_ms: now,
+            result: json!({"items":[]}),
+        };
+        cache.write_entry(&path, &entry).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        for _ in 0..3 {
+            let result = cache.get(&key).unwrap();
+            assert_eq!(result.freshness, CacheFreshness::Stale);
+            assert_eq!(result.stored_at_ms, stored_at);
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), modified);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn old_access_is_refreshed_without_refreshing_the_provider_ttl() {
+        let (root, mut cache) = temporary_cache("touch");
+        let key = ProviderCatalogCache::request_key(&["touch"]);
+        let path = cache.entry_path(&key).unwrap();
+        let entry = super::CatalogCacheEntry {
+            schema_version: super::CACHE_SCHEMA_VERSION,
+            request_key: key.clone(),
+            stored_at_ms: 1,
+            last_accessed_at_ms: 1,
+            result: json!({"items":[]}),
+        };
+        cache.write_entry(&path, &entry).unwrap();
+        assert_eq!(cache.get(&key).unwrap().freshness, CacheFreshness::Stale);
+        let after: super::CatalogCacheEntry =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert!(after.last_accessed_at_ms > 1);
+        assert_eq!(after.stored_at_ms, 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn metadata_scan_counts_corrupt_entries_without_parsing_them() {
+        let (root, mut cache) = temporary_cache("metadata");
+        let key = ProviderCatalogCache::request_key(&["corrupt"]);
+        let path = cache.entry_path(&key).unwrap();
+        std::fs::write(&path, b"not json").unwrap();
+        let unrelated = cache.root.join("keep.json");
+        std::fs::write(&unrelated, b"not a catalogue entry").unwrap();
+        let recovery = root.join("recovery");
+        std::fs::write(&recovery, b"keep recovery").unwrap();
+        assert_eq!(cache.usage_bytes(), 8);
+        assert!(cache.get(&key).is_none());
+        assert_eq!(cache.clear_redownloadable().unwrap(), 8);
+        assert!(unrelated.exists());
+        assert!(recovery.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn prune_uses_modification_time_and_only_removes_old_catalogue_entries() {
+        let (root, mut cache) = temporary_cache("prune");
+        let old = cache
+            .entry_path(&ProviderCatalogCache::request_key(&["old"]))
+            .unwrap();
+        let recent = cache
+            .entry_path(&ProviderCatalogCache::request_key(&["recent"]))
+            .unwrap();
+        std::fs::write(&old, b"old").unwrap();
+        std::fs::write(&recent, b"new").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(
+                super::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000),
+            ))
+            .unwrap();
+        cache.max_bytes = 3;
+        cache.prune();
+        assert!(!old.exists());
+        assert!(recent.exists());
+        assert_eq!(cache.usage_bytes(), 3);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reopening_bounds_the_number_of_small_catalogue_entries() {
+        let (root, cache) = temporary_cache("count");
+        for index in 0..=super::MAX_CATALOG_ENTRIES {
+            let key = ProviderCatalogCache::request_key(&[&index.to_string()]);
+            std::fs::write(cache.entry_path(&key).unwrap(), b"{}").unwrap();
+        }
+        let reopened = ProviderCatalogCache::open(&root).unwrap();
+        assert_eq!(reopened.entries().len(), super::MAX_CATALOG_ENTRIES);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn oversized_entry_is_not_loaded() {
+        let (root, mut cache) = temporary_cache("oversized");
+        let key = ProviderCatalogCache::request_key(&["large"]);
+        let file = std::fs::File::create(cache.entry_path(&key).unwrap()).unwrap();
+        file.set_len(super::MAX_CATALOG_ENTRY_BYTES + 1).unwrap();
+        drop(file);
+        assert!(cache.get(&key).is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

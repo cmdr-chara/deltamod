@@ -72,3 +72,91 @@ describe('Deltamod boot screen integration', () => {
         expect(bootSource).toContain('syncVideo.currentTime >= cueTime');
     });
 });
+
+describe('production boot performance lifecycle', () => {
+    function bootFixture() {
+        const vm = require('node:vm');
+        const ts = require('typescript');
+        const source = fs.readFileSync(path.join(projectRoot, 'web', 'boot-entry.tsx'), 'utf8');
+        const compiled = ts.transpileModule(source, {
+            compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX }
+        }).outputText;
+        const classes = new Set();
+        const timers = [];
+        const renders = [];
+        let unmounts = 0;
+        const host = {
+            dataset: {}, hidden: true,
+            setAttribute() {}, removeAttribute() {}, replaceChildren() {}
+        };
+        const root = {
+            render(value) { renders.push(value); },
+            unmount() { unmounts += 1; }
+        };
+        const window = {
+            setTimeout(callback, delay) { timers.push({ callback, delay }); return timers.length; },
+            clearTimeout() {}
+        };
+        vm.runInNewContext(compiled, {
+            exports: {}, window,
+            document: {
+                getElementById: () => host,
+                body: { classList: { add: name => classes.add(name), remove: name => classes.delete(name) } }
+            },
+            require(name) {
+                if (name === 'react-dom/client') return { createRoot: () => root };
+                if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }) };
+                if (name === './components/DeltamodBootScreen') return { default: 'BootScreen' };
+                throw new Error(`Unexpected boot dependency: ${name}`);
+            }
+        });
+        return { api: window.DeltamodBoot, host, timers, renders, classes, unmounts: () => unmounts };
+    }
+
+    test('removes the production time floor without discarding explicit theme cues', () => {
+        const assert = require('node:assert/strict');
+        const fixture = bootFixture();
+        fixture.api.setTheme({ themeColor: '#ffffff', readyAtVideoTime: 5.6 });
+        const props = fixture.renders.at(-1).props;
+        assert.equal(props.minimumDuration, 0);
+        assert.equal(props.readyAtVideoTime, 5.6);
+        assert.equal(props.readyVideoElementId, 'theme-background-video');
+        assert.equal(props.autoPlay, true);
+        props.onReady();
+        assert.equal(fixture.timers.length, 0);
+        assert.equal(fixture.host.dataset.dismissed, undefined);
+    });
+
+    test('dismisses once after real completion and releases the React root', () => {
+        const assert = require('node:assert/strict');
+        const fixture = bootFixture();
+        fixture.api.setTheme({ themeColor: '#ffffff' });
+        fixture.api.finish();
+        const props = fixture.renders.at(-1).props;
+        assert.equal(props.progress, 1);
+        props.onReady();
+        props.onReady();
+        assert.equal(fixture.timers.length, 1);
+        assert.equal(fixture.host.dataset.dismissed, 'true');
+        assert.equal(fixture.classes.has('deltamod-boot-active'), false);
+        fixture.timers[0].callback();
+        assert.equal(fixture.unmounts(), 1);
+        assert.equal(fixture.host.hidden, true);
+    });
+
+    test('ignores late notifications after dismissal instead of rendering an unmounted root', () => {
+        const assert = require('node:assert/strict');
+        const fixture = bootFixture();
+        fixture.api.setTheme({ themeColor: '#ffffff' });
+        fixture.api.finish();
+        fixture.renders.at(-1).props.onReady();
+        fixture.timers[0].callback();
+        const renderCount = fixture.renders.length;
+        fixture.api.fail('Late notification');
+        fixture.api.setProgress(0.5);
+        fixture.api.setTheme({ themeColor: '#000000' });
+        fixture.api.finish();
+        assert.equal(fixture.renders.length, renderCount);
+        assert.equal(fixture.timers.length, 1);
+    });
+});

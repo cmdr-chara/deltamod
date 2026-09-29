@@ -39,6 +39,7 @@ if (host) {
     readyAtVideoTime: undefined as number | undefined,
   };
   let finishRequested = false;
+  let dismissed = false;
   let finishTimer: number | null = null;
 
   const render = () => {
@@ -57,10 +58,11 @@ if (host) {
         backgroundVideo={state.backgroundVideo}
         readyAtVideoTime={state.readyAtVideoTime}
         readyVideoElementId="theme-background-video"
-        minimumDuration={5200}
+        minimumDuration={0}
         autoPlay
         onReady={() => {
-          if (!finishRequested) return;
+          if (!finishRequested || dismissed) return;
+          dismissed = true;
 
           host.dataset.dismissed = "true";
           host.setAttribute("aria-hidden", "true");
@@ -109,13 +111,14 @@ if (host) {
       if (finishRequested) return;
       finishRequested = true;
       state.progress = 1;
-      // The component still enforces its cinematic minimum duration. Do not
-      // announce Ready while the displayed progress is catching up to 100%.
+      // Real work controls startup, not a mandatory cinematic delay. The
+      // component still honors explicit theme cues and the completion transition.
       state.status = "Opening your session";
       render();
     },
 
     fail(message = "Ready") {
+      if (dismissed) return;
       if (!state.themeReady) {
         state.themeReady = true;
         state.themeColor = "#ffffff";

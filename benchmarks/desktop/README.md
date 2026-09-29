@@ -46,10 +46,17 @@ condition as the Electron baseline: one warm-up plus seven measured launches, ea
 with a fresh Deltamod data root and WebView2 profile. The recorded artifact is the
 complete 2.0.18 NSIS installer, not the standalone shell executable.
 
-The current comparison reports a 1.20% higher median readiness time, a 42.15%
-lower median peak working set, and a 64.34% smaller packaged artifact. These are
-candidate measurements, not release approval: signing, updater, protocol, install /
-uninstall, and non-Windows release gates remain independently mandatory.
+The recorded comparison reports a 1.20% higher median readiness time and a 42.15%
+lower median peak working set. The old 64.34% storage reduction claim was not an
+apples-to-apples comparison: Electron recorded an 881.60 MiB unpacked directory,
+while Tauri recorded a 314.37 MiB compressed NSIS installer under `unpackedBytes`.
+Those historical JSON records remain unchanged. The comparator now returns
+`unpackedArtifactBytes: null` with the incompatible artifact kinds instead of a
+misleading storage percentage. Measure complete installed directories (including
+sidecars, tools and resources) on both sides before claiming installed-size savings.
+
+These are candidate measurements, not release approval: signing, updater, protocol,
+install / uninstall, and non-Windows release gates remain independently mandatory.
 
 Reproduce the comparison with:
 
@@ -59,3 +66,36 @@ node scripts/desktop-benchmark/compare.js benchmarks/desktop/electron-9e6f8af.js
 
 The comparator fails closed if the runtime, hardware identity, launch count, readiness
 condition, warm-up policy, profile policy, or memory sampling protocol differs.
+
+## Tauri-to-Tauri performance work
+
+The comparator also accepts a Tauri baseline, so optimizations can be compared with
+an earlier Tauri build without relabelling it as Electron. Both runtime directions
+retain the same protocol and hardware checks and report median plus nearest-rank
+p95 for readiness and process-tree working set. Missing protocol or hardware fields
+are not treated as evidence of a match.
+
+The 2026-09-29 source changes target these costs:
+
+- Provider catalogue metadata has its own 64 MiB / 512-entry budget, instead of
+  inheriting the 5 GiB archive-cache allowance. Reopening trims existing catalogue
+  entries to this budget. Archives, saved games and recovery generations are not
+  part of this cleanup. Fewer catalogue pages may remain available offline.
+- Cache usage and eviction scan file metadata, not every JSON response. Writes
+  borrow the response rather than deep-cloning it. Repeated cache hits update
+  approximate LRU at most once per minute per entry, without extending freshness.
+  Reads are bounded even if a cache file grows after its metadata is checked.
+- The production boot overlay no longer imposes a blanket 5.2-second cinematic
+  minimum. Explicit theme/video cues and the completion transition remain intact.
+  Repeated completion callbacks and late failure notifications cannot remount an
+  already-dismissed overlay.
+
+These are implementation changes, not a new desktop benchmark result. The historical
+route-readiness marker does not necessarily mean the boot overlay has disappeared.
+Keep that protocol intact for historical comparisons and measure overlay dismissal
+separately when assessing the user's wait. No readiness marker was moved earlier.
+
+Before promotion, run the Rust cache tests, renderer checks and the packaged
+seven-launch protocol on the same Windows host. Record the complete installed
+footprint and the actual installer download separately. Linux renderer fixtures do
+not establish Windows WebView2 working-set savings or macOS package behavior.

@@ -128,3 +128,83 @@ describe('desktop runtime benchmark gate', () => {
             .toThrow('protocol mismatch: readiness');
     });
 });
+
+describe('performance comparison evidence boundaries', () => {
+    const assert = require('node:assert/strict');
+    const readBaseline = () => JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+    const tauriCandidate = () => ({ ...readBaseline(), runtime: 'tauri' });
+
+    test('keeps valid timing and memory results but rejects installer-versus-directory storage', () => {
+        const baseline = readBaseline();
+        const candidate = JSON.parse(fs.readFileSync(path.join(
+            benchmarkDirectory, 'tauri-packaged-windows-x64-20260901-2.0.18.json'
+        ), 'utf8'));
+        const result = compareBenchmarkResults(baseline, candidate);
+        assert.equal(result.unpackedArtifactBytes, null);
+        assert.equal(result.artifactComparison.baselineKind, 'unpacked-directory');
+        assert.equal(result.artifactComparison.candidateKind, 'installer-file');
+        assert.equal(result.artifactComparison.comparable, false);
+        assert.equal(result.readyMedianMs.candidate, candidate.summary.readyMs.median);
+        assert.ok(result.peakWorkingSetMedianBytes.percentDelta < 0);
+    });
+
+    test('compares Tauri revisions without calling either measurement Electron', () => {
+        const baseline = tauriCandidate();
+        const candidate = tauriCandidate();
+        candidate.sourceRevision = 'f'.repeat(40);
+        const result = compareBenchmarkResults(baseline, candidate);
+        assert.equal(result.baselineRuntime, 'tauri');
+        assert.equal(result.candidateRuntime, 'tauri');
+        assert.equal(result.baselineRevision, baseline.sourceRevision);
+        assert.equal(result.candidateRevision, candidate.sourceRevision);
+        assert.equal(result.readyMedianMs.percentDelta, 0);
+        assert.equal(result.readyMedianMs.electron, undefined);
+        assert.equal(result.electronRevision, undefined);
+        assert.equal(result.readyP95Ms.baseline, baseline.summary.readyMs.p95NearestRank);
+        assert.equal(result.peakWorkingSetP95Bytes.candidate, candidate.summary.peakWorkingSetBytes.p95NearestRank);
+    });
+
+    test('does not equate missing hardware or protocol fields', () => {
+        for (const [group, field] of [['environment', 'processor'], ['protocol', 'readiness']]) {
+            const baseline = readBaseline();
+            const candidate = tauriCandidate();
+            delete baseline[group][field];
+            delete candidate[group][field];
+            assert.throws(() => assertComparable(baseline, candidate), /mismatch/);
+        }
+    });
+
+    test('does not report a standalone executable as an installed footprint', () => {
+        const candidate = tauriCandidate();
+        candidate.artifact = { unpackedBytes: 1_000_000, unpackedFileCount: 1, path: 'shell.exe' };
+        const result = compareBenchmarkResults(readBaseline(), candidate);
+        assert.equal(result.unpackedArtifactBytes, null);
+        assert.equal(result.artifactComparison.candidateKind, 'single-file');
+    });
+
+    test('fails closed on ambiguous storage metadata', () => {
+        const candidate = tauriCandidate();
+        delete candidate.artifact.unpackedFileCount;
+        assert.equal(compareBenchmarkResults(readBaseline(), candidate).unpackedArtifactBytes, null);
+        candidate.artifact.unpackedFileCount = 496;
+        candidate.artifact.path = 'Deltamod.dmg';
+        assert.equal(compareBenchmarkResults(readBaseline(), candidate).unpackedArtifactBytes, null);
+    });
+
+    test('does not treat two compressed installers as unpacked directories', () => {
+        const baseline = tauriCandidate();
+        const candidate = tauriCandidate();
+        baseline.artifact = { unpackedBytes: 500, unpackedFileCount: 1, path: 'old-setup.exe' };
+        candidate.artifact = { unpackedBytes: 400, unpackedFileCount: 1, path: 'new-setup.exe' };
+        assert.equal(compareBenchmarkResults(baseline, candidate).unpackedArtifactBytes, null);
+    });
+
+    test('retains sample-count and summary-integrity checks', () => {
+        const candidate = tauriCandidate();
+        candidate.samples.pop();
+        assert.throws(() => assertComparable(readBaseline(), candidate), /sample count/);
+        const other = tauriCandidate();
+        other.summary.readyMs.median = 1;
+        assert.throws(() => assertComparable(readBaseline(), other), /summary mismatch/);
+    });
+});

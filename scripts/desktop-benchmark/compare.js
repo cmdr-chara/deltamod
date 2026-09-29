@@ -78,25 +78,30 @@ function assertComparable(baseline, candidate) {
     if (baseline?.schemaVersion !== 1 || candidate?.schemaVersion !== 1) {
         throw new Error('benchmark schemaVersion must be 1');
     }
-    if (baseline.runtime !== 'electron') {
-        throw new Error('baseline runtime must be electron');
+    if (!['electron', 'tauri'].includes(baseline.runtime)) {
+        throw new Error('baseline runtime must be electron or tauri');
     }
     if (candidate.runtime !== 'tauri') {
         throw new Error('candidate runtime must be tauri');
     }
 
     for (const field of PROTOCOL_FIELDS) {
-        if (baseline.protocol?.[field] !== candidate.protocol?.[field]) {
+        if (baseline.protocol?.[field] == null || candidate.protocol?.[field] == null
+            || baseline.protocol[field] !== candidate.protocol[field]) {
             throw new Error(`protocol mismatch: ${field}`);
         }
     }
     for (const field of HARDWARE_FIELDS) {
-        if (baseline.environment?.[field] !== candidate.environment?.[field]) {
+        if (baseline.environment?.[field] == null || candidate.environment?.[field] == null
+            || baseline.environment[field] !== candidate.environment[field]) {
             throw new Error(`environment mismatch: ${field}`);
         }
     }
 
     const expectedSamples = baseline.protocol.measuredLaunches;
+    if (!Number.isSafeInteger(expectedSamples) || expectedSamples < 1) {
+        throw new Error('measuredLaunches must be a positive integer');
+    }
     if (baseline.samples?.length !== expectedSamples) {
         throw new Error('baseline sample count does not match its protocol');
     }
@@ -125,10 +130,27 @@ function percentDelta(before, after) {
     return ((after - before) / before) * 100;
 }
 
-function comparisonMetric(before, after) {
+// Old captures used unpackedBytes for both a directory and a single installer.
+// Do not rewrite historical evidence or compare those different storage measures.
+function artifactKind(artifact) {
+    if (!artifact || !Number.isSafeInteger(artifact.unpackedFileCount)
+        || artifact.unpackedFileCount < 1) return 'unknown';
+    const locations = [artifact.path, artifact.artifactPath].filter(value => typeof value === 'string');
+    const installer = locations.some(value =>
+        /\.(?:dmg|deb|msi|rpm|appimage)$/i.test(value)
+        || /(?:setup|installer)[^/\\]*\.exe$/i.test(value));
+    if (installer) return 'installer-file';
+    if (artifact.unpackedFileCount > 1) return 'unpacked-directory';
+    return 'single-file';
+}
+
+function comparisonMetric(before, after, baselineRuntime) {
     return {
-        electron: before,
-        tauri: after,
+        baseline: before,
+        candidate: after,
+        // Keep existing Electron comparison consumers compatible. Never label a
+        // Tauri baseline as Electron just to reuse the original output schema.
+        ...(baselineRuntime === 'electron' ? { electron: before, tauri: after } : {}),
         absoluteDelta: after - before,
         percentDelta: percentDelta(before, after)
     };
@@ -136,29 +158,55 @@ function comparisonMetric(before, after) {
 
 function compareBenchmarkResults(baseline, candidate) {
     assertComparable(baseline, candidate);
+    const metric = (before, after) => comparisonMetric(before, after, baseline.runtime);
+    const baselineKind = artifactKind(baseline.artifact);
+    const candidateKind = artifactKind(candidate.artifact);
+    const comparableStorage = baselineKind === 'unpacked-directory'
+        && candidateKind === 'unpacked-directory';
     return {
         schemaVersion: 1,
-        electronRevision: baseline.sourceRevision,
-        tauriRevision: candidate.sourceRevision,
-        readyMedianMs: comparisonMetric(
+        baselineRuntime: baseline.runtime,
+        candidateRuntime: candidate.runtime,
+        baselineRevision: baseline.sourceRevision,
+        candidateRevision: candidate.sourceRevision,
+        ...(baseline.runtime === 'electron' ? {
+            electronRevision: baseline.sourceRevision,
+            tauriRevision: candidate.sourceRevision
+        } : {}),
+        readyMedianMs: metric(
             baseline.summary.readyMs.median,
             candidate.summary.readyMs.median
         ),
-        peakWorkingSetMedianBytes: comparisonMetric(
+        readyP95Ms: metric(
+            baseline.summary.readyMs.p95NearestRank,
+            candidate.summary.readyMs.p95NearestRank
+        ),
+        peakWorkingSetMedianBytes: metric(
             baseline.summary.peakWorkingSetBytes.median,
             candidate.summary.peakWorkingSetBytes.median
         ),
-        unpackedArtifactBytes: comparisonMetric(
+        peakWorkingSetP95Bytes: metric(
+            baseline.summary.peakWorkingSetBytes.p95NearestRank,
+            candidate.summary.peakWorkingSetBytes.p95NearestRank
+        ),
+        unpackedArtifactBytes: comparableStorage ? metric(
             baseline.artifact.unpackedBytes,
             candidate.artifact.unpackedBytes
-        )
+        ) : null,
+        artifactComparison: {
+            comparable: comparableStorage,
+            baselineKind,
+            candidateKind,
+            reason: comparableStorage ? null
+                : 'Unpacked size requires two complete unpacked directories, not installers or standalone executables.'
+        }
     };
 }
 
 if (require.main === module) {
     const [baselineArgument, candidateArgument] = process.argv.slice(2);
     if (!baselineArgument || !candidateArgument) {
-        console.error('Usage: node compare.js <electron-result.json> <tauri-result.json>');
+        console.error('Usage: node compare.js <baseline-result.json> <tauri-result.json>');
         process.exitCode = 2;
     } else {
         const read = argument => JSON.parse(
