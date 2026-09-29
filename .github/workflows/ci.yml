@@ -246,7 +246,7 @@ jobs:
   benchmark-on-failure:
     needs: verify
     name: Optional Windows benchmark
-    if: ${{ !cancelled() && needs.verify.result == 'success' && ((github.event_name == 'workflow_dispatch' && inputs.benchmark) || (github.event_name == 'pull_request' && github.head_ref == 'astra/perf-cache-startup-20260929')) }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.benchmark && needs.verify.result == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 45
     env:
@@ -275,6 +275,26 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "G3MTool acquisition failed with exit code $LASTEXITCODE" }
           node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
           if ($LASTEXITCODE -ne 0) { throw "UndertaleModTool acquisition failed with exit code $LASTEXITCODE" }
+      - name: Prepare bounded benchmark fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $seedRoot = Join-Path $env:RUNNER_TEMP 'deltamod-ci-benchmark-seed'
+          $gameRoot = Join-Path $seedRoot 'fixture-game'
+          $storeRoot = Join-Path $seedRoot 'deltamod_system-0'
+          Remove-Item -LiteralPath $seedRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $gameRoot, $storeRoot | Out-Null
+          Set-Content -LiteralPath (Join-Path $gameRoot 'DELTARUNE.exe') -Value 'Deltamod benchmark fixture' -Encoding utf8NoBOM
+          Set-Content -LiteralPath (Join-Path $gameRoot 'data.win') -Value 'Deltamod benchmark fixture' -Encoding utf8NoBOM
+          [ordered]@{
+            gamePid = 'toby.deltarune'
+            gamePath = $gameRoot
+            gamePlatform = 'win32'
+            isSteam = $false
+          } | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $storeRoot 'store.json') -Encoding utf8NoBOM
+          [ordered]@{
+            unique_flags = [ordered]@{ AUDIO = $false }
+          } | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $seedRoot 'preferences.json') -Encoding utf8NoBOM
       - name: Capture Windows packaged Tauri benchmark diagnostic
         id: benchmark
         continue-on-error: true
@@ -283,6 +303,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $outputRoot = Join-Path $env:RUNNER_TEMP 'deltamod-ci-benchmark'
           $installRoot = Join-Path $env:RUNNER_TEMP 'deltamod-ci-benchmark-install'
+          $seedRoot = Join-Path $env:RUNNER_TEMP 'deltamod-ci-benchmark-seed'
           New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
           try {
             # CI diagnostics are unsigned and must not attempt updater artifact signing.
@@ -321,6 +342,7 @@ jobs:
               --executable $installedExecutable.FullName `
               --artifact $bundle.FullName `
               --output $resultPath `
+              --seed-data-root $seedRoot `
               --readiness-file '{readyFile}' `
               --includes-revision $env:BENCHMARK_INCLUDED_REVISION
             if ($LASTEXITCODE -ne 0) { throw "Benchmark capture failed with exit code $LASTEXITCODE" }

@@ -27,6 +27,13 @@ The Tauri run must preserve the user-visible readiness condition. If the bridge 
 renderer changes, the harness may change, but the start point, readiness meaning,
 sample count, warm-up policy, fresh-profile policy, and memory window may not.
 
+GitHub-hosted Windows diagnostics generate a bounded synthetic DELTARUNE fixture: a
+minimal `DELTARUNE.exe` and `data.win`, a `deltamod_system-0/store.json` selecting
+`toby.deltarune`, and audio disabled. The harness copies that declared seed into
+each fresh data root through `--seed-data-root`, so the renderer deterministically
+reaches the normal `main` route without reading a real game installation. GitHub
+runner results remain diagnostic and are not treated as same-host release evidence.
+
 ## Baseline
 
 [`electron-9e6f8af.json`](electron-9e6f8af.json) records the clean Electron baseline.
