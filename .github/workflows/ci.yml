@@ -246,7 +246,7 @@ jobs:
   benchmark-on-failure:
     needs: verify
     name: Optional Windows benchmark
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.benchmark && needs.verify.result == 'success' }}
+    if: ${{ !cancelled() && needs.verify.result == 'success' && ((github.event_name == 'workflow_dispatch' && inputs.benchmark) || (github.event_name == 'push' && github.ref == 'refs/heads/astra/perf-cache-startup-20260929')) }}
     runs-on: windows-latest
     timeout-minutes: 45
     env:
