@@ -1,0 +1,85 @@
+name: One-off performance benchmark
+
+on:
+  push:
+    branches: [astra/perf-cache-startup-20260929]
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      TAURI_BUILD_TARGET: x86_64-pc-windows-msvc
+      BENCHMARK_INCLUDED_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+      - name: Install npm dependencies
+        timeout-minutes: 5
+        run: node scripts/retry-command.js --label "npm ci" -- npm ci --no-audit --no-fund
+      - name: Acquire benchmark resources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node scripts/retry-command.js --label "G3MTool acquisition" -- npm run acquire:g3mtool
+          if ($LASTEXITCODE -ne 0) { throw "G3MTool acquisition failed with exit code $LASTEXITCODE" }
+          node scripts/retry-command.js --label "UndertaleModTool acquisition" -- npm run acquire:undertale-mod-tool
+          if ($LASTEXITCODE -ne 0) { throw "UndertaleModTool acquisition failed with exit code $LASTEXITCODE" }
+      - name: Capture Windows packaged Tauri benchmark diagnostic
+        id: benchmark
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:RUNNER_TEMP 'deltamod-ci-benchmark'
+          $installRoot = Join-Path $env:RUNNER_TEMP 'deltamod-ci-benchmark-install'
+          New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+          try {
+            node -e "const fs = require('node:fs'); const p = 'src-tauri/tauri.windows.conf.json'; const c = JSON.parse(fs.readFileSync(p, 'utf8')); c.bundle.createUpdaterArtifacts = false; fs.writeFileSync(p, JSON.stringify(c, null, 2) + '\n');"
+            if ($LASTEXITCODE -ne 0) { throw "Failed to disable updater signing for the diagnostic package" }
+            npm run build:boot
+            if ($LASTEXITCODE -ne 0) { throw "Boot build failed with exit code $LASTEXITCODE" }
+            npm run build:native-sidecars:target -- x86_64-pc-windows-msvc
+            if ($LASTEXITCODE -ne 0) { throw "Native sidecar staging failed with exit code $LASTEXITCODE" }
+            npm run build:tauri:resources -- x86_64-pc-windows-msvc
+            if ($LASTEXITCODE -ne 0) { throw "Tauri resource staging failed with exit code $LASTEXITCODE" }
+            npm run build:tauri:butler -- x86_64-pc-windows-msvc
+            if ($LASTEXITCODE -ne 0) { throw "Butler staging failed with exit code $LASTEXITCODE" }
+            npx tauri build --target x86_64-pc-windows-msvc --bundles nsis
+            if ($LASTEXITCODE -ne 0) { throw "Tauri NSIS build failed with exit code $LASTEXITCODE" }
+            $bundle = Get-ChildItem -LiteralPath 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter '*.exe' -File | Select-Object -First 1
+            if (-not $bundle) { throw 'The benchmark NSIS bundle was not found.' }
+            New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+            $installer = Start-Process -FilePath $bundle.FullName -ArgumentList '/S', "/D=$installRoot" -Wait -PassThru -WindowStyle Hidden
+            if ($installer.ExitCode -ne 0) { throw "NSIS installation failed with exit code $($installer.ExitCode)" }
+            $installedExecutable = Get-ChildItem -LiteralPath $installRoot -Filter 'deltamod-tauri-shell.exe' -File -Recurse | Select-Object -First 1
+            if (-not $installedExecutable) { throw 'The installed benchmark executable was not found.' }
+            $shortRevision = if ($env:BENCHMARK_INCLUDED_REVISION.Length -gt 12) { $env:BENCHMARK_INCLUDED_REVISION.Substring(0, 12) } else { $env:BENCHMARK_INCLUDED_REVISION }
+            $resultPath = Join-Path $outputRoot "tauri-windows-$shortRevision.json"
+            node scripts/desktop-benchmark/capture-windows.js --executable $installedExecutable.FullName --artifact $bundle.FullName --output $resultPath --readiness-file '{readyFile}' --includes-revision $env:BENCHMARK_INCLUDED_REVISION
+            if ($LASTEXITCODE -ne 0) { throw "Benchmark capture failed with exit code $LASTEXITCODE" }
+          }
+          finally {
+            if (Test-Path -LiteralPath $installRoot) {
+              $uninstaller = Get-ChildItem -LiteralPath $installRoot -Filter 'uninstall*.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($uninstaller) { Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue }
+            }
+          }
+      - name: Upload benchmark result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: one-off-performance-benchmark-${{ github.run_id }}
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/deltamod-ci-benchmark/*
