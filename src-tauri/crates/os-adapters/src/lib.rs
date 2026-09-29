@@ -491,9 +491,7 @@ mod tests {
                 .is_err()
         );
         assert_eq!(
-            ValidatedFolder::from_backend_exact(&child)
-                .unwrap()
-                .path(),
+            ValidatedFolder::from_backend_exact(&child).unwrap().path(),
             child.canonicalize().unwrap()
         );
         #[cfg(unix)]
