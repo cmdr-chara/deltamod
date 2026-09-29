@@ -3,6 +3,7 @@
 # Licensed under the EUPL 1.2.
 
 name: Community CI
+# Isolated benchmark trigger for astra/perf-benchmark-20260929.
 
 on:
   push:
