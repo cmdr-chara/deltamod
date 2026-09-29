@@ -47,6 +47,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "UndertaleModTool acquisition failed with exit code $LASTEXITCODE" }
       - name: Capture Windows packaged Tauri benchmark diagnostic
         id: benchmark
+        continue-on-error: true
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -54,7 +55,18 @@ jobs:
           $installRoot = Join-Path $env:RUNNER_TEMP 'deltamod-ci-benchmark-install'
           New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
           try {
-            node -e "const fs=require('node:fs');const p='web/index.js';let s=fs.readFileSync(p,'utf8');s=s.replace(\"signalBenchmarkReadiness().catch(() => {});\",\"signalBenchmarkReadiness().catch(error => console.error('[benchmark readiness]', error));\");fs.writeFileSync(p,s);"
+            @'
+const fs = require('node:fs');
+const p = 'web/index.js';
+let s = fs.readFileSync(p, 'utf8');
+s = s.replace(
+  'signalBenchmarkReadiness().catch(() => {});',
+  'signalBenchmarkReadiness().catch(error => console.error("[benchmark readiness]", error));'
+);
+fs.writeFileSync(p, s);
+'@ | Set-Content -LiteralPath benchmark-readiness-debug.cjs -Encoding utf8
+            node benchmark-readiness-debug.cjs
+            if ($LASTEXITCODE -ne 0) { throw "Failed to instrument benchmark readiness" }
             node -e "const fs = require('node:fs'); const p = 'src-tauri/tauri.windows.conf.json'; const c = JSON.parse(fs.readFileSync(p, 'utf8')); c.bundle.createUpdaterArtifacts = false; fs.writeFileSync(p, JSON.stringify(c, null, 2) + '\n');"
             if ($LASTEXITCODE -ne 0) { throw "Failed to disable updater signing for the diagnostic package" }
             npm run build:boot
