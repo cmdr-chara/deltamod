@@ -17,7 +17,7 @@ identity, updater-signature, notarization, or stable-publication requirements be
 ## Required parity checks
 
 1. `npm ci` succeeds with the committed `package-lock.json`, and `npm run verify:tauri-only` rejects any reintroduced Electron runtime, dependency, or renderer binding.
-2. `npm run build:boot` succeeds and the Tauri frontend points at the generated `web/` output.
+2. `npm run build:boot` succeeds and stages the Tauri frontend in `dist/frontend/`. The packaged frontend must omit development sources, retain directly referenced assets, and load external theme media through the validated protocol. See [PERFORMANCE.md](./PERFORMANCE.md) for the paired diagnostic lane.
 3. `npm test`, `npm run typecheck`, and `npm run security:audit` pass.
 4. Formatting, strict all-target Clippy, and locked workspace tests pass for both
    `src-tauri/Cargo.toml` and `native/Cargo.toml`; the Tauri workspace command must

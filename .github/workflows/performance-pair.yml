@@ -1,0 +1,151 @@
+# SPDX-FileCopyrightText: 2026 Deltamod Community contributors
+# SPDX-License-Identifier: EUPL-1.2
+name: Paired Windows performance evidence
+on:
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'scripts/desktop-benchmark/**'
+      - 'scripts/stage-frontend.js'
+      - 'src-tauri/tauri.conf.json'
+      - 'vite.boot.config.js'
+      - '.github/workflows/performance-pair.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: paired-performance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  pair:
+    # Keep expensive benchmarks isolated from ordinary PRs and release workflows.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 121
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      TAURI_BUILD_TARGET: x86_64-pc-windows-msvc
+      BASELINE_SHA: c2312c720266460454f9f156ccd0f3911162dee6
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          path: baseline
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: candidate/package-lock.json
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: |
+            baseline/native -> target
+            baseline/src-tauri -> target
+            candidate/native -> target
+            candidate/src-tauri -> target
+          save-if: false
+      - name: Focused performance regression checks
+        run: node --test candidate/scripts/desktop-benchmark/performance.test.cjs
+      - name: Build both exact revisions and snapshot complete installations
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pairRoot = Join-Path $env:RUNNER_TEMP 'deltamod-paired'
+          $evidence = Join-Path $pairRoot 'evidence'
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          foreach ($label in @('baseline', 'candidate')) {
+            Push-Location (Join-Path $env:GITHUB_WORKSPACE $label)
+            try {
+              npm ci --no-audit --no-fund
+              if ($LASTEXITCODE -ne 0) { throw "$label dependency installation failed" }
+              npm run acquire:g3mtool
+              if ($LASTEXITCODE -ne 0) { throw "$label G3MTool acquisition failed" }
+              npm run acquire:undertale-mod-tool
+              if ($LASTEXITCODE -ne 0) { throw "$label UndertaleModTool acquisition failed" }
+              # Diagnostic packages never sign or publish updater artifacts.
+              node -e "const fs=require('node:fs');const p='src-tauri/tauri.windows.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.bundle.createUpdaterArtifacts=false;fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');"
+              if ($LASTEXITCODE -ne 0) { throw "$label diagnostic configuration failed" }
+              npm run build:boot
+              if ($LASTEXITCODE -ne 0) { throw "$label frontend build failed" }
+              npm run build:native-sidecars:target -- x86_64-pc-windows-msvc
+              if ($LASTEXITCODE -ne 0) { throw "$label sidecar build failed" }
+              npm run build:tauri:resources -- x86_64-pc-windows-msvc
+              if ($LASTEXITCODE -ne 0) { throw "$label resource staging failed" }
+              npm run build:tauri:butler -- x86_64-pc-windows-msvc
+              if ($LASTEXITCODE -ne 0) { throw "$label Butler staging failed" }
+              npx tauri build --target x86_64-pc-windows-msvc --bundles nsis
+              if ($LASTEXITCODE -ne 0) { throw "$label packaging failed" }
+              $bundles = @(Get-ChildItem 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter '*.exe' -File)
+              if ($bundles.Count -ne 1) { throw "$label expected one NSIS installer" }
+              $installRoot = Join-Path $pairRoot "$label-install"
+              $snapshot = Join-Path $pairRoot "$label-app"
+              $installerCopy = Join-Path $pairRoot "$label-setup.exe"
+              Copy-Item -LiteralPath $bundles[0].FullName -Destination $installerCopy
+              New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+              $installer = Start-Process -FilePath $installerCopy -ArgumentList '/S', "/D=$installRoot" -Wait -PassThru
+              if ($installer.ExitCode -ne 0) { throw "$label installation failed" }
+              try {
+                Copy-Item -LiteralPath $installRoot -Destination $snapshot -Recurse
+              } finally {
+                $uninstallers = @(Get-ChildItem -LiteralPath $installRoot -Filter 'uninstall*.exe' -File -Recurse)
+                if ($uninstallers.Count -ne 1) { throw "$label uninstaller missing" }
+                $uninstalled = Start-Process -FilePath $uninstallers[0].FullName -ArgumentList '/S' -Wait -PassThru
+                if ($uninstalled.ExitCode -ne 0) { throw "$label uninstall failed" }
+              }
+              if (Test-Path 'dist/frontend-footprint.json') {
+                Copy-Item 'dist/frontend-footprint.json' (Join-Path $evidence "$label-frontend-footprint.json")
+              }
+            } finally { Pop-Location }
+          }
+      - name: Inventory installed and download sizes separately
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pairRoot = Join-Path $env:RUNNER_TEMP 'deltamod-paired'
+          foreach ($label in @('baseline', 'candidate')) {
+            node candidate/scripts/desktop-benchmark/package-footprint.cjs (Join-Path $pairRoot "$label-app") (Join-Path $pairRoot "$label-setup.exe") (Join-Path $pairRoot "evidence/$label-footprint.json")
+            if ($LASTEXITCODE -ne 0) { throw "$label footprint audit failed" }
+          }
+      - name: Alternate packaged baseline and candidate launches on this host
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pairRoot = Join-Path $env:RUNNER_TEMP 'deltamod-paired'
+          $seedRoot = Join-Path $pairRoot 'seed'
+          $gameRoot = Join-Path $seedRoot 'fixture-game'
+          $storeRoot = Join-Path $seedRoot 'deltamod_system-0'
+          New-Item -ItemType Directory -Force -Path $gameRoot, $storeRoot | Out-Null
+          Set-Content (Join-Path $gameRoot 'DELTARUNE.exe') 'Deltamod benchmark fixture' -Encoding utf8NoBOM
+          Set-Content (Join-Path $gameRoot 'data.win') 'Deltamod benchmark fixture' -Encoding utf8NoBOM
+          @{ gamePid='toby.deltarune'; gamePath=$gameRoot; gamePlatform='win32'; isSteam=$false } | ConvertTo-Json | Set-Content (Join-Path $storeRoot 'store.json') -Encoding utf8NoBOM
+          @{ unique_flags=@{ AUDIO=$false } } | ConvertTo-Json | Set-Content (Join-Path $seedRoot 'preferences.json') -Encoding utf8NoBOM
+          $config = @{ seedDataRoot=$seedRoot; outputDirectory=(Join-Path $pairRoot 'evidence') }
+          foreach ($label in @('baseline', 'candidate')) {
+            $root = Join-Path $pairRoot "$label-app"
+            $executables = @(Get-ChildItem -LiteralPath $root -Filter 'deltamod-tauri-shell.exe' -File -Recurse)
+            if ($executables.Count -ne 1) { throw "$label launcher missing" }
+            $revision = if ($label -eq 'baseline') { $env:BASELINE_SHA } else { $env:CANDIDATE_SHA }
+            $config[$label] = @{ executablePath=$executables[0].FullName; artifactPath=$root; sourceRevision=$revision }
+          }
+          $configPath = Join-Path $pairRoot 'pair-config.json'
+          $config | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $configPath -Encoding utf8NoBOM
+          node candidate/scripts/desktop-benchmark/paired-windows.cjs $configPath
+          if ($LASTEXITCODE -ne 0) { throw 'Paired capture failed; no successful result is claimed' }
+      - name: Retain raw evidence including failures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: paired-windows-performance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/deltamod-paired/evidence/
+          if-no-files-found: warn
+          retention-days: 14

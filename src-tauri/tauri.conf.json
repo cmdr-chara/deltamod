@@ -5,7 +5,7 @@
   "identifier": "io.github.cmdr-chara.deltamod-community",
   "build": {
     "beforeBuildCommand": "npm run build:boot",
-    "frontendDist": "../web"
+    "frontendDist": "../dist/frontend"
   },
   "app": {
     "withGlobalTauri": true,
@@ -29,9 +29,9 @@
         "script-src-attr": "'unsafe-inline'",
         "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
         "style-src-attr": "'unsafe-inline'",
-        "img-src": "'self' data: themeprot: packet: https://gamebanana.com https://images.gamebanana.com https://avatars.githubusercontent.com https://media.moddb.com https://static.moddb.com https://images.nexusmods.com https://staticdelivery.nexusmods.com",
-        "media-src": "'self' blob: themeprot: packet:",
-        "connect-src": "'self' ipc: http://ipc.localhost https://gamebanana.com themeprot: packet:",
+        "img-src": "'self' data: themeprot: http://themeprot.localhost packet: https://gamebanana.com https://images.gamebanana.com https://avatars.githubusercontent.com https://media.moddb.com https://static.moddb.com https://images.nexusmods.com https://staticdelivery.nexusmods.com",
+        "media-src": "'self' blob: themeprot: http://themeprot.localhost packet:",
+        "connect-src": "'self' ipc: http://ipc.localhost https://gamebanana.com themeprot: http://themeprot.localhost packet:",
         "font-src": "'self' data: https://fonts.gstatic.com",
         "object-src": "'none'",
         "frame-src": "https://gamebanana.com",
