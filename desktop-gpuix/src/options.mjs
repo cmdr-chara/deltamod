@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { parseIntent } from './deep-links.mjs';
 
 export function parseOptions(argv, env = process.env, platform = process.platform) {
   const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
@@ -13,7 +14,7 @@ export function parseOptions(argv, env = process.env, platform = process.platfor
     : path.join(env.XDG_DATA_HOME || path.join(homedir(), '.local', 'share'), 'deltamod-community-gpuix');
   const options = { resourcesRoot: root, stateRoot: defaultState, sourceProfile: '',
     executable: path.join(root, 'desktop-gpuix', 'native', 'target', 'release', `deltamod-gpuix-host${platform === 'win32' ? '.exe' : ''}`),
-    focus: true, benchmarkFile: '', reducedMotion: null, opaque: null };
+    focus: true, benchmarkFile: '', reducedMotion: null, opaque: null, openLink: '' };
   const flags = new Map([['--resources-root', 'resourcesRoot'], ['--state-root', 'stateRoot'],
     ['--source-profile', 'sourceProfile'], ['--backend', 'executable'], ['--benchmark-file', 'benchmarkFile']]);
   const seen = new Set();
@@ -24,10 +25,17 @@ export function parseOptions(argv, env = process.env, platform = process.platfor
     if (flag === '--no-focus') { options.focus = false; continue; }
     if (flag === '--reduce-motion') { options.reducedMotion = true; continue; }
     if (flag === '--opaque') { options.opaque = true; continue; }
+    if (flag === '--open') {
+      const raw = argv[++i];
+      parseIntent(raw);
+      options.openLink = raw;
+      continue;
+    }
     const key = flags.get(flag);
     if (!key || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Unknown or incomplete argument: ${flag}`);
     options[key] = path.resolve(argv[++i]);
   }
+  if (options.openLink && options.benchmarkFile) throw new Error('Link handling cannot alter a benchmark launch.');
   return options;
 }
 

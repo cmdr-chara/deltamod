@@ -13,7 +13,7 @@
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "native": "cargo build --release --manifest-path native/Cargo.toml",
-    "test": "node --test tests/core.test.mjs",
+    "test": "node --test tests/core.test.mjs tests/presentation.test.mjs",
     "test:native": "cargo test --manifest-path native/Cargo.toml",
     "benchmark": "node scripts/benchmark.mjs",
     "smoke": "node scripts/smoke.mjs"

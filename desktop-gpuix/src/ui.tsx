@@ -4,6 +4,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import { motion, Button, Dialog, DialogPortal, DialogBackdrop, DialogPopup, DialogTitle, DialogDescription, DialogClose } from '@gpuix/react';
 import type { StyleDesc } from '@gpuix/react';
 import type { Preferences } from './contracts.js';
+import { useMessages } from './i18n.js';
 
 export const Palette = createContext<Preferences>({ themeId: 'base', accent: '#cd4451', reducedMotion: true, opaque: true });
 export const colors = { text: '#f3eef0', muted: '#b9adb5', faint: '#867b87', surface: '#17131d', edge: '#ffffff22', success: '#9fe0ba' };
@@ -55,6 +56,7 @@ export function Chip({ children, active = false }: { children: ReactNode; active
   </div>;
 }
 export function InfoDialog({ title, description, children, close }: { title: string; description: string; children?: ReactNode; close: () => void }) {
+  const t = useMessages();
   return <Dialog open onOpenChange={open => { if (!open) close(); }}>
     <DialogPortal>
       <DialogBackdrop style={{ backgroundColor: '#000000a0' }} />
@@ -62,7 +64,7 @@ export function InfoDialog({ title, description, children, close }: { title: str
         <DialogTitle style={{ fontSize: 21, color: colors.text }}>{title}</DialogTitle>
         <DialogDescription style={{ fontSize: 14, color: colors.muted }}>{description}</DialogDescription>
         {children}
-        <DialogClose style={{ padding: 12, borderRadius: 10, backgroundColor: '#3a3046' }}><Label bold>Close</Label></DialogClose>
+        <DialogClose style={{ padding: 12, borderRadius: 10, backgroundColor: '#3a3046' }}><Label bold>{t("Close")}</Label></DialogClose>
       </DialogPopup>
     </DialogPortal>
   </Dialog>;

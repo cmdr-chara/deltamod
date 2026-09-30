@@ -6,20 +6,24 @@ import { App } from './app.js';
 import { AppModel, shortcutFor } from './model.mjs';
 import { startBridge } from './bridge.mjs';
 import { parseOptions } from './options.mjs';
+import { DesktopFeatures } from './features.mjs';
 
 const options = parseOptions(process.argv.slice(2));
 const bridge = startBridge(options);
 const model = new AppModel(bridge);
+const features = new DesktopFeatures(model, bridge);
 let marked = false;
-const close = () => model.dispose();
+const close = () => { features.dispose(); model.dispose(); };
 process.once('exit', close);
 process.once('SIGINT', () => { close(); process.exit(130); });
 process.once('SIGTERM', () => { close(); process.exit(143); });
 
 try {
   const snapshot = await model.initialize();
+  await features.initialize();
+  if (options.openLink) features.reviewLink(options.openLink);
   const opaque = options.opaque ?? snapshot.preferences.opaque;
-  render(<App model={model} overrides={options} onCommitted={() => {
+  render(<App model={model} features={features} overrides={options} onCommitted={() => {
     if (marked || !options.benchmarkFile) return;
     marked = true;
     // This is a model/React-commit handshake, NOT a native paint measurement.

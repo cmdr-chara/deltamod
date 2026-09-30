@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: EUPL-1.2
 #![forbid(unsafe_code)]
 
+mod desktop_features;
+
 use deltamod_mods_themes_domain::ThemeId;
 use deltamod_network_runtime::{Client, Provider};
 use deltamod_storage_domain::{load_json, save_json, ProfileStore};
@@ -355,10 +357,15 @@ impl Backend {
     }
     fn dispatch(&mut self, request: Request) -> Result<Value> {
         if !request.args.is_object() { return Err("Object arguments required".into()); }
+        if let Some(result) = desktop_features::dispatch(
+            &request.command, &request.args, &self.state, &self.resources, &mut self.network,
+        ) {
+            return result;
+        }
         match request.command.as_str() {
             "hello" => Ok(json!({ "protocol": PROTOCOL, "readOnly": true,
-                "workspaceVersion": 2,
-                "capabilities": ["snapshot", "profile.attach", "profile.detach", "installation.select", "shop.browse", "preferences.set"],
+                "workspaceVersion": 2, "presentationVersion": 1,
+                "capabilities": ["snapshot", "profile.attach", "profile.detach", "installation.select", "shop.browse", "preferences.set", "ui.preferences.get", "ui.preferences.set", "theme.preview", "shop.detail"],
                 "runtime": "Rust stdio, no Tauri or WebView", "version": env!("CARGO_PKG_VERSION") })),
             "snapshot" => self.snapshot(),
             "installation.select" => self.select_installation(request.args),

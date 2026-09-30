@@ -7,6 +7,7 @@ export interface Options {
   sourceProfile: string;
   executable: string;
   focus: boolean;
+  openLink: string;
   benchmarkFile: string;
   reducedMotion: boolean | null;
   opaque: boolean | null;
