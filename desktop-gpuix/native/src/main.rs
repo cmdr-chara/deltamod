@@ -372,7 +372,7 @@ impl Backend {
         match request.command.as_str() {
             "hello" => Ok(json!({ "protocol": PROTOCOL, "readOnly": true,
                 "workspaceVersion": 2, "presentationVersion": 1,
-                "capabilities": ["snapshot", "profile.attach", "profile.detach", "installation.select", "shop.browse", "preferences.set", "ui.preferences.get", "ui.preferences.set", "theme.preview", "shop.detail", "managed.catalog", "managed.installations", "managed.game.info", "managed.game.launch", "managed.mod.states", "managed.mod.toggle", "managed.mod.variant", "managed.mod.verify", "managed.mod.repair", "managed.mod.uninstall", "managed.restore", "managed.importArchive", "managed.patch.run", "managed.patch.cancel", "managed.hashes", "managed.credentials.status", "managed.credentials.clear", "managed.nexus.login", "managed.nexus.cancel"],
+                "capabilities": ["snapshot", "profile.attach", "profile.detach", "installation.select", "shop.browse", "preferences.set", "ui.preferences.get", "ui.preferences.set", "theme.preview", "shop.detail", "managed.catalog", "managed.installations", "managed.game.info", "managed.game.launch", "managed.mod.states", "managed.mod.toggle", "managed.mod.variant", "managed.mod.verify", "managed.mod.repair", "managed.mod.uninstall", "managed.restore", "managed.importArchive", "managed.patch.run", "managed.patch.cancel", "managed.hashes", "managed.credentials.status", "managed.credentials.clear", "managed.nexus.login", "managed.nexus.cancel", "managed.controller.status", "managed.controller.start", "managed.controller.stop"],
                 "runtime": "Rust stdio, no Tauri or WebView", "version": env!("CARGO_PKG_VERSION") })),
             "snapshot" => self.snapshot(),
             "installation.select" => self.select_installation(request.args),
@@ -469,7 +469,10 @@ impl Backend {
                 self.managed.clear_credential(&args.kind)
             }
             "managed.nexus.login" => self.managed.nexus_login(),
-            "managed.nexus.cancel" => Ok(json!(self.managed.cancel_nexus_login()))
+            "managed.nexus.cancel" => Ok(json!(self.managed.cancel_nexus_login())),
+            "managed.controller.status" => Ok(self.managed.controller_status()),
+            "managed.controller.start" => self.managed.controller_start(),
+            "managed.controller.stop" => self.managed.controller_stop(),
             _ => Err("Command is not available in the GPUIX runtime".into()),
         }
     }

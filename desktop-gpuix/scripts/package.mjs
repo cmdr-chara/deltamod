@@ -46,6 +46,9 @@ const config={
   ],
   nsis:{installMode:'currentUser'}
 };
+if(process.platform==='win32'){
+  config.resources.push({src:'../tools/cmodeutil.exe',target:'deltamod/tools/cmodeutil.exe'});
+}
 const generated=path.join(root,'dist','packager.generated.json');
 fs.writeFileSync(generated,JSON.stringify(config,null,2)+'\n',{flag:'w'});
 const run=spawnSync('cargo',['packager','--release','--config',generated],{cwd:root,stdio:'inherit',shell:false});

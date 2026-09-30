@@ -25,6 +25,7 @@ pub mod controller {
 
 use deltamod_credentials_adapter::{CredentialKind, CredentialStore, KeyringBackend};
 use deltamod_patching_runtime::LifecycleStorageRoots;
+use deltamod_tools_runtime::{controller_mode_launch, verify_tool, OwnedProcess, ProcessRegistry, ToolKind};
 use deltamod_tauri_os_adapters::{
     validate_dialog_selection, AdapterError, ChoiceBackend, DialogFilter, DialogRequest,
 };
@@ -34,23 +35,33 @@ use std::{
     process::Command,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
 pub struct HeadlessBackend {
     state: state::AppState,
     managed_operation_active: AtomicBool,
+    controller_registry: ProcessRegistry,
+    controller_process: Mutex<Option<OwnedProcess>>,
+    controller_executable: PathBuf,
 }
 
 impl HeadlessBackend {
     pub fn open(data_root: PathBuf, resources: PathBuf) -> Result<Self, String> {
+        let controller_executable = resources.join("tools").join("cmodeutil.exe");
         let mut state = state::AppState::initialize(data_root, resources)
             .map_err(str::to_owned)?;
         state.credentials = CredentialStore::new(Arc::new(KeyringBackend::new())).ok();
         // Recovery runs before the caller can mutate the managed library.
         headless_channels::lifecycle::recover_startup(&state)?;
-        Ok(Self { state, managed_operation_active: AtomicBool::new(false) })
+        Ok(Self {
+            state,
+            managed_operation_active: AtomicBool::new(false),
+            controller_registry: ProcessRegistry::default(),
+            controller_process: Mutex::new(None),
+            controller_executable,
+        })
     }
 
     pub fn invoke(&self, channel: &str, data: &[Value]) -> Result<Value, String> {
@@ -250,6 +261,36 @@ impl HeadlessBackend {
             .clear(kind)
             .map_err(|_| "CREDENTIALS_UNAVAILABLE".to_owned())?;
         Ok(json!(true))
+    }
+
+    pub fn controller_status(&self) -> Value {
+        json!({
+            "supported": cfg!(target_os = "windows"),
+            "active": self.controller_process.lock().is_ok_and(|process| process.is_some())
+        })
+    }
+
+    pub fn controller_start(&self) -> Result<Value, String> {
+        if !cfg!(target_os = "windows") {
+            return Err("CONTROLLER_MODE_UNSUPPORTED".into());
+        }
+        let mut process = self.controller_process.lock().map_err(|_| "CONTROLLER_MODE_UNAVAILABLE")?;
+        if process.is_none() {
+            const SHA256: &str = "04ACDBB53C96CD99B01FE53A0297AC06308DDAD14B5253A3AF4F9A319985AA45";
+            let tool = verify_tool(&self.controller_executable, ToolKind::ControllerMode, Some(SHA256))
+                .map_err(|_| "CONTROLLER_MODE_UNAVAILABLE")?;
+            *process = Some(self.controller_registry.spawn_silent(&controller_mode_launch(&tool))
+                .map_err(|_| "CONTROLLER_MODE_UNAVAILABLE")?);
+        }
+        Ok(self.controller_status())
+    }
+
+    pub fn controller_stop(&self) -> Result<Value, String> {
+        let process = self.controller_process.lock().map_err(|_| "CONTROLLER_MODE_UNAVAILABLE")?.take();
+        if let Some(process) = process {
+            process.terminate().map_err(|_| "CONTROLLER_MODE_UNAVAILABLE")?;
+        }
+        Ok(self.controller_status())
     }
 
     pub fn nexus_login(&self) -> Result<Value, String> {
