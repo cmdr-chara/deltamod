@@ -3,7 +3,7 @@
 const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const text=(value,max=512)=>typeof value==='string'?[...value.replace(/[\u0000-\u001f\u007f]/g,'')].slice(0,max).join(''):'';
 const message=error=>error instanceof Error?error.message:String(error);
-const idle=()=>({catalog:null,installations:[],game:null,credentials:null,controller:{supported:false,active:false},enabledIds:[],loading:false,busy:'',error:'',lastOperation:null});
+const idle=()=>({catalog:null,installations:[],game:null,credentials:null,controller:{supported:false,active:false},protocol:{status:'idle',raw:'',intent:null,error:''},enabledIds:[],loading:false,busy:'',error:'',lastOperation:null});
 
 export function normalizeManagedCatalog(value){
   if(!record(value)||!Array.isArray(value.installedMods)||value.installedMods.length>2000
@@ -93,5 +93,36 @@ export class ManagedRuntime {
   }
   controllerStart(){return this.mutation('managed.controller.start');}
   controllerStop(){return this.mutation('managed.controller.stop');}
+  async reviewProtocol(raw){
+    if(this.disposed||this.state.busy||typeof raw!=='string'||raw.length>8192)return false;
+    try{
+      const intent=await this.bridge.request('managed.protocol.review',{raw});
+      if(!record(intent)||!['import','launch'].includes(intent.kind)||!Number.isSafeInteger(intent.itemId)||intent.itemId<=0
+        ||(intent.kind==='import'&&(!Number.isSafeInteger(intent.fileId)||intent.fileId<=0))) throw new Error('Invalid protocol review.');
+      this.update({protocol:{status:'reviewed',raw,intent,error:''}});
+      return true;
+    }catch(error){this.update({protocol:{status:'error',raw:'',intent:null,error:message(error)}});return false;}
+  }
+  dismissProtocol(){this.update({protocol:{status:'idle',raw:'',intent:null,error:''}});}
+  async confirmProtocol(replaceExisting=false){
+    const pending=this.state.protocol;
+    if(this.disposed||this.state.busy||pending.status!=='reviewed'||pending.intent?.kind!=='import')return false;
+    this.update({busy:'managed.protocol.import',protocol:{...pending,status:'importing',error:''}});
+    try{
+      const result=await this.bridge.request('managed.protocol.import',{raw:pending.raw,replaceExisting:replaceExisting===true});
+      if(this.disposed)return false;
+      this.update({busy:'',lastOperation:result,protocol:{status:'complete',raw:'',intent:pending.intent,error:''}});
+      await this.refresh();
+      return true;
+    }catch(error){
+      this.update({busy:'',protocol:{...pending,status:'error',raw:'',error:message(error)},error:message(error)});
+      return false;
+    }
+  }
+  async cancelProtocol(){
+    if(this.disposed||this.state.busy!=='managed.protocol.import')return false;
+    try{return (await this.bridge.request('managed.protocol.cancel'))===true;}
+    catch(error){this.update({error:message(error)});return false;}
+  }
   dispose(){this.disposed=true;this.sequence++;this.listeners.clear();}
 }

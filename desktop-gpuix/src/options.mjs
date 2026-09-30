@@ -25,17 +25,36 @@ export function parseOptions(argv, env = process.env, platform = process.platfor
     executable: existsSync(path.join(executableDir, `deltamod-gpuix-host${platform === 'win32' ? '.exe' : ''}`))
       ? path.join(executableDir, `deltamod-gpuix-host${platform === 'win32' ? '.exe' : ''}`)
       : path.join(developmentRoot, 'desktop-gpuix', 'native', 'target', 'release', `deltamod-gpuix-host${platform === 'win32' ? '.exe' : ''}`),
-    focus: true, benchmarkFile: '', reducedMotion: null, opaque: null, openLink: '', managedDataRoot: '' };
+    focus: true, benchmarkFile: '', reducedMotion: null, opaque: null, openLink: '', protocolLink: '', managedDataRoot: '' };
   const flags = new Map([['--resources-root', 'resourcesRoot'], ['--state-root', 'stateRoot'],
     ['--source-profile', 'sourceProfile'], ['--managed-data-root', 'managedDataRoot'], ['--backend', 'executable'], ['--benchmark-file', 'benchmarkFile']]);
   const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
+    if (typeof flag === 'string' && !flag.startsWith('--')) {
+      if (/^deltamod-community:\/\//i.test(flag)) {
+        if (options.protocolLink) throw new Error('Duplicate protocol handoff.');
+        options.protocolLink = flag;
+        continue;
+      }
+      if (/^deltamod-gpuix-preview:\/\//i.test(flag) || /^https:\/\/gamebanana\.com\/mods\//i.test(flag)) {
+        if (options.openLink) throw new Error('Duplicate link handoff.');
+        parseIntent(flag);
+        options.openLink = flag;
+        continue;
+      }
+    }
     if (seen.has(flag)) throw new Error(`Duplicate argument: ${flag}`);
     seen.add(flag);
     if (flag === '--no-focus') { options.focus = false; continue; }
     if (flag === '--reduce-motion') { options.reducedMotion = true; continue; }
     if (flag === '--opaque') { options.opaque = true; continue; }
+    if (flag === '--protocol') {
+      const raw = argv[++i];
+      if (typeof raw !== 'string' || !/^deltamod-community:\/\//i.test(raw) || raw.length > 8192) throw new Error('Invalid protocol handoff.');
+      options.protocolLink = raw;
+      continue;
+    }
     if (flag === '--open') {
       const raw = argv[++i];
       parseIntent(raw);
@@ -46,7 +65,7 @@ export function parseOptions(argv, env = process.env, platform = process.platfor
     if (!key || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Unknown or incomplete argument: ${flag}`);
     options[key] = path.resolve(argv[++i]);
   }
-  if (options.openLink && options.benchmarkFile) throw new Error('Link handling cannot alter a benchmark launch.');
+  if ((options.openLink || options.protocolLink) && options.benchmarkFile) throw new Error('Link handling cannot alter a benchmark launch.');
   return options;
 }
 

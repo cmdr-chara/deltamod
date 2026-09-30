@@ -27,6 +27,7 @@ try {
   await features.initialize();
   await managed.initialize();
   if (options.openLink) features.reviewLink(options.openLink);
+  if (options.protocolLink) await managed.reviewProtocol(options.protocolLink);
   const opaque = options.opaque ?? snapshot.preferences.opaque;
   render(<App model={model} features={features} managed={managed} updater={updater} overrides={options} onCommitted={() => {
     if (marked || !options.benchmarkFile) return;
