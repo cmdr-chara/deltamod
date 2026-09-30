@@ -112,6 +112,12 @@ export function ManagedSystemPanel({ runtime }: { runtime: ManagedRuntime }) {
       <Action disabled={busy || !present['nexus-oauth-tokens']} onClick={() => void runtime.clearCredential('nexus')}>Clear Nexus login</Action>
     </div>
     <Label muted size={12}>Nexus uses the existing PKCE + fixed loopback callback in your system browser. Existing GameBanana cookies remain usable from the same OS keyring, but new GameBanana sign-in still needs a safe non-WebView flow.</Label>
-    {state.error && <Label>{state.error}</Label>}
+    {state.controller.supported && <div style={{ ...row, justifyContent: 'space-between' }}>
+      <div style={column}><Label bold>Controller mode</Label><Label muted size={12}>Uses the same hash-verified owned Windows controller utility as Tauri. F11 exits.</Label></div>
+      <Action disabled={busy} primary={state.controller.active} onClick={() => void (state.controller.active ? runtime.controllerStop() : runtime.controllerStart())}>
+        {state.controller.active ? 'Exit controller mode' : 'Enter controller mode'}
+      </Action>
+    </div>}
+    {state.error && <Label>{state.error}</Label>
   </GlassPanel>;
 }

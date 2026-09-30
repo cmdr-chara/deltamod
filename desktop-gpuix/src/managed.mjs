@@ -3,7 +3,7 @@
 const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const text=(value,max=512)=>typeof value==='string'?[...value.replace(/[\u0000-\u001f\u007f]/g,'')].slice(0,max).join(''):'';
 const message=error=>error instanceof Error?error.message:String(error);
-const idle=()=>({catalog:null,installations:[],game:null,credentials:null,enabledIds:[],loading:false,busy:'',error:'',lastOperation:null});
+const idle=()=>({catalog:null,installations:[],game:null,credentials:null,controller:{supported:false,active:false},enabledIds:[],loading:false,busy:'',error:'',lastOperation:null});
 
 export function normalizeManagedCatalog(value){
   if(!record(value)||!Array.isArray(value.installedMods)||value.installedMods.length>2000
@@ -42,16 +42,19 @@ export class ManagedRuntime {
   async refresh(){
     const sequence=++this.sequence; this.update({loading:true,error:''});
     try{
-      const [catalog,installations,game,credentials,states]=await Promise.all([
+      const [catalog,installations,game,credentials,states,controller]=await Promise.all([
         this.bridge.request('managed.catalog'),this.bridge.request('managed.installations'),
         this.bridge.request('managed.game.info').catch(()=>null),this.bridge.request('managed.credentials.status').catch(()=>null),
-        this.bridge.request('managed.mod.states').catch(()=>({enabled:[]}))
+        this.bridge.request('managed.mod.states').catch(()=>({enabled:[]})),
+        this.bridge.request('managed.controller.status').catch(()=>({supported:false,active:false}))
       ]);
       if(sequence!==this.sequence||this.disposed)return false;
       const normalized=normalizeManagedCatalog(catalog);
       if(!Array.isArray(installations)||installations.length>256) throw new Error('Invalid managed installation list.');
       const enabledIds=record(states)&&Array.isArray(states.enabled)?states.enabled.filter(value=>typeof value==='string'&&value.length<=256).slice(0,2000):[];
-      this.update({catalog:normalized,installations,game:record(game)?game:null,credentials:record(credentials)?credentials:null,enabledIds,loading:false});
+      this.update({catalog:normalized,installations,game:record(game)?game:null,credentials:record(credentials)?credentials:null,
+        controller:record(controller)?{supported:controller.supported===true,active:controller.active===true}:{supported:false,active:false},
+        enabledIds,loading:false});
       return true;
     }catch(error){if(sequence===this.sequence)this.update({loading:false,error:message(error)});return false;}
   }
@@ -88,5 +91,7 @@ export class ManagedRuntime {
     try{return (await this.bridge.request('managed.nexus.cancel'))===true;}
     catch(error){this.update({error:message(error)});return false;}
   }
+  controllerStart(){return this.mutation('managed.controller.start');}
+  controllerStop(){return this.mutation('managed.controller.stop');}
   dispose(){this.disposed=true;this.sequence++;this.listeners.clear();}
 }

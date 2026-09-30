@@ -25,6 +25,7 @@ function fixture(responses = {}) {
     if (command === 'managed.game.info') return { id: 'toby.deltarune' };
     if (command === 'managed.credentials.status') return { present: {} };
     if (command === 'managed.mod.states') return { enabled: ['sample'] };
+    if (command === 'managed.controller.status') return { supported: true, active: false };
     return true;
   }};
   return { bridge, calls };
@@ -165,4 +166,23 @@ test('Nexus login has an explicit cancellation path while authorization is pendi
   assert.ok(calls.some(call => call.command === 'managed.nexus.cancel'));
   resolveLogin(true);
   await login;
+});
+
+
+test('controller mode uses explicit native start and stop commands', async () => {
+  let active = false;
+  const { bridge, calls } = fixture({
+    'managed.controller.status': () => ({ supported: true, active }),
+    'managed.controller.start': () => { active = true; return { supported: true, active }; },
+    'managed.controller.stop': () => { active = false; return { supported: true, active }; },
+  });
+  const runtime = new ManagedRuntime(bridge);
+  await runtime.initialize();
+  assert.equal(runtime.state.controller.supported, true);
+  assert.equal(await runtime.controllerStart(), true);
+  assert.equal(runtime.state.controller.active, true);
+  assert.equal(await runtime.controllerStop(), true);
+  assert.equal(runtime.state.controller.active, false);
+  assert.ok(calls.some(call => call.command === 'managed.controller.start'));
+  assert.ok(calls.some(call => call.command === 'managed.controller.stop'));
 });

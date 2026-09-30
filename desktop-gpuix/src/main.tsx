@@ -43,6 +43,10 @@ try {
     width: 1160, height: 780, focus: options.focus,
     windowBackground: process.platform === 'darwin' && !opaque ? 'blurred' : 'opaque',
     onKeyDown(event) {
+      if (event.key === 'f11' && managed.state.controller.active) {
+        void managed.controllerStop();
+        return;
+      }
       const action = shortcutFor(event);
       if (action) model.dispatchShortcut(action);
     },
