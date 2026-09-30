@@ -74,9 +74,19 @@ export class ManagedRuntime {
   uninstall(mod){return this.mutation('managed.mod.uninstall',{installationId:mod.installationId,instanceId:mod.instanceId,operationId:operationId('uninstall')});}
   restore(installationId){return this.mutation('managed.restore',{installationId,operationId:operationId('restore')});}
   patch(selected){return this.mutation('managed.patch.run',{selected:[...new Set(selected)].slice(0,1000)});}
-  cancelPatch(){return this.mutation('managed.patch.cancel');}
+  async cancelPatch(){
+    if(this.disposed||this.state.busy!=='managed.patch.run')return false;
+    try{return (await this.bridge.request('managed.patch.cancel'))===true;}
+    catch(error){this.update({error:message(error)});return false;}
+  }
   hashes(){return this.mutation('managed.hashes');}
   launch(){return this.mutation('managed.game.launch');}
   clearCredential(kind){return this.mutation('managed.credentials.clear',{kind});}
+  loginNexus(){return this.mutation('managed.nexus.login');}
+  async cancelNexus(){
+    if(this.disposed||this.state.busy!=='managed.nexus.login')return false;
+    try{return (await this.bridge.request('managed.nexus.cancel'))===true;}
+    catch(error){this.update({error:message(error)});return false;}
+  }
   dispose(){this.disposed=true;this.sequence++;this.listeners.clear();}
 }

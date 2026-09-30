@@ -131,3 +131,38 @@ test('pinned GPUIX 0.10 UI uses only exported host primitives', async () => {
   assert.match(source, /role="dialog"/);
   assert.match(source, /focusNextWithin/);
 });
+
+
+test('patch cancellation bypasses the busy mutation gate', async () => {
+  let resolvePatch;
+  const pending = new Promise(resolve => { resolvePatch = resolve; });
+  const { bridge, calls } = fixture({
+    'managed.patch.run': () => pending,
+    'managed.patch.cancel': true,
+  });
+  const runtime = new ManagedRuntime(bridge);
+  await runtime.initialize();
+  const patch = runtime.patch(['sample']);
+  assert.equal(runtime.state.busy, 'managed.patch.run');
+  assert.equal(await runtime.cancelPatch(), true);
+  assert.ok(calls.some(call => call.command === 'managed.patch.cancel'));
+  resolvePatch(true);
+  await patch;
+});
+
+test('Nexus login has an explicit cancellation path while authorization is pending', async () => {
+  let resolveLogin;
+  const pending = new Promise(resolve => { resolveLogin = resolve; });
+  const { bridge, calls } = fixture({
+    'managed.nexus.login': () => pending,
+    'managed.nexus.cancel': true,
+  });
+  const runtime = new ManagedRuntime(bridge);
+  await runtime.initialize();
+  const login = runtime.loginNexus();
+  assert.equal(runtime.state.busy, 'managed.nexus.login');
+  assert.equal(await runtime.cancelNexus(), true);
+  assert.ok(calls.some(call => call.command === 'managed.nexus.cancel'));
+  resolveLogin(true);
+  await login;
+});

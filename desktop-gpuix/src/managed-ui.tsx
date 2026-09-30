@@ -105,9 +105,13 @@ export function ManagedSystemPanel({ runtime }: { runtime: ManagedRuntime }) {
     <Label muted size={12}>Secure credential store: GameBanana {present['gamebanana-cookies'] ? 'present' : 'not present'} · Nexus {present['nexus-oauth-tokens'] ? 'present' : 'not present'}</Label>
     <div style={{ ...row }}>
       <Action disabled={busy || !present['gamebanana-cookies']} onClick={() => void runtime.clearCredential('gamebanana')}>Clear GameBanana login</Action>
+      {!present['nexus-oauth-tokens'] && state.busy !== 'managed.nexus.login' &&
+        <Action disabled={busy} primary onClick={() => void runtime.loginNexus()}>Sign in to Nexus Mods</Action>}
+      {state.busy === 'managed.nexus.login' &&
+        <Action onClick={() => void runtime.cancelNexus()}>Cancel Nexus sign-in</Action>}
       <Action disabled={busy || !present['nexus-oauth-tokens']} onClick={() => void runtime.clearCredential('nexus')}>Clear Nexus login</Action>
     </div>
-    <Label muted size={12}>New interactive provider login still requires a provider-safe authentication surface. Existing secrets use the same OS keyring service.</Label>
+    <Label muted size={12}>Nexus uses the existing PKCE + fixed loopback callback in your system browser. Existing GameBanana cookies remain usable from the same OS keyring, but new GameBanana sign-in still needs a safe non-WebView flow.</Label>
     {state.error && <Label>{state.error}</Label>}
   </GlassPanel>;
 }

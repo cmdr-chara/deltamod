@@ -6,7 +6,7 @@ import { isAbsolute } from 'node:path';
 export const PROTOCOL = 1;
 export const MAX_REQUEST_BYTES = 64 * 1024;
 export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
-const COMMANDS = new Set(['hello', 'snapshot', 'profile.attach', 'profile.detach', 'installation.select', 'shop.browse', 'preferences.set', 'ui.preferences.get', 'ui.preferences.set', 'theme.preview', 'shop.detail', 'managed.catalog', 'managed.installations', 'managed.game.info', 'managed.game.launch', 'managed.mod.states', 'managed.mod.toggle', 'managed.mod.variant', 'managed.mod.verify', 'managed.mod.repair', 'managed.mod.uninstall', 'managed.restore', 'managed.importArchive', 'managed.patch.run', 'managed.patch.cancel', 'managed.hashes', 'managed.credentials.status', 'managed.credentials.clear']);
+const COMMANDS = new Set(['hello', 'snapshot', 'profile.attach', 'profile.detach', 'installation.select', 'shop.browse', 'preferences.set', 'ui.preferences.get', 'ui.preferences.set', 'theme.preview', 'shop.detail', 'managed.catalog', 'managed.installations', 'managed.game.info', 'managed.game.launch', 'managed.mod.states', 'managed.mod.toggle', 'managed.mod.variant', 'managed.mod.verify', 'managed.mod.repair', 'managed.mod.uninstall', 'managed.restore', 'managed.importArchive', 'managed.patch.run', 'managed.patch.cancel', 'managed.hashes', 'managed.credentials.status', 'managed.credentials.clear', 'managed.nexus.login', 'managed.nexus.cancel']);
 
 /** Private stdio transport. This is not an HTTP server or a Tauri/WebView bridge. */
 export class Bridge {
@@ -41,11 +41,12 @@ export class Bridge {
     catch { return Promise.reject(new Error('Arguments are not serializable.')); }
     if (Buffer.byteLength(frame) > MAX_REQUEST_BYTES) return Promise.reject(new Error('Request is too large.'));
     return new Promise((resolve, reject) => {
+      const timeoutMs = command === 'managed.nexus.login' ? 330000 : this.timeoutMs;
       const timer = setTimeout(() => {
         // A timeout leaves completion unknown. Close, rather than silently queue
         // more work or retry a command which may already have changed preferences.
         this.close(new Error('Native backend timed out. Restart the preview.'));
-      }, this.timeoutMs);
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       this.child.stdin.write(frame, error => { if (error) this.onError(error); });
     });
