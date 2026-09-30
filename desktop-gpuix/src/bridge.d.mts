@@ -11,4 +11,4 @@ export class Bridge {
   request(command: string, args?: Record<string, unknown>): Promise<unknown>;
   close(error?: Error): void;
 }
-export function startBridge(options: { executable: string; stateRoot: string; resourcesRoot: string; sourceProfile?: string }): Bridge;
+export function startBridge(options: { executable: string; stateRoot: string; resourcesRoot: string; sourceProfile?: string; managedDataRoot?: string }): Bridge;

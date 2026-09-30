@@ -5,6 +5,7 @@ export interface Options {
   resourcesRoot: string;
   stateRoot: string;
   sourceProfile: string;
+  managedDataRoot: string;
   executable: string;
   focus: boolean;
   openLink: string;

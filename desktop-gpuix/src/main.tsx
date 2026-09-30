@@ -7,13 +7,15 @@ import { AppModel, shortcutFor } from './model.mjs';
 import { startBridge } from './bridge.mjs';
 import { parseOptions } from './options.mjs';
 import { DesktopFeatures } from './features.mjs';
+import { ManagedRuntime } from './managed.mjs';
 
 const options = parseOptions(process.argv.slice(2));
 const bridge = startBridge(options);
 const model = new AppModel(bridge);
 const features = new DesktopFeatures(model, bridge);
+const managed = new ManagedRuntime(bridge);
 let marked = false;
-const close = () => { features.dispose(); model.dispose(); };
+const close = () => { managed.dispose(); features.dispose(); model.dispose(); };
 process.once('exit', close);
 process.once('SIGINT', () => { close(); process.exit(130); });
 process.once('SIGTERM', () => { close(); process.exit(143); });
@@ -21,9 +23,10 @@ process.once('SIGTERM', () => { close(); process.exit(143); });
 try {
   const snapshot = await model.initialize();
   await features.initialize();
+  await managed.initialize();
   if (options.openLink) features.reviewLink(options.openLink);
   const opaque = options.opaque ?? snapshot.preferences.opaque;
-  render(<App model={model} features={features} overrides={options} onCommitted={() => {
+  render(<App model={model} features={features} managed={managed} overrides={options} onCommitted={() => {
     if (marked || !options.benchmarkFile) return;
     marked = true;
     // This is a model/React-commit handshake, NOT a native paint measurement.

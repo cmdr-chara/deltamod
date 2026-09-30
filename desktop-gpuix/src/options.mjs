@@ -14,9 +14,9 @@ export function parseOptions(argv, env = process.env, platform = process.platfor
     : path.join(env.XDG_DATA_HOME || path.join(homedir(), '.local', 'share'), 'deltamod-community-gpuix');
   const options = { resourcesRoot: root, stateRoot: defaultState, sourceProfile: '',
     executable: path.join(root, 'desktop-gpuix', 'native', 'target', 'release', `deltamod-gpuix-host${platform === 'win32' ? '.exe' : ''}`),
-    focus: true, benchmarkFile: '', reducedMotion: null, opaque: null, openLink: '' };
+    focus: true, benchmarkFile: '', reducedMotion: null, opaque: null, openLink: '', managedDataRoot: '' };
   const flags = new Map([['--resources-root', 'resourcesRoot'], ['--state-root', 'stateRoot'],
-    ['--source-profile', 'sourceProfile'], ['--backend', 'executable'], ['--benchmark-file', 'benchmarkFile']]);
+    ['--source-profile', 'sourceProfile'], ['--managed-data-root', 'managedDataRoot'], ['--backend', 'executable'], ['--benchmark-file', 'benchmarkFile']]);
   const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];

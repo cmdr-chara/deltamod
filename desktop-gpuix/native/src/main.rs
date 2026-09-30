@@ -165,17 +165,23 @@ struct Backend {
     selected_installation: Option<String>,
     prefs: Preferences,
     network: Option<(tokio::runtime::Runtime, Client)>,
+    managed: deltamod_tauri_shell::HeadlessBackend,
 }
 impl Backend {
-    fn new(state: PathBuf, resources: PathBuf, source: Option<PathBuf>) -> Result<Self> {
+    fn new(state: PathBuf, resources: PathBuf, source: Option<PathBuf>, managed_data: Option<PathBuf>) -> Result<Self> {
         let state = prepare_state(&state)?;
         let resources = root(&resources)?;
         let source = source.map(|path| validate_source(&state, &path)).transpose()?;
+        let managed_root = managed_data.unwrap_or_else(|| state.join("managed-data"));
+        if source.as_ref().is_some_and(|source| managed_root.starts_with(source) || source.starts_with(&managed_root)) {
+            return Err("Managed data and read-only source profile must be separate directories".into());
+        }
+        let managed = deltamod_tauri_shell::HeadlessBackend::open(managed_root, resources.clone())?;
         let prefs = match read_json(&state, Path::new("preferences.json"))? {
             Some(value) => serde_json::from_value(value).map_err(|_| "Invalid preview preferences")?,
             None => Preferences::default(),
         };
-        let backend = Self { state, resources, source, selected_installation: None, prefs, network: None };
+        let backend = Self { state, resources, source, selected_installation: None, prefs, network: None, managed };
         backend.prefs.validate()?;
         Ok(backend)
     }
@@ -365,7 +371,7 @@ impl Backend {
         match request.command.as_str() {
             "hello" => Ok(json!({ "protocol": PROTOCOL, "readOnly": true,
                 "workspaceVersion": 2, "presentationVersion": 1,
-                "capabilities": ["snapshot", "profile.attach", "profile.detach", "installation.select", "shop.browse", "preferences.set", "ui.preferences.get", "ui.preferences.set", "theme.preview", "shop.detail"],
+                "capabilities": ["snapshot", "profile.attach", "profile.detach", "installation.select", "shop.browse", "preferences.set", "ui.preferences.get", "ui.preferences.set", "theme.preview", "shop.detail", "managed.catalog", "managed.installations", "managed.game.info", "managed.game.launch", "managed.mod.states", "managed.mod.toggle", "managed.mod.variant", "managed.mod.verify", "managed.mod.repair", "managed.mod.uninstall", "managed.restore", "managed.importArchive", "managed.patch.run", "managed.patch.cancel", "managed.hashes", "managed.credentials.status", "managed.credentials.clear"],
                 "runtime": "Rust stdio, no Tauri or WebView", "version": env!("CARGO_PKG_VERSION") })),
             "snapshot" => self.snapshot(),
             "installation.select" => self.select_installation(request.args),
@@ -403,7 +409,65 @@ impl Backend {
                 Ok(json!(self.prefs))
             }
             "shop.browse" => self.browse(request.args),
-            _ => Err("Command is not available in the read-only GPUIX preview".into()),
+            "managed.catalog" => self.managed.invoke("lifecycle:getInstalledMods", &[]),
+            "managed.installations" => self.managed.invoke("getInstallations", &[]),
+            "managed.game.info" => self.managed.invoke("getCurrentGameInfo", &[]),
+            "managed.game.launch" => self.managed.invoke("startGame", &[]),
+            "managed.mod.states" => self.managed.mod_states(),
+            "managed.mod.toggle" => {
+                #[derive(Deserialize)] #[serde(deny_unknown_fields)]
+                struct Toggle { uid: String, enabled: bool }
+                let args: Toggle = serde_json::from_value(request.args).map_err(|_| "Invalid mod toggle")?;
+                self.managed.invoke("toggleModState", &[json!(args.uid), json!(args.enabled)])
+            }
+            "managed.mod.variant" => {
+                #[derive(Deserialize)] #[serde(deny_unknown_fields)]
+                struct Variant { uid: String, variant: String }
+                let args: Variant = serde_json::from_value(request.args).map_err(|_| "Invalid mod variant")?;
+                self.managed.invoke("setModVariant", &[json!(args.variant), json!(args.uid)])
+            }
+            "managed.mod.verify" => {
+                #[derive(Deserialize)] #[serde(rename_all="camelCase", deny_unknown_fields)]
+                struct Target { installation_id: String, instance_id: String }
+                let args: Target = serde_json::from_value(request.args).map_err(|_| "Invalid verification target")?;
+                self.managed.invoke("lifecycle:verifyMod", &[json!(args.installation_id), json!(args.instance_id)])
+            }
+            "managed.mod.repair" | "managed.mod.uninstall" => {
+                #[derive(Deserialize)] #[serde(rename_all="camelCase", deny_unknown_fields)]
+                struct Mutation { installation_id: String, instance_id: String, operation_id: String }
+                let args: Mutation = serde_json::from_value(request.args).map_err(|_| "Invalid lifecycle mutation")?;
+                let channel = if request.command == "managed.mod.repair" { "lifecycle:repairMod" } else { "lifecycle:uninstallMod" };
+                self.managed.invoke(channel, &[json!(args.installation_id), json!(args.instance_id), json!(args.operation_id)])
+            }
+            "managed.restore" => {
+                #[derive(Deserialize)] #[serde(rename_all="camelCase", deny_unknown_fields)]
+                struct Restore { installation_id: String, operation_id: String }
+                let args: Restore = serde_json::from_value(request.args).map_err(|_| "Invalid recovery request")?;
+                self.managed.invoke("lifecycle:restoreLastWorkingState", &[json!(args.installation_id), json!(args.operation_id)])
+            }
+            "managed.importArchive" => {
+                #[derive(Deserialize)] #[serde(rename_all="camelCase", deny_unknown_fields)]
+                struct Import { path: String, replace_existing: bool }
+                let args: Import = serde_json::from_value(request.args).map_err(|_| "Invalid archive import")?;
+                if args.path.len() > 16384 || args.path.is_empty() { return Err("Invalid archive path".into()); }
+                self.managed.import_archive(Path::new(&args.path), args.replace_existing)
+            }
+            "managed.patch.run" => {
+                #[derive(Deserialize)] #[serde(deny_unknown_fields)]
+                struct Patch { selected: Vec<String> }
+                let args: Patch = serde_json::from_value(request.args).map_err(|_| "Invalid patch request")?;
+                self.managed.patch_and_run(&args.selected)
+            }
+            "managed.patch.cancel" => Ok(json!(self.managed.cancel_patch())),
+            "managed.hashes" => self.managed.precalc_hashes(),
+            "managed.credentials.status" => self.managed.credential_status(),
+            "managed.credentials.clear" => {
+                #[derive(Deserialize)] #[serde(deny_unknown_fields)]
+                struct Clear { kind: String }
+                let args: Clear = serde_json::from_value(request.args).map_err(|_| "Invalid credential request")?;
+                self.managed.clear_credential(&args.kind)
+            }
+            _ => Err("Command is not available in the GPUIX runtime".into()),
         }
     }
 }
@@ -437,18 +501,19 @@ fn respond(writer: &mut impl Write, id: u64, result: Result<Value>) -> Result<()
 }
 fn run() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
-    let (mut state, mut resources, mut source) = (None, None, None);
+    let (mut state, mut resources, mut source, mut managed_data) = (None, None, None, None);
     while let Some(flag) = args.next() {
         let target = match flag.to_str() {
             Some("--state-root") => &mut state,
             Some("--resources-root") => &mut resources,
             Some("--source-profile") => &mut source,
+            Some("--managed-data-root") => &mut managed_data,
             _ => return Err("Unknown native backend argument".into()),
         };
         if target.is_some() { return Err("Duplicate native backend argument".into()); }
         *target = Some(PathBuf::from(args.next().ok_or("Missing native backend argument")?));
     }
-    let mut backend = Backend::new(state.ok_or("--state-root is required")?, resources.ok_or("--resources-root is required")?, source)?;
+    let mut backend = Backend::new(state.ok_or("--state-root is required")?, resources.ok_or("--resources-root is required")?, source, managed_data)?;
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = stdin.lock();

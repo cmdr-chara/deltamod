@@ -5,6 +5,8 @@ import { motion, useGpuixRequired, useWindowSize, type PublicInstance } from '@g
 import type { AppModel } from './model.mjs';
 import { queryMods, DEFAULT_LIBRARY } from './model.mjs';
 import type { DesktopFeatures } from './features.mjs';
+import type { ManagedRuntime } from './managed.mjs';
+import { ManagedLibraryPanel, ManagedSystemPanel } from './managed-ui.js';
 import { LanguageContext, useMessages } from './i18n.js';
 import { ThemePreviewPanel, PresentationSettings, ModDetailDialog, LinkDialog } from './presentation.js';
 import type { Mod, Installation, Preferences, Route, Snapshot, LibraryQuery } from './contracts.js';
@@ -26,15 +28,16 @@ function Icon({ name, color = colors.muted, size = 20 }: { name: string; color?:
     style={{ width: size, height: size, color }} />;
 }
 
-interface AppProps { model: AppModel; features: DesktopFeatures; overrides: { reducedMotion: boolean | null; opaque: boolean | null }; onCommitted: () => void }
+interface AppProps { model: AppModel; features: DesktopFeatures; managed: ManagedRuntime; overrides: { reducedMotion: boolean | null; opaque: boolean | null }; onCommitted: () => void }
 export function App(props: AppProps) {
   const presentation = useSyncExternalStore(props.features.subscribe, props.features.getSnapshot);
   return <LanguageContext.Provider value={presentation.preferences.locale}><AppContent {...props} /></LanguageContext.Provider>;
 }
-function AppContent({ model, features, overrides, onCommitted }: AppProps) {
+function AppContent({ model, features, managed, overrides, onCommitted }: AppProps) {
   const t = useMessages();
   const state = useSyncExternalStore(model.subscribe, model.getSnapshot);
   const presentation = useSyncExternalStore(features.subscribe, features.getSnapshot);
+  const managedState = useSyncExternalStore(managed.subscribe, managed.getSnapshot);
   const renderer = useGpuixRequired();
   const size = useWindowSize();
   const [collapsed, setCollapsed] = useState(false);
@@ -43,7 +46,7 @@ function AppContent({ model, features, overrides, onCommitted }: AppProps) {
   const pickerOpen = useRef(false);
   const [searchFocus, setSearchFocus] = useState(0);
   const snapshot = state.snapshot;
-  const busy = state.loading || state.saving || state.shop.status === 'loading' || presentation.saving || presentation.detail.status === 'loading';
+  const busy = state.loading || state.saving || state.shop.status === 'loading' || presentation.saving || presentation.detail.status === 'loading' || managedState.loading || !!managedState.busy;
   const prefs = snapshot?.preferences || { themeId: 'base', accent: '#cd4451', reducedMotion: true, opaque: true };
   const theme: Preferences = { ...prefs, reducedMotion: overrides.reducedMotion ?? prefs.reducedMotion, opaque: overrides.opaque ?? prefs.opaque };
   const compact = collapsed || size.width < 1000;
@@ -122,7 +125,7 @@ function AppContent({ model, features, overrides, onCommitted }: AppProps) {
         {state.error && <div role="alert" style={{ padding: 14, backgroundColor: '#5d2035', margin: 12, borderRadius: 10 }}><Label>{state.error}</Label></div>}
         {!snapshot ? <Empty title={t("Backend unavailable")}>{t("Restart the preview after building the native host.")}</Empty> : <>
           {state.route === 'home' && <Home features={features} snapshot={snapshot} attach={attach} navigate={route => model.navigate(route)} />}
-          {state.route === 'library' && <Library model={model} searchRef={searchRef} snapshot={snapshot} show={item => setModal({ kind: 'mod', item })} attach={attach} />}
+          {state.route === 'library' && <Library managed={managed} model={model} searchRef={searchRef} snapshot={snapshot} show={item => setModal({ kind: 'mod', item })} attach={attach} />}
           {state.route === 'installations' && <Installations model={model} snapshot={snapshot} show={item => setModal({ kind: 'installation', item })} attach={attach} />}
           {state.route === 'shop' && <ShopView features={features} model={model} searchRef={searchRef} chooseGame={() => setModal({ kind: 'games' })} />}
           {state.route === 'themes' && <Page title={t("Your colors. Your Deltamod.")} subtitle={t("Built-in palettes, read from the existing theme catalogue.")}>
@@ -138,6 +141,7 @@ function AppContent({ model, features, overrides, onCommitted }: AppProps) {
           {state.route === 'settings' && <Page title={t("Make it yours")} subtitle={t("These preferences belong only to the GPUIX preview.")}>
             <div style={{ ...column, flexGrow: 1, minHeight: 0, overflowY: 'scroll' }}>
             <PresentationSettings features={features} disabled={busy} openLink={() => { features.update({ error: '' }); setModal({ kind: 'link' }); }} />
+            <ManagedSystemPanel runtime={managed} />
             <GlassPanel><Label size={18} bold>{t("Appearance")}</Label>
               <div style={{ ...row, justifyContent: 'space-between' }}><Label>{t("Reduced motion")}</Label><Action disabled={busy || overrides.reducedMotion !== null} onClick={() => void model.savePreferences({ reducedMotion: !prefs.reducedMotion })}>{theme.reducedMotion ? t("On") : t("Off")}</Action></div>
               <div style={{ ...row, justifyContent: 'space-between' }}><Label>{t("Opaque surfaces")}</Label><Action disabled={busy || overrides.opaque !== null} onClick={() => void model.savePreferences({ opaque: !prefs.opaque })}>{theme.opaque ? t("On") : t("Off")}</Action></div>
@@ -209,13 +213,14 @@ function Home({ features, snapshot, attach, navigate }: { features: DesktopFeatu
     </div>
   </Page>;
 }
-function Library({ model, snapshot, show, attach, searchRef }: { model: AppModel; snapshot: Snapshot; show: (mod: Mod) => void; attach: () => Promise<void>; searchRef: RefObject<PublicInstance | null> }) {
+function Library({ managed, model, snapshot, show, attach, searchRef }: { managed: ManagedRuntime; model: AppModel; snapshot: Snapshot; show: (mod: Mod) => void; attach: () => Promise<void>; searchRef: RefObject<PublicInstance | null> }) {
   const t = useMessages();
   const { library } = useSyncExternalStore(model.subscribe, model.getSnapshot);
   const mods = useMemo(() => queryMods(snapshot.mods, library), [snapshot.mods, library]);
   const formats: LibraryQuery['format'][] = ['all', 'runtime', 'legacy packet'];
   const sorts: LibraryQuery['sort'][] = ['name-asc', 'name-desc', 'enabled-first'];
   return <Page title={t("Mod library")} subtitle={t("Profile-wide library. Installation selection does not change mod enabled states.")}>
+    <ManagedLibraryPanel runtime={managed} />
     <input ref={searchRef} testId="library-search" value={library.query} placeholder={t("Search name, description or ID")} onChange={event => model.setLibrary({ query: event.value || '' })}
       style={{ height: 44, padding: 12, borderRadius: 12, backgroundColor: '#231c2b', color: colors.text, fontSize: 14 }} />
     <div style={{ ...column, gap: 8 }}>

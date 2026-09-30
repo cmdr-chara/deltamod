@@ -6,7 +6,7 @@ import { isAbsolute } from 'node:path';
 export const PROTOCOL = 1;
 export const MAX_REQUEST_BYTES = 64 * 1024;
 export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
-const COMMANDS = new Set(['hello', 'snapshot', 'profile.attach', 'profile.detach', 'installation.select', 'shop.browse', 'preferences.set', 'ui.preferences.get', 'ui.preferences.set', 'theme.preview', 'shop.detail']);
+const COMMANDS = new Set(['hello', 'snapshot', 'profile.attach', 'profile.detach', 'installation.select', 'shop.browse', 'preferences.set', 'ui.preferences.get', 'ui.preferences.set', 'theme.preview', 'shop.detail', 'managed.catalog', 'managed.installations', 'managed.game.info', 'managed.game.launch', 'managed.mod.states', 'managed.mod.toggle', 'managed.mod.variant', 'managed.mod.verify', 'managed.mod.repair', 'managed.mod.uninstall', 'managed.restore', 'managed.importArchive', 'managed.patch.run', 'managed.patch.cancel', 'managed.hashes', 'managed.credentials.status', 'managed.credentials.clear']);
 
 /** Private stdio transport. This is not an HTTP server or a Tauri/WebView bridge. */
 export class Bridge {
@@ -93,13 +93,15 @@ export class Bridge {
   }
 }
 
-export function startBridge({ executable, stateRoot, resourcesRoot, sourceProfile }, spawnImpl = spawn) {
+export function startBridge({ executable, stateRoot, resourcesRoot, sourceProfile, managedDataRoot }, spawnImpl = spawn) {
   if (![executable, stateRoot, resourcesRoot].every(value => typeof value === 'string' && isAbsolute(value))) {
     throw new Error('Absolute backend, state and resource paths are required.');
   }
   if (sourceProfile && !isAbsolute(sourceProfile)) throw new Error('Source profile must be an absolute path.');
+  if (managedDataRoot && !isAbsolute(managedDataRoot)) throw new Error('Managed data root must be an absolute path.');
   const args = ['--state-root', stateRoot, '--resources-root', resourcesRoot];
   if (sourceProfile) args.push('--source-profile', sourceProfile);
+  if (managedDataRoot) args.push('--managed-data-root', managedDataRoot);
   const child = spawnImpl(executable, args, { shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   return new Bridge(child);
 }

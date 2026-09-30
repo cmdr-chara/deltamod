@@ -18,6 +18,7 @@ url = "2"
 deltamod-storage-domain = { path = "../../src-tauri/crates/storage" }
 deltamod-mods-themes-domain = { path = "../../src-tauri/crates/mods-themes" }
 deltamod-network-runtime = { path = "../../src-tauri/crates/network-runtime" }
+deltamod-tauri-shell = { path = "../../src-tauri" }
 
 [profile.release]
 codegen-units = 1
