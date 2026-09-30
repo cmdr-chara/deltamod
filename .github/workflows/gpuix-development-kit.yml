@@ -65,8 +65,36 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: gpuix-offline-inputs-${{ github.run_id }}
-          path: ${{ runner.temp }}/gpuix-inputs/
+          name: gpuix-source-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/gpuix-inputs/source.tar.gz
+            ${{ runner.temp }}/gpuix-inputs/*.txt
+            ${{ runner.temp }}/gpuix-inputs/*.json
+            ${{ runner.temp }}/gpuix-inputs/*.lock
           if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: gpuix-rust-${{ github.run_id }}
+          path: ${{ runner.temp }}/gpuix-inputs/rust-toolchain.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: gpuix-registry-${{ github.run_id }}
+          path: ${{ runner.temp }}/gpuix-inputs/cargo-registry.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: gpuix-npm-${{ github.run_id }}
+          path: ${{ runner.temp }}/gpuix-inputs/node_modules.tar.gz
+          if-no-files-found: warn
           compression-level: 0
           retention-days: 1
