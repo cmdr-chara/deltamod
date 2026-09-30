@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Deltamod Community contributors
 // SPDX-License-Identifier: EUPL-1.2
-import { createContext, useContext, type ReactNode } from 'react';
-import { motion, Button, Dialog, DialogPortal, DialogBackdrop, DialogPopup, DialogTitle, DialogDescription, DialogClose } from '@gpuix/react';
+import { createContext, useContext, useRef, type ReactNode } from 'react';
+import { motion, useGpuixRequired, type PublicInstance } from '@gpuix/react';
 import type { StyleDesc } from '@gpuix/react';
 import type { Preferences } from './contracts.js';
 import { useMessages } from './i18n.js';
@@ -23,12 +23,18 @@ export function Action({ children, onClick, disabled = false, primary = false, t
   children: ReactNode; onClick: () => void; disabled?: boolean; primary?: boolean; testId?: string;
 }) {
   const theme = useContext(Palette);
-  return <Button testId={testId} disabled={disabled} onClick={onClick} style={{
-    ...row, justifyContent: 'center', padding: 10, paddingLeft: 16, paddingRight: 16,
-    borderRadius: 12, borderWidth: 1, borderColor: primary ? theme.accent : colors.edge,
-    backgroundColor: primary ? theme.accent : '#24202b', opacity: disabled ? 0.45 : 1,
-    hover: { backgroundColor: primary ? theme.accent : '#352d3d' },
-  }}><Label bold ink={primary ? accentInk(theme.accent) : colors.text}>{children}</Label></Button>;
+  const activate = () => { if (!disabled) onClick(); };
+  return <div testId={testId} role="button" aria-label={typeof children === 'string' ? children : undefined}
+    aria-selected={primary || undefined} tabIndex={disabled ? -1 : 0}
+    onClick={activate} onKeyDown={event => { if (!disabled && (event.key === 'enter' || event.key === 'space')) activate(); }}
+    style={{
+      ...row, justifyContent: 'center', padding: 10, paddingLeft: 16, paddingRight: 16,
+      borderRadius: 12, borderWidth: 1, borderColor: primary ? theme.accent : colors.edge,
+      backgroundColor: primary ? theme.accent : '#24202b', opacity: disabled ? 0.45 : 1,
+      cursor: disabled ? 'default' : 'pointer', userSelect: 'none',
+      hover: disabled ? {} : { backgroundColor: primary ? theme.accent : '#352d3d' },
+      active: disabled ? {} : { opacity: 0.82 },
+    }}><Label bold ink={primary ? accentInk(theme.accent) : colors.text}>{children}</Label></div>;
 }
 export function GlassPanel({ children, style = {}, testId }: { children: ReactNode; style?: StyleDesc; testId?: string }) {
   const theme = useContext(Palette);
@@ -57,15 +63,28 @@ export function Chip({ children, active = false }: { children: ReactNode; active
 }
 export function InfoDialog({ title, description, children, close }: { title: string; description: string; children?: ReactNode; close: () => void }) {
   const t = useMessages();
-  return <Dialog open onOpenChange={open => { if (!open) close(); }}>
-    <DialogPortal>
-      <DialogBackdrop style={{ backgroundColor: '#000000a0' }} />
-      <DialogPopup style={{ ...column, width: 500, maxWidth: '90%', padding: 24, gap: 18, backgroundColor: '#211a29', borderWidth: 1, borderColor: colors.edge, borderRadius: 20 }}>
-        <DialogTitle style={{ fontSize: 21, color: colors.text }}>{title}</DialogTitle>
-        <DialogDescription style={{ fontSize: 14, color: colors.muted }}>{description}</DialogDescription>
-        {children}
-        <DialogClose style={{ padding: 12, borderRadius: 10, backgroundColor: '#3a3046' }}><Label bold>{t("Close")}</Label></DialogClose>
-      </DialogPopup>
-    </DialogPortal>
-  </Dialog>;
+  const renderer = useGpuixRequired();
+  const popup = useRef<PublicInstance | null>(null);
+  return <div role="presentation" style={{
+    position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#000000a0', pointerEvents: 'auto',
+  }}>
+    <div ref={popup} role="dialog" aria-label={title} aria-description={description} autoFocus tabIndex={0}
+      onMouseDownOutside={close}
+      onKeyDown={event => {
+        if (event.key === 'escape') close();
+        if (event.key === 'tab' && popup.current) {
+          if (event.modifiers?.shift) renderer.focusPreviousWithin?.(popup.current.id);
+          else renderer.focusNextWithin?.(popup.current.id);
+        }
+      }}
+      style={{ ...column, width: 500, maxWidth: '90%', maxHeight: '86%', overflowY: 'scroll', padding: 24, gap: 18,
+        backgroundColor: '#211a29', borderWidth: 1, borderColor: colors.edge, borderRadius: 20, pointerEvents: 'auto' }}>
+      <text role="heading" aria-level={2} style={{ fontSize: 21, fontWeight: 700, color: colors.text }}>{title}</text>
+      <text style={{ fontSize: 14, color: colors.muted }}>{description}</text>
+      {children}
+      <Action onClick={close}>{t("Close")}</Action>
+    </div>
+  </div>;
 }

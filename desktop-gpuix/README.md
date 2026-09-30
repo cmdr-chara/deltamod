@@ -3,9 +3,11 @@
 Parallel React/GPUIX desktop frontend, with a private stdio connection to Rust.
 It starts **no Tauri window and no WebView**. The normal Deltamod app is unchanged.
 
-**Stage 1: read-only prototype. Not a replacement release.** The native build and
-GPUI-rendered UI must be validated on an actual desktop before use or performance
-claims. No measured speed, RAM or package-size advantage is claimed by this branch.
+**Migration preview. Not a replacement release yet.** Read-only source-profile
+inspection remains isolated, while a separate managed data root now uses Deltamod's
+production Rust lifecycle, archive, patching, recovery, launch and secure-credential
+contracts without starting a Tauri window or WebView. Native packaging and platform
+parity still gate replacement. No performance advantage is claimed by this branch.
 
 ## Included
 
@@ -23,10 +25,16 @@ claims. No measured speed, RAM or package-size advantage is claimed by this bran
 | Animation | GPUIX native opacity/width tweens, no JavaScript frame timer |
 | Backend | Existing storage-domain, mods-themes-domain and network-runtime crates |
 
-Account login, downloads/imports, enable/disable, patching, recovery, game launch,
-controller support, custom CSS/video/audio themes, additional languages and signed updates
-are **not ported**. They remain available in Tauri. Unsupported mutations are absent
-from the native command allowlist, not simulated as successful operations.
+The managed workspace now supports local archive import/replacement, enable/disable,
+variant selection, lifecycle verification/repair/uninstall/recovery, hash calculation,
+patch-and-run, cancellation, game launch, and secure credential status/clearing through
+the existing production Rust contracts. Attached source profiles stay read-only.
+
+Interactive GameBanana login, Nexus OAuth initiation, controller-mode integration,
+custom CSS/video/audio themes, additional languages, and production OS handoffs
+remain migration gates. A separate signed GPUIX package/update path is staged and
+does not consume Tauri's latest.json feed. Unsupported operations remain absent from
+the native command allowlist rather than being mocked.
 
 Theme previews cover colors and still images, not full theme parity. macOS can use the
 framework's blurred window backdrop after enabling glass and restarting. Windows
@@ -208,13 +216,13 @@ common painted-readiness protocol for both complete frontends is a later gate.
 
 1. Resolve/freeze dependencies, compile Rust, typecheck the real GPUIX packages and
    inspect native screenshots on Windows, Linux and macOS.
-2. Port transactional mod/install/patch workflows through the existing Rust domain
-   adapters, with cancellation and recovery verified before enabling their buttons.
-3. Complete accounts, additional localization, accessibility, controller input, real
-   media, OS-registered deep links and trusted packaging/update adapters.
+2. Finish provider authentication, controller-mode integration, full media-theme
+   support and production OS handoffs.
+3. Validate the staged signed GPUIX package/updater on each supported operating system,
+   then extract the shared backend from shell-only Tauri dependencies.
 4. Run paired equivalent-workload Tauri/GPUIX measurements on the same host.
-5. Retire Tauri only after feature parity, recovery, signed-update and performance
-   gates pass. Until then, rollback is simply continuing to use Tauri.
+5. Retire the Tauri frontend only after feature parity, recovery, signed-update and
+   performance gates pass. Until then, rollback is continuing to use Tauri.
 
 ## API references
 

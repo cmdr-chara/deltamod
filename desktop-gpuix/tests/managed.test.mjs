@@ -121,3 +121,13 @@ test('operation ids are process-local random identifiers, not user paths', () =>
   assert.notEqual(first, second);
   assert.match(first, /^repair-[0-9a-f]{32}$/);
 });
+
+
+test('pinned GPUIX 0.10 UI uses only exported host primitives', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/ui.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /\b(Button|Dialog|DialogPortal|DialogBackdrop|DialogPopup|DialogTitle|DialogDescription|DialogClose)\b/);
+  assert.match(source, /useGpuixRequired/);
+  assert.match(source, /role="dialog"/);
+  assert.match(source, /focusNextWithin/);
+});
