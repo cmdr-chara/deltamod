@@ -6,13 +6,14 @@ import { languages } from './languages.mjs';
 import { openModPage } from './options.mjs';
 import { useMessages, useByteFormat } from './i18n.js';
 import { Action, GlassPanel, InfoDialog, Label, row, column, colors } from './ui.js';
+import { NativeMediaPreview } from './media-ui.js';
 
 export function ThemePreviewPanel({ features, themeId }: { features: DesktopFeatures; themeId: string }) {
   const state = useSyncExternalStore(features.subscribe, features.getSnapshot);
   const t = useMessages();
   useEffect(() => { if (state.preferences.themeImages) void features.loadTheme(themeId); }, [features, themeId, state.preferences.themeImages]);
   if (!state.preferences.themeImages) return null;
-  return <GlassPanel testId="theme-preview" style={{ padding: 12, gap: 8, flexShrink: 0 }}>
+  return <GlassPanel testId="theme-preview" style={{ padding: 12, gap: 8, flexShrink: 0, maxHeight: 480, overflowY: 'scroll' }}>
     <Label bold>{t('Theme preview')}</Label>
     {state.theme.status === 'loading' && <Label muted>{t('Loading theme image...')}</Label>}
     {state.theme.status === 'error' && <><Label muted>{t('The theme image could not be loaded.')}</Label>
@@ -31,9 +32,8 @@ export function ThemePreviewPanel({ features, themeId }: { features: DesktopFeat
       {state.theme.value.metadata.accent && <Action testId="apply-theme-color" disabled={state.saving}
         onClick={() => void features.applyThemeColor()}>{t('Use theme color')}</Action>}
     </div>}
-    {(state.theme.value?.hasVideo || state.theme.value?.hasAudio) && <Label muted size={12}>
-      {t('Video and audio remain in Tauri. This preview displays the still image only.')}
-    </Label>}
+    {state.theme.status === 'ready' && state.theme.value?.themeId === themeId
+      && (state.theme.value.hasVideo || state.theme.value.hasAudio) && <NativeMediaPreview key={themeId} themeId={themeId} />}
   </GlassPanel>;
 }
 
@@ -57,7 +57,7 @@ export function PresentationSettings({ features, disabled, openLink }: { feature
         {t(state.preferences.themeImages ? 'On' : 'Off')}
       </Action>
     </div>
-    <Label muted size={12}>{t('Images are off by default. Only the selected built-in image is requested.')}</Label>
+    <Label muted size={12}>{t('Images are off by default. Media starts only when you press Play.')}</Label>
     <Action testId="open-preview-link" disabled={disabled || state.saving} onClick={openLink}>{t('Open a link')}</Action>
   </GlassPanel>;
 }
@@ -90,7 +90,7 @@ export function ModDetailDialog({ features }: { features: DesktopFeatures }) {
           <Label muted size={12}>{t('Version: {version} · {size}', { version: file.version || t('Not specified'), size: bytes(file.bytes) })}</Label>
         </div>)}
       </div>
-      <Label muted size={12}>{t('File metadata is not a security scan. Downloads and installation remain in Tauri.')}</Label>
+      <Label muted size={12}>{t('File metadata is not a security scan. This dialog does not download or install files.')}</Label>
       <Action testId="open-mod-browser" primary onClick={() => {
         setOpenerError('');
         void openModPage(value.url).catch(() => setOpenerError(t('The browser could not be opened.')));

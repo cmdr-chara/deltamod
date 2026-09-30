@@ -4,7 +4,7 @@
 
 //! Windowless access to Deltamod's production Rust runtime.
 //!
-//! The Tauri binary remains unchanged. GPUIX links this library to reuse the
+//! Tauri remains the production shell. GPUIX links this library to reuse the
 //! exact lifecycle, archive, launch, storage, patching and credential contracts
 //! without starting a WebView or copying those implementations.
 
@@ -258,7 +258,7 @@ impl HeadlessBackend {
             "nexus-legacy" => CredentialKind::NexusLegacySsoKey,
             _ => return Err(error::invalid("managed:credentialClear")),
         };
-        self.credentials
+        self.state.credentials
             .as_ref()
             .ok_or_else(|| "CREDENTIALS_UNAVAILABLE".to_owned())?
             .clear(kind)

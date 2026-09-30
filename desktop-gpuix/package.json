@@ -4,33 +4,25 @@
   "private": true,
   "type": "module",
   "license": "EUPL-1.2",
-  "engines": {
-    "node": ">=22"
-  },
+  "engines": { "node": ">=22" },
   "scripts": {
     "dev": "node scripts/sync-locales.mjs && tsx src/main.tsx",
     "build": "node scripts/sync-locales.mjs && tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "typecheck": "node scripts/sync-locales.mjs && tsc --noEmit -p tsconfig.json",
-    "native": "cargo build --release --manifest-path native/Cargo.toml",
-    "test": "node --test tests/core.test.mjs tests/presentation.test.mjs tests/managed.test.mjs tests/updater.test.mjs",
-    "test:native": "cargo test --manifest-path native/Cargo.toml",
+    "native": "cargo build --release --locked --manifest-path native/Cargo.toml",
+    "test": "node --test tests/*.test.mjs",
+    "test:native": "cargo test --locked --manifest-path native/Cargo.toml",
+    "test:lease": "cargo test --manifest-path ../native/desktop-runtime/Cargo.toml",
     "benchmark": "node scripts/benchmark.mjs",
     "smoke": "node scripts/smoke.mjs",
     "build:binary": "node scripts/sync-locales.mjs && bun build --compile src/main.tsx --outfile dist/deltamod-gpuix",
     "stage:host": "node scripts/stage-host.mjs",
+    "stage:runtime": "node scripts/stage-runtime.mjs",
+    "lock:resolve": "node scripts/resolve-locks.mjs",
     "package:gpuix": "node scripts/package.mjs",
     "sync:locales": "node scripts/sync-locales.mjs"
   },
-  "dependencies": {
-    "@gpuix/native": "0.10.0",
-    "@gpuix/react": "0.10.0",
-    "react": "19.0.0"
-  },
-  "devDependencies": {
-    "@types/node": "22.10.2",
-    "@types/react": "19.0.3",
-    "tsx": "4.19.2",
-    "typescript": "5.7.3"
-  }
+  "dependencies": { "@gpuix/native": "0.10.0", "@gpuix/react": "0.10.0", "react": "19.0.0" },
+  "devDependencies": { "@types/node": "22.10.2", "@types/react": "19.0.3", "tsx": "4.19.2", "typescript": "5.7.3" }
 }

@@ -1,0 +1,13 @@
+[package]
+name = "deltamod-desktop-runtime"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+license = "EUPL-1.2"
+publish = false
+
+# The first extracted service is intentionally standard-library-only. Both
+# desktop shells source-include the same implementation until AppState and the
+# mixed Tauri channel adapters can move without duplicating business logic.
+[workspace]
+resolver = "2"

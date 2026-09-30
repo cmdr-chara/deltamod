@@ -2,13 +2,18 @@
 name = "deltamod-gpuix-host"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.89"
 license = "EUPL-1.2"
 publish = false
 
-# Separate workspace: experimenting with GPUIX cannot change the Tauri lockfile,
-# default executable, feature selection, packaging or release target.
+# Separate workspace: the preview must not rewrite production dependency locks.
 [workspace]
 resolver = "2"
+
+# Dependency workspaces do not propagate their patches to this root. Preserve
+# the production GLib soundness fix while the backend still depends on Tauri.
+[patch.crates-io]
+glib = { path = "../../vendor/glib-0.18.5-patched" }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

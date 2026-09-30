@@ -5,7 +5,8 @@ import { motion, useGpuixRequired, type PublicInstance } from '@gpuix/react';
 import type { StyleDesc } from '@gpuix/react';
 import type { Preferences } from './contracts.js';
 import { useMessages } from './i18n.js';
-import { registerDialog } from './modal-state.mjs';
+import { registerDialog, dialogCount } from './modal-state.mjs';
+import { restoreDialogFocus } from './window-lifecycle.mjs';
 
 export const Palette = createContext<Preferences>({ themeId: 'base', accent: '#cd4451', reducedMotion: true, opaque: true });
 export const colors = { text: '#f3eef0', muted: '#b9adb5', faint: '#867b87', surface: '#17131d', edge: '#ffffff22', success: '#9fe0ba' };
@@ -24,10 +25,11 @@ export function Action({ children, onClick, disabled = false, primary = false, t
   children: ReactNode; onClick: () => void; disabled?: boolean; primary?: boolean; testId?: string;
 }) {
   const theme = useContext(Palette);
+  const t = useMessages();
   const activate = () => { if (!disabled) onClick(); };
   return <div testId={testId} role="button" aria-label={typeof children === 'string' ? children : undefined}
-    aria-selected={primary || undefined} tabIndex={disabled ? -1 : 0}
-    onClick={activate} onKeyDown={event => { if (!disabled && (event.key === 'enter' || event.key === 'space')) activate(); }}
+    aria-description={disabled ? t('Unavailable') : undefined} tabIndex={disabled ? -1 : 0}
+    onClick={disabled ? undefined : activate} onKeyDown={disabled ? undefined : event => { if (event.key === 'enter' || event.key === 'space') activate(); }}
     style={{
       ...row, justifyContent: 'center', padding: 10, paddingLeft: 16, paddingRight: 16,
       borderRadius: 12, borderWidth: 1, borderColor: primary ? theme.accent : colors.edge,
@@ -49,7 +51,7 @@ export function Page({ children, title, subtitle, testId }: { children: ReactNod
   return <motion.div testId={testId} initial={theme.reducedMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }}
     transition={{ duration: theme.reducedMotion ? 0 : 0.16, ease: 'easeOut' }}
     style={{ ...column, height: '100%', minHeight: 0, flexGrow: 1, padding: 28, gap: 20 }}>
-    <div style={{ ...column, gap: 6 }}><Label size={29} bold>{title}</Label><Label muted>{subtitle}</Label></div>
+    <div style={{ ...column, gap: 6 }}><text role="heading" aria-level={1} style={{fontSize:29,fontWeight:700,color:colors.text}}>{title}</text><Label muted>{subtitle}</Label></div>
     {children}
   </motion.div>;
 }
@@ -66,7 +68,17 @@ export function InfoDialog({ title, description, children, close, closeDisabled 
   const t = useMessages();
   const renderer = useGpuixRequired();
   const popup = useRef<PublicInstance | null>(null);
-  useLayoutEffect(() => registerDialog(), []);
+  // Capture the opener before this dialog's autoFocus is committed.
+  const previous = useRef<number | null | undefined>(undefined);
+  if (previous.current === undefined) previous.current = renderer.getFocusedElementId?.() ?? null;
+  useLayoutEffect(() => {
+    const unregister = registerDialog();
+    return () => {
+      unregister();
+      // A replacement dialog owns focus. Do not restore into its background.
+      if (dialogCount() === 0) restoreDialogFocus(renderer, previous.current, popup.current?.id);
+    };
+  }, [renderer]);
   const dismiss = () => { if (!closeDisabled) close(); };
   return <div role="presentation" style={{
     position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
