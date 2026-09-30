@@ -372,7 +372,7 @@ impl Backend {
         match request.command.as_str() {
             "hello" => Ok(json!({ "protocol": PROTOCOL, "readOnly": true,
                 "workspaceVersion": 2, "presentationVersion": 1,
-                "capabilities": ["snapshot", "profile.attach", "profile.detach", "installation.select", "shop.browse", "preferences.set", "ui.preferences.get", "ui.preferences.set", "theme.preview", "shop.detail", "managed.catalog", "managed.installations", "managed.game.info", "managed.game.launch", "managed.mod.states", "managed.mod.toggle", "managed.mod.variant", "managed.mod.verify", "managed.mod.repair", "managed.mod.uninstall", "managed.restore", "managed.importArchive", "managed.patch.run", "managed.patch.cancel", "managed.hashes", "managed.credentials.status", "managed.credentials.clear", "managed.nexus.login", "managed.nexus.cancel", "managed.controller.status", "managed.controller.start", "managed.controller.stop"],
+                "capabilities": ["snapshot", "profile.attach", "profile.detach", "installation.select", "shop.browse", "preferences.set", "ui.preferences.get", "ui.preferences.set", "theme.preview", "shop.detail", "managed.catalog", "managed.installations", "managed.game.info", "managed.game.launch", "managed.mod.states", "managed.mod.toggle", "managed.mod.variant", "managed.mod.verify", "managed.mod.repair", "managed.mod.uninstall", "managed.restore", "managed.importArchive", "managed.patch.run", "managed.patch.cancel", "managed.hashes", "managed.credentials.status", "managed.credentials.clear", "managed.nexus.login", "managed.nexus.cancel", "managed.controller.status", "managed.controller.start", "managed.controller.stop", "managed.protocol.review", "managed.protocol.import", "managed.protocol.cancel"],
                 "runtime": "Rust stdio, no Tauri or WebView", "version": env!("CARGO_PKG_VERSION") })),
             "snapshot" => self.snapshot(),
             "installation.select" => self.select_installation(request.args),
@@ -473,6 +473,19 @@ impl Backend {
             "managed.controller.status" => Ok(self.managed.controller_status()),
             "managed.controller.start" => self.managed.controller_start(),
             "managed.controller.stop" => self.managed.controller_stop(),
+            "managed.protocol.review" => {
+                #[derive(Deserialize)] #[serde(deny_unknown_fields)]
+                struct Protocol { raw: String }
+                let args: Protocol = serde_json::from_value(request.args).map_err(|_| "Invalid protocol request")?;
+                self.managed.protocol_review(&args.raw)
+            }
+            "managed.protocol.import" => {
+                #[derive(Deserialize)] #[serde(rename_all="camelCase", deny_unknown_fields)]
+                struct Protocol { raw: String, replace_existing: bool }
+                let args: Protocol = serde_json::from_value(request.args).map_err(|_| "Invalid protocol import")?;
+                self.managed.protocol_import(&args.raw, args.replace_existing)
+            }
+            "managed.protocol.cancel" => Ok(json!(self.managed.cancel_protocol_import())),
             _ => Err("Command is not available in the GPUIX runtime".into()),
         }
     }
@@ -535,7 +548,7 @@ fn run() -> Result<()> {
             return Err("Incompatible protocol or request ID".into());
         }
         last_id = request.id;
-        if matches!(request.command.as_str(), "managed.patch.run" | "managed.nexus.login") {
+        if matches!(request.command.as_str(), "managed.patch.run" | "managed.nexus.login" | "managed.protocol.import") {
             let id = request.id;
             let command = request.command;
             let managed = Arc::clone(&backend.managed);
@@ -556,6 +569,13 @@ fn run() -> Result<()> {
                         } else {
                             managed.nexus_login()
                         }
+                    }
+                    "managed.protocol.import" => {
+                        #[derive(Deserialize)] #[serde(rename_all="camelCase", deny_unknown_fields)]
+                        struct Protocol { raw: String, replace_existing: bool }
+                        serde_json::from_value::<Protocol>(args)
+                            .map_err(|_| "Invalid protocol import".to_owned())
+                            .and_then(|args| managed.protocol_import(&args.raw, args.replace_existing))
                     }
                     _ => Err("Unsupported asynchronous command".into()),
                 };

@@ -25,6 +25,7 @@ pub mod controller {
 
 use deltamod_credentials_adapter::{CredentialKind, CredentialStore, KeyringBackend};
 use deltamod_patching_runtime::LifecycleStorageRoots;
+use deltamod_protocol_domain::{parse_deep_link, CommunityAction, MAX_ID, MAX_URI_BYTES};
 use deltamod_tools_runtime::{controller_mode_launch, verify_tool, OwnedProcess, ProcessRegistry, ToolKind};
 use deltamod_tauri_os_adapters::{
     validate_dialog_selection, AdapterError, ChoiceBackend, DialogFilter, DialogRequest,
@@ -45,6 +46,7 @@ pub struct HeadlessBackend {
     controller_registry: ProcessRegistry,
     controller_process: Mutex<Option<OwnedProcess>>,
     controller_executable: PathBuf,
+    protocol_cancel: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
 }
 
 impl HeadlessBackend {
@@ -61,6 +63,7 @@ impl HeadlessBackend {
             controller_registry: ProcessRegistry::default(),
             controller_process: Mutex::new(None),
             controller_executable,
+            protocol_cancel: Mutex::new(None),
         })
     }
 
@@ -293,6 +296,55 @@ impl HeadlessBackend {
         Ok(self.controller_status())
     }
 
+    pub fn protocol_review(&self, raw: &str) -> Result<Value, String> {
+        match protocol_action(raw)? {
+            CommunityAction::Import { item_id, file_id, .. } =>
+                Ok(json!({"kind":"import","itemId":item_id,"fileId":file_id})),
+            CommunityAction::Launch { item_id } =>
+                Ok(json!({"kind":"launch","itemId":item_id})),
+        }
+    }
+
+    pub fn protocol_import(&self, raw: &str, replace_existing: bool) -> Result<Value, String> {
+        struct FixedChoice(bool);
+        impl ChoiceBackend for FixedChoice {
+            fn choose(&self, _title: &str, _message: &str, _choices: &[String]) -> Result<Option<usize>, AdapterError> {
+                Ok(Some(if self.0 { 0 } else { 2 }))
+            }
+        }
+        let CommunityAction::Import { item_id, file_id, source } = protocol_action(raw)? else {
+            return Err(error::invalid("managed:protocolImport"));
+        };
+        let (sender, receiver) = tokio::sync::watch::channel(false);
+        {
+            let mut active = self.protocol_cancel.lock().map_err(|_| "PROTOCOL_IMPORT_UNAVAILABLE")?;
+            if active.is_some() { return Err("PROTOCOL_IMPORT_IN_PROGRESS".into()); }
+            *active = Some(sender);
+        }
+        struct Clear<'a>(&'a Mutex<Option<tokio::sync::watch::Sender<bool>>>);
+        impl Drop for Clear<'_> { fn drop(&mut self) { if let Ok(mut active)=self.0.lock(){*active=None;} } }
+        let _clear = Clear(&self.protocol_cancel);
+        let imported = headless_channels::import_download::run_protocol_import_headless(
+            &self.state,
+            &FixedChoice(replace_existing),
+            headless_channels::import_download::ProtocolImportRequest {
+                item_id, file_id, source_url: &source,
+            },
+            &receiver,
+        )?;
+        if imported == json!(true) {
+            let catalog = headless_channels::lifecycle::dispatch(&self.state, "lifecycle:getInstalledMods", &[])?
+                .ok_or_else(error::internal)?;
+            return Ok(json!({"imported":true,"catalog":catalog}));
+        }
+        Ok(json!({"imported":false,"catalog":Value::Null}))
+    }
+
+    pub fn cancel_protocol_import(&self) -> bool {
+        self.protocol_cancel.lock().ok().and_then(|active| active.as_ref().cloned())
+            .is_some_and(|sender| sender.send(true).is_ok())
+    }
+
     pub fn nexus_login(&self) -> Result<Value, String> {
         let value = headless_channels::nexus_oauth::start_with_opener(&self.state, |url| {
             open_system_url(url).map_err(|_| ())
@@ -341,4 +393,29 @@ fn open_system_url(url: &str) -> Result<(), &'static str> {
         command
     };
     command.spawn().map(|_| ()).map_err(|_| "browser unavailable")
+}
+
+
+fn protocol_action(raw: &str) -> Result<CommunityAction, String> {
+    if let Ok(action) = parse_deep_link(raw) {
+        if let CommunityAction::Import { file_id, source, .. } = &action {
+            if !headless_channels::import_download::protocol_source_matches_file_id(source, *file_id) {
+                return Err("PROTOCOL_SOURCE_MISMATCH".into());
+            }
+        }
+        return Ok(action);
+    }
+    if raw.len() > MAX_URI_BYTES || raw.contains(['?', '#']) || raw.chars().any(char::is_control) {
+        return Err("PROTOCOL_INVALID".into());
+    }
+    let legacy = raw.strip_prefix("deltamod-community://gb/Mod/").ok_or("PROTOCOL_INVALID")?;
+    let (item, source) = legacy.split_once('/').ok_or("PROTOCOL_INVALID")?;
+    if item.is_empty() || !item.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("PROTOCOL_INVALID".into());
+    }
+    let item_id = item.parse::<u32>().map_err(|_| "PROTOCOL_INVALID")?;
+    if item_id == 0 || item_id > MAX_ID { return Err("PROTOCOL_INVALID".into()); }
+    let file_id = headless_channels::import_download::protocol_source_file_id(source)
+        .ok_or("PROTOCOL_INVALID")?;
+    Ok(CommunityAction::Import { item_id, file_id, source: source.to_owned() })
 }

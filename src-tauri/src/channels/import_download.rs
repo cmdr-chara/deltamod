@@ -389,6 +389,47 @@ pub(crate) fn run_protocol_import<D: ChoiceBackend>(
     Ok(imported)
 }
 
+pub(crate) fn run_protocol_import_headless<D: ChoiceBackend>(
+    state: &AppState,
+    dialogs: &D,
+    request: ProtocolImportRequest<'_>,
+    cancel: &watch::Receiver<bool>,
+) -> Result<Value, String> {
+    let ProtocolImportRequest { item_id, file_id, source_url } = request;
+    validate_protocol_import_request(item_id, file_id, source_url)?;
+    if *cancel.borrow() {
+        return Err(PROTOCOL_DOWNLOAD_FAILED.into());
+    }
+    let source = LegacySourceMetadata::new(item_id.to_string(), "Mod")
+        .map_err(|_| PROTOCOL_IMPORT_FAILED.to_owned())?;
+    let operation_id = protocol_operation_id();
+    let runtime = state.network_runtime.lock().map_err(|_| PROTOCOL_DOWNLOAD_FAILED.to_owned())?;
+    let downloaded = runtime.block_on(state.network.download_allowlisted(
+        operation_id,
+        source_url,
+        HostAllowlist::GAMEBANANA,
+        DownloadPolicy::mods(),
+        cancel,
+        |_| {},
+    ));
+    drop(runtime);
+    let downloaded = downloaded.map_err(|_| PROTOCOL_DOWNLOAD_FAILED.to_owned())?;
+    if *cancel.borrow() {
+        return Err(PROTOCOL_DOWNLOAD_FAILED.into());
+    }
+    let imported = run_import(
+        dialogs,
+        &downloaded.path,
+        &state.data_root.root.join("packets"),
+        Some(&source),
+        || *cancel.borrow(),
+    ).map_err(|_| PROTOCOL_IMPORT_FAILED.to_owned())?;
+    if *cancel.borrow() {
+        return Err(PROTOCOL_IMPORT_FAILED.into());
+    }
+    Ok(imported)
+}
+
 fn emit_game_progress(app: &AppHandle, event: &deltamod_game_download_runtime::ProgressEvent) {
     let _ = app.emit("game-import-progress", event);
 }
