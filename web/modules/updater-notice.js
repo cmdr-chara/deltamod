@@ -87,7 +87,19 @@
         const onDismiss = () => { if (!active.has(phase)) panel.hidden = true; };
         cancel.addEventListener('click', onCancel);
         dismiss.addEventListener('click', onDismiss);
-        const subscriptions = [api.onStatus(status), api.onProgress(onProgress)];
+        let statusRevision = 0;
+        const subscriptions = [api.onStatus(data => {
+            statusRevision += 1;
+            status(data);
+        }), api.onProgress(onProgress)];
+        // Late-mounted UI recovers native state without replaying stale status
+        // over a more recent event or a disposed panel.
+        const initialRevision = statusRevision;
+        if (typeof api.status === 'function') {
+            Promise.resolve().then(() => api.status()).then(data => {
+                if (!disposed && statusRevision === initialRevision) status(data);
+            }).catch(() => {});
+        }
         return Object.freeze({
             failure(reason) { if (phase !== 'cancelled' && phase !== 'failed') status({ state: 'failed', reason }); },
             dispose() {

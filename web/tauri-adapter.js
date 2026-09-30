@@ -164,7 +164,21 @@
         if (!Array.isArray(data)) {
             return Promise.reject(new TypeError('Backend payload must be an array.'));
         }
-        return tauriInvoke('backend_invoke', { channel, data });
+        const start = root.performance?.now?.() || 0;
+        const request = tauriInvoke('backend_invoke', { channel, data });
+        if (!root.DeltamodStartup || channel === 'log') return request;
+        return Promise.resolve(request).then(value => {
+            root.DeltamodStartup.record('ipc', channel, start, root.performance.now() - start);
+            if (channel === 'benchmark:rendererReady' && value === true) {
+                root.DeltamodStartup.benchmarkReady(message => tauriInvoke('backend_invoke', {
+                    channel: 'log', data: [message, 'BENCHMARK']
+                }));
+            }
+            return value;
+        }, error => {
+            root.DeltamodStartup.record('ipc', channel, start, root.performance.now() - start, false);
+            throw error;
+        });
     }
 
     async function invokeOptional(channel, data = [], fallback = undefined) {
@@ -265,6 +279,14 @@
         if (kind === 'theme') return `themeprot://asset/${path}`;
         if (kind === 'packet') return `packet://${path}`;
         const relative = path.startsWith('web/') ? path.slice(4) : path;
+        const externalMedia = root.document?.documentElement?.dataset?.deltamodExternalThemeMedia === 'true';
+        if (externalMedia && relative.startsWith('themes/') && /\.(?:mp3|wav|ogg|mp4|webm)$/i.test(relative)) {
+            const resource = `asset/${relative.slice('themes/'.length)}`;
+            // Matches normalize_asset_uri on Windows; never expose raw filesystem paths.
+            return /^https?:/.test(root.location.href)
+                ? `http://themeprot.localhost/${resource}`
+                : `themeprot://${resource}`;
+        }
         return new URL(relative, root.location.href).href;
     }
 

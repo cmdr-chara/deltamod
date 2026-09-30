@@ -1,18 +1,18 @@
 const { defineConfig } = require("vite");
+const { stageFrontend } = require("./scripts/stage-frontend");
 
 module.exports = defineConfig({
   base: "./",
-  // React's production branch is browser-safe; without this replacement the
-  // library build leaves a Node `process` reference in the deltapack script.
-  define: {
-    "process.env.NODE_ENV": JSON.stringify("production"),
-  },
+  plugins: [{
+    name: "stage-desktop-frontend",
+    closeBundle() { stageFrontend(__dirname); },
+  }],
   build: {
     outDir: "web/boot",
     emptyOutDir: true,
     cssCodeSplit: false,
     lib: {
-      entry: "web/boot-entry.tsx",
+      entry: "web/boot-native-entry.js",
       name: "DeltamodBootBundle",
       formats: ["iife"],
       fileName: () => "deltamod-boot.js",
