@@ -1,39 +1,71 @@
 # SPDX-FileCopyrightText: 2026 Deltamod Community contributors
 # SPDX-License-Identifier: EUPL-1.2
-name: GPUIX isolated development inputs
+name: GPUIX offline migration inputs
 on:
-  pull_request:
-    paths: ['.github/workflows/gpuix-development-kit.yml']
-  workflow_dispatch:
+  push:
+    branches: [astra/gpuix-inputs-20260930-2]
 permissions:
   contents: read
 jobs:
   inputs:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 122
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: 46ba384cf105c47210ba84ed7ee0e25a6a25797f
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           toolchain: stable
-      - name: Fetch the existing locked native dependencies for offline migration work
+          components: rustfmt
+      - name: Archive pinned source and toolchain
         shell: bash
         run: |
           set -euo pipefail
-          cargo fetch --locked --manifest-path src-tauri/Cargo.toml
           output="$RUNNER_TEMP/gpuix-inputs"
           mkdir -p "$output"
-          tar -C "$HOME/.cargo" -czf "$output/cargo-registry.tar.gz" registry
-          cp src-tauri/Cargo.lock "$output/tauri-Cargo.lock"
+          git archive --format=tar HEAD | gzip -1 > "$output/source.tar.gz"
           git rev-parse HEAD > "$output/source-revision.txt"
-          cd "$output"
-          sha256sum cargo-registry.tar.gz tauri-Cargo.lock source-revision.txt > SHA256SUMS.txt
+          rustc --version > "$output/toolchain-version.txt"
+          toolchain="$(rustc --print sysroot)"
+          tar -C "$toolchain" --exclude='./share/doc' -czf "$output/rust-toolchain.tar.gz" .
+      - name: Resolve standalone dependencies without lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/gpuix-inputs"
+          cd desktop-gpuix
+          set +e
+          timeout 180 npm install --package-lock-only --ignore-scripts --no-audit --no-fund --fetch-retries=1 > "$output/npm-resolution.txt" 2>&1
+          npm_status=$?
+          timeout 180 cargo generate-lockfile --manifest-path native/Cargo.toml > "$output/cargo-resolution.txt" 2>&1
+          cargo_status=$?
+          set -e
+          printf 'npm=%s\ncargo=%s\n' "$npm_status" "$cargo_status" > "$output/resolution-status.txt"
+          if [ "$npm_status" = 0 ]; then
+            cp package-lock.json "$output/gpuix-package-lock.json"
+            timeout 180 npm ci --ignore-scripts --no-audit --no-fund --fetch-retries=1
+            tar -czf "$output/node_modules.tar.gz" node_modules
+          fi
+          if [ "$cargo_status" = 0 ]; then
+            cp native/Cargo.lock "$output/gpuix-Cargo.lock"
+            timeout 180 cargo fetch --locked --manifest-path native/Cargo.toml
+          fi
+          tar -C "$HOME/.cargo" -czf "$output/cargo-registry.tar.gz" registry
+      - name: Hash acquired inputs
+        if: always()
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/gpuix-inputs"
+          sha256sum * > SHA256SUMS.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
         with:
-          name: gpuix-native-inputs-${{ github.run_id }}
+          name: gpuix-offline-inputs-${{ github.run_id }}
           path: ${{ runner.temp }}/gpuix-inputs/
           if-no-files-found: error
           compression-level: 0
