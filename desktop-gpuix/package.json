@@ -1,6 +1,6 @@
 {
   "name": "deltamod-gpuix-preview",
-  "version": "0.1.0",
+  "version": "2.0.18",
   "private": true,
   "type": "module",
   "license": "EUPL-1.2",
@@ -13,10 +13,13 @@
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "native": "cargo build --release --manifest-path native/Cargo.toml",
-    "test": "node --test tests/core.test.mjs tests/presentation.test.mjs tests/managed.test.mjs",
+    "test": "node --test tests/core.test.mjs tests/presentation.test.mjs tests/managed.test.mjs tests/updater.test.mjs",
     "test:native": "cargo test --manifest-path native/Cargo.toml",
     "benchmark": "node scripts/benchmark.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "build:binary": "bun build --compile src/main.tsx --outfile dist/deltamod-gpuix",
+    "stage:host": "node scripts/stage-host.mjs",
+    "package:gpuix": "node scripts/package.mjs"
   },
   "dependencies": {
     "@gpuix/native": "0.10.0",

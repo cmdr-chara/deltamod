@@ -2,18 +2,29 @@
 // SPDX-License-Identifier: EUPL-1.2
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { parseIntent } from './deep-links.mjs';
 
 export function parseOptions(argv, env = process.env, platform = process.platform) {
-  const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
+  const developmentRoot = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
+  const executableDir = path.dirname(process.execPath);
+  const packagedCandidates = platform === 'darwin'
+    ? [path.resolve(executableDir, '../Resources/deltamod')]
+    : platform === 'linux'
+      ? [path.resolve(executableDir, '../lib/deltamod'), ...(env.APPDIR ? [path.join(env.APPDIR, 'usr', 'lib', 'deltamod')] : [])]
+      : [path.join(executableDir, 'deltamod')];
+  const explicit = env.DELTAMOD_GPUIX_RESOURCES ? path.resolve(env.DELTAMOD_GPUIX_RESOURCES) : '';
+  const root = explicit || packagedCandidates.find(candidate => existsSync(path.join(candidate, 'games'))) || developmentRoot;
   const defaultState = platform === 'win32'
     ? path.join(env.LOCALAPPDATA || path.join(homedir(), 'AppData', 'Local'), 'DeltamodCommunityGPUIX')
     : platform === 'darwin' ? path.join(homedir(), 'Library', 'Application Support', 'DeltamodCommunityGPUIX')
     : path.join(env.XDG_DATA_HOME || path.join(homedir(), '.local', 'share'), 'deltamod-community-gpuix');
   const options = { resourcesRoot: root, stateRoot: defaultState, sourceProfile: '',
-    executable: path.join(root, 'desktop-gpuix', 'native', 'target', 'release', `deltamod-gpuix-host${platform === 'win32' ? '.exe' : ''}`),
+    executable: existsSync(path.join(executableDir, `deltamod-gpuix-host${platform === 'win32' ? '.exe' : ''}`))
+      ? path.join(executableDir, `deltamod-gpuix-host${platform === 'win32' ? '.exe' : ''}`)
+      : path.join(developmentRoot, 'desktop-gpuix', 'native', 'target', 'release', `deltamod-gpuix-host${platform === 'win32' ? '.exe' : ''}`),
     focus: true, benchmarkFile: '', reducedMotion: null, opaque: null, openLink: '', managedDataRoot: '' };
   const flags = new Map([['--resources-root', 'resourcesRoot'], ['--state-root', 'stateRoot'],
     ['--source-profile', 'sourceProfile'], ['--managed-data-root', 'managedDataRoot'], ['--backend', 'executable'], ['--benchmark-file', 'benchmarkFile']]);

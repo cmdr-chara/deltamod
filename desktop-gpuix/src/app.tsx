@@ -7,6 +7,8 @@ import { queryMods, DEFAULT_LIBRARY } from './model.mjs';
 import type { DesktopFeatures } from './features.mjs';
 import type { ManagedRuntime } from './managed.mjs';
 import { ManagedLibraryPanel, ManagedSystemPanel } from './managed-ui.js';
+import type { UpdateRuntime } from './updater.mjs';
+import { UpdatePanel } from './updater.js';
 import { LanguageContext, useMessages } from './i18n.js';
 import { ThemePreviewPanel, PresentationSettings, ModDetailDialog, LinkDialog } from './presentation.js';
 import type { Mod, Installation, Preferences, Route, Snapshot, LibraryQuery } from './contracts.js';
@@ -28,12 +30,12 @@ function Icon({ name, color = colors.muted, size = 20 }: { name: string; color?:
     style={{ width: size, height: size, color }} />;
 }
 
-interface AppProps { model: AppModel; features: DesktopFeatures; managed: ManagedRuntime; overrides: { reducedMotion: boolean | null; opaque: boolean | null }; onCommitted: () => void }
+interface AppProps { model: AppModel; features: DesktopFeatures; managed: ManagedRuntime; updater: UpdateRuntime; overrides: { reducedMotion: boolean | null; opaque: boolean | null }; onCommitted: () => void }
 export function App(props: AppProps) {
   const presentation = useSyncExternalStore(props.features.subscribe, props.features.getSnapshot);
   return <LanguageContext.Provider value={presentation.preferences.locale}><AppContent {...props} /></LanguageContext.Provider>;
 }
-function AppContent({ model, features, managed, overrides, onCommitted }: AppProps) {
+function AppContent({ model, features, managed, updater, overrides, onCommitted }: AppProps) {
   const t = useMessages();
   const state = useSyncExternalStore(model.subscribe, model.getSnapshot);
   const presentation = useSyncExternalStore(features.subscribe, features.getSnapshot);
@@ -142,6 +144,7 @@ function AppContent({ model, features, managed, overrides, onCommitted }: AppPro
             <div style={{ ...column, flexGrow: 1, minHeight: 0, overflowY: 'scroll' }}>
             <PresentationSettings features={features} disabled={busy} openLink={() => { features.update({ error: '' }); setModal({ kind: 'link' }); }} />
             <ManagedSystemPanel runtime={managed} />
+            <UpdatePanel runtime={updater} />
             <GlassPanel><Label size={18} bold>{t("Appearance")}</Label>
               <div style={{ ...row, justifyContent: 'space-between' }}><Label>{t("Reduced motion")}</Label><Action disabled={busy || overrides.reducedMotion !== null} onClick={() => void model.savePreferences({ reducedMotion: !prefs.reducedMotion })}>{theme.reducedMotion ? t("On") : t("Off")}</Action></div>
               <div style={{ ...row, justifyContent: 'space-between' }}><Label>{t("Opaque surfaces")}</Label><Action disabled={busy || overrides.opaque !== null} onClick={() => void model.savePreferences({ opaque: !prefs.opaque })}>{theme.opaque ? t("On") : t("Off")}</Action></div>
