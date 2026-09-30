@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
+    "jsxImportSource": "@gpuix/react",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowJs": true,
+    "checkJs": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["node"],
+    "lib": ["ES2022"]
+  },
+  "include": ["src/**/*"]
+}

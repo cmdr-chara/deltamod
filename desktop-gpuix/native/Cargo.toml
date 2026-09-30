@@ -1,0 +1,25 @@
+[package]
+name = "deltamod-gpuix-host"
+version = "0.1.0"
+edition = "2021"
+license = "EUPL-1.2"
+publish = false
+
+# Separate workspace: experimenting with GPUIX cannot change the Tauri lockfile,
+# default executable, feature selection, packaging or release target.
+[workspace]
+resolver = "2"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "time"] }
+url = "2"
+deltamod-storage-domain = { path = "../../src-tauri/crates/storage" }
+deltamod-mods-themes-domain = { path = "../../src-tauri/crates/mods-themes" }
+deltamod-network-runtime = { path = "../../src-tauri/crates/network-runtime" }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
