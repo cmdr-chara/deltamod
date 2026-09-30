@@ -3,7 +3,7 @@
 import { writeFileSync } from 'node:fs';
 import { render } from '@gpuix/react';
 import { App } from './app.js';
-import { AppModel } from './model.mjs';
+import { AppModel, shortcutFor } from './model.mjs';
 import { startBridge } from './bridge.mjs';
 import { parseOptions } from './options.mjs';
 
@@ -33,11 +33,9 @@ try {
     title: 'Deltamod Community · GPUIX preview', appName: 'Deltamod GPUIX preview',
     width: 1160, height: 780, focus: options.focus,
     windowBackground: process.platform === 'darwin' && !opaque ? 'blurred' : 'opaque',
-    onKeyDown(event, renderer) {
-      if (event.key === 'tab') {
-        if (event.modifiers?.shift) renderer.focusPrevious?.();
-        else renderer.focusNext?.();
-      }
+    onKeyDown(event) {
+      const action = shortcutFor(event);
+      if (action) model.dispatchShortcut(action);
     },
   });
 } catch (error) {

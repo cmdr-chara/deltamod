@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Deltamod Community contributors
 // SPDX-License-Identifier: EUPL-1.2
-import { useState, useSyncExternalStore, useEffect, useMemo } from 'react';
-import { motion, useGpuixRequired, useWindowSize } from '@gpuix/react';
+import { useState, useSyncExternalStore, useEffect, useMemo, useRef, type RefObject } from 'react';
+import { motion, useGpuixRequired, useWindowSize, type PublicInstance } from '@gpuix/react';
 import type { AppModel } from './model.mjs';
-import { filterMods } from './model.mjs';
+import { queryMods, DEFAULT_LIBRARY } from './model.mjs';
 import { openModPage } from './options.mjs';
-import type { Mod, Installation, Preferences, Route, Snapshot } from './contracts.js';
+import type { Mod, Installation, Preferences, Route, Snapshot, LibraryQuery } from './contracts.js';
 import { Palette, colors, row, column, Label, Action, GlassPanel, Page, Empty, Chip, InfoDialog } from './ui.js';
 
-type Modal = { kind: 'mod'; item: Mod } | { kind: 'installation'; item: Installation } | { kind: 'about' } | null;
+type Modal = { kind: 'mod'; item: Mod } | { kind: 'installation'; item: Installation } | { kind: 'about' | 'help' | 'games' | 'detach' } | null;
 const routes: { id: Route; label: string; icon: string }[] = [
   { id: 'home', label: 'Home', icon: 'home' }, { id: 'library', label: 'Mod library', icon: 'library' },
   { id: 'installations', label: 'Installations', icon: 'folder' }, { id: 'shop', label: 'Mod Shop', icon: 'shop' },
@@ -30,19 +30,52 @@ export function App({ model, overrides, onCommitted }: { model: AppModel; overri
   const size = useWindowSize();
   const [collapsed, setCollapsed] = useState(false);
   const [modal, setModal] = useState<Modal>(null);
+  const searchRef = useRef<PublicInstance | null>(null);
+  const pickerOpen = useRef(false);
+  const [searchFocus, setSearchFocus] = useState(0);
   const snapshot = state.snapshot;
+  const busy = state.loading || state.saving || state.shop.status === 'loading';
   const prefs = snapshot?.preferences || { themeId: 'base', accent: '#cd4451', reducedMotion: true, opaque: true };
   const theme: Preferences = { ...prefs, reducedMotion: overrides.reducedMotion ?? prefs.reducedMotion, opaque: overrides.opaque ?? prefs.opaque };
   const compact = collapsed || size.width < 1000;
   useEffect(() => { if (snapshot) onCommitted(); }, [snapshot, onCommitted]);
-  useEffect(() => { if (state.route === 'shop' && state.shop.status === 'idle') void model.browse(''); }, [state.route, state.shop.status, model]);
+  useEffect(() => {
+    if (state.route === 'shop' && state.shop.status === 'idle' && state.shop.gameId && !state.loading) void model.browse('');
+  }, [state.route, state.shop.status, state.shop.gameId, state.loading, model]);
+  useEffect(() => { setModal(null); }, [state.profileEpoch]);
+  useEffect(() => {
+    if (searchFocus && searchRef.current) renderer.focusElement(searchRef.current.id);
+  }, [searchFocus, state.route, renderer]);
+  useEffect(() => model.onShortcut(shortcut => {
+    // DialogPopup owns modal Tab traversal. Never also advance window focus.
+    if (modal) { if (shortcut.action === 'close') setModal(null); return; }
+    const current = model.state;
+    const working = current.loading || current.saving || current.shop.status === 'loading';
+    switch (shortcut.action) {
+      case 'tab-next': renderer.focusNext?.(); break;
+      case 'tab-previous': renderer.focusPrevious?.(); break;
+      case 'navigate': model.navigate(shortcut.route); break;
+      case 'back': model.goBack(); break;
+      case 'forward': model.goForward(); break;
+      case 'refresh': if (!working) void model.refresh().catch(() => {}); break;
+      case 'attach': if (!working) void attach(); break;
+      case 'help': setModal({ kind: 'help' }); break;
+      case 'search':
+        if (current.route !== 'library' && current.route !== 'shop') model.navigate('library');
+        setSearchFocus(value => value + 1);
+        break;
+    }
+  }), [model, renderer, modal]);
 
   async function attach() {
+    if (pickerOpen.current || model.state.loading || model.state.saving || model.state.shop.status === 'loading') return;
+    pickerOpen.current = true;
     try {
       if (!renderer.promptForPaths) throw new Error('Native folder picker is unavailable on this runtime.');
       const files = await renderer.promptForPaths({ files: false, directories: true, multiple: false, prompt: 'Read a Deltamod profile' });
       if (files?.[0]) await model.attachProfile(files[0]);
     } catch (error) { model.update({ error: error instanceof Error ? error.message : String(error) }); }
+    finally { pickerOpen.current = false; }
   }
   return <Palette.Provider value={theme}>
     <div style={{ ...row, width: '100%', height: '100%', alignItems: 'stretch', gap: 0, backgroundColor: theme.opaque ? '#0e0b13' : '#0e0b13dd' }}>
@@ -66,48 +99,76 @@ export function App({ model, overrides, onCommitted }: { model: AppModel; overri
         <div style={{ ...row, height: 66, padding: 16, paddingLeft: 28, justifyContent: 'space-between', flexShrink: 0 }}>
           <div style={row}><Chip active>Community</Chip><Label muted size={12}>Native GPUI rendering</Label></div>
           <div style={{ ...row, gap: 8 }}>
-            <Action onClick={() => void model.refresh().catch(() => {})} disabled={state.loading}>Refresh</Action>
-            <Action onClick={() => setModal({ kind: 'about' })}>About</Action>
+            <Action testId="history-back" disabled={!state.history.back.length} onClick={() => model.goBack()}>Back</Action>
+            <Action testId="history-forward" disabled={!state.history.forward.length} onClick={() => model.goForward()}>Forward</Action>
+            <Action onClick={() => void model.refresh().catch(() => {})} disabled={busy}>Refresh</Action>
+            <Action testId="about-preview" onClick={() => setModal({ kind: 'about' })}>About</Action>
             <Action onClick={() => renderer.minimizeWindow?.()}>Minimize</Action>
           </div>
         </div>
         {state.error && <div role="alert" style={{ padding: 14, backgroundColor: '#5d2035', margin: 12, borderRadius: 10 }}><Label>{state.error}</Label></div>}
         {!snapshot ? <Empty title="Backend unavailable">Restart the preview after building the native host.</Empty> : <>
           {state.route === 'home' && <Home snapshot={snapshot} attach={attach} navigate={route => model.navigate(route)} />}
-          {state.route === 'library' && <Library snapshot={snapshot} show={item => setModal({ kind: 'mod', item })} attach={attach} />}
-          {state.route === 'installations' && <Installations snapshot={snapshot} show={item => setModal({ kind: 'installation', item })} attach={attach} />}
-          {state.route === 'shop' && <ShopView model={model} />}
+          {state.route === 'library' && <Library model={model} searchRef={searchRef} snapshot={snapshot} show={item => setModal({ kind: 'mod', item })} attach={attach} />}
+          {state.route === 'installations' && <Installations model={model} snapshot={snapshot} show={item => setModal({ kind: 'installation', item })} attach={attach} />}
+          {state.route === 'shop' && <ShopView model={model} searchRef={searchRef} chooseGame={() => setModal({ kind: 'games' })} />}
           {state.route === 'themes' && <Page title="Your colors. Your Deltamod." subtitle="Built-in palettes, read from the existing theme catalogue.">
             <Label muted>Color preview only. Video, audio and custom CSS themes remain in Tauri for now.</Label>
             <virtual-list estimatedItemHeight={88} style={{ flexGrow: 1, minHeight: 0 }}>
               {snapshot.themes.map(item => <div key={item.id} style={{ paddingBottom: 10 }}><GlassPanel style={{ ...row, justifyContent: 'space-between', padding: 14 }}>
                 <div style={row}><div style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: item.accent }} /><Label bold>{item.name}</Label></div>
-                <Action disabled={state.saving} primary={prefs.themeId === item.id} onClick={() => void model.savePreferences({ themeId: item.id, accent: item.accent })}>{prefs.themeId === item.id ? 'Selected' : 'Use palette'}</Action>
+                <Action disabled={busy} primary={prefs.themeId === item.id} onClick={() => void model.savePreferences({ themeId: item.id, accent: item.accent })}>{prefs.themeId === item.id ? 'Selected' : 'Use palette'}</Action>
               </GlassPanel></div>)}
             </virtual-list>
           </Page>}
           {state.route === 'settings' && <Page title="Make it yours" subtitle="These preferences belong only to the GPUIX preview.">
             <GlassPanel><Label size={18} bold>Appearance</Label>
-              <div style={{ ...row, justifyContent: 'space-between' }}><Label>Reduced motion</Label><Action disabled={state.saving || overrides.reducedMotion !== null} onClick={() => void model.savePreferences({ reducedMotion: !prefs.reducedMotion })}>{theme.reducedMotion ? 'On' : 'Off'}</Action></div>
-              <div style={{ ...row, justifyContent: 'space-between' }}><Label>Opaque surfaces</Label><Action disabled={state.saving || overrides.opaque !== null} onClick={() => void model.savePreferences({ opaque: !prefs.opaque })}>{theme.opaque ? 'On' : 'Off'}</Action></div>
+              <div style={{ ...row, justifyContent: 'space-between' }}><Label>Reduced motion</Label><Action disabled={busy || overrides.reducedMotion !== null} onClick={() => void model.savePreferences({ reducedMotion: !prefs.reducedMotion })}>{theme.reducedMotion ? 'On' : 'Off'}</Action></div>
+              <div style={{ ...row, justifyContent: 'space-between' }}><Label>Opaque surfaces</Label><Action disabled={busy || overrides.opaque !== null} onClick={() => void model.savePreferences({ opaque: !prefs.opaque })}>{theme.opaque ? 'On' : 'Off'}</Action></div>
               <Label muted size={12}>Window vibrancy applies after restart on macOS. Other platforms use layered translucent surfaces, not system liquid glass.</Label>
             </GlassPanel>
             <GlassPanel><Label size={18} bold>Profile safety</Label><Label muted>Profiles are attached read-only for this session. Changing preview settings does not modify your game files, mod state or Tauri preferences.</Label>
-              <Action onClick={() => void attach()} disabled={state.loading} testId="attach-profile">Choose Deltamod data folder</Action>
+              <div style={row}>
+                <Action onClick={() => void attach()} disabled={busy} testId="attach-profile">Choose Deltamod data folder</Action>
+                <Action onClick={() => setModal({ kind: 'detach' })} disabled={busy || !snapshot.sourceAttached} testId="detach-profile">Disconnect profile</Action>
+              </div>
+              <Label muted size={12}>Installation selections last for this session and never change Tauri's current installation.</Label>
+              <Action onClick={() => setModal({ kind: 'help' })}>Keyboard shortcuts</Action>
             </GlassPanel>
           </Page>}
         </>}
       </div>
     </div>
-    {modal && <InfoDialog close={() => setModal(null)} title={modal.kind === 'about' ? 'Deltamod · GPUIX preview' : modal.item.name}
-      description={modal.kind === 'about' ? 'React and GPUIX with a separate Rust domain host. No Tauri window or WebView is started.' : modal.kind === 'mod' ? modal.item.description || 'No description is available.' : modal.item.path}>
+    {modal && <InfoDialog close={() => setModal(null)}
+      title={modal.kind === 'mod' || modal.kind === 'installation' ? modal.item.name :
+        modal.kind === 'help' ? 'Keyboard shortcuts' : modal.kind === 'games' ? 'Choose a game' : modal.kind === 'detach' ? 'Disconnect this profile?' : 'Deltamod · GPUIX preview'}
+      description={modal.kind === 'mod' ? modal.item.description || 'No description is available.' :
+        modal.kind === 'installation' ? modal.item.path : modal.kind === 'detach' ? 'This clears the preview library and session selection. No files are deleted or modified.' :
+        modal.kind === 'games' ? "Games come from Deltamod's packaged catalogue, not arbitrary URLs." :
+        modal.kind === 'help' ? 'Use Cmd on macOS and Ctrl on Windows/Linux.' : 'React and GPUIX with a separate Rust domain host. No Tauri window or WebView is started.'}>
       {modal.kind === 'mod' && <><Chip>{modal.item.format}</Chip><Label muted>Enable, remove, import and patch actions are deliberately unavailable until transactional parity is verified.</Label></>}
-      {modal.kind === 'installation' && <><Label>{modal.item.gameId}</Label><Label muted>{'The saved game path is shown without probing or modifying it.'}</Label></>}
+      {modal.kind === 'installation' && <><Label>{modal.item.gameId}</Label><Label muted>The saved game path is shown without probing or modifying it.</Label></>}
       {modal.kind === 'about' && <Label muted>Experimental, not a replacement release. Tauri remains the production application.</Label>}
+      {modal.kind === 'help' && <>
+        <Label>Ctrl/Cmd + 1–6: switch screens</Label><Label>Alt + Left/Right: back/forward</Label>
+        <Label>Ctrl/Cmd + F: focus search</Label><Label>Ctrl/Cmd + R: refresh profile</Label>
+        <Label>Ctrl/Cmd + Shift + O: attach profile</Label><Label>F1: shortcuts · Escape: close dialog</Label>
+        <Label muted>Tab stays inside an open dialog. Held keys do not repeat application shortcuts.</Label>
+      </>}
+      {modal.kind === 'detach' && <Action testId="confirm-detach-profile" disabled={busy} primary onClick={() => {
+        void model.detachProfile().then(done => { if (done) setModal(null); });
+      }}>Disconnect profile</Action>}
+      {modal.kind === 'games' && <virtual-list estimatedItemHeight={64} style={{ height: 290 }}>
+        {snapshot?.games.map(game => <div key={game.id} style={{ ...row, justifyContent: 'space-between', padding: 10 }}>
+          <Label>{game.name}</Label><Action testId={`shop-game-${game.id}`} disabled={busy || !game.gamebanana} primary={state.shop.gameId === game.id}
+            onClick={() => { model.setShopGame(game.id); setModal(null); }}>{game.gamebanana ? 'Browse' : 'Unavailable'}</Action>
+        </div>)}
+      </virtual-list>}
     </InfoDialog>}
   </Palette.Provider>;
 }
 function Home({ snapshot, attach, navigate }: { snapshot: Snapshot; attach: () => Promise<void>; navigate: (route: Route) => void }) {
+  const selected = snapshot.installations.find(item => item.id === snapshot.selectedInstallationId);
   return <Page testId="home-ready" title="Your games, together." subtitle="A lighter native home for Deltamod Community.">
     <GlassPanel style={{ padding: 28, gap: 18 }}><Label size={22} bold>{snapshot.sourceAttached ? 'Your library is connected' : 'Bring your library into view'}</Label>
       <Label muted>{snapshot.sourceAttached ? 'This preview reads your existing profile without changing it.' : 'Choose your Deltamod data folder to see installations and mods. No copying, migration or game changes.'}</Label>
@@ -118,41 +179,71 @@ function Home({ snapshot, attach, navigate }: { snapshot: Snapshot; attach: () =
       <GlassPanel style={{ flexGrow: 1 }}><Label muted>Mods</Label><Label size={34} bold>{snapshot.mods.length}</Label></GlassPanel>
       <GlassPanel style={{ flexGrow: 1 }}><Label muted>Theme palettes</Label><Label size={34} bold>{snapshot.themes.length}</Label></GlassPanel>
     </div>
+    {selected && <GlassPanel style={{ ...row, justifyContent: 'space-between' }}>
+      <div style={column}><Label muted>Preview installation</Label><Label bold>{selected.name || selected.gameId}</Label></div>
+      <Action onClick={() => navigate('installations')}>Change selection</Action>
+    </GlassPanel>}
     {snapshot.warnings.length > 0 && <GlassPanel><Label bold>Some data needs attention</Label>{snapshot.warnings.map((warning, i) => <Label key={i} muted>{warning}</Label>)}</GlassPanel>}
   </Page>;
 }
-function Library({ snapshot, show, attach }: { snapshot: Snapshot; show: (mod: Mod) => void; attach: () => Promise<void> }) {
-  const [query, setQuery] = useState('');
-  const mods = useMemo(() => filterMods(snapshot.mods, query), [snapshot.mods, query]);
-  return <Page title="Mod library" subtitle="Your existing mods, without changing their enabled state.">
-    <input testId="library-search" value={query} placeholder="Search your mods" onChange={event => setQuery(event.value || '')}
+function Library({ model, snapshot, show, attach, searchRef }: { model: AppModel; snapshot: Snapshot; show: (mod: Mod) => void; attach: () => Promise<void>; searchRef: RefObject<PublicInstance | null> }) {
+  const { library } = useSyncExternalStore(model.subscribe, model.getSnapshot);
+  const mods = useMemo(() => queryMods(snapshot.mods, library), [snapshot.mods, library]);
+  const formats: LibraryQuery['format'][] = ['all', 'runtime', 'legacy packet'];
+  const sorts: LibraryQuery['sort'][] = ['name-asc', 'name-desc', 'enabled-first'];
+  return <Page title="Mod library" subtitle="Profile-wide library. Installation selection does not change mod enabled states.">
+    <input ref={searchRef} testId="library-search" value={library.query} placeholder="Search name, description or ID" onChange={event => model.setLibrary({ query: event.value || '' })}
       style={{ height: 44, padding: 12, borderRadius: 12, backgroundColor: '#231c2b', color: colors.text, fontSize: 14 }} />
-    {!snapshot.sourceAttached ? <><Empty title="No profile attached">Attach your Deltamod data folder to inspect its library.</Empty><Action onClick={() => void attach()}>Choose profile</Action></>
+    <div style={{ ...column, gap: 8 }}>
+      <div style={row}>{(['all', 'enabled', 'disabled', 'unknown'] as const).map(status =>
+        <Action key={status} testId={`library-status-${status}`} primary={library.status === status} onClick={() => model.setLibrary({ status })}>
+          {status === 'unknown' ? 'Unknown state' : status === 'all' ? 'All states' : status === 'enabled' ? 'Enabled' : 'Disabled'}
+        </Action>)}</div>
+      <div style={row}>
+        <Action testId="library-format" onClick={() => model.setLibrary({ format: formats[(formats.indexOf(library.format) + 1) % formats.length]! })}>Format: {library.format}</Action>
+        <Action testId="library-sort" onClick={() => model.setLibrary({ sort: sorts[(sorts.indexOf(library.sort) + 1) % sorts.length]! })}>
+          {library.sort === 'name-asc' ? 'Name A–Z' : library.sort === 'name-desc' ? 'Name Z–A' : 'Enabled first'}
+        </Action>
+        <Action testId="library-reset" onClick={() => model.setLibrary(DEFAULT_LIBRARY)}>Reset</Action>
+        <Label muted>{mods.length} of {snapshot.mods.length}</Label>
+      </div>
+    </div>
+    {!snapshot.sourceAttached ? <><div testId="profile-detached"><Empty title="No profile attached">Attach your Deltamod data folder to inspect its library.</Empty></div><Action onClick={() => void attach()}>Choose profile</Action></>
       : mods.length === 0 ? <Empty title="No matching mods">Try another search, or import mods in the current Tauri application.</Empty>
-      : <virtual-list estimatedItemHeight={96} style={{ flexGrow: 1, minHeight: 0 }}>{mods.map((mod, i) => <div key={`${mod.format}:${mod.id}:${i}`} style={{ paddingBottom: 10 }}>
+      : <virtual-list estimatedItemHeight={96} style={{ flexGrow: 1, minHeight: 0 }}>{mods.map((mod, i) => <div key={`${mod.format}:${mod.id}:${i}`} testId={`library-mod-${mod.id}`} style={{ paddingBottom: 10 }}>
         <GlassPanel style={{ ...row, justifyContent: 'space-between', padding: 16 }}><div style={{ ...column, gap: 7, flexGrow: 1, minWidth: 0 }}><Label bold>{mod.name}</Label>
           <div style={row}><Chip active={mod.enabled === true}>{mod.enabled === null ? 'State unavailable' : mod.enabled ? 'Enabled' : 'Disabled'}</Chip><Label muted size={12}>{mod.format}</Label></div></div>
           <Action onClick={() => show(mod)}>Details</Action>
         </GlassPanel></div>)}</virtual-list>}
   </Page>;
 }
-function Installations({ snapshot, show, attach }: { snapshot: Snapshot; show: (installation: Installation) => void; attach: () => Promise<void> }) {
-  return <Page title="Installations" subtitle="Existing installation records. No repair, launch or file writes in this preview.">
+function Installations({ model, snapshot, show, attach }: { model: AppModel; snapshot: Snapshot; show: (installation: Installation) => void; attach: () => Promise<void> }) {
+  const busy = model.state.loading || model.state.saving || model.state.shop.status === 'loading';
+  return <Page title="Installations" subtitle="Choose a preview context. Tauri's current installation and game files stay unchanged.">
     {snapshot.installations.length === 0 ? <><Empty title="No installations to display">Choose a Deltamod data folder containing your configured installations.</Empty><Action onClick={() => void attach()}>Choose profile</Action></>
       : <virtual-list estimatedItemHeight={100} style={{ flexGrow: 1, minHeight: 0 }}>{snapshot.installations.map(item => <div key={item.id} style={{ paddingBottom: 10 }}><GlassPanel style={{ ...row, justifyContent: 'space-between' }}>
-        <div style={column}><Label bold>{item.name || item.gameId}</Label><div style={row}><Chip active={item.current}>{item.current ? 'Current' : 'Installation'}</Chip><Label muted size={12}>{item.available === null ? 'Saved path · not checked' : item.available ? 'Folder found' : 'Folder missing'}</Label></div></div>
-        <Action onClick={() => show(item)}>Details</Action>
+        <div style={column}><Label bold>{item.name || item.gameId}</Label><div style={row}><div testId={item.selected ? `preview-selected-${item.id}` : undefined}><Chip active={item.selected}>{item.selected ? 'Preview selection' : item.current ? 'Tauri current' : 'Installation'}</Chip></div><Label muted size={12}>{item.available === null ? 'Saved path · not checked' : item.available ? 'Folder found' : 'Folder missing'}</Label></div></div>
+        <div style={row}><Action testId={`select-installation-${item.id}`} primary={item.selected} disabled={busy || item.selected}
+          onClick={() => void model.selectInstallation(item.id)}>{item.selected ? 'Selected' : 'Select'}</Action>
+          <Action testId={`browse-installation-${item.id}`} disabled={busy} onClick={() => {
+            void model.selectInstallation(item.id).then(done => { if (done) model.navigate('shop'); });
+          }}>Browse mods</Action><Action onClick={() => show(item)}>Details</Action></div>
       </GlassPanel></div>)}</virtual-list>}
   </Page>;
 }
-function ShopView({ model }: { model: AppModel }) {
-  const { shop } = useSyncExternalStore(model.subscribe, model.getSnapshot);
+function ShopView({ model, searchRef, chooseGame }: { model: AppModel; searchRef: RefObject<PublicInstance | null>; chooseGame: () => void }) {
+  const { shop, snapshot, loading } = useSyncExternalStore(model.subscribe, model.getSnapshot);
   const [query, setQuery] = useState(shop.query);
+  useEffect(() => { setQuery(shop.query); }, [shop.gameId, shop.query]);
+  const game = snapshot?.games.find(item => item.id === shop.gameId);
   function open(url: string) { void openModPage(url).catch(error => model.update({ error: String(error.message || error) })); }
-  return <Page title="Find your next mod" subtitle="DELTARUNE · GameBanana. Powered by the existing Rust network runtime.">
-    <div style={row}><input testId="shop-search" value={query} placeholder="Search public mods" onChange={event => setQuery(event.value || '')} onSubmit={() => void model.browse(query)}
+  return <Page title="Find your next mod" subtitle={`${game?.name || 'Choose a game'} · GameBanana. Powered by the existing Rust network runtime.`}>
+    <div style={row}><Action testId="shop-game-picker" disabled={loading || shop.status === 'loading'} onClick={chooseGame}>{game?.name || 'Choose game'}</Action>
+      <Label muted>Library selection is session-only.</Label></div>
+    {!shop.gameId && <Empty title="No Mod Shop mapping">Choose a supported game from the catalogue. A missing mapping is not replaced with another game's results.</Empty>}
+    <div style={row}><input ref={searchRef} testId="shop-search" value={query} placeholder="Search public mods" onChange={event => setQuery(event.value || '')} onSubmit={() => { if (shop.status !== 'loading') void model.browse(query); }}
       style={{ height: 44, padding: 12, flexGrow: 1, color: colors.text, fontSize: 14, backgroundColor: '#231c2b', borderRadius: 12 }} />
-      <Action primary disabled={shop.status === 'loading'} onClick={() => void model.browse(query)}>Search</Action></div>
+      <Action primary disabled={loading || !shop.gameId || shop.status === 'loading'} onClick={() => void model.browse(query)}>Search</Action></div>
     {shop.status === 'loading' && <Label muted>Loading GameBanana...</Label>}
     {shop.status === 'error' && <GlassPanel><Label>{shop.error}</Label><Action onClick={() => void model.browse(shop.query, shop.page)}>Retry</Action></GlassPanel>}
     {shop.status === 'ready' && shop.items.length === 0 && <Empty title="No results">Try a different search.</Empty>}
@@ -161,8 +252,8 @@ function ShopView({ model }: { model: AppModel }) {
       <Action onClick={() => open(item.url)}>View mod</Action>
     </GlassPanel></div>)}</virtual-list>
     <div style={{ ...row, justifyContent: 'space-between' }}><Label muted>Page {shop.page} · Downloads and account login remain in Tauri.</Label><div style={row}>
-      <Action disabled={shop.status === 'loading' || shop.page <= 1} onClick={() => void model.browse(shop.query, shop.page - 1)}>Previous</Action>
-      <Action disabled={shop.status !== 'ready' || !shop.hasMore} onClick={() => void model.browse(shop.query, shop.page + 1)}>Next</Action>
+      <Action disabled={loading || shop.status !== 'ready' || shop.page <= 1} onClick={() => void model.browse(shop.query, shop.page - 1)}>Previous</Action>
+      <Action disabled={loading || shop.status !== 'ready' || !shop.hasMore || shop.page >= 100} onClick={() => void model.browse(shop.query, shop.page + 1)}>Next</Action>
     </div></div>
   </Page>;
 }

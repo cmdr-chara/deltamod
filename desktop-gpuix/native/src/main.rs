@@ -4,7 +4,7 @@
 
 use deltamod_mods_themes_domain::ThemeId;
 use deltamod_network_runtime::{Client, Provider};
-use deltamod_storage_domain::{load_json, save_json};
+use deltamod_storage_domain::{load_json, save_json, ProfileStore};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -160,6 +160,7 @@ struct Backend {
     state: PathBuf,
     resources: PathBuf,
     source: Option<PathBuf>,
+    selected_installation: Option<String>,
     prefs: Preferences,
     network: Option<(tokio::runtime::Runtime, Client)>,
 }
@@ -172,7 +173,7 @@ impl Backend {
             Some(value) => serde_json::from_value(value).map_err(|_| "Invalid preview preferences")?,
             None => Preferences::default(),
         };
-        let backend = Self { state, resources, source, prefs, network: None };
+        let backend = Self { state, resources, source, selected_installation: None, prefs, network: None };
         backend.prefs.validate()?;
         Ok(backend)
     }
@@ -181,22 +182,32 @@ impl Backend {
         let mut installations = Vec::new();
         let mut mods = Vec::new();
         if let Some(source) = &self.source {
-            let profile = read_json(source, Path::new("profiles/installations.json"))?.unwrap_or(Value::Null);
-            let current = profile.get("current_index").and_then(Value::as_u64).unwrap_or(0);
-            let records = profile.get("installations").and_then(Value::as_array).cloned().unwrap_or_default();
-            if records.len() > 128 { warnings.push("Only the first 128 installations are shown".into()); }
-            let indices: Vec<u64> = if records.is_empty() { vec![current] } else {
-                records.iter().take(128).enumerate().map(|(i, record)| record.get("index")
-                    .and_then(Value::as_u64).unwrap_or(i as u64)).collect()
+            let profile = read_json(source, Path::new("profiles/installations.json"))?;
+            // Deserialize the same registry schema as Tauri. Corrupt registries
+            // must not silently select a different installation.
+            let profile: ProfileStore = match profile {
+                Some(value) => serde_json::from_value(value).map_err(|_| "Invalid installation registry")?,
+                None => ProfileStore::default(),
             };
+            let current = profile.current_index.unwrap_or(0);
+            if profile.installations.len() > 128 { return Err("Installation registry exceeds the 128-record preview limit".into()); }
+            let indices: Vec<u32> = if profile.installations.is_empty() { vec![current] } else {
+                profile.installations.iter().enumerate().map(|(i, record)| record.index.unwrap_or(i as u32)).collect()
+            };
+            let mut unique = HashSet::new();
+            if indices.iter().any(|index| !unique.insert(*index)) {
+                return Err("Installation registry contains duplicate indices".into());
+            }
             for index in indices {
-                if index > u32::MAX as u64 { continue; }
                 let relative = PathBuf::from(format!("deltamod_system-{index}/store.json"));
                 if let Some(store) = read_json(source, &relative)? {
+                    if !store.is_object() { return Err("Invalid installation store".into()); }
                     let game_id = text(&store, "gamePid", "", 120);
                     let game_path = text(&store, "gamePath", "", 4096);
                     installations.push(json!({
-                        "id": index.to_string(), "name": text(&store, "customName", &game_id, 240),
+                        "id": index.to_string(), "name": text(&store, "customName",
+                            profile.installations.iter().find(|record| record.index == Some(index))
+                                .and_then(|record| record.name.as_deref()).unwrap_or(&game_id), 240),
                         "gameId": game_id, "path": game_path,
                         "current": index == current,
                         // Saved game paths are display-only here. Do not probe arbitrary
@@ -206,7 +217,11 @@ impl Backend {
                 }
             }
             let enabled = read_json(source, Path::new("runtime/mods-state.json"))?.unwrap_or(Value::Null);
-            let enabled_known = enabled.get("enabled").is_some_and(Value::is_array);
+            let enabled_known = enabled.get("enabled").and_then(Value::as_array)
+                .is_some_and(|values| values.iter().all(Value::is_string));
+            if !enabled.is_null() && !enabled_known {
+                warnings.push("Invalid enabled-state record. Mod enabled states are unavailable.".into());
+            }
             let enabled: HashSet<String> = enabled.get("enabled").and_then(Value::as_array)
                 .into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
             for (directory, manifest, format) in [("mods", "manifest.json", "runtime"), ("packets", "__deltaID.json", "legacy packet")] {
@@ -228,6 +243,15 @@ impl Backend {
                 }
             }
         }
+        let selected_id = match &self.selected_installation {
+            Some(id) if installations.iter().any(|item| item["id"].as_str() == Some(id.as_str())) => Some(id.clone()),
+            Some(_) => { warnings.push("The selected installation is no longer in this profile. Choose another installation.".into()); None },
+            None => installations.iter().find(|item| item["current"] == true)
+                .and_then(|item| item["id"].as_str()).map(str::to_owned),
+        };
+        for item in &mut installations {
+            item["selected"] = json!(item["id"].as_str() == selected_id.as_deref());
+        }
         let mut themes = Vec::new();
         for name in entries(&self.resources, "web/themes/data", 256)? {
             let Some(id) = name.strip_suffix(".theme.json") else { continue; };
@@ -241,19 +265,63 @@ impl Backend {
         if themes.is_empty() { themes.push(json!({ "id": "base", "name": "Deltamod", "accent": "#cd4451" })); }
         Ok(json!({ "sourceAttached": self.source.is_some(), "readOnly": true,
             "installations": installations, "mods": mods, "themes": themes,
+            "selectedInstallationId": selected_id, "games": self.game_catalog()?,
             "preferences": self.prefs, "warnings": warnings.into_iter().take(12).collect::<Vec<_>>() }))
+    }
+    fn game_catalog(&self) -> Result<Vec<Value>> {
+        let mut games = Vec::new();
+        for name in entries(&self.resources, "games", 256)? {
+            let Some(id) = name.strip_suffix(".json") else { continue; };
+            if !valid_game_id(id) { continue; }
+            let game = read_json(&self.resources, &PathBuf::from("games").join(&name))?
+                .ok_or("Packaged game catalogue changed during reading")?;
+            if game.get("id").and_then(Value::as_str) != Some(id) {
+                return Err("Packaged game catalogue ID does not match its filename".into());
+            }
+            let provider = game.pointer("/gamebanana/id").and_then(Value::as_u64)
+                .filter(|id| *id > 0 && *id <= 9_007_199_254_740_991);
+            games.push(json!({ "id": id, "name": text(&game, "name", id, 240),
+                "gamebanana": provider.is_some() }));
+        }
+        Ok(games)
+    }
+    fn select_installation(&mut self, args: Value) -> Result<Value> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Select { id: String }
+        let args: Select = serde_json::from_value(args).map_err(|_| "Invalid installation selection")?;
+        if self.source.is_none() { return Err("Attach a profile before choosing an installation".into()); }
+        if args.id.len() > 10 || args.id.parse::<u32>().is_err() {
+            return Err("Invalid installation ID".into());
+        }
+        let mut snapshot = self.snapshot()?;
+        let records = snapshot["installations"].as_array_mut().ok_or("Invalid installation snapshot")?;
+        if !records.iter().any(|item| item["id"].as_str() == Some(args.id.as_str())) {
+            return Err("Installation is not present in the attached profile".into());
+        }
+        for item in records {
+            item["selected"] = json!(item["id"].as_str() == Some(args.id.as_str()));
+        }
+        // A preview selection does not call changeSystemIndex or persist a store.
+        self.selected_installation = Some(args.id.clone());
+        snapshot["selectedInstallationId"] = json!(args.id);
+        Ok(snapshot)
     }
     fn browse(&mut self, args: Value) -> Result<Value> {
         #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Browse { query: String, page: u32 }
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Browse { query: String, page: u32, game_id: String }
         let request: Browse = serde_json::from_value(args).map_err(|_| "Invalid browse request")?;
         if request.query.len() > 512 || request.query.chars().count() > 128 || request.query.chars().any(char::is_control)
             || !(1..=100).contains(&request.page) { return Err("Invalid browse query or page".into()); }
-        let game = read_json(&self.resources, Path::new("games/toby.deltarune.json"))?
-            .ok_or("Packaged DELTARUNE catalogue is missing")?;
-        let game_id = game.pointer("/gamebanana/id").and_then(Value::as_u64).filter(|id| *id > 0)
-            .ok_or("GameBanana mapping is missing")?;
+        if !valid_game_id(&request.game_id) { return Err("Invalid catalogue game ID".into()); }
+        let game = read_json(&self.resources, &PathBuf::from("games").join(format!("{}.json", request.game_id)))?
+            .ok_or("Selected game is not in the packaged catalogue")?;
+        if game.get("id").and_then(Value::as_str) != Some(request.game_id.as_str()) {
+            return Err("Packaged game catalogue ID mismatch".into());
+        }
+        let game_id = game.pointer("/gamebanana/id").and_then(Value::as_u64).filter(|id| *id > 0 && *id <= 9_007_199_254_740_991)
+            .ok_or("GameBanana is not configured for this game")?;
         let query = request.query.trim();
         let raw = if query.is_empty() { format!("https://gamebanana.com/apiv11/Game/{game_id}/Subfeed") }
             else { "https://gamebanana.com/apiv11/Util/Search/Results".into() };
@@ -283,15 +351,28 @@ impl Backend {
                 "author": row.pointer("/_aSubmitter/_sName").and_then(Value::as_str).unwrap_or("").chars().take(240).collect::<String>(),
                 "description": text(row, "_sDescription", "", 400), "url": format!("https://gamebanana.com/mods/{id}") }))
         }).collect();
-        Ok(json!({ "items": items, "hasMore": rows.len() == 24 }))
+        Ok(json!({ "items": items, "hasMore": rows.len() == 24 && request.page < 100 }))
     }
     fn dispatch(&mut self, request: Request) -> Result<Value> {
         if !request.args.is_object() { return Err("Object arguments required".into()); }
         match request.command.as_str() {
             "hello" => Ok(json!({ "protocol": PROTOCOL, "readOnly": true,
-                "capabilities": ["snapshot", "profile.attach", "shop.browse", "preferences.set"],
+                "workspaceVersion": 2,
+                "capabilities": ["snapshot", "profile.attach", "profile.detach", "installation.select", "shop.browse", "preferences.set"],
                 "runtime": "Rust stdio, no Tauri or WebView", "version": env!("CARGO_PKG_VERSION") })),
             "snapshot" => self.snapshot(),
+            "installation.select" => self.select_installation(request.args),
+            "profile.detach" => {
+                if request.args.as_object().is_none_or(|args| !args.is_empty()) {
+                    return Err("Profile detach does not accept arguments".into());
+                }
+                let previous = self.source.take();
+                let selected = self.selected_installation.take();
+                match self.snapshot() {
+                    Ok(value) => Ok(value),
+                    Err(error) => { self.source = previous; self.selected_installation = selected; Err(error) }
+                }
+            }
             "profile.attach" => {
                 #[derive(Deserialize)]
                 #[serde(deny_unknown_fields)]
@@ -300,9 +381,10 @@ impl Backend {
                 if args.path.is_empty() || args.path.len() > 16384 { return Err("Invalid profile directory".into()); }
                 let source = validate_source(&self.state, Path::new(&args.path))?;
                 let previous = self.source.replace(source);
+                let selected = self.selected_installation.take();
                 match self.snapshot() {
                     Ok(value) => Ok(value),
-                    Err(error) => { self.source = previous; Err(error) }
+                    Err(error) => { self.source = previous; self.selected_installation = selected; Err(error) }
                 }
             }
             "preferences.set" => {
@@ -317,6 +399,12 @@ impl Backend {
             _ => Err("Command is not available in the read-only GPUIX preview".into()),
         }
     }
+}
+
+fn valid_game_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 120 && id.bytes().next().is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        && id.split('.').all(|part| !part.is_empty())
 }
 
 fn read_request(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>> {
@@ -438,5 +526,112 @@ mod tests {
         assert!(!source.0.join("preferences.json").exists());
         assert!(!source.0.join("runtime").exists());
         assert!(state.0.join("preferences.json").exists());
+    }
+
+    fn two_installations(source: &Path) -> Vec<u8> {
+        fs::create_dir_all(source.join("profiles")).unwrap();
+        let registry = br#"{"current_index":0,"installations":[{"index":0},{"index":1}]}"#.to_vec();
+        fs::write(source.join("profiles/installations.json"), &registry).unwrap();
+        for (index, game) in [(0, "toby.deltarune"), (1, "toby.undertale")] {
+            fs::create_dir_all(source.join(format!("deltamod_system-{index}"))).unwrap();
+            fs::write(source.join(format!("deltamod_system-{index}/store.json")),
+                serde_json::to_vec(&json!({"gamePid": game, "gamePath": "", "customName": game})).unwrap()).unwrap();
+        }
+        registry
+    }
+
+    #[test]
+    fn preview_selection_and_detach_leave_the_source_registry_unchanged() {
+        let state = Temp::new(); let resources = Temp::new(); let source = Temp::new();
+        let registry = two_installations(&source.0);
+        let mut backend = Backend::new(state.0.clone(), resources.0.clone(), Some(source.0.clone())).unwrap();
+        assert_eq!(backend.snapshot().unwrap()["selectedInstallationId"], "0");
+        let selected = backend.select_installation(json!({ "id": "1" })).unwrap();
+        assert_eq!(selected["selectedInstallationId"], "1");
+        assert_eq!(selected["installations"][0]["current"], true);
+        assert_eq!(selected["installations"][1]["selected"], true);
+        assert!(backend.select_installation(json!({ "id": "2" })).is_err());
+        assert!(backend.select_installation(json!({ "id": "../0" })).is_err());
+        assert_eq!(backend.selected_installation.as_deref(), Some("1"));
+        let detached = backend.dispatch(Request { v: 1, id: 1, command: "profile.detach".into(), args: json!({}) }).unwrap();
+        assert_eq!(detached["sourceAttached"], false);
+        assert_eq!(detached["installations"], json!([]));
+        assert_eq!(detached["mods"], json!([]));
+        assert!(backend.source.is_none()); assert!(backend.selected_installation.is_none());
+        assert_eq!(fs::read(source.0.join("profiles/installations.json")).unwrap(), registry);
+        assert!(!source.0.join(OWNER_MARKER).exists());
+        assert!(backend.select_installation(json!({ "id": "0" })).is_err());
+    }
+
+    #[test]
+    fn a_rejected_profile_keeps_the_previous_source_and_selection() {
+        let state = Temp::new(); let resources = Temp::new(); let source = Temp::new(); let bad = Temp::new();
+        two_installations(&source.0); two_installations(&bad.0);
+        fs::write(bad.0.join("profiles/installations.json"), br#"{"installations":"broken"}"#).unwrap();
+        let mut backend = Backend::new(state.0.clone(), resources.0.clone(), Some(source.0.clone())).unwrap();
+        backend.select_installation(json!({ "id": "1" })).unwrap();
+        let result = backend.dispatch(Request { v: 1, id: 1, command: "profile.attach".into(), args: json!({ "path": bad.0 }) });
+        assert!(result.is_err());
+        assert_eq!(backend.source.as_ref(), Some(&fs::canonicalize(&source.0).unwrap()));
+        assert_eq!(backend.selected_installation.as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn attaching_a_new_profile_resets_only_the_session_selection() {
+        let state = Temp::new(); let resources = Temp::new(); let first = Temp::new(); let second = Temp::new();
+        two_installations(&first.0); two_installations(&second.0);
+        let mut backend = Backend::new(state.0.clone(), resources.0.clone(), Some(first.0.clone())).unwrap();
+        backend.select_installation(json!({ "id": "1" })).unwrap();
+        let snapshot = backend.dispatch(Request { v: 1, id: 1, command: "profile.attach".into(), args: json!({ "path": second.0 }) }).unwrap();
+        assert_eq!(snapshot["selectedInstallationId"], "0");
+        assert!(backend.selected_installation.is_none());
+        assert!(!first.0.join("preferences.json").exists());
+        assert!(!second.0.join("preferences.json").exists());
+    }
+
+    #[test]
+    fn duplicate_registry_indices_and_non_object_stores_are_errors() {
+        let state = Temp::new(); let resources = Temp::new(); let source = Temp::new();
+        let original = two_installations(&source.0);
+        let backend = Backend::new(state.0.clone(), resources.0.clone(), Some(source.0.clone())).unwrap();
+        fs::write(source.0.join("profiles/installations.json"), br#"{"installations":[{"index":0},{"index":0}],"current_index":0}"#).unwrap();
+        assert!(backend.snapshot().unwrap_err().contains("duplicate"));
+        fs::write(source.0.join("profiles/installations.json"), b"null").unwrap();
+        assert!(backend.snapshot().is_err());
+        fs::write(source.0.join("profiles/installations.json"), original).unwrap();
+        fs::write(source.0.join("deltamod_system-0/store.json"), b"[]").unwrap();
+        assert!(backend.snapshot().is_err());
+    }
+
+    #[test]
+    fn game_catalogue_mappings_are_local_and_game_ids_cannot_escape_resources() {
+        let state = Temp::new(); let resources = Temp::new();
+        fs::create_dir(resources.0.join("games")).unwrap();
+        fs::write(resources.0.join("games/toby.undertale.json"), br#"{"id":"toby.undertale","name":"UNDERTALE","gamebanana":{"id":591}}"#).unwrap();
+        fs::write(resources.0.join("games/local.game.json"), br#"{"id":"local.game","name":"Local"}"#).unwrap();
+        let mut backend = Backend::new(state.0.clone(), resources.0.clone(), None).unwrap();
+        let games = backend.game_catalog().unwrap();
+        assert!(games.iter().any(|game| game["id"] == "toby.undertale" && game["gamebanana"] == true));
+        assert!(games.iter().any(|game| game["id"] == "local.game" && game["gamebanana"] == false));
+        for game_id in ["../outside", "file:///outside", "a..b", "missing.game", "local.game"] {
+            assert!(backend.browse(json!({ "query": "", "page": 1, "gameId": game_id })).is_err());
+        }
+        assert!(backend.network.is_none());
+        fs::write(resources.0.join("games/other.json"), br#"{"id":"different"}"#).unwrap();
+        assert!(backend.game_catalog().is_err());
+    }
+
+    #[test]
+    fn malformed_enabled_states_are_unknown_not_disabled() {
+        let state = Temp::new(); let resources = Temp::new(); let source = Temp::new();
+        two_installations(&source.0);
+        fs::create_dir_all(source.0.join("mods/sample")).unwrap();
+        fs::create_dir(source.0.join("runtime")).unwrap();
+        fs::write(source.0.join("mods/sample/manifest.json"), br#"{"uid":"sample","name":"Sample"}"#).unwrap();
+        fs::write(source.0.join("runtime/mods-state.json"), br#"{"enabled":[null]}"#).unwrap();
+        let backend = Backend::new(state.0.clone(), resources.0.clone(), Some(source.0.clone())).unwrap();
+        let snapshot = backend.snapshot().unwrap();
+        assert!(snapshot["mods"][0]["enabled"].is_null());
+        assert!(!snapshot["warnings"].as_array().unwrap().is_empty());
     }
 }

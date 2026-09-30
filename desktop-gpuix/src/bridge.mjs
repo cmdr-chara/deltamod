@@ -6,7 +6,7 @@ import { isAbsolute } from 'node:path';
 export const PROTOCOL = 1;
 export const MAX_REQUEST_BYTES = 64 * 1024;
 export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
-const COMMANDS = new Set(['hello', 'snapshot', 'profile.attach', 'shop.browse', 'preferences.set']);
+const COMMANDS = new Set(['hello', 'snapshot', 'profile.attach', 'profile.detach', 'installation.select', 'shop.browse', 'preferences.set']);
 
 /** Private stdio transport. This is not an HTTP server or a Tauri/WebView bridge. */
 export class Bridge {

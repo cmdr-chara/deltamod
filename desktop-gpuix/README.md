@@ -11,13 +11,13 @@ claims. No measured speed, RAM or package-size advantage is claimed by this bran
 
 | Surface | Implemented behavior |
 | --- | --- |
-| Shell | Native window, sidebar, compact layout, focus traversal, navigation and dialogs |
+| Shell | Native window, compact sidebar, back/forward history, keyboard shortcuts, focus traversal and modal dialogs |
 | Home | Counts from the attached profile, empty/error states and refresh |
-| Mod library | Bounded read-only listing, search and details for runtime and legacy packet records |
-| Installations | Existing store records and details, without probing saved game paths |
-| Mod Shop | Public DELTARUNE GameBanana browse/search/pagination, error/retry and allowlisted mod-page links |
+| Mod library | Profile-wide search, enabled/disabled/unknown filters, format filtering, sorting and details |
+| Installations | Session-only preview selection and details, without changing Tauri selection or probing saved game paths |
+| Mod Shop | Game-aware GameBanana browse/search/pagination, catalogue game picker, error/retry and allowlisted links |
 | Themes | Built-in catalogue palette selection, persisted only in preview preferences |
-| Settings | Reduced motion, opaque/translucent surfaces, session-only source-profile attachment |
+| Settings | Reduced motion, opaque/translucent surfaces, session-only profile attachment and confirmed disconnection |
 | Animation | GPUIX native opacity/width tweens, no JavaScript frame timer |
 | Backend | Existing storage-domain, mods-themes-domain and network-runtime crates |
 
@@ -73,6 +73,44 @@ The default state directory is `DeltamodCommunityGPUIX` under the platform's use
 application-data directory. The backend refuses a nonempty directory lacking its
 own ownership marker, and refuses any source/state directory overlap.
 
+## Read-only workspace controls
+
+Select an installation on **Installations** to choose the preview's game context.
+**Browse mods** selects it and opens its GameBanana catalogue. The selection is held
+only in memory. It never changes `profiles/installations.json`, the Tauri current
+installation, game files or enabled mod state. A game without a provider mapping is
+shown as unavailable rather than silently browsing DELTARUNE instead. The Mod Shop
+also has an explicit game picker populated from the packaged game catalogue.
+
+The mod library remains **profile-wide** because that is the existing runtime's
+storage model. Filter by enabled, disabled or unknown state, narrow to runtime or
+legacy packet format, and sort by name or enabled-first. Search and filters survive
+screen changes. Unknown or malformed enabled state is never presented as disabled.
+Attaching or disconnecting a profile clears profile-scoped filters and old shop
+results. Late replies from the previous profile/search cannot replace current data.
+
+**Settings → Disconnect profile** asks for confirmation, then clears the preview's
+source reference and selection. It does not delete anything. Source profiles are
+never remembered across application restarts. Invalid profile records produce an
+error while leaving the last successfully attached source intact.
+
+Keyboard shortcuts use **Cmd** on macOS and **Ctrl** on Windows/Linux:
+
+| Shortcut | Action |
+| --- | --- |
+| Ctrl/Cmd + 1–6 | Home, library, installations, shop, themes, settings |
+| Alt + Left / Right | Back / forward through up to 32 screen visits |
+| Ctrl/Cmd + F | Focus library or shop search |
+| Ctrl/Cmd + R | Refresh the attached profile |
+| Ctrl/Cmd + Shift + O | Attach a profile through the native folder picker |
+| F1 / Escape | Show shortcuts / close the current dialog |
+| Tab / Shift + Tab | Move focus, contained within an open modal |
+
+Rebuild the Rust host together with the frontend. The frontend now requires
+`workspaceVersion: 2` and the explicit detach/selection capabilities during the
+handshake. An old host is rejected with a rebuild message rather than failing later
+when a new control is used.
+
 ## Validation
 
 ```sh
@@ -84,8 +122,13 @@ npm run smoke -- /absolute/path/to/new-evidence-directory
 
 The first command tests real transport/model code using a fake child process. It
 does not replace Cargo compilation or native GPU testing. The smoke command drives
-the actual GPUIX window and writes actual GPU screenshots for all six routes. It
-does not assert provider uptime, media playback or mutating-feature parity.
+the actual GPUIX window with a disposable two-installation profile. It captures all
+six routes, selects a preview installation, exercises enabled/unknown library
+filters and disconnects the profile. It hashes the source fixture before and after
+these actions and records the result with the screenshots. Native host tests also
+cover rejected/duplicate records, failed-attachment rollback, game ID containment
+and unknown enabled state. These commands still require actual native execution.
+They do not assert provider uptime, media playback or mutating-feature parity.
 
 ## Experimental measurements
 
