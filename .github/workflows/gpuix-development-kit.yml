@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Deltamod Community contributors
 # SPDX-License-Identifier: EUPL-1.2
-name: GPUIX native media sources
+name: GPUIX pinned packaging tools
 on:
   push:
     branches: [astra/gpuix-inputs-20260930-2]
@@ -9,30 +9,35 @@ permissions:
 jobs:
   inputs:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
-      - name: Acquire immutable native audio and decoder sources
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+      - name: Acquire pinned Linux packaging tools
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          output="$RUNNER_TEMP/media-sources"
-          mkdir -p "$output/miniaudio"
-          curl --fail --location --proto '=https' --tlsv1.2 --max-time 90 'https://raw.githubusercontent.com/mackron/miniaudio/9634bedb5b5a2ca38c1ee7108a9358a4e233f14d/miniaudio.h' -o "$output/miniaudio/miniaudio.h"
-          curl --fail --location --proto '=https' --tlsv1.2 --max-time 90 'https://raw.githubusercontent.com/mackron/miniaudio/9634bedb5b5a2ca38c1ee7108a9358a4e233f14d/LICENSE' -o "$output/miniaudio/LICENSE"
-          curl --fail --location --proto '=https' --tlsv1.2 --max-time 90 'https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz' -o "$output/ffmpeg-8.1.3.tar.xz"
-          curl --fail --location --proto '=https' --tlsv1.2 --max-time 90 'https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz.asc' -o "$output/ffmpeg-8.1.3.tar.xz.asc"
-          curl --fail --location --proto '=https' --tlsv1.2 --max-time 90 'https://ffmpeg.org/ffmpeg-devel.asc' -o "$output/ffmpeg-devel.asc"
-          export GNUPGHOME="$RUNNER_TEMP/gpuix-source-gnupg"
-          mkdir -m 700 "$GNUPGHOME"
-          gpg --batch --import "$output/ffmpeg-devel.asc"
-          gpg --batch --status-fd=1 --verify "$output/ffmpeg-8.1.3.tar.xz.asc" "$output/ffmpeg-8.1.3.tar.xz" > "$output/source-verification.txt"
+          output="$RUNNER_TEMP/packaging-tools"
+          mkdir -p "$output"
+          gh api repos/oven-sh/bun/releases/tags/bun-v1.4.2 > "$output/bun-release.json"
+          url="$(jq -r '.assets[] | select(.name=="bun-linux-x64-baseline.zip") | .browser_download_url' "$output/bun-release.json")"
+          digest="$(jq -r '.assets[] | select(.name=="bun-linux-x64-baseline.zip") | .digest' "$output/bun-release.json")"
+          test "${digest#sha256:}" != "$digest"
+          test "$url" = 'https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64-baseline.zip'
+          curl --fail --location --proto '=https' --tlsv1.2 --max-time 120 "$url" -o "$output/bun.zip"
+          printf '%s  %s\n' "${digest#sha256:}" "$output/bun.zip" | sha256sum --check
+          cargo install --locked --version 0.11.8 --root "$RUNNER_TEMP/packager" cargo-packager
+          cp "$RUNNER_TEMP/packager/bin/cargo-packager" "$output/"
+          "$output/cargo-packager" --version > "$output/packager-version.txt"
           cd "$output"
-          sha256sum miniaudio/* ffmpeg* source-verification.txt > SHA256SUMS.txt
+          sha256sum bun.zip cargo-packager bun-release.json packager-version.txt > SHA256SUMS.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        if: always()
         with:
-          name: gpuix-media-sources-${{ github.run_id }}
-          path: ${{ runner.temp }}/media-sources/
+          name: gpuix-packaging-tools-${{ github.run_id }}
+          path: ${{ runner.temp }}/packaging-tools/
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
