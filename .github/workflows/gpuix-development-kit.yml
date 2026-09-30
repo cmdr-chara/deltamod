@@ -11,30 +11,29 @@ jobs:
   inputs:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 122
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
-      - name: Collect missing native renderer prerequisite and exact repository notices
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+      - name: Fetch the existing locked native dependencies for offline migration work
         shell: bash
         run: |
           set -euo pipefail
+          cargo fetch --locked --manifest-path src-tauri/Cargo.toml
           output="$RUNNER_TEMP/gpuix-inputs"
-          mkdir -p "$output/debs"
-          cd "$output/debs"
-          apt-get download libllvm20
-          cd "$GITHUB_WORKSPACE"
-          paths=(package.json LICENSE.txt)
-          for file in NOTICE.md THIRD_PARTY_NOTICES.md COPYRIGHT.md LICENSING.md ORIGINAL_WORK.md provenance/community-original-work.json scripts/verify-community-provenance.js; do
-            if git cat-file -e "HEAD:$file" 2>/dev/null; then paths+=("$file"); fi
-          done
-          git archive HEAD "${paths[@]}" | gzip > "$output/notices.tar.gz"
+          mkdir -p "$output"
+          tar -C "$HOME/.cargo" -czf "$output/cargo-registry.tar.gz" registry
+          cp src-tauri/Cargo.lock "$output/tauri-Cargo.lock"
+          git rev-parse HEAD > "$output/source-revision.txt"
           cd "$output"
-          find . -type f -not -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          sha256sum cargo-registry.tar.gz tauri-Cargo.lock source-revision.txt > SHA256SUMS.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: gpuix-renderer-inputs-${{ github.run_id }}
+          name: gpuix-native-inputs-${{ github.run_id }}
           path: ${{ runner.temp }}/gpuix-inputs/
           if-no-files-found: error
           compression-level: 0
