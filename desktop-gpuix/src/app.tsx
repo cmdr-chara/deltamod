@@ -6,7 +6,7 @@ import type { AppModel } from './model.mjs';
 import { queryMods, DEFAULT_LIBRARY } from './model.mjs';
 import type { DesktopFeatures } from './features.mjs';
 import type { ManagedRuntime } from './managed.mjs';
-import { ManagedLibraryPanel, ManagedSystemPanel } from './managed-ui.js';
+import { ManagedLibraryPanel, ManagedSystemPanel, ProtocolImportDialog } from './managed-ui.js';
 import type { UpdateRuntime } from './updater.mjs';
 import { UpdatePanel } from './updater.js';
 import { LanguageContext, useMessages } from './i18n.js';
@@ -62,8 +62,12 @@ function AppContent({ model, features, managed, updater, overrides, onCommitted 
   }, [searchFocus, state.route, renderer]);
   useEffect(() => model.onShortcut(shortcut => {
     // DialogPopup owns modal Tab traversal. Never also advance window focus.
-    if (modal || presentation.detail.status !== 'idle' || presentation.pendingLink) {
-      if (shortcut.action === 'close') { setModal(null); features.closeDetail(); features.dismissLink(); }
+    if (modal || presentation.detail.status !== 'idle' || presentation.pendingLink || managedState.protocol.status !== 'idle') {
+      if (shortcut.action === 'close') {
+        setModal(null); features.closeDetail(); features.dismissLink();
+        if (managedState.protocol.status === 'importing') void managed.cancelProtocol();
+        else managed.dismissProtocol();
+      }
       return;
     }
     const current = model.state;
@@ -82,7 +86,7 @@ function AppContent({ model, features, managed, updater, overrides, onCommitted 
         setSearchFocus(value => value + 1);
         break;
     }
-  }), [model, renderer, modal, features, presentation.detail.status, presentation.pendingLink, t]);
+  }), [model, renderer, modal, features, managed, managedState.protocol.status, presentation.detail.status, presentation.pendingLink, t]);
 
   async function attach() {
     if (pickerOpen.current || model.state.loading || model.state.saving || model.state.shop.status === 'loading' || features.state.saving || features.state.detail.status === 'loading') return;
@@ -191,6 +195,10 @@ function AppContent({ model, features, managed, updater, overrides, onCommitted 
     </InfoDialog>}
     <ModDetailDialog features={features} />
     {(modal?.kind === 'link' || presentation.pendingLink) && <LinkDialog features={features} disabled={busy} close={() => setModal(null)} />}
+    <ProtocolImportDialog runtime={managed} onLaunch={itemId => {
+      managed.dismissProtocol();
+      void features.openDetail(String(itemId));
+    }} />
   </Palette.Provider>;
 }
 function Home({ features, snapshot, attach, navigate }: { features: DesktopFeatures; snapshot: Snapshot; attach: () => Promise<void>; navigate: (route: Route) => void }) {

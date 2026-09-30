@@ -186,3 +186,46 @@ test('controller mode uses explicit native start and stop commands', async () =>
   assert.ok(calls.some(call => call.command === 'managed.controller.start'));
   assert.ok(calls.some(call => call.command === 'managed.controller.stop'));
 });
+
+
+test('production protocol imports require review before mutation and can be cancelled', async () => {
+  let resolveImport;
+  const pending = new Promise(resolve => { resolveImport = resolve; });
+  const raw = 'deltamod-community://gb/Mod/42/https://gamebanana.com/mmdl/1001';
+  const { bridge, calls } = fixture({
+    'managed.protocol.review': { kind: 'import', itemId: 42, fileId: 1001 },
+    'managed.protocol.import': () => pending,
+    'managed.protocol.cancel': true,
+  });
+  const runtime = new ManagedRuntime(bridge);
+  await runtime.initialize();
+  assert.equal(await runtime.reviewProtocol(raw), true);
+  assert.equal(runtime.state.protocol.status, 'reviewed');
+  assert.equal(calls.filter(call => call.command === 'managed.protocol.import').length, 0);
+  const imported = runtime.confirmProtocol(false);
+  assert.equal(runtime.state.protocol.status, 'importing');
+  assert.equal(await runtime.cancelProtocol(), true);
+  assert.ok(calls.some(call => call.command === 'managed.protocol.cancel'));
+  resolveImport({ imported: false, catalog: null });
+  await imported;
+});
+
+test('protocol launch review never invokes the import command', async () => {
+  const { bridge, calls } = fixture({
+    'managed.protocol.review': { kind: 'launch', itemId: 42 },
+  });
+  const runtime = new ManagedRuntime(bridge);
+  await runtime.initialize();
+  assert.equal(await runtime.reviewProtocol('deltamod-community://launch/42'), true);
+  assert.equal(runtime.state.protocol.intent.kind, 'launch');
+  assert.equal(await runtime.confirmProtocol(), false);
+  assert.equal(calls.some(call => call.command === 'managed.protocol.import'), false);
+});
+
+test('production protocol registration is gated to explicit GPUIX cutover packaging', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../scripts/package.mjs', import.meta.url), 'utf8');
+  assert.match(source, /DELTAMOD_GPUIX_CUTOVER/);
+  assert.match(source, /deltamod-community/);
+  assert.match(source, /deltamod-gpuix-preview/);
+});

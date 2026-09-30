@@ -34,7 +34,9 @@ const config={
   binaries:[{path:'deltamod-gpuix',main:true},{path:'deltamod-gpuix-host',main:false}],
   formats,
   icons:[icon],
-  deepLinkProtocols:[{schemes:['deltamod-gpuix-preview']}],
+  deepLinkProtocols:[{schemes:process.env.DELTAMOD_GPUIX_CUTOVER==='1'
+    ? ['deltamod-gpuix-preview','deltamod-community']
+    : ['deltamod-gpuix-preview']}],
   resources:[
     {src:'../games',target:'deltamod/games'},
     {src:'../web/themes',target:'deltamod/themes'},

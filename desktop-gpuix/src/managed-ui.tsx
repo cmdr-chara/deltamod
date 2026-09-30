@@ -3,7 +3,7 @@
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import { useGpuixRequired } from '@gpuix/react';
 import type { ManagedMod, ManagedRuntime } from './managed.mjs';
-import { Action, Chip, Empty, GlassPanel, Label, column, row } from './ui.js';
+import { Action, Chip, Empty, GlassPanel, InfoDialog, Label, column, row } from './ui.js';
 
 export function ManagedLibraryPanel({ runtime }: { runtime: ManagedRuntime }) {
   const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
@@ -120,4 +120,42 @@ export function ManagedSystemPanel({ runtime }: { runtime: ManagedRuntime }) {
     </div>}
     {state.error && <Label>{state.error}</Label>
   </GlassPanel>;
+}
+
+
+export function ProtocolImportDialog({ runtime, onLaunch }: { runtime: ManagedRuntime; onLaunch: (itemId: number) => void }) {
+  const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
+  const pending = state.protocol;
+  if (pending.status === 'idle') return null;
+  const intent = pending.intent as { kind?: string; itemId?: number; fileId?: number } | null;
+  const importing = pending.status === 'importing';
+  const close = () => { if (!importing) runtime.dismissProtocol(); };
+  return <InfoDialog close={close} title="Deltamod one-click request"
+    description="The operating-system handoff was validated again by Rust. Nothing is installed until you confirm it here.">
+    {pending.status === 'error' && <><Label>Request rejected</Label><Label muted size={12}>{pending.error}</Label>
+      <Action onClick={() => runtime.dismissProtocol()}>Close request</Action></>}
+    {pending.status === 'reviewed' && intent?.kind === 'launch' && <>
+      <Label>Open public GameBanana mod {String(intent.itemId ?? '')}?</Label>
+      <Action testId="confirm-protocol-launch" primary onClick={() => onLaunch(intent.itemId!)}>View mod</Action>
+      <Action onClick={() => runtime.dismissProtocol()}>Cancel</Action>
+    </>}
+    {pending.status === 'reviewed' && intent?.kind === 'import' && <>
+      <Label>Import GameBanana mod {String(intent.itemId ?? '')}, file {String(intent.fileId ?? '')}?</Label>
+      <Label muted size={12}>The download host and exact file ID are bound by the production protocol parser. Existing files are not replaced by the normal import action.</Label>
+      <div style={row}>
+        <Action testId="confirm-protocol-import" primary onClick={() => void runtime.confirmProtocol(false)}>Import</Action>
+        <Action testId="confirm-protocol-replace" onClick={() => void runtime.confirmProtocol(true)}>Replace existing version</Action>
+        <Action onClick={() => runtime.dismissProtocol()}>Cancel</Action>
+      </div>
+    </>}
+    {importing && <>
+      <Label>Downloading and validating the requested archive...</Label>
+      <Label muted size={12}>Closing this dialog does not abandon an in-flight filesystem operation. Use Cancel import.</Label>
+      <Action testId="cancel-protocol-import" onClick={() => void runtime.cancelProtocol()}>Cancel import</Action>
+    </>}
+    {pending.status === 'complete' && <>
+      <Label>Import completed and was adopted into the transactional lifecycle catalogue.</Label>
+      <Action onClick={() => runtime.dismissProtocol()}>Done</Action>
+    </>}
+  </InfoDialog>;
 }
