@@ -11,54 +11,30 @@ jobs:
   inputs:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 122
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: 22
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
-        with:
-          toolchain: stable
-          components: rustfmt
-      - name: Resolve the isolated transactional host dependency graph
+      - name: Collect missing native renderer prerequisite and exact repository notices
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/gpuix-inputs"
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('desktop-gpuix/native/Cargo.toml')
-          s = p.read_text().replace('"rt", "time"', '"rt", "time", "sync", "macros"')
-          extra = 'sha2 = "0.11"\ntempfile = "=3.27.0"\n'
-          for name in ['lifecycle-runtime', 'product-contracts', 'tools-runtime', 'archive-import-runtime', 'updater-launch-runtime']:
-              extra += f'deltamod-{name} = {{ path = "../../src-tauri/crates/{name}" }}\n'
-          p.write_text(s.replace('[profile.release]', extra + '\n[profile.release]'))
-          PY
-          cargo generate-lockfile --manifest-path desktop-gpuix/native/Cargo.toml
-          cargo fetch --locked --manifest-path desktop-gpuix/native/Cargo.toml
-          cp desktop-gpuix/native/Cargo.lock "$RUNNER_TEMP/gpuix-inputs/Cargo.lock"
-          cp desktop-gpuix/native/Cargo.toml "$RUNNER_TEMP/gpuix-inputs/Cargo.toml"
-          tar -C "$HOME/.cargo" -czf "$RUNNER_TEMP/gpuix-inputs/cargo-registry.tar.gz" registry
-      - name: Collect software GPU packages for local native rendering
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/gpuix-inputs/debs"
-          cd "$RUNNER_TEMP/gpuix-inputs/debs"
-          apt-get download mesa-vulkan-drivers libvulkan1 libxcb-xinput0 libxcb-cursor0 libxcb-render-util0 libxcb-keysyms1 libxcb-xkb1 libxkbcommon-x11-0
-      - name: Hash the build inputs
-        if: always()
-        shell: bash
-        run: |
-          cd "$RUNNER_TEMP/gpuix-inputs"
+          output="$RUNNER_TEMP/gpuix-inputs"
+          mkdir -p "$output/debs"
+          cd "$output/debs"
+          apt-get download libllvm20
+          cd "$GITHUB_WORKSPACE"
+          paths=(package.json LICENSE.txt)
+          for file in NOTICE.md THIRD_PARTY_NOTICES.md COPYRIGHT.md LICENSING.md ORIGINAL_WORK.md provenance/community-original-work.json scripts/verify-community-provenance.js; do
+            if git cat-file -e "HEAD:$file" 2>/dev/null; then paths+=("$file"); fi
+          done
+          git archive HEAD "${paths[@]}" | gzip > "$output/notices.tar.gz"
+          cd "$output"
           find . -type f -not -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        if: always()
         with:
-          name: gpuix-transaction-inputs-${{ github.run_id }}
+          name: gpuix-renderer-inputs-${{ github.run_id }}
           path: ${{ runner.temp }}/gpuix-inputs/
           if-no-files-found: error
           compression-level: 0
