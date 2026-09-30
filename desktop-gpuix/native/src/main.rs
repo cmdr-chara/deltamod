@@ -14,6 +14,7 @@ use std::{
     fs,
     io::{self, BufRead, Read, Write},
     path::{Component, Path, PathBuf},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -165,7 +166,7 @@ struct Backend {
     selected_installation: Option<String>,
     prefs: Preferences,
     network: Option<(tokio::runtime::Runtime, Client)>,
-    managed: deltamod_tauri_shell::HeadlessBackend,
+    managed: Arc<deltamod_tauri_shell::HeadlessBackend>,
 }
 impl Backend {
     fn new(state: PathBuf, resources: PathBuf, source: Option<PathBuf>, managed_data: Option<PathBuf>) -> Result<Self> {
@@ -176,7 +177,7 @@ impl Backend {
         if source.as_ref().is_some_and(|source| managed_root.starts_with(source) || source.starts_with(&managed_root)) {
             return Err("Managed data and read-only source profile must be separate directories".into());
         }
-        let managed = deltamod_tauri_shell::HeadlessBackend::open(managed_root, resources.clone())?;
+        let managed = Arc::new(deltamod_tauri_shell::HeadlessBackend::open(managed_root, resources.clone())?);
         let prefs = match read_json(&state, Path::new("preferences.json"))? {
             Some(value) => serde_json::from_value(value).map_err(|_| "Invalid preview preferences")?,
             None => Preferences::default(),
@@ -371,7 +372,7 @@ impl Backend {
         match request.command.as_str() {
             "hello" => Ok(json!({ "protocol": PROTOCOL, "readOnly": true,
                 "workspaceVersion": 2, "presentationVersion": 1,
-                "capabilities": ["snapshot", "profile.attach", "profile.detach", "installation.select", "shop.browse", "preferences.set", "ui.preferences.get", "ui.preferences.set", "theme.preview", "shop.detail", "managed.catalog", "managed.installations", "managed.game.info", "managed.game.launch", "managed.mod.states", "managed.mod.toggle", "managed.mod.variant", "managed.mod.verify", "managed.mod.repair", "managed.mod.uninstall", "managed.restore", "managed.importArchive", "managed.patch.run", "managed.patch.cancel", "managed.hashes", "managed.credentials.status", "managed.credentials.clear"],
+                "capabilities": ["snapshot", "profile.attach", "profile.detach", "installation.select", "shop.browse", "preferences.set", "ui.preferences.get", "ui.preferences.set", "theme.preview", "shop.detail", "managed.catalog", "managed.installations", "managed.game.info", "managed.game.launch", "managed.mod.states", "managed.mod.toggle", "managed.mod.variant", "managed.mod.verify", "managed.mod.repair", "managed.mod.uninstall", "managed.restore", "managed.importArchive", "managed.patch.run", "managed.patch.cancel", "managed.hashes", "managed.credentials.status", "managed.credentials.clear", "managed.nexus.login", "managed.nexus.cancel"],
                 "runtime": "Rust stdio, no Tauri or WebView", "version": env!("CARGO_PKG_VERSION") })),
             "snapshot" => self.snapshot(),
             "installation.select" => self.select_installation(request.args),
@@ -467,6 +468,8 @@ impl Backend {
                 let args: Clear = serde_json::from_value(request.args).map_err(|_| "Invalid credential request")?;
                 self.managed.clear_credential(&args.kind)
             }
+            "managed.nexus.login" => self.managed.nexus_login(),
+            "managed.nexus.cancel" => Ok(json!(self.managed.cancel_nexus_login()))
             _ => Err("Command is not available in the GPUIX runtime".into()),
         }
     }
@@ -513,11 +516,15 @@ fn run() -> Result<()> {
         if target.is_some() { return Err("Duplicate native backend argument".into()); }
         *target = Some(PathBuf::from(args.next().ok_or("Missing native backend argument")?));
     }
-    let mut backend = Backend::new(state.ok_or("--state-root is required")?, resources.ok_or("--resources-root is required")?, source, managed_data)?;
+    let mut backend = Backend::new(
+        state.ok_or("--state-root is required")?,
+        resources.ok_or("--resources-root is required")?,
+        source,
+        managed_data,
+    )?;
     let stdin = io::stdin();
-    let stdout = io::stdout();
     let mut reader = stdin.lock();
-    let mut writer = stdout.lock();
+    let writer = Arc::new(Mutex::new(io::stdout()));
     let mut last_id = 0;
     while let Some(line) = read_request(&mut reader)? {
         let request: Request = serde_json::from_slice(&line).map_err(|_| "Invalid request JSON")?;
@@ -525,7 +532,39 @@ fn run() -> Result<()> {
             return Err("Incompatible protocol or request ID".into());
         }
         last_id = request.id;
-        respond(&mut writer, last_id, backend.dispatch(request))?;
+        if matches!(request.command.as_str(), "managed.patch.run" | "managed.nexus.login") {
+            let id = request.id;
+            let command = request.command;
+            let managed = Arc::clone(&backend.managed);
+            let writer = Arc::clone(&writer);
+            let args = request.args;
+            std::thread::spawn(move || {
+                let result = match command.as_str() {
+                    "managed.patch.run" => {
+                        #[derive(Deserialize)] #[serde(deny_unknown_fields)]
+                        struct Patch { selected: Vec<String> }
+                        serde_json::from_value::<Patch>(args)
+                            .map_err(|_| "Invalid patch request".to_owned())
+                            .and_then(|args| managed.patch_and_run(&args.selected))
+                    }
+                    "managed.nexus.login" => {
+                        if args.as_object().is_none_or(|value| !value.is_empty()) {
+                            Err("Nexus login does not accept arguments".into())
+                        } else {
+                            managed.nexus_login()
+                        }
+                    }
+                    _ => Err("Unsupported asynchronous command".into()),
+                };
+                if let Ok(mut writer) = writer.lock() {
+                    let _ = respond(&mut *writer, id, result);
+                }
+            });
+            continue;
+        }
+        let result = backend.dispatch(request);
+        let mut writer = writer.lock().map_err(|_| "Native response pipe unavailable")?;
+        respond(&mut *writer, last_id, result)?;
     }
     Ok(())
 }

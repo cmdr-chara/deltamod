@@ -15,3 +15,6 @@ pub(crate) mod installations;
 pub(crate) mod protocol;
 #[path = "channels/import_download.rs"]
 pub(crate) mod import_download;
+
+#[path = "channels/nexus_oauth.rs"]
+pub(crate) mod nexus_oauth;

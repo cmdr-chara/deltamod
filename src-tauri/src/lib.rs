@@ -31,25 +31,26 @@ use deltamod_tauri_os_adapters::{
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
+    process::Command,
     sync::{
-        atomic::Ordering,
+        atomic::{AtomicBool, Ordering},
         Arc,
     },
 };
 
 pub struct HeadlessBackend {
     state: state::AppState,
-    credentials: Option<CredentialStore<KeyringBackend>>,
+    managed_operation_active: AtomicBool,
 }
 
 impl HeadlessBackend {
     pub fn open(data_root: PathBuf, resources: PathBuf) -> Result<Self, String> {
-        let state = state::AppState::initialize(data_root, resources)
+        let mut state = state::AppState::initialize(data_root, resources)
             .map_err(str::to_owned)?;
+        state.credentials = CredentialStore::new(Arc::new(KeyringBackend::new())).ok();
         // Recovery runs before the caller can mutate the managed library.
         headless_channels::lifecycle::recover_startup(&state)?;
-        let credentials = CredentialStore::new(Arc::new(KeyringBackend::new())).ok();
-        Ok(Self { state, credentials })
+        Ok(Self { state, managed_operation_active: AtomicBool::new(false) })
     }
 
     pub fn invoke(&self, channel: &str, data: &[Value]) -> Result<Value, String> {
@@ -118,6 +119,12 @@ impl HeadlessBackend {
     }
 
     pub fn patch_and_run(&self, selected: &[String]) -> Result<Value, String> {
+        if self.managed_operation_active.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
+            return Err("MANAGED_OPERATION_IN_PROGRESS".into());
+        }
+        struct Reset<'a>(&'a AtomicBool);
+        impl Drop for Reset<'_> { fn drop(&mut self) { self.0.store(false, Ordering::Release); } }
+        let _reset = Reset(&self.managed_operation_active);
         if selected.len() > 1000
             || selected.iter().any(|id| {
                 id.is_empty() || id.len() > 256 || id.chars().any(char::is_control)
@@ -186,6 +193,9 @@ impl HeadlessBackend {
     }
 
     pub fn cancel_patch(&self) -> bool {
+        if !self.managed_operation_active.load(Ordering::Acquire) {
+            return false;
+        }
         !self.state.patch_cancelled.swap(true, Ordering::AcqRel)
     }
 
@@ -219,6 +229,7 @@ impl HeadlessBackend {
 
     pub fn credential_status(&self) -> Result<Value, String> {
         let store = self
+            .state
             .credentials
             .as_ref()
             .ok_or_else(|| "CREDENTIALS_UNAVAILABLE".to_owned())?;
@@ -241,8 +252,52 @@ impl HeadlessBackend {
         Ok(json!(true))
     }
 
+    pub fn nexus_login(&self) -> Result<Value, String> {
+        let value = headless_channels::nexus_oauth::start_with_opener(&self.state, |url| {
+            open_system_url(url).map_err(|_| ())
+        });
+        if value.get("ok").and_then(Value::as_bool) == Some(true) {
+            Ok(value)
+        } else {
+            let code = value.pointer("/error/code").and_then(Value::as_str).unwrap_or("NEXUS_SSO_FAILED");
+            let message = value.pointer("/error/message").and_then(Value::as_str).unwrap_or("Nexus Mods sign-in failed.");
+            Err(format!("{code}: {message}"))
+        }
+    }
+
+    pub fn cancel_nexus_login(&self) -> bool {
+        headless_channels::nexus_oauth::cancel(&self.state)
+    }
+
     #[cfg(test)]
     pub fn state(&self) -> &state::AppState {
         &self.state
     }
+}
+
+
+fn open_system_url(url: &str) -> Result<(), &'static str> {
+    let parsed = url::Url::parse(url).map_err(|_| "browser URL invalid")?;
+    if parsed.scheme() != "https"
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.host_str() != Some("users.nexusmods.com")
+        || parsed.path() != "/oauth/authorize"
+    {
+        return Err("browser URL rejected");
+    }
+    let mut command = if cfg!(target_os = "windows") {
+        let mut command = Command::new("rundll32.exe");
+        command.arg("url.dll,FileProtocolHandler").arg(url);
+        command
+    } else if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(url);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(url);
+        command
+    };
+    command.spawn().map(|_| ()).map_err(|_| "browser unavailable")
 }

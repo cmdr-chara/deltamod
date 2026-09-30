@@ -702,11 +702,14 @@ fn wait_for_code(
     }
 }
 
-fn run_login(
-    app: &AppHandle,
+fn run_login_with_opener<F>(
     state: &AppState,
     cancel: Arc<AtomicBool>,
-) -> Result<Value, OAuthFailure> {
+    open_url: F,
+) -> Result<Value, OAuthFailure>
+where
+    F: FnOnce(&str) -> Result<(), ()>,
+{
     let client_id = configured_client_id().ok_or_else(|| {
         OAuthFailure::new(
             "NEXUS_SSO_NOT_REGISTERED",
@@ -750,14 +753,12 @@ fn run_login(
         .append_pair("state", &expected_state)
         .append_pair("code_challenge", &challenge)
         .append_pair("code_challenge_method", "S256");
-    app.opener()
-        .open_url(authorization_url.as_str(), None::<&str>)
-        .map_err(|_| {
-            OAuthFailure::new(
-                "NEXUS_SSO_BROWSER_FAILED",
-                "The Nexus Mods authorization page could not be opened.",
-            )
-        })?;
+    open_url(authorization_url.as_str()).map_err(|_| {
+        OAuthFailure::new(
+            "NEXUS_SSO_BROWSER_FAILED",
+            "The Nexus Mods authorization page could not be opened.",
+        )
+    })?;
     let code = wait_for_code(listener, &expected_state, &cancel)?;
     if cancel.load(Ordering::Acquire) {
         return Err(OAuthFailure::new(
@@ -812,32 +813,38 @@ fn run_login(
     }))
 }
 
-pub fn start(app: &AppHandle, state: &AppState) -> Value {
+pub(crate) fn start_with_opener<F>(state: &AppState, open_url: F) -> Value
+where
+    F: FnOnce(&str) -> Result<(), ()>,
+{
     let cancel = Arc::new(AtomicBool::new(false));
     {
         let Ok(mut active) = state.nexus_oauth_cancel.lock() else {
             return OAuthFailure::new(
                 "NEXUS_SSO_FAILED",
                 "Nexus Mods sign-in could not be started.",
-            )
-            .response();
+            ).response();
         };
         if active.is_some() {
             return OAuthFailure::new(
                 "NEXUS_SSO_ALREADY_PENDING",
                 "A Nexus Mods sign-in is already waiting for authorization.",
-            )
-            .response();
+            ).response();
         }
         *active = Some(Arc::clone(&cancel));
     }
-    let result = run_login(app, state, cancel);
+    let result = run_login_with_opener(state, cancel, open_url);
     if let Ok(mut active) = state.nexus_oauth_cancel.lock() {
         *active = None;
     }
     result.unwrap_or_else(|error| error.response())
 }
 
+pub fn start(app: &AppHandle, state: &AppState) -> Value {
+    start_with_opener(state, |url| {
+        app.opener().open_url(url, None::<&str>).map_err(|_| ())
+    })
+}
 pub fn cancel(state: &AppState) -> bool {
     let Ok(active) = state.nexus_oauth_cancel.lock() else {
         return false;
