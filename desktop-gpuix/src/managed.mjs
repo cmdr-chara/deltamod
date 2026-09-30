@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Deltamod Community contributors
 // SPDX-License-Identifier: EUPL-1.2
+import { archivePath, protocolLink } from './handoffs.mjs';
 const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const text=(value,max=512)=>typeof value==='string'?[...value.replace(/[\u0000-\u001f\u007f]/g,'')].slice(0,max).join(''):'';
 const message=error=>error instanceof Error?error.message:String(error);
@@ -33,7 +34,7 @@ export function operationId(prefix='gpui'){
 }
 export class ManagedRuntime {
   constructor(bridge){
-    this.bridge=bridge; this.listeners=new Set(); this.disposed=false; this.sequence=0; this.state=idle();
+    this.bridge=bridge; this.listeners=new Set(); this.disposed=false; this.sequence=0; this.protocolSequence=0; this.attemptedImports=new Set(); this.state=idle();
     this.subscribe=listener=>{this.listeners.add(listener);return()=>this.listeners.delete(listener);};
     this.getSnapshot=()=>this.state;
   }
@@ -59,14 +60,20 @@ export class ManagedRuntime {
     }catch(error){if(sequence===this.sequence)this.update({loading:false,error:message(error)});return false;}
   }
   async mutation(command,args={}){
-    if(this.disposed||this.state.busy)return false;
+    if(this.disposed||this.state.busy||this.state.loading||this.state.protocol.status==='reviewing')return false;
+    this.sequence++;
     this.update({busy:command,error:''});
     try{
       const result=await this.bridge.request(command,args);
       if(this.disposed)return false;
-      this.update({busy:'',lastOperation:result});
+      if(command==='managed.importArchive'&&(!record(result)||typeof result.imported!=='boolean')){
+        throw new Error('Native import acknowledgement is invalid. Completion is unknown.');
+      }
+      this.update({lastOperation:result});
       await this.refresh();
-      return true;
+      const skipped=command==='managed.importArchive'&&!result.imported;
+      this.update({busy:'',...(skipped?{error:'The native importer cancelled or skipped this archive.'}:{})});
+      return !skipped;
     }catch(error){this.update({busy:'',error:message(error)});return false;}
   }
   importArchive(path,replaceExisting=false){return this.mutation('managed.importArchive',{path,replaceExisting});}
@@ -93,27 +100,60 @@ export class ManagedRuntime {
   }
   controllerStart(){return this.mutation('managed.controller.start');}
   controllerStop(){return this.mutation('managed.controller.stop');}
-  async reviewProtocol(raw){
-    if(this.disposed||this.state.busy||typeof raw!=='string'||raw.length>8192)return false;
+  reviewArchive(raw){
+    if(this.disposed||this.state.busy||this.state.loading||this.state.protocol.status!=='idle')return false;
     try{
+      const path=archivePath(raw);
+      this.protocolSequence++;
+      this.update({protocol:{status:'reviewed',raw:path,intent:{kind:'archive',path},error:''}});
+      return true;
+    }catch(error){this.update({error:message(error)});return false;}
+  }
+  async reviewProtocol(raw){
+    if(this.disposed||this.state.busy||this.state.loading||this.state.protocol.status!=='idle')return false;
+    const sequence=++this.protocolSequence;
+    this.update({protocol:{status:'reviewing',raw:'',intent:null,error:''}});
+    try{
+      protocolLink(raw);
       const intent=await this.bridge.request('managed.protocol.review',{raw});
+      if(sequence!==this.protocolSequence||this.disposed)return false;
       if(!record(intent)||!['import','launch'].includes(intent.kind)||!Number.isSafeInteger(intent.itemId)||intent.itemId<=0
         ||(intent.kind==='import'&&(!Number.isSafeInteger(intent.fileId)||intent.fileId<=0))) throw new Error('Invalid protocol review.');
       this.update({protocol:{status:'reviewed',raw,intent,error:''}});
       return true;
-    }catch(error){this.update({protocol:{status:'error',raw:'',intent:null,error:message(error)}});return false;}
+    }catch(error){
+      if(sequence===this.protocolSequence)this.update({protocol:{status:'error',raw:'',intent:null,error:message(error)}});
+      return false;
+    }
   }
-  dismissProtocol(){this.update({protocol:{status:'idle',raw:'',intent:null,error:''}});}
+  dismissProtocol(){
+    if(this.state.protocol.status==='importing')return;
+    this.protocolSequence++;
+    this.update({protocol:{status:'idle',raw:'',intent:null,error:''}});
+  }
   async confirmProtocol(replaceExisting=false){
     const pending=this.state.protocol;
-    if(this.disposed||this.state.busy||pending.status!=='reviewed'||pending.intent?.kind!=='import')return false;
-    this.update({busy:'managed.protocol.import',protocol:{...pending,status:'importing',error:''}});
+    if(this.disposed||this.state.busy||this.state.loading||pending.status!=='reviewed'||!['import','archive'].includes(pending.intent?.kind))return false;
+    const local=pending.intent.kind==='archive';
+    const identity=local?`archive:${process.platform==='win32'?pending.raw.toLowerCase():pending.raw}`
+      :`gamebanana:${pending.intent.itemId}:${pending.intent.fileId}`;
+    if(this.attemptedImports.has(identity)||this.attemptedImports.size>=1024){
+      this.update({protocol:{...pending,status:'error',raw:'',error:'This import was already attempted in this session, or the session limit was reached. Inspect the library and recovery state before a deliberate manual import.'}});
+      return false;
+    }
+    this.attemptedImports.add(identity);
+    const command=local?'managed.importArchive':'managed.protocol.import';
+    const args=local?{path:pending.raw,replaceExisting:replaceExisting===true}:{raw:pending.raw,replaceExisting:replaceExisting===true};
+    this.sequence++;
+    this.update({busy:command,protocol:{...pending,status:'importing',error:''}});
     try{
-      const result=await this.bridge.request('managed.protocol.import',{raw:pending.raw,replaceExisting:replaceExisting===true});
+      const result=await this.bridge.request(command,args);
       if(this.disposed)return false;
-      this.update({busy:'',lastOperation:result,protocol:{status:'complete',raw:'',intent:pending.intent,error:''}});
+      if(!record(result)||typeof result.imported!=='boolean') throw new Error('Native import acknowledgement is invalid. Completion is unknown.');
+      this.update({lastOperation:result});
       await this.refresh();
-      return true;
+      this.update({busy:'',protocol:{status:result.imported?'complete':'skipped',raw:'',intent:pending.intent,error:''}});
+      return result.imported;
     }catch(error){
       this.update({busy:'',protocol:{...pending,status:'error',raw:'',error:message(error)},error:message(error)});
       return false;
@@ -124,5 +164,5 @@ export class ManagedRuntime {
     try{return (await this.bridge.request('managed.protocol.cancel'))===true;}
     catch(error){this.update({error:message(error)});return false;}
   }
-  dispose(){this.disposed=true;this.sequence++;this.listeners.clear();}
+  dispose(){this.disposed=true;this.sequence++;this.protocolSequence++;this.listeners.clear();}
 }

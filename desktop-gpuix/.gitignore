@@ -4,3 +4,5 @@ native/target/
 benchmark-results/
 *.log
 smoke-results/
+src/generated/
+bundle/

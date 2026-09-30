@@ -8,18 +8,19 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "tsx src/main.tsx",
-    "build": "tsc -p tsconfig.json",
+    "dev": "node scripts/sync-locales.mjs && tsx src/main.tsx",
+    "build": "node scripts/sync-locales.mjs && tsc -p tsconfig.json",
     "start": "node dist/main.js",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node scripts/sync-locales.mjs && tsc --noEmit -p tsconfig.json",
     "native": "cargo build --release --manifest-path native/Cargo.toml",
     "test": "node --test tests/core.test.mjs tests/presentation.test.mjs tests/managed.test.mjs tests/updater.test.mjs",
     "test:native": "cargo test --manifest-path native/Cargo.toml",
     "benchmark": "node scripts/benchmark.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "build:binary": "bun build --compile src/main.tsx --outfile dist/deltamod-gpuix",
+    "build:binary": "node scripts/sync-locales.mjs && bun build --compile src/main.tsx --outfile dist/deltamod-gpuix",
     "stage:host": "node scripts/stage-host.mjs",
-    "package:gpuix": "node scripts/package.mjs"
+    "package:gpuix": "node scripts/package.mjs",
+    "sync:locales": "node scripts/sync-locales.mjs"
   },
   "dependencies": {
     "@gpuix/native": "0.10.0",

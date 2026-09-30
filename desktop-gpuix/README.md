@@ -9,6 +9,9 @@ production Rust lifecycle, archive, patching, recovery, launch and secure-creden
 contracts without starting a Tauri window or WebView. Native packaging and platform
 parity still gate replacement. No performance advantage is claimed by this branch.
 
+See [Migration status](./MIGRATION-STATUS.md) for the current handoff, locale, theme
+and production-cutover boundaries.
+
 ## Included
 
 | Surface | Implemented behavior |
@@ -18,10 +21,10 @@ parity still gate replacement. No performance advantage is claimed by this branc
 | Mod library | Profile-wide search, enabled/disabled/unknown filters, format filtering, sorting and details |
 | Installations | Session-only preview selection and details, without changing Tauri selection or probing saved game paths |
 | Mod Shop | Game-aware GameBanana browse/search/pagination, catalogue game picker, read-only mod details, file metadata and allowlisted links |
-| Themes | Built-in palette selection and opt-in still-image previews with bounded local paths |
+| Themes | Built-in palettes, contained still-image previews, source credits/track/cue metadata and native-acknowledged theme colors |
 | Settings | Reduced motion, opaque/translucent surfaces, session-only profile attachment and confirmed disconnection |
-| Language | English and Italian interface messages with preserved named placeholders and English fallback |
-| Links | Reviewed, confirmed navigation from pasted URLs or the --open command-line argument |
+| Language | English/Italian messages plus exact source-string reuse for German, Spanish, French, Japanese, Polish and Brazilian Portuguese, with English fallback |
+| Links | Bounded first/second-instance inbox, reviewed navigation and separately confirmed protocol/local-archive imports |
 | Animation | GPUIX native opacity/width tweens, no JavaScript frame timer |
 | Backend | Existing storage-domain, mods-themes-domain and network-runtime crates |
 
@@ -30,13 +33,14 @@ variant selection, lifecycle verification/repair/uninstall/recovery, hash calcul
 patch-and-run, cancellation, game launch, and secure credential status/clearing through
 the existing production Rust contracts. Attached source profiles stay read-only.
 
-Interactive GameBanana login, Nexus OAuth initiation, controller-mode integration,
-custom CSS/video/audio themes, additional languages, and production OS handoffs
-remain migration gates. A separate signed GPUIX package/update path is staged and
+Nexus system-browser OAuth and Windows controller mode are implemented. New
+GameBanana login, native video/audio/effects, complete translation coverage and
+installed production OS handoffs remain migration gates. A separate signed GPUIX package/update path is staged and
 does not consume Tauri's latest.json feed. Unsupported operations remain absent from
 the native command allowlist rather than being mocked.
 
-Theme previews cover colors and still images, not full theme parity. macOS can use the
+Theme previews cover colors, still images and metadata, not playback or cue
+execution. macOS can use the
 framework's blurred window backdrop after enabling glass and restarting. Windows
 and Linux use layered translucent fills. This is not a claim of system Liquid Glass
 or a custom refraction shader. Opaque surfaces and reduced motion default on.

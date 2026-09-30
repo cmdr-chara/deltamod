@@ -9,6 +9,8 @@ export interface Options {
   executable: string;
   focus: boolean;
   openLink: string;
+  protocolLink: string;
+  archiveFile: string;
   benchmarkFile: string;
   reducedMotion: boolean | null;
   opaque: boolean | null;

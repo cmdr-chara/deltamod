@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Deltamod Community contributors
 // SPDX-License-Identifier: EUPL-1.2
-import { createContext, useContext, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useRef, useLayoutEffect, type ReactNode } from 'react';
 import { motion, useGpuixRequired, type PublicInstance } from '@gpuix/react';
 import type { StyleDesc } from '@gpuix/react';
 import type { Preferences } from './contracts.js';
 import { useMessages } from './i18n.js';
+import { registerDialog } from './modal-state.mjs';
 
 export const Palette = createContext<Preferences>({ themeId: 'base', accent: '#cd4451', reducedMotion: true, opaque: true });
 export const colors = { text: '#f3eef0', muted: '#b9adb5', faint: '#867b87', surface: '#17131d', edge: '#ffffff22', success: '#9fe0ba' };
@@ -61,19 +62,21 @@ export function Chip({ children, active = false }: { children: ReactNode; active
     <text style={{ fontSize: 12, color: active ? colors.text : colors.muted }}>{children}</text>
   </div>;
 }
-export function InfoDialog({ title, description, children, close }: { title: string; description: string; children?: ReactNode; close: () => void }) {
+export function InfoDialog({ title, description, children, close, closeDisabled = false }: { closeDisabled?: boolean; title: string; description: string; children?: ReactNode; close: () => void }) {
   const t = useMessages();
   const renderer = useGpuixRequired();
   const popup = useRef<PublicInstance | null>(null);
+  useLayoutEffect(() => registerDialog(), []);
+  const dismiss = () => { if (!closeDisabled) close(); };
   return <div role="presentation" style={{
     position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     backgroundColor: '#000000a0', pointerEvents: 'auto',
   }}>
     <div ref={popup} role="dialog" aria-label={title} aria-description={description} autoFocus tabIndex={0}
-      onMouseDownOutside={close}
+      onMouseDownOutside={dismiss}
       onKeyDown={event => {
-        if (event.key === 'escape') close();
+        if (event.key === 'escape') dismiss();
         if (event.key === 'tab' && popup.current) {
           if (event.modifiers?.shift) renderer.focusPreviousWithin?.(popup.current.id);
           else renderer.focusNextWithin?.(popup.current.id);
@@ -84,7 +87,7 @@ export function InfoDialog({ title, description, children, close }: { title: str
       <text role="heading" aria-level={2} style={{ fontSize: 21, fontWeight: 700, color: colors.text }}>{title}</text>
       <text style={{ fontSize: 14, color: colors.muted }}>{description}</text>
       {children}
-      <Action onClick={close}>{t("Close")}</Action>
+      <Action disabled={closeDisabled} onClick={dismiss}>{t("Close")}</Action>
     </div>
   </div>;
 }

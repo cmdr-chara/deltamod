@@ -107,7 +107,7 @@ impl HeadlessBackend {
         }
 
         let request = DialogRequest::file("Choose a Deltamod compatible archive").filter(
-            DialogFilter::new("Deltamod compatible archive", ["zip", "7z", "gz", "lzma"])
+            DialogFilter::new("Deltamod compatible archive", ["zip", "7z", "gz", "lzma", "modarchive"])
                 .map_err(|_| error::internal())?,
         );
         let source = validate_dialog_selection(&request, source.to_path_buf())

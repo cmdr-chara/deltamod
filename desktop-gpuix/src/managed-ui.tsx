@@ -118,7 +118,7 @@ export function ManagedSystemPanel({ runtime }: { runtime: ManagedRuntime }) {
         {state.controller.active ? 'Exit controller mode' : 'Enter controller mode'}
       </Action>
     </div>}
-    {state.error && <Label>{state.error}</Label>
+    {state.error && <Label>{state.error}</Label>}
   </GlassPanel>;
 }
 
@@ -127,35 +127,54 @@ export function ProtocolImportDialog({ runtime, onLaunch }: { runtime: ManagedRu
   const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   const pending = state.protocol;
   if (pending.status === 'idle') return null;
-  const intent = pending.intent as { kind?: string; itemId?: number; fileId?: number } | null;
+  const intent = pending.intent;
   const importing = pending.status === 'importing';
+  const busy = !!state.busy || state.loading;
   const close = () => { if (!importing) runtime.dismissProtocol(); };
-  return <InfoDialog close={close} title="Deltamod one-click request"
-    description="The operating-system handoff was validated again by Rust. Nothing is installed until you confirm it here.">
-    {pending.status === 'error' && <><Label>Request rejected</Label><Label muted size={12}>{pending.error}</Label>
-      <Action onClick={() => runtime.dismissProtocol()}>Close request</Action></>}
-    {pending.status === 'reviewed' && intent?.kind === 'launch' && <>
-      <Label>Open public GameBanana mod {String(intent.itemId ?? '')}?</Label>
-      <Action testId="confirm-protocol-launch" primary onClick={() => onLaunch(intent.itemId!)}>View mod</Action>
-      <Action onClick={() => runtime.dismissProtocol()}>Cancel</Action>
+  return <InfoDialog close={close} closeDisabled={importing} title="Deltamod open request"
+    description="Nothing is installed until you confirm. The native importer validates the archive before adopting it into the managed library.">
+    {pending.status === 'reviewing' && <>
+      <Label>Validating the request with the native runtime...</Label>
+      <Action onClick={close}>Cancel review</Action>
     </>}
-    {pending.status === 'reviewed' && intent?.kind === 'import' && <>
-      <Label>Import GameBanana mod {String(intent.itemId ?? '')}, file {String(intent.fileId ?? '')}?</Label>
-      <Label muted size={12}>The download host and exact file ID are bound by the production protocol parser. Existing files are not replaced by the normal import action.</Label>
+    {pending.status === 'error' && <><Label>Request not completed</Label><Label muted size={12}>{pending.error}</Label>
+      <Label muted size={12}>No automatic retry will be made. Check the managed library and recovery state before trying the operation again.</Label>
+      <Action onClick={close}>Close request</Action></>}
+    {pending.status === 'reviewed' && intent?.kind === 'launch' && <>
+      <Label>Open public GameBanana mod {String(intent.itemId)}?</Label>
+      <Action testId="confirm-protocol-launch" primary disabled={busy} onClick={() => onLaunch(intent.itemId)}>View mod</Action>
+      <Action onClick={close}>Cancel</Action>
+    </>}
+    {pending.status === 'reviewed' && (intent?.kind === 'import' || intent?.kind === 'archive') && <>
+      {intent.kind === 'archive' ? <>
+        <Label>Import this local mod archive?</Label>
+        <Label muted size={12}>{intent.path}</Label>
+        <Label muted size={12}>This path has not yet been opened. Native containment, archive limits and transaction recovery still apply.</Label>
+      </> : <>
+        <Label>Import GameBanana mod {String(intent.itemId)}, file {String(intent.fileId)}?</Label>
+        <Label muted size={12}>Rust validated the exact download host and file ID. Receiving the link did not download it.</Label>
+      </>}
+      <Label muted size={12}>Normal import never replaces an existing version. Replacement requires the separate action below.</Label>
       <div style={row}>
-        <Action testId="confirm-protocol-import" primary onClick={() => void runtime.confirmProtocol(false)}>Import</Action>
-        <Action testId="confirm-protocol-replace" onClick={() => void runtime.confirmProtocol(true)}>Replace existing version</Action>
-        <Action onClick={() => runtime.dismissProtocol()}>Cancel</Action>
+        <Action testId="confirm-protocol-import" primary disabled={busy} onClick={() => void runtime.confirmProtocol(false)}>Import</Action>
+        <Action testId="confirm-protocol-replace" disabled={busy} onClick={() => void runtime.confirmProtocol(true)}>Replace existing version</Action>
+        <Action onClick={close}>Cancel</Action>
       </div>
     </>}
     {importing && <>
-      <Label>Downloading and validating the requested archive...</Label>
-      <Label muted size={12}>Closing this dialog does not abandon an in-flight filesystem operation. Use Cancel import.</Label>
-      <Action testId="cancel-protocol-import" onClick={() => void runtime.cancelProtocol()}>Cancel import</Action>
+      <Label>{intent?.kind === 'archive' ? 'Validating and importing the local archive...' : 'Downloading and validating the requested archive...'}</Label>
+      <Label muted size={12}>The dialog remains open until the native operation acknowledges completion or failure.</Label>
+      {intent?.kind === 'import' && <Action testId="cancel-protocol-import" onClick={() => void runtime.cancelProtocol()}>Cancel import</Action>}
+      {intent?.kind === 'archive' && <Label muted size={12}>Local transactional import cannot be interrupted from this dialog.</Label>}
+    </>}
+    {pending.status === 'skipped' && <>
+      <Label>The native importer did not install this archive.</Label>
+      <Label muted size={12}>The import was cancelled or skipped, for example because an existing version was kept. No automatic retry will be made.</Label>
+      <Action onClick={close}>Done</Action>
     </>}
     {pending.status === 'complete' && <>
       <Label>Import completed and was adopted into the transactional lifecycle catalogue.</Label>
-      <Action onClick={() => runtime.dismissProtocol()}>Done</Action>
+      <Action onClick={close}>Done</Action>
     </>}
   </InfoDialog>;
 }

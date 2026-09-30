@@ -3,7 +3,9 @@
 import type { BackendClient } from './contracts.js';
 export interface ManagedMod { instanceId:string; installationId:string; modId:string; name:string; version:string; provider:string; files:number }
 export interface ManagedCatalog { mods:ManagedMod[]; verification:Record<string,unknown>[]; journals:Record<string,unknown>[]; operations:Record<string,unknown>[]; errors:unknown[]; health:unknown[] }
-export interface ManagedState { catalog:ManagedCatalog|null; installations:unknown[]; game:Record<string,unknown>|null; credentials:Record<string,unknown>|null; enabledIds:string[]; loading:boolean; busy:string; error:string; lastOperation:unknown }
+export type ProtocolIntent = { kind:"launch"; itemId:number } | { kind:"import"; itemId:number; fileId:number } | { kind:"archive"; path:string };
+export interface ProtocolState { status:"idle"|"reviewing"|"reviewed"|"importing"|"complete"|"skipped"|"error"; raw:string; intent:ProtocolIntent|null; error:string }
+export interface ManagedState { controller:{supported:boolean;active:boolean}; protocol:ProtocolState; catalog:ManagedCatalog|null; installations:unknown[]; game:Record<string,unknown>|null; credentials:Record<string,unknown>|null; enabledIds:string[]; loading:boolean; busy:string; error:string; lastOperation:unknown }
 export function normalizeManagedCatalog(value:unknown):ManagedCatalog;
 export function operationId(prefix?:string):string;
 export class ManagedRuntime {
@@ -13,5 +15,10 @@ export class ManagedRuntime {
  toggle(uid:string,enabled:boolean):Promise<boolean>; variant(uid:string,variant:string):Promise<boolean>;
  verify(mod:ManagedMod):Promise<boolean>; repair(mod:ManagedMod):Promise<boolean>; uninstall(mod:ManagedMod):Promise<boolean>;
  restore(installationId:string):Promise<boolean>; patch(selected:string[]):Promise<boolean>; cancelPatch():Promise<boolean>;
+ update(patch:Partial<ManagedState>):void;
+ loginNexus():Promise<boolean>; cancelNexus():Promise<boolean>;
+ controllerStart():Promise<boolean>; controllerStop():Promise<boolean>;
+ reviewProtocol(raw:string):Promise<boolean>; reviewArchive(raw:string):boolean; dismissProtocol():void;
+ confirmProtocol(replaceExisting?:boolean):Promise<boolean>; cancelProtocol():Promise<boolean>;
  hashes():Promise<boolean>; launch():Promise<boolean>; clearCredential(kind:string):Promise<boolean>; dispose():void;
 }

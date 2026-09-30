@@ -28,7 +28,7 @@ impl Default for InterfacePreferences {
 }
 impl InterfacePreferences {
     fn validate(&self) -> Result<()> {
-        if self.schema_version != 1 || !matches!(self.locale.as_str(), "en" | "it") {
+        if self.schema_version != 1 || !matches!(self.locale.as_str(), "en" | "it" | "de" | "es" | "fr" | "ja" | "pl" | "pt-br") {
             return Err("Invalid interface preferences or unsupported language".into());
         }
         Ok(())
@@ -59,6 +59,37 @@ fn interface_preferences(state: &Path, args: &Value, write: bool) -> Result<Valu
     Ok(json!(preferences))
 }
 
+fn theme_color(value: &Value) -> Option<String> {
+    let value = value.as_str()?.trim();
+    if value.len() == 7 && value.starts_with('#')
+        && value.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit) {
+        return Some(value.to_ascii_lowercase());
+    }
+    let rgb = value.strip_prefix("rgb(")?.strip_suffix(')')?;
+    let parts = rgb.split(',').map(|part| part.trim().parse::<u8>())
+        .collect::<std::result::Result<Vec<_>, _>>().ok()?;
+    if parts.len() != 3 { return None; }
+    Some(format!("#{:02x}{:02x}{:02x}", parts[0], parts[1], parts[2]))
+}
+
+// Explicit, bounded theme semantics. CSS and media filenames are never passed
+// to a browser, shell, URL loader or arbitrary frontend filesystem bridge.
+fn theme_metadata(theme: &Value) -> Value {
+    let credits: Vec<Value> = theme.get("credits").and_then(Value::as_array)
+        .into_iter().flatten().take(32).filter(|credit| credit.is_object())
+        .map(|credit| json!({ "name": text(credit, "name", "", 240),
+            "role": text(credit, "role", "", 240) })).collect();
+    json!({ "name": text(theme, "name", "", 240),
+        "description": text(theme, "description", "", 4096),
+        "musicTrack": text(theme, "musicTrack", "", 240),
+        "accent": theme.get("color").and_then(theme_color),
+        "soulColor": theme.get("soulColor").and_then(theme_color),
+        "bootSyncTime": theme.get("bootSyncTime").and_then(Value::as_f64)
+            .filter(|value| value.is_finite() && (0.0..=3600.0).contains(value)),
+        "videoHasAudio": theme.get("videoHasAudio").and_then(Value::as_bool).unwrap_or(false),
+        "credits": credits })
+}
+
 fn theme_preview(resources: &Path, args: &Value) -> Result<Value> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -70,7 +101,8 @@ fn theme_preview(resources: &Path, args: &Value) -> Result<Value> {
         .ok_or("The built-in theme is unavailable")?;
     if !theme.is_object() { return Err("Invalid built-in theme record".into()); }
     let mut image_path = None;
-    if let Some(name) = theme.get("background").and_then(Value::as_str).filter(|name| !name.is_empty()) {
+    if let Some(name) = theme.get("previewBackground").and_then(Value::as_str).filter(|name| !name.is_empty())
+        .or_else(|| theme.get("background").and_then(Value::as_str).filter(|name| !name.is_empty())) {
         // A theme image is a single named, bundled raster file. Never accept a
         // URL, path traversal, SVG script, user media path or a network share.
         if name.len() > 255 || name.contains(['/', '\\', ':', '\0']) || name == "." || name == ".." {
@@ -96,7 +128,9 @@ fn theme_preview(resources: &Path, args: &Value) -> Result<Value> {
     }
     Ok(json!({ "themeId": request.theme_id, "imagePath": image_path,
         "hasVideo": theme.get("backgroundVideo").and_then(Value::as_str).is_some_and(|value| !value.is_empty()),
-        "hasAudio": theme.get("mainSong").and_then(Value::as_str).is_some_and(|value| !value.is_empty()) }))
+        "hasAudio": theme.get("mainSong").and_then(Value::as_str).is_some_and(|value| !value.is_empty())
+            || theme.get("videoHasAudio").and_then(Value::as_bool).unwrap_or(false),
+        "metadata": theme_metadata(&theme) }))
 }
 
 fn mod_id(value: &str) -> Result<u64> {

@@ -1,12 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Deltamod Community contributors
 // SPDX-License-Identifier: EUPL-1.2
 import path from 'node:path';
+import { supportedLocale } from './languages.mjs';
 import { parseIntent, validModId } from './deep-links.mjs';
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const errorMessage = error => error instanceof Error ? error.message : String(error);
 const text = (value, limit = 240) => typeof value === 'string' ? [...value.replace(/[\u0000-\u001f\u007f]/g, '')].slice(0, limit).join('') : '';
 export function interfacePreferences(value) {
-  if (!object(value) || value.schemaVersion !== 1 || !['en', 'it'].includes(value.locale) || typeof value.themeImages !== 'boolean') {
+  if (!object(value) || value.schemaVersion !== 1 || !supportedLocale(value.locale) || typeof value.themeImages !== 'boolean') {
     throw new Error('features.badPreferences');
   }
   return { schemaVersion: 1, locale: value.locale, themeImages: value.themeImages };
@@ -46,13 +47,26 @@ export function normalizeDetail(value, requestedId) {
   return { id: requestedId, name: text(value.name), author: text(value.author), game: text(value.game),
     description: plainDescription(value.description), url: value.url, files, hasContentRatings: value.hasContentRatings === true };
 }
+function normalizeThemeMetadata(value) {
+  if (!object(value) || !Array.isArray(value.credits) || value.credits.length > 32
+    || value.credits.some(credit => !object(credit))) throw new Error('features.badTheme');
+  const color = input => input === null || (typeof input === 'string' && /^#[0-9a-f]{6}$/i.test(input));
+  if (!color(value.accent) || !color(value.soulColor)
+    || (value.bootSyncTime !== null && (!Number.isFinite(value.bootSyncTime)
+      || value.bootSyncTime < 0 || value.bootSyncTime > 3600))) throw new Error('features.badTheme');
+  return { name: text(value.name), description: text(value.description, 4096),
+    musicTrack: text(value.musicTrack), accent: value.accent, soulColor: value.soulColor,
+    bootSyncTime: value.bootSyncTime, videoHasAudio: value.videoHasAudio === true,
+    credits: value.credits.map(credit => ({ name: text(credit.name), role: text(credit.role) })) };
+}
 export function normalizeTheme(value, requestedId) {
   if (!object(value) || value.themeId !== requestedId || !Object.hasOwn(value, 'imagePath')
     || (value.imagePath !== null && (typeof value.imagePath !== 'string' || value.imagePath.length > 16384
       || /[\u0000-\u001f]/.test(value.imagePath) || !path.isAbsolute(value.imagePath) || !/\.(png|jpe?g|webp)$/i.test(value.imagePath)))) {
     throw new Error('features.badTheme');
   }
-  return { themeId: requestedId, imagePath: value.imagePath, hasVideo: value.hasVideo === true, hasAudio: value.hasAudio === true };
+  return { themeId: requestedId, imagePath: value.imagePath, hasVideo: value.hasVideo === true, hasAudio: value.hasAudio === true,
+    ...(Object.hasOwn(value, 'metadata') ? { metadata: normalizeThemeMetadata(value.metadata) } : {}) };
 }
 const idleDetail = () => ({ status: 'idle', id: '', value: null, error: '' });
 const idleTheme = () => ({ status: 'idle', id: '', value: null, error: '' });
@@ -144,6 +158,17 @@ export class DesktopFeatures {
       if (sequence === this.themeSequence) this.update({ theme: { status: 'error', id, value: null, error: errorMessage(error) } });
       return false;
     }
+  }
+  async applyThemeColor() {
+    const selected = this.model.state.snapshot?.preferences.themeId;
+    const theme = this.state.theme;
+    if (this.disposed || this.model.state.loading || this.model.state.saving || this.state.saving
+      || theme.status !== 'ready' || theme.id !== selected || !theme.value?.metadata?.accent) return false;
+    try {
+      await this.model.savePreferences({ accent: theme.value.metadata.accent });
+      // The model only adopts preferences acknowledged by the native host.
+      return !this.disposed && this.model.state.snapshot?.preferences.accent === theme.value.metadata.accent;
+    } catch (error) { this.update({ error: errorMessage(error) }); return false; }
   }
   retryTheme() {
     const id = this.model.state.snapshot?.preferences.themeId;

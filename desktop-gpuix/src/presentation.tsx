@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: EUPL-1.2
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { DesktopFeatures } from './features.mjs';
+import { languages } from './languages.mjs';
 import { openModPage } from './options.mjs';
 import { useMessages, useByteFormat } from './i18n.js';
 import { Action, GlassPanel, InfoDialog, Label, row, column, colors } from './ui.js';
@@ -19,6 +20,17 @@ export function ThemePreviewPanel({ features, themeId }: { features: DesktopFeat
     {state.theme.value?.imagePath ? <img src={state.theme.value.imagePath} alt={t('Built-in theme background')} objectFit="cover"
       style={{ width: '100%', height: 130, borderRadius: 12 }} />
       : state.theme.status === 'ready' && <Label muted>{t('This theme has no still background image.')}</Label>}
+    {state.theme.value?.metadata && <div style={{ ...column, gap: 6, maxHeight: 180, overflowY: 'scroll' }}>
+      <Label bold>{state.theme.value.metadata.name}</Label>
+      {state.theme.value.metadata.description && <Label muted size={12}>{state.theme.value.metadata.description}</Label>}
+      {state.theme.value.metadata.musicTrack && <Label muted size={12}>{state.theme.value.metadata.musicTrack}</Label>}
+      {state.theme.value.metadata.bootSyncTime !== null && <Label muted size={12}>
+        {t('Media synchronization cue: {seconds} seconds', { seconds: state.theme.value.metadata.bootSyncTime })}
+      </Label>}
+      {state.theme.value.metadata.credits.map((credit, index) => <Label key={index} muted size={12}>{credit.role}: {credit.name}</Label>)}
+      {state.theme.value.metadata.accent && <Action testId="apply-theme-color" disabled={state.saving}
+        onClick={() => void features.applyThemeColor()}>{t('Use theme color')}</Action>}
+    </div>}
     {(state.theme.value?.hasVideo || state.theme.value?.hasAudio) && <Label muted size={12}>
       {t('Video and audio remain in Tauri. This preview displays the still image only.')}
     </Label>}
@@ -30,11 +42,14 @@ export function PresentationSettings({ features, disabled, openLink }: { feature
   const t = useMessages();
   return <GlassPanel>
     <Label size={18} bold>{t('Interface')}</Label>
-    <div style={{ ...row, justifyContent: 'space-between' }}>
+    <div style={{ ...column, gap: 8 }}>
       <Label>{t('Language')}</Label>
-      <div style={row}>{(['en', 'it'] as const).map(locale => <Action key={locale} testId={`locale-${locale}`}
-        disabled={disabled || state.saving} primary={state.preferences.locale === locale}
-        onClick={() => void features.savePreferences({ locale })}>{locale === 'en' ? 'English' : 'Italiano'}</Action>)}</div>
+      <div style={{ ...column, maxHeight: 180, overflowY: 'scroll' }}>
+        {languages.map(({ id: locale, label }) => <Action key={locale} testId={`locale-${locale}`}
+          disabled={disabled || state.saving} primary={state.preferences.locale === locale}
+          onClick={() => void features.savePreferences({ locale })}>{label}</Action>)}
+      </div>
+      <Label muted size={12}>{t('Existing source translations are reused where the English message matches. Other messages remain in English.')}</Label>
     </div>
     <div style={{ ...row, justifyContent: 'space-between' }}><Label>{t('Theme images')}</Label>
       <Action testId="toggle-theme-images" disabled={disabled || state.saving}

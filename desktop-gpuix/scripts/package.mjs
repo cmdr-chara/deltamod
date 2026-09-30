@@ -8,6 +8,15 @@ const repo=path.resolve(root,'..');
 const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
 const product=JSON.parse(fs.readFileSync(path.join(repo,'package.json'),'utf8'));
 if(pkg.version!==product.version) throw new Error('GPUIX and product versions must match before packaging.');
+const cutover=process.env.DELTAMOD_GPUIX_CUTOVER==='1';
+if(cutover){
+  for(const file of ['package-lock.json','native/Cargo.lock']) {
+    if(!fs.existsSync(path.join(root,file))) throw new Error('Production cutover requires reviewed '+file);
+    const metadata=fs.lstatSync(path.join(root,file));
+    if(!metadata.isFile()||metadata.isSymbolicLink()||metadata.size===0) throw new Error('Production cutover requires reviewed standalone dependency locks.');
+  }
+  if(process.platform==='darwin') throw new Error('macOS production cutover requires native Launch Services open-file/open-URL delivery, not argv alone.');
+}
 const exe=process.platform==='win32'?'.exe':'';
 for(const file of ['deltamod-gpuix'+exe,'deltamod-gpuix-host'+exe]){
   if(!fs.existsSync(path.join(root,'dist',file))) throw new Error('Missing dist/'+file);
@@ -30,17 +39,24 @@ if(process.platform==='darwin'){
 const config={
   productName:'Deltamod Community GPUIX', version:pkg.version,
   identifier:'io.github.cmdr-chara.deltamod-community-gpuix',
+  licenseFile:'../LICENSE.txt',
+  description:'Native GPUIX desktop for Deltamod Community',
+  publisher:'Deltamod Community contributors',
+  // cargo-packager uses extensions, not the Tauri-specific ext field.
+  fileAssociations:cutover?[{extensions:['modarchive'],name:'Deltamod Mod Archive',
+    description:'Deltamod Community mod package',role:'Viewer',mimeType:'application/x-deltamod-modarchive'}]:[],
   binariesDir:'dist', outDir:'bundle',
   binaries:[{path:'deltamod-gpuix',main:true},{path:'deltamod-gpuix-host',main:false}],
   formats,
   icons:[icon],
-  deepLinkProtocols:[{schemes:process.env.DELTAMOD_GPUIX_CUTOVER==='1'
+  deepLinkProtocols:[{schemes:cutover
     ? ['deltamod-gpuix-preview','deltamod-community']
     : ['deltamod-gpuix-preview']}],
   resources:[
     {src:'../games',target:'deltamod/games'},
     {src:'../web/themes',target:'deltamod/themes'},
     {src:'../web/themes/data',target:'deltamod/web/themes/data'},
+    {src:'../web/themes/img',target:'deltamod/web/themes/img'},
     {src:'../src-tauri/resources/third-party',target:'deltamod/third-party'},
     {src:'../src-tauri/resources/NOTICE.md',target:'deltamod/NOTICE.md'},
     {src:'../src-tauri/resources/THIRD_PARTY_NOTICES.md',target:'deltamod/THIRD_PARTY_NOTICES.md'},
