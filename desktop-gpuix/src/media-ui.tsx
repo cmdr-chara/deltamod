@@ -17,6 +17,7 @@ export function NativeMediaPreview({ themeId }: { themeId: string }) {
   const [error,setError]=useState('');
   const [muted,setMuted]=useState(true);
   const [volume,setVolume]=useState(50);
+  const [repeat,setRepeat]=useState(false);
   const [seconds,setSeconds]=useState(0);
   const [cue,setCue]=useState<number|null>(null);
   const [cueReached,setCueReached]=useState(false);
@@ -42,22 +43,25 @@ export function NativeMediaPreview({ themeId }: { themeId: string }) {
   },[resources,themeId,renderer]);
   // Never keep audio or video running after accessibility/volume preferences
   // change. Restart is an explicit user action with the new settings.
-  useEffect(()=>{void player.current?.stop();},[preferences.reducedMotion,muted,volume]);
+  useEffect(()=>{void player.current?.stop();},[preferences.reducedMotion,muted,volume,repeat]);
   const running=state==='running'||state==='starting';
   return <div role="region" aria-label={t('Native theme playback')} style={{...column,gap:8,maxHeight:310,overflowY:'scroll'}}>
     {video&&!preferences.reducedMotion&&running&&<img ref={image} alt={t('Native theme video')} objectFit="contain" style={{width:'100%',height:180}}/>}
     <div style={row}>
-      <Action testId="media-play" disabled={state==='unavailable'||running} onClick={()=>{void player.current?.play({muted,volume,reducedMotion:preferences.reducedMotion});}}>{t('Play media')}</Action>
+      <Action testId="media-play" disabled={state==='unavailable'||running} onClick={()=>{void player.current?.play({muted,volume,repeat,reducedMotion:preferences.reducedMotion});}}>{t('Play media')}</Action>
       <Action testId="media-stop" disabled={!running} onClick={()=>{void player.current?.stop();}}>{t('Stop media')}</Action>
       <Action testId="media-audio" onClick={()=>setMuted(value=>!value)}>{t(muted?'Enable audio':'Mute audio')}</Action>
     </div>
+    <Action testId="media-repeat" onClick={()=>setRepeat(value=>!value)}>
+      {t('Repeat playback') + ': ' + t(repeat?'On':'Off')}
+    </Action>
     {!muted&&<div style={row}>
       <Label>{t('Volume')}: {volume}%</Label>
       <Action disabled={volume===0} onClick={()=>setVolume(value=>Math.max(0,value-10))}>{t('Quieter')}</Action>
       <Action disabled={volume===100} onClick={()=>setVolume(value=>Math.min(100,value+10))}>{t('Louder')}</Action>
     </div>}
     {cue!==null&&<div style={row}>
-      <Action disabled={state==='unavailable'||running} onClick={()=>{void player.current?.play({muted,volume,reducedMotion:preferences.reducedMotion,fromCue:true});}}>{t('Play from synchronization cue')}</Action>
+      <Action disabled={state==='unavailable'||running} onClick={()=>{void player.current?.play({muted,volume,repeat,reducedMotion:preferences.reducedMotion,fromCue:true});}}>{t('Play from synchronization cue')}</Action>
       <motion.div initial={false} animate={{opacity:cueReached?1:0.45}} transition={{duration:preferences.reducedMotion?0:0.18}}><text aria-label={t(cueReached?'Synchronization cue reached':'Synchronization cue pending')}
         style={{fontSize:22,color:soulColor}}>♥</text></motion.div>
     </div>}

@@ -1,108 +1,137 @@
 # GPUIX migration status
 
-Updated 2026-09-30. **Preview, not production-ready. Tauri remains the production
-and rollback shell.** PR #122 stays a draft. This update builds on the inspected
-`f308372b2e4ef530c5a9fd7f5fa4fa0fa62064b4` branch, rather than repeating its work.
+Prepared from `46ba384cf105c47210ba84ed7ee0e25a6a25797f` on 2026-09-30.
+**Preview only. Tauri remains the production application and rollback shell.**
+The continuation below was prepared locally. Its publication and native acceptance
+must not be inferred from this document.
 
-## Already present and preserved
+## Retained implementation
 
-The GPUIX UI and managed host already reuse lifecycle/import/patch/recovery,
-launch, storage and OS-keyring operations. Source-profile attachment remains
-read-only, preview preferences have a separate root, and managed mutations remain
-explicit. Existing Nexus browser/PKCE sign-in is retained.
+Source-profile attachment remains read-only. Managed lifecycle, archive import,
+patching, recovery, launch, credentials and Nexus PKCE continue to use the existing
+Rust implementations. Authenticated single-instance forwarding, reviewed inboxes,
+explicit native acknowledgements, reduced motion, contained media resources and
+the existing eight-language catalogues remain in place.
 
-Bounded, authenticated single-instance delivery and the review inbox preserve
-protocol/archive validation, duplicate suppression, operation acknowledgements
-and modal/busy guards. The CLI accepts reviewed preview links, community protocol
-links and absolute `.modarchive` paths. A handoff never silently bypasses review.
+Production file associations, updater authority, release assets and signing
+configuration are not replaced. Existing stable updater and cutover guards remain
+closed. Older Tauri builds do not participate in the new cooperative writer lease
+and must not run against the same writable root.
 
-All eight existing locale selections and exact source-catalogue reuse remain.
-Contained still-image previews, metadata, credits, accent/soul colors and
-synchronization metadata remain available. Production Tauri dependencies, signing
-configuration, release assets and updater feed are not retired or replaced.
+## Prepared continuation
 
-## Implemented in this continuation
+### Independent Rust build boundary
 
-- **Native media preview:** bounded FFmpeg-to-GPUIX BGRA video frames, owned FFplay
-  audio, explicit Play/Stop/mute/volume, cue seeking, cue/soul-color transition,
-  reduced-motion behavior, stale-frame cancellation and bounded process reaping.
-  No WebView, arbitrary shell, remote media URL or automatic codec download.
-- **Foreground delivery:** authenticated secondary launches, including empty
-  launches, request native window activation. Requests arriving before mount are
-  coalesced. Refused activation never retries an accepted import. Initial
-  no-handoff launches retain the `--no-focus` setting.
-- **Shared writer exclusion:** a standard-library-only `native/desktop-runtime`
-  lease is acquired by both the Tauri and GPUIX AppState paths before runtime
-  initialization/recovery. The OS releases it on handle close, with no PID-file
-  stealing or unlink-based reclamation. The previous state implementation is
-  moved byte-for-byte to `state_impl.rs`. This only protects cooperating builds.
-- **Backend correctness:** fixed headless credential clearing to use
-  `self.state.credentials`. Rust 1.89 is declared for the standard-library lock
-  API. The standalone host inherits the vendored GLib fix explicitly at its own
-  workspace root.
-- **Packaging inputs:** exact native-addon staging, target/header/digest checks,
-  dependency licenses, optional reviewed codec tree, stale-lock/binary rejection,
-  and explicit Windows x64/macOS arm64/Linux x64 package formats. Full theme media
-  is staged. Unsupported targets and premature production takeover fail closed.
-- **Updater gating:** unsigned/unverified previews and unsupported formats cannot
-  contact the update feed or run an installer. GPUIX's existing independent feed
-  and verification key are preserved. Package-format mismatches remain errors.
-- **Localization/accessibility:** 22 new native-control/help/error messages have
-  entries in all eight languages. Source-catalogue fallback remains intact.
-  Disabled buttons no longer advertise an actionable click handler or misuse
-  selected-state semantics. Page headings have roles and dialogs restore valid
-  opener focus after the last modal closes.
-- **Dependency resolution workflow:** added a guarded standalone npm/Cargo lock
-  resolver and lock-required build/staging/package gates. This is not a claim
-  that the missing locks have already been generated.
+`native/app-runtime` defines `deltamod-app-runtime`. It compiles the same canonical
+source used by the shell, without running Tauri's build script. The GPUIX host's
+existing extern-crate alias now names this independent package. It is an alias,
+not a dependency on the actual `deltamod-tauri-shell` package.
 
-## Remaining production blockers
+Tauri window lifecycle, updater, AppHandle and plugin-backed import/Nexus wrappers
+are included only when the real shell build sets its private compilation cfg.
+The state initializer accepts the existing game lifecycle adapter without requiring
+Tauri in the independent build. Recovery and transaction logic are not copied or
+reimplemented. The shared writer lease remains acquired before initialization.
+A missing library-level platform-name helper used by shared channels is supplied.
 
-1. **Media parity and distribution:** reviewed codec builds/licenses/dependencies,
-   actual GPU/audio-device validation on every target, long-running A/V sync,
-   global background loops/sound effects and full theme effects parity. The native
-   preview has separate decoder clocks. See [media/packaging readiness](PACKAGING-READINESS.md).
-2. **GameBanana native sign-in:** the current provider consumes validated browser
-   cookies, while the documented app-auth endpoint uses a different contract.
-   Registration/token-flow/adapter approval is missing. See the
-   [concrete blocker and provider evidence](GAMEBANANA-AUTH-BLOCKER.md).
-3. **OS integration:** macOS Launch Services open-file/open-URL callbacks, trusted
-   `.deltamod-open` handling, and installed protocol/file-association/foreground
-   smoke evidence. Production association takeover stays disabled. Older Tauri
-   releases do not acquire the new writer lease and must still be closed before
-   the same managed data root is used by GPUIX.
-4. **Standalone locks:** `desktop-gpuix/package-lock.json` and
-   `desktop-gpuix/native/Cargo.lock` remain absent. They require a real resolver
-   run and review, not copied production locks or invented checksums.
-5. **Platform release/updater trust:** clean-host install/uninstall, matching
-   sidecars, code signing, notarization where applicable, authenticated update,
-   restart and rollback rehearsal. No runnable signed release is established by
-   header checks or a package configuration. Linux DEB remains non-self-updating.
-6. **Full backend extraction:** the host still links `deltamod-tauri-shell`.
-   The shared lease is an extracted boundary, not the complete runtime. State
-   updater/lifecycle implementations and mixed import/Nexus channel wrappers
-   still couple business code to Tauri. No fake Tauri shim or duplicated business
-   implementation was introduced to hide that dependency.
-7. **Complete localization/accessibility:** untranslated legacy/runtime strings,
-   native screen-reader trees, keyboard traversal/focus behavior and long/localized
-   layout need full platform audits. Additive catalogue coverage is not that audit.
+`npm run check:backend` inspects Cargo's actual resolved normal/build graph and
+rejects Tauri/Wry/WebView dependencies, including through aliases. Its fixture
+tests passed, but the real graph and Rust compilation could not run without Cargo.
+Source location under src-tauri is retained deliberately. This is an independent
+build boundary, not a physical relocation of every backend source file.
 
-## Focused validation in this run
+### Native macOS handoffs and trusted CLI wake requests
 
-Twenty-six focused Node tests passed across native frame/media ownership,
-foreground/focus helpers, runtime layout, updater gating and native translations.
-The real FFmpeg smoke generated and decoded a small clip through the application's
-BGRA frame pipeline. The first media test pass exposed a mock signal-default
-mistake, which was corrected before rerunning only that suite.
+A small windowless AppKit launcher handles cold/warm open-file, open-URL and reopen
+events and owns the renderer process. A private readiness handshake carries the
+managed-root identity, including custom roots. Bounded forward-only helpers send
+requests through the authenticated inbox. They cannot elect a new primary if the
+original exits, and unknown receipts are never automatically retried.
 
-Six changed TSX files passed syntax transpilation. Changed JavaScript passed syntax
-checks, JSON/TOML parsed, and original Rust blob comparisons confirmed that the
-credential correction and shell MSRV edit introduce no unrelated rewrites.
-These are **not** dependency-aware TypeScript, Cargo, GPUIX native-render or
-installed-package passes. No CI run was repeatedly tested, watched or polled.
+The launcher is built and target-checked during macOS runtime staging. Its digest
+is bound to the runtime manifest. The app bundle's main binary is the launcher,
+with the renderer and backend retained separately. Only the GPUIX preview protocol
+is declared. Production archive/community protocol takeover remains disabled.
 
-`npm run lock:resolve` stopped at `spawnSync cargo ENOENT` before creating locks.
-The environment had no Rust/Cargo toolchain or direct dependency-network access.
-Rust lease tests are included but were not executed. Native compilation, full
-existing suites and signing/installer tests were not run here. No performance
-improvement or Tauri-retirement readiness is claimed.
+Trusted `.deltamod-open` markers now request foregrounding. The fixed magic bytes,
+CLI temporary directory, local path, regular file, ownership and unchanged inode
+are checked. The marker is removed only after successful primary initialization
+or an authenticated secondary receipt. Failed or uncertain delivery retains it.
+Windows inherited ACL/reparse behavior still needs native verification.
+
+The Foundation policy checks compiled and ran on Linux. The AppKit launcher
+passed syntax parsing only. It has not been typechecked against AppKit or run on
+macOS. Installed callbacks, Finder/Dock behavior and process closure are gates,
+not completed platform acceptance. See [macOS details](macos/README.md).
+
+### Media ownership and repeat playback
+
+One coordinator owns theme playback across player instances. Replacing a theme
+waits for the previous decoder processes to close, not merely for a termination
+signal. Unreaped processes block replacement. Disposed or superseded requests
+cannot start stale playback.
+
+Explicit repeat playback uses fixed FFmpeg/FFplay loop options and retains the
+one-hour lifetime bound. Zero volume does not spawn a silent audio process.
+Playback callback failures stop owned processes. The repeat control uses the
+existing eight-language message catalogue. Native launcher failure messages also
+cover those eight languages, selected from the OS locale with English fallback.
+
+A real generated six-frame clip decoded into fourteen BGRA frames with repeat
+and left zero child processes after stop. This verifies decoder repeat and owned
+cleanup only. It does not verify GPUI painting, audio output, clock synchronization,
+full-screen theme loops, sound effects or all first-party visual effects.
+
+### Standalone dependency resolution
+
+`lock:npm` and `lock:cargo` resolve independently. `lock:resolve` attempts both and
+reports combined failures, rather than allowing a missing Cargo executable to
+prevent the npm attempt. All modes protect the existing root/Tauri/native locks.
+No lock or checksum is fabricated, and packaging still requires both real locks.
+
+The actual npm attempt failed with `EAI_AGAIN` resolving registry.npmjs.org. Cargo
+failed with `ENOENT`. Both standalone locks remain absent. GPUIX stays pinned to
+0.10.0 and the other existing dependency versions are unchanged.
+
+## Validation actually performed for this continuation
+
+- 39 focused Node tests passed, with no failures or skips. Coverage includes real
+  authenticated loopback forwarding and temporary-file marker safety, plus media
+  replacement, handshake, resolver and dependency-graph fixtures.
+- 29 Swift/Foundation policy assertions passed on Linux. AppKit launcher syntax
+  parsing passed. Neither result is macOS application typechecking or execution.
+- Real FFmpeg repeat/stop smoke: 14 frames, 921600 bytes per frame, no remaining
+  children. No audible output or GPU renderer was tested.
+- 23 materialized JavaScript files passed syntax checks, two TSX files passed
+  syntax transpilation and five declaration files passed syntax parsing. Two
+  TOML manifests and one JSON manifest parsed. These counts include unchanged
+  local prerequisites, not only changed files.
+- Actual standalone resolution and real backend graph check failed for the
+  concrete environment reasons above. CI was not watched or polled.
+
+## Remaining production gates
+
+1. Resolve/review the standalone npm/Cargo locks, compile the independent Rust
+   host, check the real dependency closure, and typecheck against GPUIX packages.
+   Existing host test-fixture constructor calls also need reconciliation with the
+   four-argument constructor before a native test pass can be claimed.
+2. Build and run native GPUIX on each target. Verify new AppKit callbacks and all
+   installed cold/warm handoffs, foreground behavior, archive associations, Windows
+   ACLs and no orphan processes. macOS Intel is not an established package target.
+3. Review/distribute codec binaries and their dependencies/licenses. Validate real
+   GPU/audio output, long-running A/V synchronization, global theme loops, sound
+   effects and remaining first-party effects. Arbitrary browser CSS is not native
+   parity and no hidden WebView is introduced.
+4. Establish provider-approved WebView-free GameBanana authorization and the
+   cookie/token backend adapter. The existing [concrete blocker](GAMEBANANA-AUTH-BLOCKER.md)
+   remains unresolved. No confidential app password or browser-cookie extraction
+   workaround is added.
+5. Install/uninstall packages on clean hosts, verify all target-matched tools and
+   complete license trees, sign/notarize with real publisher authority, and rehearse
+   authenticated update, signature rejection, restart and rollback. Linux DEB is
+   not a self-updating format. See [packaging requirements](PACKAGING-READINESS.md).
+6. Complete legacy/runtime translation coverage, screen-reader, keyboard/controller
+   focus and long/localized layout audits. Additive messages are not that audit.
+
+Do not retire Tauri, enable stable GPUIX updates or claim performance improvement
+until those production gates have real evidence.

@@ -15,15 +15,20 @@ use deltamod_patching_runtime::{PlatformDefinition, Runtime as PatchingRuntime};
 use deltamod_profile_install_runtime::Runtime as ProfileRuntime;
 use deltamod_protocol_domain::{AssetRoots, PendingQueue};
 use deltamod_storage_domain::{DataRoot, ProfileStore};
+#[cfg(deltamod_tauri_shell)]
 use deltamod_updater_launch_runtime::tauri_adapter::{
     Adapter as TrustedUpdateAdapter, VerifiedUpdateHost,
 };
 use deltamod_updater_launch_runtime::{
     GameLifecycle, GameRuntime, GameRuntimeConfig, HostPlatform, SystemProcessSpawner,
-    SystemSteamOpener, UpdateControl, UpdateError, UpdateEvent, UpdateEventSink, UpdateInfo,
-    Updater, UpdaterGate,
+    SystemSteamOpener,
+};
+#[cfg(deltamod_tauri_shell)]
+use deltamod_updater_launch_runtime::{
+    UpdateControl, UpdateError, UpdateEvent, UpdateEventSink, UpdateInfo, Updater, UpdaterGate,
 };
 use serde::{Deserialize, Serialize};
+#[cfg(deltamod_tauri_shell)]
 use serde_json::json;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -35,22 +40,28 @@ use std::{
     },
     time::Duration,
 };
+#[cfg(deltamod_tauri_shell)]
 use tauri::{Emitter, Manager};
+#[cfg(deltamod_tauri_shell)]
 use tauri_plugin_updater::{Update as TauriUpdate, UpdaterExt};
 
+#[cfg(deltamod_tauri_shell)]
 const UPDATE_ENDPOINT: &str =
     "https://github.com/cmdr-chara/deltamod/releases/latest/download/latest.json";
 
+#[cfg(deltamod_tauri_shell)]
 pub(crate) struct DownloadedUpdate {
     update: TauriUpdate,
     artifact: deltamod_updater_launch_runtime::update_download::VerifiedDownload,
 }
 
+#[cfg(deltamod_tauri_shell)]
 pub(crate) struct TauriUpdaterHost {
     app: Option<tauri::AppHandle>,
     pending: Option<TauriUpdate>,
 }
 
+#[cfg(deltamod_tauri_shell)]
 impl TauriUpdaterHost {
     fn new(app: Option<tauri::AppHandle>) -> Self {
         Self { app, pending: None }
@@ -63,6 +74,7 @@ impl TauriUpdaterHost {
     }
 }
 
+#[cfg(deltamod_tauri_shell)]
 impl VerifiedUpdateHost for TauriUpdaterHost {
     type VerifiedPayload = DownloadedUpdate;
 
@@ -130,6 +142,7 @@ impl VerifiedUpdateHost for TauriUpdaterHost {
     }
 }
 
+#[cfg(deltamod_tauri_shell)]
 fn plugin_error(error: tauri_plugin_updater::Error) -> UpdateError {
     let message = error.to_string().chars().take(512).collect::<String>();
     match error {
@@ -142,9 +155,11 @@ fn plugin_error(error: tauri_plugin_updater::Error) -> UpdateError {
     }
 }
 
+#[cfg(deltamod_tauri_shell)]
 #[derive(Clone)]
 pub struct UpdateEvents(Option<tauri::AppHandle>);
 
+#[cfg(deltamod_tauri_shell)]
 impl UpdateEventSink for UpdateEvents {
     fn emit(&self, event: UpdateEvent) {
         let Some(app) = &self.0 else { return };
@@ -166,10 +181,13 @@ impl UpdateEventSink for UpdateEvents {
     }
 }
 
+#[cfg(deltamod_tauri_shell)]
 pub(crate) type ShellUpdater = Updater<TrustedUpdateAdapter<TauriUpdaterHost>, UpdateEvents>;
 
+#[cfg(deltamod_tauri_shell)]
 struct TauriGameLifecycle(tauri::AppHandle);
 
+#[cfg(deltamod_tauri_shell)]
 impl GameLifecycle for TauriGameLifecycle {
     fn launched(&self) {
         if let Some(window) = self.0.get_webview_window("main") {
@@ -233,31 +251,50 @@ pub struct AppState {
     pub startup_recovery_errors: Mutex<Vec<String>>,
     pub easter_egg_window: Arc<Mutex<EasterEggWindowState>>,
     pub game_store_path: PathBuf,
+    #[cfg(deltamod_tauri_shell)]
     pub updater: Mutex<ShellUpdater>,
+    #[cfg(deltamod_tauri_shell)]
     pub updater_control: UpdateControl,
+}
+
+struct RuntimeConfiguration {
+    test_mode: bool,
+    lifecycle: Option<Arc<dyn GameLifecycle>>,
+    #[cfg(deltamod_tauri_shell)]
+    app: Option<tauri::AppHandle>,
 }
 
 impl AppState {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn initialize(data_dir: PathBuf, resource_dir: PathBuf) -> Result<Self, &'static str> {
-        Self::initialize_inner(data_dir, resource_dir, None)
+        Self::initialize_inner(data_dir, resource_dir, RuntimeConfiguration {
+            test_mode: true,
+            lifecycle: None,
+            #[cfg(deltamod_tauri_shell)]
+            app: None,
+        })
     }
 
+    #[cfg(deltamod_tauri_shell)]
     pub fn initialize_with_app(
         data_dir: PathBuf,
         resource_dir: PathBuf,
         app: tauri::AppHandle,
     ) -> Result<Self, &'static str> {
         crate::controller::install_protocols(&app)?;
-        Self::initialize_inner(data_dir, resource_dir, Some(app))
+        Self::initialize_inner(data_dir, resource_dir, RuntimeConfiguration {
+            test_mode: false,
+            lifecycle: Some(Arc::new(TauriGameLifecycle(app.clone()))),
+            app: Some(app),
+        })
     }
 
     fn initialize_inner(
         data_dir: PathBuf,
         resource_dir: PathBuf,
-        app_handle: Option<tauri::AppHandle>,
+        configuration: RuntimeConfiguration,
     ) -> Result<Self, &'static str> {
-        let test_mode = app_handle.is_none();
+        let test_mode = configuration.test_mode;
         let data_root = DataRoot::new(data_dir).map_err(|_| "state root unavailable")?;
         let themes = data_root.root.join("themes");
         fs::create_dir_all(&themes).map_err(|_| "state root unavailable")?;
@@ -333,24 +370,26 @@ impl AppState {
         let game_store_path = selected_game_store(&data_root);
         let host = HostPlatform::current().map_err(|_| "game platform unavailable")?;
         let game_config = GameRuntimeConfig::new(app.join("games"), game_store_path.clone(), host);
-        let game = if let Some(app_handle) = app_handle.clone() {
+        let game = if let Some(lifecycle) = configuration.lifecycle {
             GameRuntime::with_adapters(
                 game_config,
                 Arc::new(SystemProcessSpawner),
                 Arc::new(SystemSteamOpener),
-                Arc::new(TauriGameLifecycle(app_handle)),
+                lifecycle,
             )
         } else {
             GameRuntime::new(game_config)
         };
         let patching = patching_runtime(&data_root, &app, &game_store_path)?;
-        let updater_app = app_handle.clone();
-        let updater_gate = updater_gate(app_handle.as_ref());
-        let updater = Updater::new(
-            TrustedUpdateAdapter(TauriUpdaterHost::new(updater_app.clone())),
-            UpdateEvents(updater_app),
-            updater_gate,
-        );
+        #[cfg(deltamod_tauri_shell)]
+        let updater = {
+            let updater_gate = updater_gate(configuration.app.as_ref());
+            Updater::new(
+                TrustedUpdateAdapter(TauriUpdaterHost::new(configuration.app.clone())),
+                UpdateEvents(configuration.app),
+                updater_gate,
+            )
+        };
         Ok(Self {
             data_root,
             _assets: AssetRoots {
@@ -383,7 +422,9 @@ impl AppState {
             startup_recovery_errors: Mutex::new(Vec::new()),
             easter_egg_window: Arc::new(Mutex::new(EasterEggWindowState::default())),
             game_store_path,
+            #[cfg(deltamod_tauri_shell)]
             updater_control: updater.control(),
+            #[cfg(deltamod_tauri_shell)]
             updater: Mutex::new(updater),
         })
     }
@@ -409,6 +450,7 @@ impl AppState {
     }
 }
 
+#[cfg(deltamod_tauri_shell)]
 fn updater_gate(app: Option<&tauri::AppHandle>) -> UpdaterGate {
     let Some(app) = app else {
         return UpdaterGate::disabled();
@@ -554,10 +596,13 @@ fn patching_runtime(
     let tools_root = if packaged_tools.is_dir() {
         packaged_tools
     } else if cfg!(debug_assertions) {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .ok_or("tool root unavailable")?
-            .join("tools")
+        // The independent package lives in native/app-runtime. Keep the same
+        // repository tools directory in development without relying on cwd.
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(if cfg!(deltamod_tauri_shell) {
+            "../tools"
+        } else {
+            "../../tools"
+        })
     } else {
         return Err("tool root unavailable");
     };

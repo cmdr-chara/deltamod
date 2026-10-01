@@ -16,7 +16,9 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+#[cfg(deltamod_tauri_shell)]
 use tauri::AppHandle;
+#[cfg(deltamod_tauri_shell)]
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 use uuid::Uuid;
@@ -840,6 +842,7 @@ where
     result.unwrap_or_else(|error| error.response())
 }
 
+#[cfg(deltamod_tauri_shell)]
 pub fn start(app: &AppHandle, state: &AppState) -> Value {
     start_with_opener(state, |url| {
         app.opener().open_url(url, None::<&str>).map_err(|_| ())

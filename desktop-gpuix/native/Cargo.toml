@@ -10,11 +10,6 @@ publish = false
 [workspace]
 resolver = "2"
 
-# Dependency workspaces do not propagate their patches to this root. Preserve
-# the production GLib soundness fix while the backend still depends on Tauri.
-[patch.crates-io]
-glib = { path = "../../vendor/glib-0.18.5-patched" }
-
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -23,7 +18,9 @@ url = "2"
 deltamod-storage-domain = { path = "../../src-tauri/crates/storage" }
 deltamod-mods-themes-domain = { path = "../../src-tauri/crates/mods-themes" }
 deltamod-network-runtime = { path = "../../src-tauri/crates/network-runtime" }
-deltamod-tauri-shell = { path = "../../src-tauri" }
+# Retain the existing Rust import alias only. The resolved package is the
+# independent runtime, with no Tauri build script, plugins, Wry or WebView.
+deltamod-tauri-shell = { package = "deltamod-app-runtime", path = "../../native/app-runtime" }
 
 [profile.release]
 codegen-units = 1

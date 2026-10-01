@@ -14,6 +14,8 @@ const suffix=process.platform==='win32'?'.exe':'';
 const host=regularFile(root,`dist/deltamod-gpuix-host${suffix}`);
 verifyBinary(host,target.id);
 verifyBinary(regularFile(root,`dist/deltamod-gpuix${suffix}`),target.id);
+const launcher=process.platform==='darwin'?regularFile(root,'dist/deltamod-gpuix-launcher'):null;
+if(launcher)verifyBinary(launcher,target.id);
 const addons=[];
 let visited=0;
 function walk(directory,depth=0) {
@@ -83,5 +85,6 @@ if(codecRoot) {
 fs.writeFileSync(path.join(output,'runtime.json'),JSON.stringify({schemaVersion:1,gpuixVersion:GPUIX_VERSION,
   appVersion:pkg.version,target:target.id,releaseChannel:'preview',updaterRehearsal:'not-performed',
   locks:{npm:fileDigest(path.join(root,'package-lock.json')),cargo:fileDigest(path.join(root,'native','Cargo.lock'))},
+  launcherSha256:launcher?fileDigest(launcher):null,
   frontendSha256:fileDigest(path.join(root,`dist/deltamod-gpuix${suffix}`)),hostSha256:fileDigest(host),addon:{path:`native/${target.addon}`,sha256:fileDigest(path.join(output,target.addon))}},null,2)+'\n');
 console.log(`Staged ${target.id} native runtime. Publisher signing, installed smoke tests and updater rehearsal remain separate gates.`);

@@ -9,8 +9,12 @@ mod implementation;
 mod runtime_lease;
 
 #[allow(unused_imports)]
-pub use implementation::{EasterEggWindowState, Preferences, UpdateEvents};
+pub use implementation::{EasterEggWindowState, Preferences};
+#[cfg(deltamod_tauri_shell)]
 #[allow(unused_imports)]
+pub use implementation::UpdateEvents;
+#[allow(unused_imports)]
+#[cfg(deltamod_tauri_shell)]
 pub(crate) use implementation::{DownloadedUpdate, ShellUpdater, TauriUpdaterHost};
 use deltamod_storage_domain::DataRoot;
 use std::{ops::{Deref, DerefMut}, path::PathBuf};
@@ -36,6 +40,7 @@ impl AppState {
         Ok(Self { inner, _lease: lease })
     }
 
+    #[cfg(deltamod_tauri_shell)]
     pub fn initialize_with_app(data_dir: PathBuf, resource_dir: PathBuf, app: tauri::AppHandle) -> Result<Self, &'static str> {
         let (data_dir, lease) = Self::claim(data_dir)?;
         let inner = implementation::AppState::initialize_with_app(data_dir, resource_dir, app)?;

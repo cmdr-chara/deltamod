@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: EUPL-1.2
 import { spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
+import { themePlaybackCoordinator } from './media-owner.mjs';
 import { checkedArtifact, readJsonResource, regularFile, targetFor } from './runtime-layout.mjs';
 
 export const VIDEO = Object.freeze({ width: 640, height: 360, fps: 24, bytes: 640 * 360 * 4 });
@@ -50,20 +51,21 @@ export class FrameAssembler {
     }
   }
 }
-export function playbackPlan(theme, { muted = true, volume = 50, reducedMotion = true, fromCue = false } = {}) {
+export function playbackPlan(theme, { muted = true, volume = 50, reducedMotion = true, fromCue = false, repeat = false } = {}) {
+  if ([muted, reducedMotion, fromCue, repeat].some(value => typeof value !== 'boolean')) throw new Error('Invalid native playback options.');
   if (!Number.isInteger(volume) || volume < 0 || volume > 100) throw new Error('Invalid native audio volume.');
   const offset = fromCue ? theme.cue ?? 0 : 0;
   const video = !reducedMotion && theme.video;
-  const audio = !muted && theme.audio;
+  const audio = !muted && volume > 0 && theme.audio;
   if (!video && !audio) throw new Error('Enable audio or turn off reduced motion to play this theme.');
   const seek = offset > 0 ? ['-ss', String(offset)] : [];
   return { offset,
-    video: video ? ['-hide_banner', '-loglevel', 'error', '-nostdin', '-threads', '2', '-filter_threads', '1', '-protocol_whitelist', 'file,pipe', '-re', ...seek,
+    video: video ? ['-hide_banner', '-loglevel', 'error', '-nostdin', '-threads', '2', '-filter_threads', '1', '-protocol_whitelist', 'file,pipe', '-re', ...(repeat ? ['-stream_loop', '-1'] : []), ...seek,
       '-i', video, '-map', '0:v:0', '-an', '-sn', '-dn', '-t', '3600', '-vf',
       `scale=${VIDEO.width}:${VIDEO.height}:force_original_aspect_ratio=decrease,pad=${VIDEO.width}:${VIDEO.height}:(ow-iw)/2:(oh-ih)/2,fps=${VIDEO.fps}`,
       '-pix_fmt', 'bgra', '-f', 'rawvideo', 'pipe:1'] : null,
     audio: audio ? ['-hide_banner', '-loglevel', 'error', '-nostats', '-nodisp', '-autoexit',
-      '-protocol_whitelist', 'file,pipe', ...seek, '-i', audio, '-vn', '-sn', '-t', '3600', '-volume', String(volume)] : null,
+      '-protocol_whitelist', 'file,pipe', ...(repeat ? ['-loop', '0'] : []), ...seek, '-i', audio, '-vn', '-sn', '-t', '3600', '-volume', String(volume)] : null,
   };
 }
 
@@ -72,7 +74,8 @@ export function playbackPlan(theme, { muted = true, volume = 50, reducedMotion =
  * theme cannot paint stale frames or continue playing audio. Preview A/V starts
  * from the same seek offset, but separate decoder clocks are not sample-locked. */
 export class NativeThemePlayer {
-  constructor(theme, tools, { onFrame = () => {}, onState = () => {}, onTime = () => {}, spawnImpl = spawn } = {}) {
+  constructor(theme, tools, { onFrame = () => {}, onState = () => {}, onTime = () => {}, spawnImpl = spawn, coordinator = themePlaybackCoordinator } = {}) {
+    this.coordinator=coordinator;
     this.theme=theme;this.tools=tools;this.onFrame=onFrame;this.onState=onState;this.onTime=onTime;this.spawn=spawnImpl;
     this.children=new Set();this.sequence=0;this.disposed=false;this.blocked=false;this.timer=null;this.stopPromise=Promise.resolve();
     this.exit=()=>{ for(const child of this.children) { try { child.kill('SIGKILL'); } catch {} } };
@@ -80,6 +83,14 @@ export class NativeThemePlayer {
   }
   async play(options = {}) {
     const sequence=++this.sequence;
+    try {
+      return await this.coordinator.claim(this, async () => this.startPlayback(options, sequence));
+    } catch (error) {
+      if (!this.disposed && sequence === this.sequence) this.onState('error', error.message);
+      return false;
+    }
+  }
+  async startPlayback(options, sequence) {
     await this.stopChildren();
     if(this.disposed || sequence!==this.sequence) return false;
     if(this.blocked || this.children.size) { this.onState('error','A previous native player could not be stopped. Restart the application.');return false; }
@@ -121,9 +132,10 @@ export class NativeThemePlayer {
     this.timer=setInterval(()=>{
       if(sequence!==this.sequence || this.disposed) return;
       const now=performance.now();
-      if((plan.video && now-lastVideo>10000) || now-started>3600*1000) {fail();return;}
+      if(plan.video && now-lastVideo>10000) {fail();return;}
+      if(now-started>3600*1000) {void this.stop();return;}
       const seconds=plan.offset+(plan.video ? Math.max(0,frames-1)/VIDEO.fps : (now-started)/1000);
-      this.onTime(seconds,this.theme.cue!==null && seconds>=this.theme.cue);
+      try { this.onTime(seconds,this.theme.cue!==null && seconds>=this.theme.cue); } catch { fail(); }
     },250);
     this.timer.unref();
     return true;

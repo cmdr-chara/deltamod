@@ -137,6 +137,9 @@ export async function startSingleInstance(options, items, receive) {
   const identity = createHash('sha256').update(canonicalPath(options.managedDataRoot || options.stateRoot)).digest('hex');
   const token = privateKey(identity);
   const port = 32768 + (parseInt(identity.slice(0, 8), 16) % 28000);
+  // OS event forwarders may never elect themselves as a replacement writer.
+  // If the primary exits between events, fail rather than opening another host.
+  if (options.forwardOnly === true) return forward(port, token, normalized);
   const sockets = new Set();
   const server = net.createServer(socket => {
     sockets.add(socket);

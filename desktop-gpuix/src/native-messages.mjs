@@ -4,6 +4,7 @@
 // for all other messages. These messages deliberately contain no HTML or placeholders.
 export const nativeLocales = Object.freeze(['en', 'it', 'de', 'es', 'fr', 'ja', 'pl', 'pt-br']);
 const entries = {
+  'Repeat playback': ['Ripeti riproduzione','Wiedergabe wiederholen','Repetir reproducción','Répéter la lecture','リピート再生','Powtarzaj odtwarzanie','Repetir reprodução'],
   'Unavailable': ['Non disponibile','Nicht verfügbar','No disponible','Indisponible','利用できません','Niedostępne','Indisponível'],
   'Native theme playback': ['Riproduzione nativa del tema','Native Themenwiedergabe','Reproducción nativa del tema','Lecture native du thème','テーマのネイティブ再生','Natywne odtwarzanie motywu','Reprodução nativa do tema'],
   'Native theme video': ['Video nativo del tema','Natives Themenvideo','Vídeo nativo del tema','Vidéo native du thème','テーマのネイティブ動画','Natywne wideo motywu','Vídeo nativo do tema'],

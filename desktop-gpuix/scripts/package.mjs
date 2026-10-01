@@ -49,11 +49,13 @@ const config={
   publisher:'Deltamod Community contributors',
   fileAssociations:[], // Production .modarchive ownership remains with Tauri.
   binariesDir:'dist',outDir:'bundle',
-  binaries:[{path:'deltamod-gpuix',main:true},{path:'deltamod-gpuix-host',main:false}],
+  binaries:process.platform==='darwin'
+    ? [{path:'deltamod-gpuix-launcher',main:true},{path:'deltamod-gpuix',main:false},{path:'deltamod-gpuix-host',main:false}]
+    : [{path:'deltamod-gpuix',main:true},{path:'deltamod-gpuix-host',main:false}],
   formats:[format],icons:[icon],
-  // Do not advertise Launch Services delivery before native open-URL callbacks
-  // exist. macOS CLI handoffs remain available for development verification.
-  deepLinkProtocols:process.platform==='darwin'?[]:[{schemes:['deltamod-gpuix-preview']}],
+  // macOS uses the native Launch Services launcher. This is still a preview
+  // protocol, never a takeover of Tauri's production association.
+  deepLinkProtocols:[{schemes:['deltamod-gpuix-preview']}],
   resources:[
     {src:'dist/native',target:'deltamod/native'},
     {src:'../games',target:'deltamod/games'},

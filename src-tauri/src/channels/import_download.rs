@@ -11,6 +11,7 @@ use deltamod_tauri_os_adapters::{
 };
 use serde_json::{json, Value};
 use std::{cell::RefCell, collections::HashMap, fs};
+#[cfg(deltamod_tauri_shell)]
 use tauri::{AppHandle, Emitter};
 use tokio::sync::watch;
 use uuid::Uuid;
@@ -29,6 +30,7 @@ fn valid_operation_id(value: &str) -> bool {
     (1..=32).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_alphanumeric())
 }
 
+#[cfg(deltamod_tauri_shell)]
 fn emit_download_error(app: &AppHandle, operation_id: &str, message: &str) {
     let _ = app.emit(
         "dlmodURL-progress",
@@ -139,6 +141,7 @@ fn optional_source_metadata(data: &[Value]) -> Result<Option<LegacySourceMetadat
     .map_err(|_| error::invalid("dlmodURL"))
 }
 
+#[cfg(deltamod_tauri_shell)]
 fn download_mod<D: ChoiceBackend>(
     app: &AppHandle,
     state: &AppState,
@@ -321,6 +324,7 @@ fn protocol_download_progress_payload(
     })
 }
 
+#[cfg(deltamod_tauri_shell)]
 pub(crate) fn run_protocol_import<D: ChoiceBackend>(
     app: &AppHandle,
     state: &AppState,
@@ -430,6 +434,7 @@ pub(crate) fn run_protocol_import_headless<D: ChoiceBackend>(
     Ok(imported)
 }
 
+#[cfg(deltamod_tauri_shell)]
 fn emit_game_progress(app: &AppHandle, event: &deltamod_game_download_runtime::ProgressEvent) {
     let _ = app.emit("game-import-progress", event);
 }
@@ -448,6 +453,7 @@ fn game_limits(
     }
 }
 
+#[cfg(deltamod_tauri_shell)]
 fn download_game(app: &AppHandle, state: &AppState, data: &[Value]) -> Result<Value, String> {
     let game_id = data
         .first()
@@ -614,6 +620,7 @@ fn cancel_game_download(
 
 /// Isolated legacy channel adapter. Integration must place this before `workflows::dispatch`,
 /// which currently returns an unavailable error for `importMod` and `dlmodURL`.
+#[cfg(deltamod_tauri_shell)]
 pub fn dispatch<D: DialogBackend + ChoiceBackend>(
     app: &AppHandle,
     _state: &AppState,

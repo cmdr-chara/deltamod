@@ -114,6 +114,11 @@ export function prepareNativeRuntime(options, env = process.env, executable = pr
   const host = regularFile(path.dirname(options.executable), path.basename(options.executable));
   verifyBinary(host, target.id);
   if (fileDigest(host) !== manifest.hostSha256) throw new Error('Native host does not match the packaged manifest.');
+  if (target.platform === 'darwin') {
+    const launcher = regularFile(path.dirname(executable), 'deltamod-gpuix-launcher');
+    verifyBinary(launcher, target.id);
+    if (fileDigest(launcher) !== manifest.launcherSha256) throw new Error('macOS launcher does not match the packaged manifest.');
+  }
   if (env.NAPI_RS_FORCE_WASI && env.NAPI_RS_FORCE_WASI !== '0') throw new Error('WASI is not a supported desktop runtime.');
   env.NAPI_RS_NATIVE_LIBRARY_PATH = addon;
   return manifest;

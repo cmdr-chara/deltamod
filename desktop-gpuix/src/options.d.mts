@@ -11,6 +11,8 @@ export interface Options {
   openLink: string;
   protocolLink: string;
   archiveFile: string;
+  launchMarker: string;
+  forwardOnly: boolean;
   benchmarkFile: string;
   reducedMotion: boolean | null;
   opaque: boolean | null;

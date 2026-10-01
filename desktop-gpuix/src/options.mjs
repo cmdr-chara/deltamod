@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { parseIntent } from './deep-links.mjs';
 import { archivePath, protocolLink } from './handoffs.mjs';
+import { launchMarkerPath } from './launch-marker.mjs';
 
 export function parseOptions(argv, env = process.env, platform = process.platform) {
   if (!Array.isArray(argv) || argv.length > 128 || argv.some(value => typeof value !== 'string')
@@ -28,7 +29,7 @@ export function parseOptions(argv, env = process.env, platform = process.platfor
     executable: existsSync(path.join(executableDir, `deltamod-gpuix-host${platform === 'win32' ? '.exe' : ''}`))
       ? path.join(executableDir, `deltamod-gpuix-host${platform === 'win32' ? '.exe' : ''}`)
       : path.join(developmentRoot, 'desktop-gpuix', 'native', 'target', 'release', `deltamod-gpuix-host${platform === 'win32' ? '.exe' : ''}`),
-    focus: true, benchmarkFile: '', reducedMotion: null, opaque: null, openLink: '', protocolLink: '', archiveFile: '', managedDataRoot: '' };
+    focus: true, benchmarkFile: '', reducedMotion: null, opaque: null, openLink: '', protocolLink: '', archiveFile: '', launchMarker: '', forwardOnly: false, managedDataRoot: '' };
   const flags = new Map([['--resources-root', 'resourcesRoot'], ['--state-root', 'stateRoot'],
     ['--source-profile', 'sourceProfile'], ['--managed-data-root', 'managedDataRoot'], ['--backend', 'executable'], ['--benchmark-file', 'benchmarkFile']]);
   const seen = new Set();
@@ -48,6 +49,12 @@ export function parseOptions(argv, env = process.env, platform = process.platfor
         options.openLink = flag;
         continue;
       }
+      const localName = /^file:/i.test(flag) ? decodeURIComponent(new URL(flag).pathname) : flag;
+      if (/\.deltamod-open$/i.test(localName)) {
+        if (options.launchMarker) throw new Error('Duplicate CLI launch marker.');
+        options.launchMarker = launchMarkerPath(flag, platform);
+        continue;
+      }
       if (/\.modarchive$/i.test(flag) || /^file:/i.test(flag)) {
         if (options.archiveFile) throw new Error('Duplicate archive handoff.');
         options.archiveFile = archivePath(flag, platform);
@@ -57,6 +64,7 @@ export function parseOptions(argv, env = process.env, platform = process.platfor
     }
     if (seen.has(flag)) throw new Error(`Duplicate argument: ${flag}`);
     seen.add(flag);
+    if (flag === '--forward-only') { options.forwardOnly = true; continue; }
     if (flag === '--no-focus') { options.focus = false; continue; }
     if (flag === '--reduce-motion') { options.reducedMotion = true; continue; }
     if (flag === '--opaque') { options.opaque = true; continue; }
@@ -82,7 +90,7 @@ export function parseOptions(argv, env = process.env, platform = process.platfor
     if (!key || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Unknown or incomplete argument: ${flag}`);
     options[key] = path.resolve(argv[++i]);
   }
-  if ((options.openLink || options.protocolLink || options.archiveFile) && options.benchmarkFile) throw new Error('Link handling cannot alter a benchmark launch.');
+  if ((options.openLink || options.protocolLink || options.archiveFile || options.launchMarker) && options.benchmarkFile) throw new Error('Link handling cannot alter a benchmark launch.');
   return options;
 }
 

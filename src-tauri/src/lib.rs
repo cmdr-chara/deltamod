@@ -17,6 +17,7 @@ pub mod state;
 // state.rs references the shell protocol installer only from initialize_with_app.
 // The library's windowless initializer never calls it. Keeping this stub in the
 // library crate avoids pulling controller/window ownership into headless callers.
+#[cfg(deltamod_tauri_shell)]
 pub mod controller {
     pub fn install_protocols(_app: &tauri::AppHandle) -> Result<(), &'static str> {
         Err("protocol registration belongs to the Tauri shell")
@@ -39,6 +40,15 @@ use std::{
         Arc, Mutex,
     },
 };
+
+// Shared channel code uses the product's platform identifiers, not Rust's OS names.
+fn platform_name() -> &'static str {
+    match std::env::consts::OS {
+        "windows" => "win32",
+        "macos" => "darwin",
+        other => other,
+    }
+}
 
 pub struct HeadlessBackend {
     state: state::AppState,

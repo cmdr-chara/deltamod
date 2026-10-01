@@ -11,8 +11,20 @@ import { HandoffInbox, type Handoff } from './handoffs.mjs';
 import { startSingleInstance } from './single-instance.mjs';
 import { WindowActivation } from './window-lifecycle.mjs';
 import { prepareNativeRuntime } from './runtime-layout.mjs';
+import { createLauncherReady } from './launcher-ready.mjs';
+import { readLaunchMarker, acknowledgeLaunchMarker, abandonLaunchMarker } from './launch-marker.mjs';
 
+const launcherReady = createLauncherReady();
 const options = parseOptions(process.argv.slice(2));
+// Validate before any native runtime starts. This capability requests a window,
+// never an import or arbitrary command. Failed launches retain the CLI marker.
+const launchMarker = options.launchMarker ? readLaunchMarker(options.launchMarker) : null;
+if (launchMarker) process.once('exit', () => abandonLaunchMarker(launchMarker));
+const acknowledgeMarker = () => {
+  if (!launchMarker) return;
+  try { acknowledgeLaunchMarker(launchMarker); }
+  catch { console.error('The CLI launch marker changed before acknowledgement and was retained.'); }
+};
 const inbox = new HandoffInbox();
 const activation = new WindowActivation(message => console.error(message));
 const requests: Handoff[] = [];
@@ -24,7 +36,7 @@ const instance = await startSingleInstance(options, requests, items => {
   const receipt = inbox.receive(items);
   // Authenticated secondary launches also foreground an existing window when
   // no file was supplied. First launch still respects --no-focus.
-  if (!starting || items.length > 0) activation.request();
+  if (!starting || items.length > 0 || launchMarker) activation.request();
   return receipt;
 });
 starting = false;
@@ -70,6 +82,8 @@ if (instance.primary) {
     render(createElement(ThemeResources.Provider, { value: options.resourcesRoot }, createElement(Fragment, null,
       createElement(NativeWindow, { activation }),
       createElement(HandoffShell, { inbox, model, features, managed, updater, overrides: options, onCommitted: () => {
+        launcherReady(options);
+        acknowledgeMarker();
         if (marked || !options.benchmarkFile) return;
         marked = true;
         // Model/React-commit handshake, not a native paint measurement.
@@ -97,4 +111,10 @@ if (instance.primary) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }
-} else { activation.dispose(); inbox.dispose(); }
+} else {
+  // A verified receipt proves the existing instance accepted the wake request.
+  launcherReady(options);
+  acknowledgeMarker();
+  activation.dispose();
+  inbox.dispose();
+}

@@ -1,0 +1,54 @@
+[package]
+name = "deltamod-app-runtime"
+version = "2.0.18"
+edition = "2021"
+rust-version = "1.89"
+license = "EUPL-1.2"
+publish = false
+
+[workspace]
+resolver = "2"
+
+# A single canonical implementation is compiled by both consumers. Keeping its
+# source paths stable also preserves include_str! resource paths and regression
+# fixtures. This package does not run the Tauri shell's build.rs.
+[lib]
+path = "../../src-tauri/src/lib.rs"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(deltamod_tauri_shell)'] }
+
+[dependencies]
+os_info = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1.1.4"
+base64 = "0.23"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }
+sha2 = "0.11"
+tokio = { version = "1", features = ["rt", "sync", "time"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+url = "2"
+deltamod-native-core = { path = "../core" }
+deltamod-installations-domain = { path = "../../src-tauri/crates/installations" }
+deltamod-mods-themes-domain = { path = "../../src-tauri/crates/mods-themes" }
+deltamod-mods-themes-runtime = { path = "../../src-tauri/crates/mods-themes-runtime" }
+deltamod-archive-import-runtime = { path = "../../src-tauri/crates/archive-import-runtime" }
+deltamod-game-download-runtime = { path = "../../src-tauri/crates/game-download-runtime" }
+deltamod-product-contracts = { path = "../../src-tauri/crates/product-contracts" }
+deltamod-lifecycle-runtime = { path = "../../src-tauri/crates/lifecycle-runtime" }
+deltamod-provider-platform = { path = "../../src-tauri/crates/provider-platform" }
+deltamod-patching-runtime = { path = "../../src-tauri/crates/patching-runtime" }
+deltamod-network-domain = { path = "../../src-tauri/crates/network" }
+deltamod-network-runtime = { path = "../../src-tauri/crates/network-runtime" }
+deltamod-profile-install-runtime = { path = "../../src-tauri/crates/profile-install" }
+deltamod-protocol-domain = { path = "../../src-tauri/crates/protocol" }
+deltamod-storage-domain = { path = "../../src-tauri/crates/storage" }
+deltamod-asset-runtime = { path = "../../src-tauri/crates/asset-runtime" }
+deltamod-tools-runtime = { path = "../../src-tauri/crates/tools-runtime" }
+deltamod-updater-launch-runtime = { path = "../../src-tauri/crates/updater-launch-runtime", default-features = false }
+deltamod-credentials-adapter = { path = "../../src-tauri/crates/credentials" }
+deltamod-tauri-os-adapters = { path = "../../src-tauri/crates/os-adapters", default-features = false }
+
+[dev-dependencies]
+zip = { version = "=8.6.0", default-features = false, features = ["deflate"] }

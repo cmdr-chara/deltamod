@@ -18,8 +18,12 @@
     "smoke": "node scripts/smoke.mjs",
     "build:binary": "node scripts/sync-locales.mjs && bun build --compile src/main.tsx --outfile dist/deltamod-gpuix",
     "stage:host": "node scripts/stage-host.mjs",
-    "stage:runtime": "node scripts/stage-runtime.mjs",
+    "build:launcher": "node scripts/build-launcher.mjs",
+    "check:backend": "node scripts/check-backend.mjs",
+    "stage:runtime": "node scripts/build-launcher.mjs && node scripts/stage-runtime.mjs",
     "lock:resolve": "node scripts/resolve-locks.mjs",
+    "lock:npm": "node scripts/resolve-locks.mjs --npm-only",
+    "lock:cargo": "node scripts/resolve-locks.mjs --cargo-only",
     "package:gpuix": "node scripts/package.mjs",
     "sync:locales": "node scripts/sync-locales.mjs"
   },
