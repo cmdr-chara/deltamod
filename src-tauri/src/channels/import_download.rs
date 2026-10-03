@@ -30,6 +30,7 @@ fn valid_operation_id(value: &str) -> bool {
 }
 
 fn emit_download_error(app: &AppHandle, operation_id: &str, message: &str) {
+    eprintln!("[dlmodURL] operation {operation_id} failed: {message}");
     let _ = app.emit(
         "dlmodURL-progress",
         json!({

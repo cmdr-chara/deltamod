@@ -542,8 +542,28 @@ fn queue_protocol_action(app: &AppHandle, action: CommunityAction) {
 
 #[cfg(target_os = "macos")]
 fn queue_protocol_url(app: &AppHandle, raw: &str) {
-    if let Ok(action) = parse_protocol_action(raw) {
-        queue_protocol_action(app, action);
+    match parse_protocol_action(raw) {
+        Ok(action) => queue_protocol_action(app, action),
+        Err(_) => emit_protocol_failure(app),
+    }
+}
+
+/// URLs that launched the app, read from the deep-link plugin at setup. macOS can
+/// also replay them through `RunEvent::Opened`, so each is skipped once there.
+#[cfg(target_os = "macos")]
+static STARTUP_PROTOCOL_URLS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(target_os = "macos")]
+fn take_startup_protocol_url(raw: &str) -> bool {
+    let Ok(mut urls) = STARTUP_PROTOCOL_URLS.lock() else {
+        return false;
+    };
+    match urls.iter().position(|url| url == raw) {
+        Some(index) => {
+            urls.remove(index);
+            true
+        }
+        None => false,
     }
 }
 
@@ -757,7 +777,9 @@ pub fn install_protocols(app: &AppHandle) -> Result<(), &'static str> {
                     let mut files = Vec::new();
                     for url in urls {
                         if url.scheme() == "deltamod-community" {
-                            queue_protocol_url(app, url.as_str());
+                            if !take_startup_protocol_url(url.as_str()) {
+                                queue_protocol_url(app, url.as_str());
+                            }
                         } else if let Ok(path) = url.to_file_path() {
                             files.push(path.into_os_string());
                         }
@@ -768,6 +790,37 @@ pub fn install_protocols(app: &AppHandle) -> Result<(), &'static str> {
             .build();
         app.plugin(plugin)
             .map_err(|_| "file handoff event bridge unavailable")?;
+
+        // A link that cold-starts the app arrives before the bridge above exists.
+        use tauri_plugin_deep_link::DeepLinkExt;
+        let startup_urls = app
+            .deep_link()
+            .get_current()
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|url| url.scheme() == "deltamod-community")
+            .map(|url| url.as_str().to_owned())
+            .collect::<Vec<_>>();
+        if !startup_urls.is_empty() {
+            if let Ok(mut pending) = STARTUP_PROTOCOL_URLS.lock() {
+                pending.extend(startup_urls.iter().cloned());
+            }
+            let startup_app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                // Same AppState boundary as the argument handoff below.
+                for _ in 0..3_000 {
+                    if startup_app.try_state::<crate::state::AppState>().is_some() {
+                        for url in &startup_urls {
+                            queue_protocol_url(&startup_app, url);
+                        }
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            });
+        }
     }
 
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();

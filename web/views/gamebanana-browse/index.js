@@ -21,6 +21,16 @@ const SHOP_PROVIDER_DEFS = Object.freeze([
     { id: 'moddb', name: 'ModDB (10 recent)' }
 ]);
 
+// GameBanana mod-manager tool rows whose packages Deltamod can import:
+// 20575 = Deltamod, 20615 = Deltahub/G3M (same modding.xml packet layout).
+const GAMEBANANA_COMPATIBLE_TOOL_IDS = Object.freeze([20575, 20615]);
+
+// Tauri rejects invokes with plain strings, so `.message` alone hides the backend reason.
+function describeError(error, fallback) {
+    if (typeof error === 'string' && error.trim()) return error;
+    return error?.message || fallback;
+}
+
 function gameSupportsProvider(game, provider) {
     if (!game || typeof game !== 'object') return false;
     if (provider === 'gamebanana') return Number(game?.gamebanana?.id) > 0;
@@ -719,7 +729,7 @@ async function dlmod(dlurl, buttonElem=null, modid, modmodel, currentItem = `Gam
         updateModDownloadStatus({ phase: 'failed', currentItem });
         await htmlAlert(
             'Download failed',
-            error?.message || 'The mod could not be downloaded or imported.',
+            describeError(error, 'The mod could not be downloaded or imported.'),
             [{ text: 'OK', resolveWith: 'ok' }]
         );
         return false;
@@ -1086,13 +1096,13 @@ async function renderMods(table, GB_API, filter, gameID) {
                         };
                         let dlpage;
                         try {
-                            const response = await fetchGameBananaCatalogDirect(`https://gamebanana.com/apiv11/${mod._sModelName}/${mod._idRow}/ProfilePage`);
+                            const response = await browseGameBananaCatalog(`https://gamebanana.com/apiv11/${mod._sModelName}/${mod._idRow}/ProfilePage`);
                             dlpage = response.payload;
                             if (!Array.isArray(dlpage?._aFiles)) throw new Error('GameBanana returned an invalid file list.');
                         } catch (error) {
                             resetDownloadButton();
                             if (isCurrentShopPage()) {
-                                await htmlAlert('Download failed', error?.message || 'The file list could not be loaded. Try again.', [{ text: 'OK', resolveWith: 'ok' }]);
+                                await htmlAlert('Download failed', describeError(error, 'The file list could not be loaded. Try again.'), [{ text: 'OK', resolveWith: 'ok' }]);
                             }
                             return;
                         }
@@ -1108,7 +1118,7 @@ async function renderMods(table, GB_API, filter, gameID) {
                         dlpage._aFiles.forEach(file => {
                             try {
                                 var mmo = file._aModManagerIntegrations.map(x => x._idToolRow);
-                                if (mmo.includes(20575) && typeof file._sDownloadUrl === 'string' && file._sDownloadUrl.trim()) {
+                                if (mmo.some(id => GAMEBANANA_COMPATIBLE_TOOL_IDS.includes(id)) && typeof file._sDownloadUrl === 'string' && file._sDownloadUrl.trim()) {
                                     eligibleDownloads.push(file);
                                 }
                             }

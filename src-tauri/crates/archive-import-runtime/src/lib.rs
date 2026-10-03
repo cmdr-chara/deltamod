@@ -155,6 +155,8 @@ pub enum ImportError {
     Cancelled,
     #[error("ARCHIVE_UNSUPPORTED: unsupported or malformed archive")]
     Unsupported,
+    #[error("ARCHIVE_UNSUPPORTED: RAR archives are not supported; re-pack the mod as .zip or .7z")]
+    Rar,
     #[error("ARCHIVE_SOURCE: archive source is not a private regular file")]
     InvalidSource,
     #[error("ARCHIVE_LIMIT: {0}")]
@@ -273,6 +275,10 @@ pub fn detect_format(path: &Path) -> Result<ArchiveFormat, ImportError> {
     if bytes.starts_with(&[0x1f, 0x8b]) {
         return Ok(ArchiveFormat::TarGz);
     }
+    // RAR starts with "Rar!" (0x52), which would otherwise pass the LZMA property check.
+    if bytes.starts_with(b"Rar!\x1a\x07") {
+        return Err(ImportError::Rar);
+    }
     // LZMA-alone property bytes are 0..=224. The following dictionary size is
     // validated by the decoder; tar validation prevents treating arbitrary data as an archive.
     if bytes.first().is_some_and(|value| *value <= 224) {
@@ -341,6 +347,7 @@ pub fn stage_mod_archive<C: Fn() -> bool>(
     )?;
     validate_tree(staging.path(), limits, &cancelled)?;
     let content_root = identify_content_root(staging.path())?;
+    synthesize_legacy_manifest(&content_root, limits.max_manifest_bytes)?;
     let manifest = read_manifest(&content_root, limits.max_manifest_bytes)?;
     if !content_root.join("modding.xml").is_file() {
         return Err(ImportError::Manifest("root modding.xml is missing"));
@@ -484,6 +491,7 @@ where
     )?;
     validate_tree(staging.path(), limits, &cancelled)?;
     let content_root = identify_content_root(staging.path())?;
+    synthesize_legacy_manifest(&content_root, limits.max_manifest_bytes)?;
     let manifest = read_manifest(&content_root, limits.max_manifest_bytes)?;
     if !content_root.join("modding.xml").is_file() {
         return Err(ImportError::Manifest("root modding.xml is missing"));
@@ -1101,6 +1109,83 @@ fn identify_content_root(staging: &Path) -> Result<PathBuf, ImportError> {
     }
 }
 
+/// Deltahub/G3M packages (GameBanana tool 20615) ship `_deltamodInfo.json`
+/// instead of `meta.toml`. Convert it so the rest of the importer sees one format.
+fn synthesize_legacy_manifest(root: &Path, max_bytes: u64) -> Result<(), ImportError> {
+    if fs::symlink_metadata(root.join("meta.toml")).is_ok() {
+        return Ok(());
+    }
+    let info_path = root.join("_deltamodInfo.json");
+    let Ok(info_meta) = fs::symlink_metadata(&info_path) else {
+        return Ok(());
+    };
+    if !info_meta.is_file() || info_meta.len() == 0 || info_meta.len() > max_bytes {
+        return Err(ImportError::Manifest(
+            "_deltamodInfo.json has an invalid size",
+        ));
+    }
+    let info = serde_json::from_slice::<serde_json::Value>(&fs::read(&info_path)?)
+        .map_err(|_| ImportError::Manifest("_deltamodInfo.json is invalid"))?;
+    let source = info
+        .get("metadata")
+        .and_then(serde_json::Value::as_object)
+        .ok_or(ImportError::Manifest(
+            "_deltamodInfo.json metadata is missing",
+        ))?;
+
+    let mut metadata = toml::map::Map::new();
+    for key in ["name", "version", "description", "packageID", "url"] {
+        if let Some(text) = source.get(key).and_then(serde_json::Value::as_str) {
+            metadata.insert(key.into(), toml::Value::String(text.into()));
+        }
+    }
+    for key in ["author", "tags"] {
+        let values: Vec<String> = match source.get(key) {
+            Some(serde_json::Value::String(text)) => vec![text.clone()],
+            Some(serde_json::Value::Array(items)) => items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .collect(),
+            _ => continue,
+        };
+        metadata.insert(
+            key.into(),
+            toml::Value::Array(values.into_iter().map(toml::Value::String).collect()),
+        );
+    }
+    let demo = source
+        .get("demoMod")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    metadata.insert("demoMod".into(), toml::Value::Boolean(demo));
+    let game = if demo {
+        "toby.deltarune.demo"
+    } else {
+        "toby.deltarune"
+    };
+    metadata.insert("game".into(), toml::Value::String(game.into()));
+
+    let mut document = toml::map::Map::new();
+    if let Some(version) = info
+        .get("deltaruneTargetVersion")
+        .and_then(serde_json::Value::as_str)
+    {
+        document.insert(
+            "deltaruneTargetVersion".into(),
+            toml::Value::String(version.into()),
+        );
+    }
+    document.insert("metadata".into(), toml::Value::Table(metadata));
+    let serialized = toml::to_string(&toml::Value::Table(document))
+        .map_err(|_| ImportError::Manifest("meta.toml could not be serialized"))?;
+    if serialized.len() as u64 > max_bytes {
+        return Err(ImportError::Manifest("meta.toml has an invalid size"));
+    }
+    fs::write(root.join("meta.toml"), serialized)?;
+    Ok(())
+}
+
 fn read_manifest(root: &Path, max_bytes: u64) -> Result<Manifest, ImportError> {
     let path = root.join("meta.toml");
     let metadata =
@@ -1251,6 +1336,60 @@ mod tests {
             .as_str()
             .is_some_and(|id| !id.is_empty()));
         assert!(!result.destination.join("mod").exists());
+    }
+
+    #[test]
+    fn deltahub_package_gets_synthesized_meta_toml() {
+        let info = br#"{
+            "metadata": {
+                "name": "Kaizo Roaring Knight",
+                "version": "v2.3.3",
+                "author": ["EnderCat8"],
+                "demoMod": false,
+                "packageID": "gb.kaizoknight.ec8",
+                "tags": ["challenge"]
+            },
+            "deltaruneTargetVersion": "1.06"
+        }"#;
+        let archive = zip_fixture(&[
+            ("kaizo/_deltamodInfo.json", info),
+            (
+                "kaizo/modding.xml",
+                b"<patch type=\"xdelta\" patch=\"./k.xdelta\" to=\"./chapter3_windows/data.win\" />",
+            ),
+        ]);
+        let packets = tempfile::tempdir().unwrap();
+        let result = import_archive(
+            archive.path(),
+            packets.path(),
+            Limits::default(),
+            || false,
+            |_| DuplicateDecision::Cancel,
+        )
+        .unwrap();
+        assert_eq!(result.package_id, "gb.kaizoknight.ec8");
+        let manifest: toml::Value =
+            toml::from_str(&fs::read_to_string(result.destination.join("meta.toml")).unwrap())
+                .unwrap();
+        assert_eq!(manifest["deltaruneTargetVersion"].as_str(), Some("1.06"));
+        assert_eq!(
+            manifest["metadata"]["game"].as_str(),
+            Some("toby.deltarune")
+        );
+        assert_eq!(manifest["metadata"]["version"].as_str(), Some("v2.3.3"));
+        assert_eq!(
+            manifest["metadata"]["author"].as_array().unwrap()[0].as_str(),
+            Some("EnderCat8")
+        );
+    }
+
+    #[test]
+    fn rar_archives_get_a_clear_error() {
+        let archive = write_fixture(b"Rar!\x1a\x07\x01\x00rest-of-archive");
+        assert!(matches!(
+            detect_format(archive.path()),
+            Err(ImportError::Rar)
+        ));
     }
 
     #[test]
