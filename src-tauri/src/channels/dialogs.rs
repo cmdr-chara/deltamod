@@ -111,7 +111,12 @@ fn locate_delta<D: DialogBackend>(
         .first()
         .and_then(Value::as_str)
         .ok_or_else(|| invalid("locateDelta"))?;
-    let request = DialogRequest::folder("Choose the game folder");
+    // A macOS folder picker cannot select an .app bundle, so ask for its folder.
+    let request = DialogRequest::folder(if cfg!(target_os = "macos") {
+        "Choose the folder that contains the game app (for example, Applications)"
+    } else {
+        "Choose the game folder"
+    });
     let Some(selected) = pick(dialogs, &request)? else {
         return Ok(Value::Null);
     };
