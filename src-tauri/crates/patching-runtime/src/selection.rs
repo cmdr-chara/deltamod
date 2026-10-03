@@ -178,6 +178,7 @@ mod tests {
             mod_root: temp.path().join("mods"),
             tools_root: temp.path().join("absent-tools"),
             hash_cache_path: temp.path().join("hashes.json"),
+            reference_root: None,
             platform: PatchPlatform::Linux,
             platform_name: "linux".into(),
             arch: "x64".into(),
@@ -318,7 +319,13 @@ mod tests {
         let (_temp, runtime) = fixture();
         let root = packet(&runtime, "one", "one", "one.bin");
         assert!(runtime.packet_staging_readiness("one").is_ok());
-        for kind in ["xdelta", "g3mpatch", "csx"] {
+        // This fixture packages no tools: G3MTool mods report the missing tool,
+        // UndertaleModCli scripts stay unsupported. Neither reads the patch.
+        for (kind, code) in [
+            ("xdelta", StagingErrorCode::ToolUnavailable),
+            ("g3mpatch", StagingErrorCode::ToolUnavailable),
+            ("csx", StagingErrorCode::SandboxUnavailable),
+        ] {
             fs::write(
                 root.join("modding.xml"),
                 format!(r#"<patch type="{kind}" patch="absent.csx" to="one.bin"/>"#),
@@ -326,14 +333,14 @@ mod tests {
             .unwrap();
             assert_eq!(
                 runtime.packet_staging_readiness("one").unwrap_err().code(),
-                StagingErrorCode::SandboxUnavailable
+                code
             );
             assert_eq!(
                 runtime
                     .stage_patch_outputs(&["one".into()], "check", |_| {}, || false)
                     .unwrap_err()
                     .code(),
-                StagingErrorCode::SandboxUnavailable
+                code
             );
         }
         assert!(runtime.packet_staging_readiness("../one").is_err());

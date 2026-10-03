@@ -681,6 +681,35 @@ impl Runtime {
         source: &Path,
         name: String,
         copy_to_managed: bool,
+        store: serde_json::Map<String, Value>,
+    ) -> Result<bool, RuntimeError> {
+        self.legacy_create(index, source, name, copy_to_managed, None, store)
+    }
+
+    /// Creates a managed installation holding a copy of one macOS application
+    /// bundle (`<source>/<bundle>`) rather than the whole folder that contains it,
+    /// which is often `/Applications`. Mods are then applied only to the copy.
+    pub fn legacy_create_bundle_installation(
+        &self,
+        index: u32,
+        source: &Path,
+        bundle: &str,
+        name: String,
+        store: serde_json::Map<String, Value>,
+    ) -> Result<bool, RuntimeError> {
+        if !recovery::valid_bundle_name(bundle) {
+            return Err(RuntimeError::Domain("invalid application bundle".into()));
+        }
+        self.legacy_create(index, source, name, true, Some(bundle), store)
+    }
+
+    fn legacy_create(
+        &self,
+        index: u32,
+        source: &Path,
+        name: String,
+        copy_to_managed: bool,
+        bundle: Option<&str>,
         mut store: serde_json::Map<String, Value>,
     ) -> Result<bool, RuntimeError> {
         let _lease = self.mutation_lease()?;
@@ -693,7 +722,17 @@ impl Runtime {
         }
         fs::create_dir(&profile)?;
         let result = (|| {
-            let game_path = if copy_to_managed {
+            let game_path = if let Some(bundle) = bundle {
+                let destination = profile.join("deltaruneInstall");
+                let bundle_source = safe_directory(&source.join(bundle))?;
+                self.copy_operation(
+                    "legacy-bundle-create",
+                    &bundle_source,
+                    &destination.join(bundle),
+                    None,
+                )?;
+                destination
+            } else if copy_to_managed {
                 let destination = profile.join("deltaruneInstall");
                 self.copy_operation("legacy-installation-create", &source, &destination, None)?;
                 destination
@@ -1746,6 +1785,56 @@ mod tests {
         assert_eq!(
             fs::read(target.join("preserved.txt")).unwrap(),
             b"preserved"
+        );
+    }
+
+    #[test]
+    fn legacy_bundle_installation_copies_only_the_app_bundle() {
+        let directory = tempdir().unwrap();
+        let applications = directory.path().join("Applications");
+        let resources = applications.join("DELTARUNE.app/Contents/Resources");
+        fs::create_dir_all(&resources).unwrap();
+        fs::write(resources.join("game.ios"), b"game").unwrap();
+        fs::create_dir_all(applications.join("Other.app")).unwrap();
+        fs::write(applications.join("unrelated.txt"), b"not copied").unwrap();
+        let root = directory.path().join("runtime");
+        let runtime = Runtime::open(&root).unwrap();
+        for unsafe_bundle in ["../DELTARUNE.app", "DELTARUNE", ".app", "a/b.app"] {
+            assert!(runtime
+                .legacy_create_bundle_installation(
+                    1,
+                    &applications,
+                    unsafe_bundle,
+                    "Bad".into(),
+                    legacy_store_fields(),
+                )
+                .is_err());
+        }
+        runtime
+            .legacy_create_bundle_installation(
+                0,
+                &applications,
+                "DELTARUNE.app",
+                "Mac".into(),
+                legacy_store_fields(),
+            )
+            .unwrap();
+        let managed = root.join("deltamod_system-0").join("deltaruneInstall");
+        assert_eq!(
+            fs::read(managed.join("DELTARUNE.app/Contents/Resources/game.ios")).unwrap(),
+            b"game"
+        );
+        let copied = fs::read_dir(&managed)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        assert_eq!(copied, ["DELTARUNE.app"]);
+        let store: Value = load_json(&root.join("deltamod_system-0").join("store.json")).unwrap();
+        assert_eq!(
+            store["gamePath"]
+                .as_str()
+                .map(|path| fs::canonicalize(path).unwrap()),
+            Some(fs::canonicalize(managed).unwrap())
         );
     }
 

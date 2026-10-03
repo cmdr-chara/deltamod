@@ -632,6 +632,8 @@ impl FromStr for BackendChannel {
             | "chooseTheme"
             | "importOfficialProfile"
             | "undertaleModTool:choose"
+            | "referenceFiles:status"
+            | "referenceFiles:choose"
             | "browseFile"
             | "locateDelta"
             | "importTheme"
@@ -1124,6 +1126,9 @@ fn dispatch_domain(
 ) -> Result<Value, String> {
     let dialogs = deltamod_tauri_os_adapters::tauri_adapter::TauriDialogBackend::new(app);
     if let Some(value) = channels::dialogs::dispatch(app, state, &dialogs, name, data)? {
+        return Ok(value);
+    }
+    if let Some(value) = channels::reference_files::dispatch(state, &dialogs, name)? {
         return Ok(value);
     }
     if let Some(value) = channels::nexus_download::dispatch(app, state, &dialogs, name, data)? {

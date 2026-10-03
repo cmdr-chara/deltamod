@@ -264,6 +264,85 @@ async function addButton(name, description, click, buttonText, enabled = true, d
     return button;
 }
 
+const IS_MAC = /Macintosh|Mac OS X/.test(navigator.userAgent);
+if (IS_MAC) document.getElementById('b_mac').style.display = '';
+
+// Credits and a plain-language guide to how Mac support works.
+async function addMacSupportRows() {
+    await addRowHeader(`${icon('favorite', '20px')} Credits`);
+    await addInfoRow('Mac support by XN', 'X: @XNXITTER', 'Made mod downloading and patching work on macOS.');
+
+    await addRowHeader(`${icon('laptop_mac', '20px')} How Mac support works`);
+    await addInfoRow(
+        'Downloading mods',
+        'Automatic',
+        'GameBanana mods packaged for Deltamod or Deltahub download directly. Deltahub packages do not say which chapter they patch, so Deltamod suggests one from the mod\'s files and asks you to confirm.'
+    );
+    await addInfoRow(
+        'Your game stays untouched',
+        'Separate copy',
+        'When you add DELTARUNE, Deltamod copies DELTARUNE.app into its own folder and only ever changes that copy. The game in your Applications folder stays exactly as it was.'
+    );
+    await addInfoRow(
+        'Windows reference files',
+        'Options → Installation',
+        'Most mods are made for the Windows game files, and the Mac files are packed differently, so mods cannot be applied to them directly. Deltamod applies each mod to your unmodified Windows data.win file and installs the result in the copy as game.ios. Mods that only replace files, such as music, do not need these.'
+    );
+    await addInfoRow(
+        'Patch & Play',
+        'Automatic',
+        'Deltamod installs your enabled mods into the copy, re-signs it so macOS accepts the changed files, and starts it. When the game closes, the original files are put back.'
+    );
+    await addInfoRow(
+        'Save files',
+        'Shared',
+        'The copy and your original game use the same saves in ~/Library/Application Support/com.tobyfox.deltarune. Back them up before trying new mods.'
+    );
+    await addInfoRow(
+        'Not supported yet',
+        '.csx scripts',
+        'Script mods need UndertaleModTool, which has no Apple Silicon version yet.'
+    );
+}
+
+function referenceFileLabel(file) {
+    if (file === 'data.win') return 'Chapter select';
+    const chapter = /^chapter(\d+)_windows\/data\.win$/.exec(file);
+    return chapter ? `Chapter ${chapter[1]}` : file;
+}
+
+// Mods are made against the Windows data.win files. Platforms whose data file
+// differs (DELTARUNE's Mac game.ios) patch a stored copy of those files instead.
+async function addReferenceFileRows() {
+    let status;
+    try {
+        status = await window.deltamodBackend.invoke('referenceFiles:status', []);
+    } catch {
+        return;
+    }
+    const files = Array.isArray(status?.files) ? status.files : [];
+    if (!status?.needed && files.length === 0) return;
+
+    await addRowHeader(`${icon('description', '20px')} Windows reference files`);
+    await addInfoRow(
+        'Stored files',
+        files.length ? files.map(referenceFileLabel).join(', ') : 'None yet',
+        'Most mods are made for the Windows version of the game. On this computer, Deltamod applies them to your unmodified Windows game files and installs the result into its own copy of the game.'
+    );
+    await addButton(
+        files.length ? 'Replace Windows reference files' : 'Add Windows reference files',
+        'Choose the Windows game folder that contains DELTARUNE.exe and the chapter1_windows, chapter2_windows, … folders. Only the data.win files are copied. Use the same game version your mods target.',
+        async () => {
+            const result = await window.deltamodBackend.invoke('referenceFiles:choose', []);
+            if (result && result.ok === false) {
+                await htmlAlert('No Windows game files found', result.message, [{ text: 'OK', resolveWith: 'ok' }]);
+            }
+            await window.currentPageStack.cat('inst');
+        },
+        'Choose folder'
+    );
+}
+
 async function addRowHeader(name) {
     const table = document.querySelector('tbody');
     const tr = document.createElement('tr');
@@ -373,6 +452,7 @@ async function addLanguageOption(language, selected) {
             b_adv: ['optcat_advanced', 'Advanced'],
             b_gb: ['optcat_gamebanana', 'GameBanana'],
             b_nexus: ['optcat_nexus', 'Nexus Mods'],
+            b_mac: ['optcat_mac', 'Mac'],
             b_dev: ['optcat_developer', 'Developer']
         };
         for (const [id, [key, fallback]] of Object.entries(categoryLabels)) {
@@ -483,6 +563,7 @@ window.currentPageStack.cat = async function(cat) {
     document.getElementById('b_adv').classList.remove('selected');
     document.getElementById('b_gb').classList.remove('selected');
     document.getElementById('b_nexus').classList.remove('selected');
+    document.getElementById('b_mac').classList.remove('selected');
     
     try {
         document.getElementById('b_dev').classList.remove('selected');
@@ -633,6 +714,9 @@ window.currentPageStack.cat = async function(cat) {
             seasonalModeSelect.id = 'SELECT-SEASONAL-MODE';
 
             break;
+        case 'mac':
+            await addMacSupportRows();
+            break;
         case 'inst':
             var isSteam = await window.deltamodBackend.invoke('isCurrentIndexSteam', []);
             const canDisconnectSteam = window.deltamodBackend.isCommandAvailable('removeSteamIntegration');
@@ -648,6 +732,7 @@ window.currentPageStack.cat = async function(cat) {
                 page('installmanager');
             }, "Open");
 
+            await addReferenceFileRows();
             break;
         case 'data': {
             await addRowHeader(`${icon('database', '20px')} Deltamod compatibility`);
