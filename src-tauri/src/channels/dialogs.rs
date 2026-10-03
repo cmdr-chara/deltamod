@@ -3,7 +3,7 @@ use deltamod_mods_themes_domain::AssetInput;
 use deltamod_mods_themes_runtime::{ThemeAssetValidator, ThemeJson};
 use deltamod_tauri_os_adapters::{
     legacy_path_result, tool_choice_result, validate_dialog_selection, validate_windows_executable,
-    ChoiceBackend, DialogBackend, DialogFilter, DialogRequest, ThemeImportCancel,
+    ChoiceBackend, DialogBackend, DialogFilter, DialogKind, DialogRequest, ThemeImportCancel,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -111,14 +111,23 @@ fn locate_delta<D: DialogBackend>(
         .first()
         .and_then(Value::as_str)
         .ok_or_else(|| invalid("locateDelta"))?;
-    // A macOS folder picker cannot select an .app bundle, so ask for its folder.
-    let request = DialogRequest::folder(if cfg!(target_os = "macos") {
-        "Choose the folder that contains the game app (for example, Applications)"
+    // On macOS the game is an .app bundle: let the user pick the app itself
+    // and use the folder that contains it as the game folder.
+    let request = if cfg!(target_os = "macos") {
+        DialogRequest::app_bundle("Choose the game app (for example, DELTARUNE in Applications)")
     } else {
-        "Choose the game folder"
-    });
+        DialogRequest::folder("Choose the game folder")
+    };
     let Some(selected) = pick(dialogs, &request)? else {
         return Ok(Value::Null);
+    };
+    let selected = if request.kind == DialogKind::AppBundle {
+        match selected.parent() {
+            Some(parent) => parent.to_path_buf(),
+            None => return Ok(json!("Invalid")),
+        }
+    } else {
+        selected
     };
     if valid_game_folder(&state._assets.app, &selected, game_id) {
         Ok(json!(selected.to_string_lossy()))
