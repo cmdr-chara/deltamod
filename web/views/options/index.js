@@ -305,10 +305,33 @@ async function addMacSupportRows() {
     );
 }
 
-function referenceFileLabel(file) {
-    if (file === 'data.win') return 'Chapter select';
-    const chapter = /^chapter(\d+)_windows\/data\.win$/.exec(file);
-    return chapter ? `Chapter ${chapter[1]}` : file;
+// "Chapter select, Chapters 1–3, 5" for the description; "All chapters" or a
+// short list for the narrow status column.
+function summarizeReferenceFiles(files) {
+    const chapters = files
+        .map(file => /^chapter(\d+)_windows\/data\.win$/.exec(file))
+        .filter(Boolean)
+        .map(match => Number(match[1]))
+        .sort((a, b) => a - b);
+    const ranges = [];
+    for (const chapter of chapters) {
+        const last = ranges[ranges.length - 1];
+        if (last && chapter === last[1] + 1) last[1] = chapter;
+        else ranges.push([chapter, chapter]);
+    }
+    const chapterText = ranges
+        .map(([from, to]) => (from === to ? `${from}` : `${from}–${to}`))
+        .join(', ');
+    const hasSelect = files.includes('data.win');
+    const parts = [];
+    if (hasSelect) parts.push('Chapter select');
+    if (chapters.length) parts.push(`${chapters.length === 1 ? 'Chapter' : 'Chapters'} ${chapterText}`);
+    return {
+        short: hasSelect && chapters.length >= 5 && ranges.length === 1 && chapters[0] === 1
+            ? 'All chapters'
+            : chapters.length ? `Ch. ${chapterText}` : 'Chapter select',
+        long: parts.join(', ')
+    };
 }
 
 // Mods are made against the Windows data.win files. Platforms whose data file
@@ -323,11 +346,13 @@ async function addReferenceFileRows() {
     const files = Array.isArray(status?.files) ? status.files : [];
     if (!status?.needed && files.length === 0) return;
 
-    await addRowHeader(`${icon('description', '20px')} Windows reference files`);
+    const summary = summarizeReferenceFiles(files);
+    await addRowHeader(`${icon('desktop_windows', '20px')} Windows reference files`);
     await addInfoRow(
         'Stored files',
-        files.length ? files.map(referenceFileLabel).join(', ') : 'None yet',
-        'Most mods are made for the Windows version of the game. On this computer, Deltamod applies them to your unmodified Windows game files and installs the result into its own copy of the game.'
+        files.length ? summary.short : 'None yet',
+        (files.length ? `Stored: ${summary.long}. ` : '')
+            + 'Most mods are made for the Windows version of the game. On this computer, Deltamod applies them to your unmodified Windows game files and installs the result into its own copy of the game.'
     );
     await addButton(
         files.length ? 'Replace Windows reference files' : 'Add Windows reference files',
