@@ -10,6 +10,10 @@ use std::path::{Path, PathBuf};
 use tempfile::{Builder, TempDir};
 use thiserror::Error;
 
+mod raw_package;
+
+pub use raw_package::{RawPackage, RawPatch, RawPlan, MAX_CHAPTER, ROOT_DATA};
+
 const COPY_BUFFER_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -457,6 +461,34 @@ where
     C: Fn() -> bool,
     D: FnOnce(ExistingMod<'_>) -> DuplicateDecision,
 {
+    import_archive_with_resolver(
+        archive,
+        packet_root,
+        limits,
+        source_metadata,
+        cancelled,
+        duplicate,
+        |_| None,
+    )
+}
+
+/// Like [`import_archive_with_source`], but a package with no manifest that
+/// contains patch files (a Deltahub/G3M "raw" package) is passed to `resolve`.
+/// Returning `None` cancels the import.
+pub fn import_archive_with_resolver<C, D, R>(
+    archive: &Path,
+    packet_root: &Path,
+    limits: Limits,
+    source_metadata: Option<&LegacySourceMetadata>,
+    cancelled: C,
+    duplicate: D,
+    resolve: R,
+) -> Result<ImportResult, ImportError>
+where
+    C: Fn() -> bool,
+    D: FnOnce(ExistingMod<'_>) -> DuplicateDecision,
+    R: FnOnce(&RawPackage) -> Option<RawPlan>,
+{
     check_cancelled(&cancelled)?;
     validate_limits(limits)?;
     let source = fs::symlink_metadata(archive).map_err(|_| ImportError::InvalidSource)?;
@@ -492,6 +524,13 @@ where
     validate_tree(staging.path(), limits, &cancelled)?;
     let content_root = identify_content_root(staging.path())?;
     synthesize_legacy_manifest(&content_root, limits.max_manifest_bytes)?;
+    if fs::symlink_metadata(content_root.join("meta.toml")).is_err() {
+        if let Some(package) = raw_package::inspect(&content_root)? {
+            let plan = resolve(&package).ok_or(ImportError::Cancelled)?;
+            check_cancelled(&cancelled)?;
+            raw_package::write_manifest(&content_root, &package, &plan, limits.max_manifest_bytes)?;
+        }
+    }
     let manifest = read_manifest(&content_root, limits.max_manifest_bytes)?;
     if !content_root.join("modding.xml").is_file() {
         return Err(ImportError::Manifest("root modding.xml is missing"));
@@ -1381,6 +1420,48 @@ mod tests {
             manifest["metadata"]["author"].as_array().unwrap()[0].as_str(),
             Some("EnderCat8")
         );
+    }
+
+    #[test]
+    fn raw_deltahub_archives_import_through_the_resolver() {
+        let entries: [(&str, &[u8]); 3] = [
+            ("kaizo_knight.xdelta", b"patch"),
+            ("custom song (optional)/kaizoknight.ogg", b"ogg"),
+            ("README.txt", b"put data.win from chapter3_windows first"),
+        ];
+        let packets = tempfile::tempdir().unwrap();
+        let cancelled = import_archive_with_resolver(
+            zip_fixture(&entries).path(),
+            packets.path(),
+            Limits::default(),
+            None,
+            || false,
+            |_| DuplicateDecision::Cancel,
+            |_| None,
+        );
+        assert!(matches!(cancelled, Err(ImportError::Cancelled)));
+
+        let result = import_archive_with_resolver(
+            zip_fixture(&entries).path(),
+            packets.path(),
+            Limits::default(),
+            None,
+            || false,
+            |_| DuplicateDecision::Cancel,
+            |package| {
+                assert_eq!(package.suggested_chapter(&package.patches[0]), Some(3));
+                Some(RawPlan {
+                    package_id: "gb.662826".into(),
+                    name: "Kaizo Knight".into(),
+                    chapters: vec![3],
+                })
+            },
+        )
+        .unwrap();
+        assert_eq!(result.package_id, "gb.662826");
+        let modding = fs::read_to_string(result.destination.join("modding.xml")).unwrap();
+        assert!(modding.contains("chapter3_windows/data.win"));
+        assert!(result.destination.join("kaizoknight.ogg").is_file());
     }
 
     #[test]

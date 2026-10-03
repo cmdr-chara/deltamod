@@ -143,3 +143,30 @@ describe('mod download completion and retry', () => {
         expect(h.buttons.map(b => b.disabled)).toEqual([false, true]);
     });
 });
+
+describe('GameBanana download eligibility', () => {
+    const { runInNewContext } = require('node:vm');
+    const source = renderer.slice(
+        renderer.indexOf('const GAMEBANANA_DELTAMOD_TOOL_ID'),
+        renderer.indexOf('// Tauri rejects invokes')
+    );
+    const eligible = runInNewContext(source + '; eligibleGameBananaDownloads');
+    const file = (id, ...tools) => ({
+        _idRow: id,
+        _sDownloadUrl: `https://gamebanana.com/dl/${id}`,
+        _aModManagerIntegrations: tools.map(tool => ({ _idToolRow: tool }))
+    });
+
+    it('prefers Deltamod packages when a mod offers both', () => {
+        const files = [file(1, 20615), file(2, 20575, 20615)];
+        expect(eligible(files).map(f => f._idRow)).toEqual([2]);
+    });
+    it('falls back to Deltahub packages for Deltahub-only mods', () => {
+        expect(eligible([file(1, 20615), file(2)]).map(f => f._idRow)).toEqual([1]);
+    });
+    it('ignores files without integrations or download URLs', () => {
+        const broken = { _idRow: 3, _aModManagerIntegrations: [{ _idToolRow: 20575 }] };
+        expect(eligible([file(1), broken, { _idRow: 4 }])).toEqual([]);
+        expect(eligible(undefined)).toEqual([]);
+    });
+});
