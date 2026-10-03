@@ -2,43 +2,43 @@
   "schemaVersion": 1,
   "verified": true,
   "sourceUrl": "https://github.com/y114git/G3MTool",
-  "sourceRevision": "4a7549d46f56f8de086112ad2b26cb1f53042521",
-  "releaseTag": "1.2.5",
-  "releaseUrl": "https://github.com/y114git/G3MTool/releases/tag/1.2.5",
+  "sourceRevision": "3a6bf08b98b700873636ebe9fab186e2d5121b4a",
+  "releaseTag": "2026.09.12",
+  "releaseUrl": "https://github.com/y114git/G3MTool/releases/tag/2026.09.12",
   "license": "GPL-3.0-only",
   "redistributionAllowed": true,
   "artifacts": {
     "win32-x64": {
-      "archiveUrl": "https://github.com/y114git/G3MTool/releases/download/1.2.5/G3MTool-Windows-x64-1.2.5.zip",
-      "archiveSize": 50890247,
-      "archiveSha256": "408b09b8d43416c4c05779329887d3a2d53c7c6c2fe8c240cd3bc2b1e41c5ab6",
+      "archiveUrl": "https://github.com/y114git/G3MTool/releases/download/2026.09.12/G3MTool-CLI-Windows-x64-1.3.0.zip",
+      "archiveSize": 51196485,
+      "archiveSha256": "fbf1dc8b31c88f06da8e41be546dfe55624efaa5546e89a9eb43f9865d4c8c9c",
       "installDirectory": "win-x64",
       "executable": "G3MTool.exe",
-      "executableSha256": "3d313fabbf0454db9837196f2a7039deffe7013e02aa0ed3aac1c546eaa242e6"
+      "executableSha256": "a3955ac19512c7d6bb98ea81525023bb96d8250cab7cee79eb10a2b5ec5a84f4"
     },
     "linux-x64": {
-      "archiveUrl": "https://github.com/y114git/G3MTool/releases/download/1.2.5/G3MTool-Linux-x64-1.2.5.zip",
-      "archiveSize": 56407328,
-      "archiveSha256": "7eb258a935c24c2e65e71de4c11b59d95130fa0a0d103b3c08da96b512a4d126",
+      "archiveUrl": "https://github.com/y114git/G3MTool/releases/download/2026.09.12/G3MTool-CLI-Linux-x64-1.3.0.zip",
+      "archiveSize": 56254445,
+      "archiveSha256": "0182c1faecf7ba58793377769bea61b1511270643fae8a21510672bb4562506a",
       "installDirectory": "linux-x64",
       "executable": "G3MTool",
-      "executableSha256": "17feda6649ff1e6a447fd38311c04e94bbe978a9ad3d3ad4876b0e578b0d1d99"
+      "executableSha256": "97560ae104496f064dd10972be7ca4265a3e800789c0acc9c6453607953a9f0b"
     },
     "darwin-x64": {
-      "archiveUrl": "https://github.com/y114git/G3MTool/releases/download/1.2.5/G3MTool-macOS-x64-1.2.5.zip",
-      "archiveSize": 54857801,
-      "archiveSha256": "a0714ebd9fa7e40a496ffa655912b57582df9e9dd20bba9e0edbe7bc73a3ac78",
+      "archiveUrl": "https://github.com/y114git/G3MTool/releases/download/2026.09.12/G3MTool-CLI-macOS-x64-1.3.0.zip",
+      "archiveSize": 54209538,
+      "archiveSha256": "381663288cd1c772fac1846d9f9c8d1b26c16648194f422c9bb67c37ad4e4e8d",
       "installDirectory": "mac-x64",
       "executable": "G3MTool",
-      "executableSha256": "264116458a2e767b919b6070f40da5b96b9168a7dca943268a028de880d72e75"
+      "executableSha256": "d848feedd6b3b29c15f2746adc00dd824790670dc4f01aab8c1682feb3fc60c1"
     },
     "darwin-arm64": {
-      "archiveUrl": "https://github.com/y114git/G3MTool/releases/download/1.2.5/G3MTool-macOS-arm64-1.2.5.zip",
-      "archiveSize": 50761020,
-      "archiveSha256": "3128932fcd2314a4b89107f52c73d14d482699d3ccc1eb1fa5f7309a9906ec2f",
+      "archiveUrl": "https://github.com/y114git/G3MTool/releases/download/2026.09.12/G3MTool-CLI-macOS-arm64-1.3.0.zip",
+      "archiveSize": 50135916,
+      "archiveSha256": "ba033c82c853211a3c5249d640e26d3329cf5d4b6d6cb0fedefcee477d42eb71",
       "installDirectory": "mac-arm64",
       "executable": "G3MTool",
-      "executableSha256": "5a90898fc8a20c88bb04a3455a68f24e7383efecd5fc9496478f7f20747522e5"
+      "executableSha256": "d9f7077a4cf1d10a9ffe90ced5f84f1e00c4b1d40b6f25d9428c764b5058d80b"
     }
   }
 }
