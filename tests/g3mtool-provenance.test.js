@@ -69,7 +69,7 @@ describe('G3MTool provenance', () => {
         expect(() => validateArchiveEntries([
             { name: 'G3MTool.exe', attr: '....A' },
             { name: 'licenses/GPL-3.0.txt', attr: '....A' },
-            { name: 'GameSpecificData/Definitions/deltarune.json', attr: '....A' }
+            { name: 'THIRD_PARTY_NOTICES.md', attr: '....A' }
         ], artifact)).not.toThrow();
         expect(() => validateArchiveEntries([
             { name: '../G3MTool.exe', attr: '....A' }

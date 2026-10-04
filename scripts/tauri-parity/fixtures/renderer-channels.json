@@ -108,6 +108,8 @@
     "openInstallationFolder",
     "undertaleModTool:status",
     "undertaleModTool:choose",
+    "referenceFiles:status",
+    "referenceFiles:choose",
     "undertaleModTool:openInstallation",
     "openSysFolder",
     "openModFolder",

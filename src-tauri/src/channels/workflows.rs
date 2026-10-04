@@ -410,6 +410,16 @@ pub fn dispatch(
                 Some(platform) => platform,
                 None => return Ok(Some(json!(false))),
             };
+            // On macOS mods are applied to Deltamod's own copy of the app bundle, so
+            // the original stays untouched and launchable. Only the bundle is copied:
+            // its containing folder is often /Applications.
+            let mac_bundle = (platform == "darwin")
+                .then(|| {
+                    platform_definitions(&game)
+                        .remove("darwin")
+                        .and_then(|definition| definition.bundle)
+                })
+                .flatten();
             let profile = state.profile()?;
             let index = if from_locate && !from_manager {
                 profile.current_index.unwrap_or(0)
@@ -434,20 +444,30 @@ pub fn dispatch(
             store.insert("gamePlatform".into(), json!(platform));
             store.insert("deltaruneEdition".into(), json!("rem"));
             store.insert("enabledMods".into(), json!([]));
-            store.insert("isSteam".into(), json!(steam));
+            // A managed copy must launch directly; a Steam URI would open the original.
+            store.insert("isSteam".into(), json!(steam && mac_bundle.is_none()));
             store.insert("steamAppId".into(), json!(steam_app_id));
+            let name = format!("Install #{}", index + 1);
             let created = run_copy_workflow(app, &state.profile_runtime, || {
-                state
-                    .profile_runtime
-                    .legacy_create_installation(
+                match &mac_bundle {
+                    Some(bundle) => state
+                        .profile_runtime
+                        .legacy_create_bundle_installation(index, &source, bundle, name, store),
+                    None => state.profile_runtime.legacy_create_installation(
                         index,
                         &source,
-                        format!("Install #{}", index + 1),
+                        name,
                         copy_to_managed,
                         store,
-                    )
-                    .map_err(|_| error::internal())
+                    ),
+                }
+                .map_err(|_| error::internal())
             })?;
+            if let (true, Some(bundle)) = (created, &mac_bundle) {
+                if let Ok(folder) = state.profile_runtime.legacy_managed_folder(index) {
+                    deltamod_patching_runtime::mac_bundle::clear_quarantine(&folder.join(bundle));
+                }
+            }
             let _ = app.emit(
                 "page",
                 if from_manager {

@@ -566,6 +566,10 @@ fn patching_runtime(
         mod_root: root.root.join("packets"),
         tools_root,
         hash_cache_path: root.root.join("_game-hashes.json"),
+        reference_root: store
+            .get("gamePid")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|id| reference_files_root(root, id)),
         platform,
         platform_name: match std::env::consts::OS {
             "windows" => "win32",
@@ -581,6 +585,18 @@ fn patching_runtime(
         .into(),
         definition,
     })
+}
+
+/// Where "Add Windows reference files" stores a game's unmodified primary-platform files.
+/// The folder may not exist yet; patching checks for each file when it is needed.
+pub(crate) fn reference_files_root(root: &DataRoot, game_id: &str) -> Option<PathBuf> {
+    let safe = !game_id.is_empty()
+        && game_id.len() <= 128
+        && !game_id.starts_with('.')
+        && game_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'));
+    safe.then(|| root.root.join("reference-files").join(game_id))
 }
 
 fn patch_definition(

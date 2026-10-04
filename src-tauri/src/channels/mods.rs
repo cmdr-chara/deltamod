@@ -194,7 +194,16 @@ fn gamebanana_catalog_url(game: &Value, raw: &str) -> Option<String> {
                 && value.len() <= 256
                 && !value.chars().any(char::is_control)
         });
-    (game_feed || search).then_some(safe.raw)
+    // A mod's file list, needed before every one-click download.
+    let profile_page = segments.len() == 4
+        && segments[0] == "apiv11"
+        && matches!(segments[1], "Mod" | "Wip")
+        && !segments[2].is_empty()
+        && segments[2].len() <= 12
+        && segments[2].bytes().all(|byte| byte.is_ascii_digit())
+        && segments[3] == "ProfilePage"
+        && parsed.query().is_none();
+    (game_feed || search || profile_page).then_some(safe.raw)
 }
 
 fn unix_ms() -> u64 {
@@ -765,8 +774,27 @@ pub fn dispatch(
 
 #[cfg(test)]
 mod tests {
-    use super::{legacy_mod_image_from_roots, moddb_catalog};
+    use super::{gamebanana_catalog_url, legacy_mod_image_from_roots, moddb_catalog};
     use deltamod_network_runtime::ModEntry;
+
+    #[test]
+    fn gamebanana_profile_pages_are_allowed_natively() {
+        let game = serde_json::json!({ "gamebanana": { "id": 6755 } });
+        let allowed = "https://gamebanana.com/apiv11/Mod/662826/ProfilePage";
+        assert_eq!(
+            gamebanana_catalog_url(&game, allowed).as_deref(),
+            Some(allowed)
+        );
+        for rejected in [
+            "https://gamebanana.com/apiv11/Mod/abc/ProfilePage",
+            "https://gamebanana.com/apiv11/Member/1/ProfilePage",
+            "https://gamebanana.com/apiv11/Mod/662826/ProfilePage?x=1",
+            "https://gamebanana.com/apiv11/Mod/662826/Files",
+            "https://evil.example/apiv11/Mod/662826/ProfilePage",
+        ] {
+            assert_eq!(gamebanana_catalog_url(&game, rejected), None, "{rejected}");
+        }
+    }
 
     #[test]
     fn legacy_mod_image_skips_malformed_packet_entries() {

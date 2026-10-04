@@ -8,7 +8,7 @@ patch-plan validation, and patch transactions are also shipped as five
 target-specific compatibility workers and must pass their installed bounded-protocol
 smoke on every release target.
 
-G3MTool and UndertaleModTool are never Cargo dependencies and never linked into the shell. Their complete, checksum-verified release trees are Tauri resources, including upstream license files and the corresponding source archives in the GitHub release. On Apple Silicon, UndertaleModTool is intentionally absent because the pinned upstream release has no arm64 CLI; the UI must report CSX unavailable for that target.
+G3MTool and UndertaleModTool are never Cargo dependencies and never linked into the shell. Their complete, checksum-verified release trees are Tauri resources, including upstream license files and the corresponding source archives in the GitHub release. On Apple Silicon, UndertaleModTool is intentionally absent because the pinned upstream release has no arm64 CLI; the UI must report CSX unavailable for that target. Patch staging invokes G3MTool through the tools runtime (`run_bounded_with_cancel_probe`) with inputs copied into a staging temp directory; the tool never writes to game files directly. On macOS, the managed game copy is re-signed ad hoc with `/usr/bin/codesign` after each publish and restore.
 
 The current Electron package remains the reference implementation and rollback artifact until `docs/RELEASE-GATE.md` passes. Do not remove Electron scripts, assets, or release jobs as part of the first stable Tauri release.
 

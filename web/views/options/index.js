@@ -264,6 +264,109 @@ async function addButton(name, description, click, buttonText, enabled = true, d
     return button;
 }
 
+const IS_MAC = /Macintosh|Mac OS X/.test(navigator.userAgent);
+if (IS_MAC) document.getElementById('b_mac').style.display = '';
+
+// Credits and a plain-language guide to how Mac support works.
+async function addMacSupportRows() {
+    await addRowHeader(`${icon('favorite', '20px')} ${localize('mac_credits', 'Credits')}`);
+    await addInfoRow(
+        localize('mac_credit_name', 'Mac support by {0}', 'XN'),
+        'X: @XNXITTER',
+        localize('mac_credit_desc', 'Made mod downloading and patching work on macOS.')
+    );
+
+    await addRowHeader(`${icon('laptop_mac', '20px')} ${localize('mac_how_title', 'How Mac support works')}`);
+    const automatic = localize('mac_automatic', 'Automatic');
+    const rows = [
+        ['mac_downloads', 'Downloading mods', automatic, 'mac_downloads_desc'],
+        ['mac_copy', 'Your game stays untouched', localize('mac_copy_value', 'Separate copy'), 'mac_copy_desc'],
+        ['reference_files', 'Windows reference files', localize('mac_reference_value', 'Options → Installation'), 'mac_reference_desc'],
+        ['mac_patch', 'Patch & Play', automatic, 'mac_patch_desc'],
+        ['mac_saves', 'Save files', localize('mac_saves_value', 'Shared'), 'mac_saves_desc'],
+        ['mac_unsupported', 'Not supported yet', localize('mac_unsupported_value', '.csx scripts'), 'mac_unsupported_desc']
+    ];
+    for (const [key, fallback, value, descriptionKey] of rows) {
+        await addInfoRow(localize(key, fallback), value, localize(descriptionKey, ''));
+    }
+}
+
+// "Chapter select, Chapters 1–3, 5" for the description; "All chapters" or a
+// short list for the narrow status column.
+function summarizeReferenceFiles(files) {
+    const chapters = files
+        .map(file => /^chapter(\d+)_windows\/data\.win$/.exec(file))
+        .filter(Boolean)
+        .map(match => Number(match[1]))
+        .sort((a, b) => a - b);
+    const ranges = [];
+    for (const chapter of chapters) {
+        const last = ranges[ranges.length - 1];
+        if (last && chapter === last[1] + 1) last[1] = chapter;
+        else ranges.push([chapter, chapter]);
+    }
+    const chapterText = ranges
+        .map(([from, to]) => (from === to ? `${from}` : `${from}–${to}`))
+        .join(', ');
+    const hasSelect = files.includes('data.win');
+    const chapterSelect = localize('reference_chapter_select', 'Chapter select');
+    const parts = [];
+    if (hasSelect) parts.push(chapterSelect);
+    if (chapters.length) {
+        parts.push(chapters.length === 1
+            ? localize('reference_chapter', 'Chapter {0}', chapterText)
+            : localize('reference_chapters', 'Chapters {0}', chapterText));
+    }
+    return {
+        short: hasSelect && chapters.length >= 5 && ranges.length === 1 && chapters[0] === 1
+            ? localize('reference_all', 'All chapters')
+            : chapters.length ? localize('reference_short', 'Ch. {0}', chapterText) : chapterSelect,
+        long: parts.join(', ')
+    };
+}
+
+// Mods are made against the Windows data.win files. Platforms whose data file
+// differs (DELTARUNE's Mac game.ios) patch a stored copy of those files instead.
+async function addReferenceFileRows() {
+    let status;
+    try {
+        status = await window.deltamodBackend.invoke('referenceFiles:status', []);
+    } catch {
+        return;
+    }
+    const files = Array.isArray(status?.files) ? status.files : [];
+    if (!status?.needed && files.length === 0) return;
+
+    const summary = summarizeReferenceFiles(files);
+    const description = localize('reference_desc', '');
+    await addRowHeader(`${icon('desktop_windows', '20px')} ${localize('reference_files', 'Windows reference files')}`);
+    await addInfoRow(
+        localize('reference_stored', 'Stored files'),
+        files.length ? summary.short : localize('reference_none', 'None yet'),
+        files.length
+            ? `${localize('reference_stored_list', 'Stored: {0}.', summary.long)} ${description}`
+            : description
+    );
+    await addButton(
+        files.length
+            ? localize('reference_replace', 'Replace Windows reference files')
+            : localize('reference_add', 'Add Windows reference files'),
+        localize('reference_choose_desc', ''),
+        async () => {
+            const result = await window.deltamodBackend.invoke('referenceFiles:choose', []);
+            if (result && result.ok === false) {
+                await htmlAlert(
+                    localize('reference_not_found', 'No Windows game files found'),
+                    result.message,
+                    [{ text: localize('allmods_ok', 'OK'), resolveWith: 'ok' }]
+                );
+            }
+            await window.currentPageStack.cat('inst');
+        },
+        localize('reference_choose', 'Choose folder')
+    );
+}
+
 async function addRowHeader(name) {
     const table = document.querySelector('tbody');
     const tr = document.createElement('tr');
@@ -373,6 +476,7 @@ async function addLanguageOption(language, selected) {
             b_adv: ['optcat_advanced', 'Advanced'],
             b_gb: ['optcat_gamebanana', 'GameBanana'],
             b_nexus: ['optcat_nexus', 'Nexus Mods'],
+            b_mac: ['optcat_mac', 'Mac'],
             b_dev: ['optcat_developer', 'Developer']
         };
         for (const [id, [key, fallback]] of Object.entries(categoryLabels)) {
@@ -483,6 +587,7 @@ window.currentPageStack.cat = async function(cat) {
     document.getElementById('b_adv').classList.remove('selected');
     document.getElementById('b_gb').classList.remove('selected');
     document.getElementById('b_nexus').classList.remove('selected');
+    document.getElementById('b_mac').classList.remove('selected');
     
     try {
         document.getElementById('b_dev').classList.remove('selected');
@@ -633,6 +738,9 @@ window.currentPageStack.cat = async function(cat) {
             seasonalModeSelect.id = 'SELECT-SEASONAL-MODE';
 
             break;
+        case 'mac':
+            await addMacSupportRows();
+            break;
         case 'inst':
             var isSteam = await window.deltamodBackend.invoke('isCurrentIndexSteam', []);
             const canDisconnectSteam = window.deltamodBackend.isCommandAvailable('removeSteamIntegration');
@@ -648,6 +756,7 @@ window.currentPageStack.cat = async function(cat) {
                 page('installmanager');
             }, "Open");
 
+            await addReferenceFileRows();
             break;
         case 'data': {
             await addRowHeader(`${icon('database', '20px')} Deltamod compatibility`);

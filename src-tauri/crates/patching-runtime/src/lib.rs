@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod mac_bundle;
 mod selection;
 mod staging;
 
@@ -227,6 +228,10 @@ pub struct Runtime {
     pub mod_root: PathBuf,
     pub tools_root: PathBuf,
     pub hash_cache_path: PathBuf,
+    /// Unmodified files of the game's primary platform (DELTARUNE's Windows
+    /// `data.win` files). On macOS, Windows `.xdelta` mods are applied to these
+    /// rather than to the Mac `game.ios`, whose texture packing differs.
+    pub reference_root: Option<PathBuf>,
     pub platform: PatchPlatform,
     pub platform_name: String,
     pub arch: String,
@@ -404,7 +409,7 @@ impl Runtime {
             &mut candidates,
         )
         .map_err(staging::runtime_error)?;
-        staging::validate_mechanisms(&candidates)
+        staging::validate_mechanisms(self, &candidates)
     }
 
     fn build_plan_from_candidates(
@@ -942,6 +947,7 @@ impl Runtime {
             runtime.install(plan, identity, &mut workspace)
         };
         require_lifecycle_success(outcome)?;
+        self.reseal_mac_bundle();
         staged
             .discard_verified()
             .map_err(|error| Error::Staging(error.to_string()))?;
@@ -1018,7 +1024,30 @@ impl Runtime {
             request,
             lifecycle_identity(&restore_operation, "restore"),
             &mut workspace,
-        ))
+        ))?;
+        self.reseal_mac_bundle();
+        Ok(())
+    }
+
+    /// Re-signs the macOS game bundle after its resources were replaced or
+    /// restored. Signing failure is logged rather than blocking play: the
+    /// published files are already durable and recoverable.
+    fn reseal_mac_bundle(&self) {
+        if self.platform != PatchPlatform::Darwin {
+            return;
+        }
+        let Some(bundle) = self
+            .definition
+            .content_root
+            .as_deref()
+            .and_then(|root| mac_bundle::bundle_of(&self.game_root, root))
+            .filter(|bundle| bundle.is_dir())
+        else {
+            return;
+        };
+        if let Err(error) = mac_bundle::reseal(&bundle) {
+            eprintln!("[mac] {error}");
+        }
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -1032,9 +1061,9 @@ impl Runtime {
     }
 
     /// Migration bridge for the Tauri shell: output construction and approval
-    /// use the hardened staging path, while the existing journal remains the
-    /// temporary publisher/rollback adapter. External patch tools therefore
-    /// fail closed until their sandboxed staging implementation lands.
+    /// use the hardened staging path (G3MTool runs only on private copies),
+    /// while the existing journal remains the temporary publisher/rollback
+    /// adapter. UndertaleModCli scripts still fail closed.
     pub fn patch_staged_compatibility(
         &self,
         selected: &[String],
@@ -1816,6 +1845,7 @@ mod tests {
             mod_root: root.path().join("mods"),
             tools_root: root.path().join("tools"),
             hash_cache_path: root.path().join("hashes.json"),
+            reference_root: None,
             platform: PatchPlatform::Win32,
             platform_name: "win32".into(),
             arch: "x64".into(),
@@ -1859,6 +1889,7 @@ mod tests {
             mod_root: root.path().join("mods"),
             tools_root: root.path().join("tools"),
             hash_cache_path: root.path().join("_game-hashes.json"),
+            reference_root: None,
             platform: PatchPlatform::Linux,
             platform_name: "linux".into(),
             arch: "x64".into(),
@@ -1901,6 +1932,7 @@ mod tests {
             mod_root: root.path().join("mods"),
             tools_root: root.path().join("tools"),
             hash_cache_path: root.path().join("hash.json"),
+            reference_root: None,
             platform: PatchPlatform::Win32,
             platform_name: "win32".into(),
             arch: "x64".into(),
@@ -1948,6 +1980,7 @@ mod tests {
             mod_root: root.path().join("mods"),
             tools_root: root.path().join("tools"),
             hash_cache_path: root.path().join("hash.json"),
+            reference_root: None,
             platform: PatchPlatform::Linux,
             platform_name: "linux".into(),
             arch: "x64".into(),
@@ -2026,6 +2059,7 @@ name = "Test"
             mod_root: mods,
             tools_root: root.path().join("tools"),
             hash_cache_path: root.path().join("hash.json"),
+            reference_root: None,
             platform: PatchPlatform::Linux,
             platform_name: "linux".into(),
             arch: "x64".into(),
@@ -2060,6 +2094,7 @@ name = "Test"
             mod_root: mods,
             tools_root: root.path().join("tools"),
             hash_cache_path: root.path().join("hash.json"),
+            reference_root: None,
             platform: PatchPlatform::Linux,
             platform_name: "linux".into(),
             arch: "x64".into(),
@@ -2103,6 +2138,7 @@ name = "Test"
             mod_root: mods,
             tools_root: root.path().join("tools"),
             hash_cache_path: root.path().join("hash.json"),
+            reference_root: None,
             platform: PatchPlatform::Linux,
             platform_name: "linux".into(),
             arch: "x64".into(),
@@ -2155,6 +2191,7 @@ name = "Test"
             mod_root: mods,
             tools_root: root.path().join("tools"),
             hash_cache_path: root.path().join("hash.json"),
+            reference_root: None,
             platform: PatchPlatform::Win32,
             platform_name: "win32".into(),
             arch: "x64".into(),
@@ -2238,6 +2275,7 @@ name = "Test"
             mod_root: mods,
             tools_root: root.path().join("tools"),
             hash_cache_path: root.path().join("hash.json"),
+            reference_root: None,
             platform: PatchPlatform::Linux,
             platform_name: "linux".into(),
             arch: "x64".into(),
@@ -2326,6 +2364,7 @@ name = "Test"
                 mod_root: mods,
                 tools_root: root.path().join("tools"),
                 hash_cache_path: root.path().join("hash.json"),
+                reference_root: None,
                 platform: PatchPlatform::Darwin,
                 platform_name: "darwin".into(),
                 arch: "arm64".into(),
@@ -2397,6 +2436,7 @@ name = "Test"
                 mod_root: root.path().join("mods"),
                 tools_root: root.path().join("tools"),
                 hash_cache_path: root.path().join("hash.json"),
+                reference_root: None,
                 platform,
                 platform_name: "unused".into(),
                 arch: "unused".into(),
