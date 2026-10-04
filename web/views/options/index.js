@@ -269,40 +269,26 @@ if (IS_MAC) document.getElementById('b_mac').style.display = '';
 
 // Credits and a plain-language guide to how Mac support works.
 async function addMacSupportRows() {
-    await addRowHeader(`${icon('favorite', '20px')} Credits`);
-    await addInfoRow('Mac support by XN', 'X: @XNXITTER', 'Made mod downloading and patching work on macOS.');
+    await addRowHeader(`${icon('favorite', '20px')} ${localize('mac_credits', 'Credits')}`);
+    await addInfoRow(
+        localize('mac_credit_name', 'Mac support by {0}', 'XN'),
+        'X: @XNXITTER',
+        localize('mac_credit_desc', 'Made mod downloading and patching work on macOS.')
+    );
 
-    await addRowHeader(`${icon('laptop_mac', '20px')} How Mac support works`);
-    await addInfoRow(
-        'Downloading mods',
-        'Automatic',
-        'GameBanana mods packaged for Deltamod or Deltahub download directly. Deltahub packages do not say which chapter they patch, so Deltamod suggests one from the mod\'s files and asks you to confirm.'
-    );
-    await addInfoRow(
-        'Your game stays untouched',
-        'Separate copy',
-        'When you add DELTARUNE, Deltamod copies DELTARUNE.app into its own folder and only ever changes that copy. The game in your Applications folder stays exactly as it was.'
-    );
-    await addInfoRow(
-        'Windows reference files',
-        'Options → Installation',
-        'Most mods are made for the Windows game files, and the Mac files are packed differently, so mods cannot be applied to them directly. Deltamod applies each mod to your unmodified Windows data.win file and installs the result in the copy as game.ios. Mods that only replace files, such as music, do not need these.'
-    );
-    await addInfoRow(
-        'Patch & Play',
-        'Automatic',
-        'Deltamod installs your enabled mods into the copy, re-signs it so macOS accepts the changed files, and starts it. When the game closes, the original files are put back.'
-    );
-    await addInfoRow(
-        'Save files',
-        'Shared',
-        'The copy and your original game use the same saves in ~/Library/Application Support/com.tobyfox.deltarune. Back them up before trying new mods.'
-    );
-    await addInfoRow(
-        'Not supported yet',
-        '.csx scripts',
-        'Script mods need UndertaleModTool, which has no Apple Silicon version yet.'
-    );
+    await addRowHeader(`${icon('laptop_mac', '20px')} ${localize('mac_how_title', 'How Mac support works')}`);
+    const automatic = localize('mac_automatic', 'Automatic');
+    const rows = [
+        ['mac_downloads', 'Downloading mods', automatic, 'mac_downloads_desc'],
+        ['mac_copy', 'Your game stays untouched', localize('mac_copy_value', 'Separate copy'), 'mac_copy_desc'],
+        ['reference_files', 'Windows reference files', localize('mac_reference_value', 'Options → Installation'), 'mac_reference_desc'],
+        ['mac_patch', 'Patch & Play', automatic, 'mac_patch_desc'],
+        ['mac_saves', 'Save files', localize('mac_saves_value', 'Shared'), 'mac_saves_desc'],
+        ['mac_unsupported', 'Not supported yet', localize('mac_unsupported_value', '.csx scripts'), 'mac_unsupported_desc']
+    ];
+    for (const [key, fallback, value, descriptionKey] of rows) {
+        await addInfoRow(localize(key, fallback), value, localize(descriptionKey, ''));
+    }
 }
 
 // "Chapter select, Chapters 1–3, 5" for the description; "All chapters" or a
@@ -323,13 +309,18 @@ function summarizeReferenceFiles(files) {
         .map(([from, to]) => (from === to ? `${from}` : `${from}–${to}`))
         .join(', ');
     const hasSelect = files.includes('data.win');
+    const chapterSelect = localize('reference_chapter_select', 'Chapter select');
     const parts = [];
-    if (hasSelect) parts.push('Chapter select');
-    if (chapters.length) parts.push(`${chapters.length === 1 ? 'Chapter' : 'Chapters'} ${chapterText}`);
+    if (hasSelect) parts.push(chapterSelect);
+    if (chapters.length) {
+        parts.push(chapters.length === 1
+            ? localize('reference_chapter', 'Chapter {0}', chapterText)
+            : localize('reference_chapters', 'Chapters {0}', chapterText));
+    }
     return {
         short: hasSelect && chapters.length >= 5 && ranges.length === 1 && chapters[0] === 1
-            ? 'All chapters'
-            : chapters.length ? `Ch. ${chapterText}` : 'Chapter select',
+            ? localize('reference_all', 'All chapters')
+            : chapters.length ? localize('reference_short', 'Ch. {0}', chapterText) : chapterSelect,
         long: parts.join(', ')
     };
 }
@@ -347,24 +338,32 @@ async function addReferenceFileRows() {
     if (!status?.needed && files.length === 0) return;
 
     const summary = summarizeReferenceFiles(files);
-    await addRowHeader(`${icon('desktop_windows', '20px')} Windows reference files`);
+    const description = localize('reference_desc', '');
+    await addRowHeader(`${icon('desktop_windows', '20px')} ${localize('reference_files', 'Windows reference files')}`);
     await addInfoRow(
-        'Stored files',
-        files.length ? summary.short : 'None yet',
-        (files.length ? `Stored: ${summary.long}. ` : '')
-            + 'Most mods are made for the Windows version of the game. On this computer, Deltamod applies them to your unmodified Windows game files and installs the result into its own copy of the game.'
+        localize('reference_stored', 'Stored files'),
+        files.length ? summary.short : localize('reference_none', 'None yet'),
+        files.length
+            ? `${localize('reference_stored_list', 'Stored: {0}.', summary.long)} ${description}`
+            : description
     );
     await addButton(
-        files.length ? 'Replace Windows reference files' : 'Add Windows reference files',
-        'Choose the Windows game folder that contains DELTARUNE.exe and the chapter1_windows, chapter2_windows, … folders. Only the data.win files are copied. Use the same game version your mods target.',
+        files.length
+            ? localize('reference_replace', 'Replace Windows reference files')
+            : localize('reference_add', 'Add Windows reference files'),
+        localize('reference_choose_desc', ''),
         async () => {
             const result = await window.deltamodBackend.invoke('referenceFiles:choose', []);
             if (result && result.ok === false) {
-                await htmlAlert('No Windows game files found', result.message, [{ text: 'OK', resolveWith: 'ok' }]);
+                await htmlAlert(
+                    localize('reference_not_found', 'No Windows game files found'),
+                    result.message,
+                    [{ text: localize('allmods_ok', 'OK'), resolveWith: 'ok' }]
+                );
             }
             await window.currentPageStack.cat('inst');
         },
-        'Choose folder'
+        localize('reference_choose', 'Choose folder')
     );
 }
 
