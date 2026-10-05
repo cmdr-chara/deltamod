@@ -62,13 +62,13 @@
   "license": "EUPL-1.2",
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@tauri-apps/cli": "2.11.5",
-    "@types/node": "^26.6.2",
+    "@tauri-apps/cli": "2.12.1",
+    "@types/node": "^26.6.4",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.3.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.1",
-    "vitest": "^5.0.2"
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
   },
   "dependencies": {
     "@chainsafe/xdelta3-node": "^1.0.2",
