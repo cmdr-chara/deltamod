@@ -68,6 +68,14 @@ jobs:
       - run: npm run verify:tauri:contract
       - run: cargo fmt --all --check --manifest-path native/Cargo.toml
       - run: cargo fmt --all --check --manifest-path src-tauri/Cargo.toml
+      - name: Resolve Tauri lockfile for dependency integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 > /dev/null
+          echo "::group::resolved Cargo.lock diff"
+          git diff --no-ext-diff -- src-tauri/Cargo.lock
+          echo "::endgroup::"
 
   verify:
     needs: quality
