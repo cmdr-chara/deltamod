@@ -17,7 +17,7 @@ use std::{
     path::Path,
     process::{Command, Stdio},
     sync::Mutex,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{
     menu::{Menu, MenuItem, Submenu},
@@ -548,22 +548,74 @@ fn queue_protocol_url(app: &AppHandle, raw: &str) {
     }
 }
 
-/// URLs that launched the app, read from the deep-link plugin at setup. macOS can
-/// also replay them through `RunEvent::Opened`, so each is skipped once there.
+/// URLs reported by `get_current()` can be replayed by `RunEvent::Opened`.
+/// Track first delivery so exactly one startup replay is suppressed.
 #[cfg(target_os = "macos")]
-static STARTUP_PROTOCOL_URLS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+#[derive(Clone, Copy)]
+enum StartupProtocolUrlState {
+    Pending,
+    DeliveredUntil(Instant),
+}
 
 #[cfg(target_os = "macos")]
-fn take_startup_protocol_url(raw: &str) -> bool {
+static STARTUP_PROTOCOL_URLS: std::sync::Mutex<Vec<(String, StartupProtocolUrlState)>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(target_os = "macos")]
+const STARTUP_PROTOCOL_REPLAY_WINDOW: Duration = Duration::from_secs(5);
+
+#[cfg(target_os = "macos")]
+fn register_startup_protocol_urls(urls: &[String]) {
+    if let Ok(mut pending) = STARTUP_PROTOCOL_URLS.lock() {
+        pending.extend(
+            urls.iter()
+                .cloned()
+                .map(|url| (url, StartupProtocolUrlState::Pending)),
+        );
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn should_skip_startup_protocol_event(raw: &str) -> bool {
     let Ok(mut urls) = STARTUP_PROTOCOL_URLS.lock() else {
         return false;
     };
-    match urls.iter().position(|url| url == raw) {
-        Some(index) => {
+    let now = Instant::now();
+    urls.retain(|(_, state)| match state {
+        StartupProtocolUrlState::Pending => true,
+        StartupProtocolUrlState::DeliveredUntil(deadline) => *deadline > now,
+    });
+    let Some(index) = urls.iter().position(|(url, _)| url == raw) else {
+        return false;
+    };
+    match urls[index].1 {
+        StartupProtocolUrlState::Pending => {
+            urls.remove(index);
+            false
+        }
+        StartupProtocolUrlState::DeliveredUntil(_) => {
             urls.remove(index);
             true
         }
-        None => false,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn claim_startup_protocol_url(raw: &str) -> bool {
+    let Ok(mut urls) = STARTUP_PROTOCOL_URLS.lock() else {
+        return false;
+    };
+    let Some((_, state)) = urls.iter_mut().find(|(url, _)| url == raw) else {
+        return false;
+    };
+    match state {
+        StartupProtocolUrlState::Pending => {
+            *state = StartupProtocolUrlState::DeliveredUntil(
+                Instant::now() + STARTUP_PROTOCOL_REPLAY_WINDOW,
+            );
+            true
+        }
+        StartupProtocolUrlState::DeliveredUntil(_) => false,
     }
 }
 
@@ -777,7 +829,7 @@ pub fn install_protocols(app: &AppHandle) -> Result<(), &'static str> {
                     let mut files = Vec::new();
                     for url in urls {
                         if url.scheme() == "deltamod-community" {
-                            if !take_startup_protocol_url(url.as_str()) {
+                            if !should_skip_startup_protocol_event(url.as_str()) {
                                 queue_protocol_url(app, url.as_str());
                             }
                         } else if let Ok(path) = url.to_file_path() {
@@ -804,16 +856,16 @@ pub fn install_protocols(app: &AppHandle) -> Result<(), &'static str> {
             .map(|url| url.as_str().to_owned())
             .collect::<Vec<_>>();
         if !startup_urls.is_empty() {
-            if let Ok(mut pending) = STARTUP_PROTOCOL_URLS.lock() {
-                pending.extend(startup_urls.iter().cloned());
-            }
+            register_startup_protocol_urls(&startup_urls);
             let startup_app = app.clone();
             tauri::async_runtime::spawn(async move {
                 // Same AppState boundary as the argument handoff below.
                 for _ in 0..3_000 {
                     if startup_app.try_state::<crate::state::AppState>().is_some() {
                         for url in &startup_urls {
-                            queue_protocol_url(&startup_app, url);
+                            if claim_startup_protocol_url(url) {
+                                queue_protocol_url(&startup_app, url);
+                            }
                         }
                         return;
                     }
