@@ -10,6 +10,8 @@ pub use staging::{
 };
 
 use deltamod_hash_worker::Event as NativeHashEvent;
+#[cfg(unix)]
+use deltamod_lifecycle_runtime::LifecycleWorkspace;
 #[cfg(any(unix, windows))]
 use deltamod_lifecycle_runtime::{
     file_plan_fingerprint, DurableLifecycleStore, ExecutionIdentity, InstallFilePlan,
@@ -247,7 +249,23 @@ impl Runtime {
         let mut cache = load_hash_cache(&self.hash_cache_path);
         let mut dirty = false;
         let mut results = BTreeMap::new();
+        let reference_roots = if self.platform == PatchPlatform::Darwin {
+            let ids = mods.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+            selection::available_roots(self, &ids).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
         for (id, required) in mods {
+            // Hash-only callers need not have a stored packet. When one exists,
+            // use its metadata-only plan to distinguish reference-backed merge
+            // targets from overrides and unrelated native required files.
+            // Packet validity is independently enforced before staging/launch.
+            let mut reference_patches = Vec::new();
+            if let Some(Some(root)) = reference_roots.get(id) {
+                if selection::append_packet(self, id, root, &mut reference_patches).is_err() {
+                    reference_patches.clear();
+                }
+            }
             let mut different = Vec::new();
             let mut invalid_reason = None;
             for item in required {
@@ -273,48 +291,78 @@ impl Runtime {
                         break;
                     }
                 };
-                let key = normalized_hash_key(&relative_path, self.platform);
-                let hashed = match deltamod_hash_worker::relative_file_signature(
-                    &self.game_root,
-                    &relative_path,
-                ) {
-                    Ok(signature) => {
-                        if let Some(entry) = cache.entries.get(&key).filter(|entry| {
-                            entry.signature == signature && valid_sha256(&entry.sha256)
-                        }) {
-                            entry.sha256.clone()
-                        } else {
-                            match deltamod_hash_worker::hash_relative_file(
-                                &self.game_root,
-                                &relative_path,
-                            ) {
-                                Ok((hashed_signature, sha256)) => {
-                                    cache.entries.insert(
-                                        key,
-                                        HashEntry {
-                                            signature: hashed_signature,
-                                            sha256: sha256.clone(),
-                                        },
-                                    );
-                                    dirty = true;
-                                    sha256
-                                }
-                                Err(_) => {
-                                    invalid_reason = Some(format!(
-                                        "Required game file is missing or unsafe: {relative}"
-                                    ));
-                                    break;
+                let base = reference_patches
+                    .iter()
+                    .find(|candidate| {
+                        staging::target_requires_reference(
+                            Path::new(&relative.replace('\\', "/")),
+                            &relative_path,
+                        ) && matches!(
+                            candidate.patch_type,
+                            PatchType::Xdelta | PatchType::G3mPatch
+                        ) && normalized_hash_key(Path::new(&candidate.mapped_target), self.platform)
+                            == normalized_hash_key(&relative_path, self.platform)
+                    })
+                    .map(|candidate| staging::base_file(self, candidate));
+                let (hash_root, hash_relative) = match base {
+                    Some(Ok(base)) => (base.root, base.relative),
+                    Some(Err(error)) => {
+                        invalid_reason = Some(error.to_string());
+                        break;
+                    }
+                    None => (self.game_root.clone(), relative_path),
+                };
+                let relative_key = normalized_hash_key(&hash_relative, self.platform);
+                let key = if hash_root == self.game_root {
+                    relative_key
+                } else {
+                    // Native precalculation and reference checks must never
+                    // share entries, even for identical relative spellings.
+                    format!(
+                        "reference/{}/{relative_key}",
+                        sha2_digest(hash_root.as_os_str().as_encoded_bytes())
+                    )
+                };
+                let hashed =
+                    match deltamod_hash_worker::relative_file_signature(&hash_root, &hash_relative)
+                    {
+                        Ok(signature) => {
+                            if let Some(entry) = cache.entries.get(&key).filter(|entry| {
+                                entry.signature == signature && valid_sha256(&entry.sha256)
+                            }) {
+                                entry.sha256.clone()
+                            } else {
+                                match deltamod_hash_worker::hash_relative_file(
+                                    &hash_root,
+                                    &hash_relative,
+                                ) {
+                                    Ok((hashed_signature, sha256)) => {
+                                        cache.entries.insert(
+                                            key,
+                                            HashEntry {
+                                                signature: hashed_signature,
+                                                sha256: sha256.clone(),
+                                            },
+                                        );
+                                        dirty = true;
+                                        sha256
+                                    }
+                                    Err(_) => {
+                                        invalid_reason = Some(format!(
+                                            "Required game file is missing or unsafe: {relative}"
+                                        ));
+                                        break;
+                                    }
                                 }
                             }
                         }
-                    }
-                    Err(_) => {
-                        invalid_reason = Some(format!(
-                            "Required game file is missing or unsafe: {relative}"
-                        ));
-                        break;
-                    }
-                };
+                        Err(_) => {
+                            invalid_reason = Some(format!(
+                                "Required game file is missing or unsafe: {relative}"
+                            ));
+                            break;
+                        }
+                    };
                 if !hashed.eq_ignore_ascii_case(expected) {
                     different.push(relative.to_owned());
                 }
@@ -727,12 +775,8 @@ impl Runtime {
         }
         fs::create_dir_all(&lifecycle.store)?;
         fs::create_dir_all(&lifecycle.workspace)?;
-        let store = DurableLifecycleStore::open(&lifecycle.store)
-            .map_err(|error| Error::Transaction(error.to_string()))?;
-        let installation_id = lifecycle_installation_id(&self.game_root);
-        let mut workspace =
-            OsLifecycleWorkspace::open(self.game_root.clone(), lifecycle.workspace.clone())
-                .map_err(|error| Error::Transaction(error.to_string()))?;
+        let (store, mut workspace, installation_id) =
+            self.open_lifecycle_context(&lifecycle.store, &lifecycle.workspace)?;
         let mut runtime = ReleaseARuntime::new(store);
         let outcomes = runtime.recover_startup_installation(
             &format!("patch-startup-{}", std::process::id()),
@@ -802,10 +846,10 @@ impl Runtime {
         staged
             .verify()
             .map_err(|error| Error::Staging(error.to_string()))?;
-        let store = DurableLifecycleStore::open(lifecycle_store_root)
-            .map_err(|error| Error::Transaction(error.to_string()))?;
+        let (store, mut workspace, installation_id) =
+            self.open_lifecycle_context(lifecycle_store_root, lifecycle_workspace_root)?;
         let existing = store
-            .manifest(&lifecycle_installation_id(&self.game_root))
+            .manifest(&installation_id)
             .map_err(|error| Error::Transaction(error.to_string()))?
             .is_some_and(|manifest| {
                 manifest
@@ -814,9 +858,6 @@ impl Runtime {
                     .any(|record| record.instance_id == "active-patch-set")
             });
         let mut runtime = ReleaseARuntime::new(store);
-        let mut workspace =
-            OsLifecycleWorkspace::open(self.game_root.clone(), lifecycle_workspace_root.to_owned())
-                .map_err(|error| Error::Transaction(error.to_string()))?;
         let mut files = Vec::with_capacity(staged.artifacts().len());
         let mut baseline_files = Vec::with_capacity(staged.artifacts().len());
         for (index, artifact) in staged.artifacts().iter().enumerate() {
@@ -870,7 +911,6 @@ impl Runtime {
             });
         }
         let provider = local_patch_provider()?;
-        let installation_id = lifecycle_installation_id(&self.game_root);
         let baseline_created = !existing && !baseline_files.is_empty();
         if baseline_created {
             let baseline_operation = format!(
@@ -973,15 +1013,110 @@ impl Runtime {
     }
 
     #[cfg(any(unix, windows))]
+    fn open_lifecycle_context(
+        &self,
+        store_root: &Path,
+        workspace_root: &Path,
+    ) -> Result<(DurableLifecycleStore, OsLifecycleWorkspace, String), Error> {
+        let store = DurableLifecycleStore::open(store_root)
+            .map_err(|error| Error::Transaction(error.to_string()))?;
+        let workspace =
+            OsLifecycleWorkspace::open(self.game_root.clone(), workspace_root.to_owned())
+                .map_err(|error| Error::Transaction(error.to_string()))?;
+        let installation_id = lifecycle_installation_id(&self.game_root, self.platform);
+        #[cfg(unix)]
+        let (mut workspace, mut installation_id) = (workspace, installation_id);
+        #[cfg(unix)]
+        if self.platform == PatchPlatform::Darwin {
+            use std::os::unix::fs::MetadataExt as _;
+            let canonical = fs::canonicalize(&self.game_root)?;
+            let metadata = fs::metadata(&canonical)?;
+            let current_legacy_id =
+                unix_installation_id(&canonical, Some(metadata.dev()), Some(metadata.ino()));
+            let journals = store
+                .journals()
+                .map_err(|error| Error::Transaction(error.to_string()))?;
+            let mut matching = Vec::new();
+            let mut identities = std::collections::BTreeSet::new();
+            for known_id in [&installation_id, &current_legacy_id] {
+                if store
+                    .manifest(known_id)
+                    .map_err(|error| Error::Transaction(error.to_string()))?
+                    .is_some()
+                {
+                    identities.insert(known_id.clone());
+                }
+            }
+            for interrupted in store
+                .interrupted_operations()
+                .map_err(|error| Error::Transaction(error.to_string()))?
+            {
+                let id = &interrupted.record.request.intent().installation_id;
+                if id == &installation_id || id == &current_legacy_id {
+                    identities.insert(id.clone());
+                }
+            }
+            for journal in journals {
+                if !workspace.matches_persisted_transaction_root(&journal.transaction_root) {
+                    continue;
+                }
+                let legacy_id = journal
+                    .transaction_root
+                    .volume_id
+                    .parse::<u64>()
+                    .ok()
+                    .zip(journal.transaction_root.file_id.parse::<u64>().ok())
+                    .map(|(device, inode)| {
+                        unix_installation_id(&canonical, Some(device), Some(inode))
+                    });
+                if journal.installation_id == installation_id
+                    || journal.installation_id == current_legacy_id
+                    || legacy_id.as_deref() == Some(journal.installation_id.as_str())
+                {
+                    identities.insert(journal.installation_id.clone());
+                    matching.push(journal);
+                }
+            }
+            if identities.len() > 1 {
+                return Err(Error::Transaction(
+                    "multiple recovery identities for this game; refusing to adopt a new baseline"
+                        .into(),
+                ));
+            }
+            if let Some(existing) = identities.into_iter().next() {
+                installation_id = existing;
+                let recorded_root = match matching.first() {
+                    Some(journal) => journal.transaction_root.clone(),
+                    None => {
+                        let mut root = workspace
+                            .transaction_root_identity()
+                            .map_err(|error| Error::Transaction(error.to_string()))?;
+                        if installation_id == current_legacy_id {
+                            // An identical-file baseline can commit without a
+                            // journal. Keep the boot's legacy volume witness in
+                            // future journals so this key survives later boots.
+                            root.volume_id = metadata.dev().to_string();
+                        }
+                        root
+                    }
+                };
+                workspace
+                    .bind_persisted_roots(&recorded_root, &matching)
+                    .map_err(|error| Error::Transaction(error.to_string()))?;
+            }
+        }
+        Ok((store, workspace, installation_id))
+    }
+
+    #[cfg(any(unix, windows))]
     fn uninstall_active_patch_set(
         &self,
         operation_id: &str,
         lifecycle_store_root: &Path,
         lifecycle_workspace_root: &Path,
     ) -> Result<(), Error> {
-        let store = DurableLifecycleStore::open(lifecycle_store_root)
-            .map_err(|error| Error::Transaction(error.to_string()))?;
-        let installation_id = lifecycle_installation_id(&self.game_root);
+        let (store, mut workspace, installation_id) =
+            self.open_lifecycle_context(lifecycle_store_root, lifecycle_workspace_root)?;
         let installed_version = store
             .manifest(&installation_id)
             .map_err(|error| Error::Transaction(error.to_string()))?
@@ -999,9 +1134,6 @@ impl Runtime {
             return Ok(());
         }
         let mut runtime = ReleaseARuntime::new(store);
-        let mut workspace =
-            OsLifecycleWorkspace::open(self.game_root.clone(), lifecycle_workspace_root.to_owned())
-                .map_err(|error| Error::Transaction(error.to_string()))?;
         let restore_operation = format!(
             "patch-restore-{}",
             &sha2_digest(operation_id.as_bytes())[..32]
@@ -1734,25 +1866,39 @@ fn now_millis() -> u128 {
 }
 
 #[cfg(any(unix, windows))]
-fn lifecycle_installation_id(game_root: &Path) -> String {
+fn lifecycle_installation_id(game_root: &Path, _platform: PatchPlatform) -> String {
     #[cfg(windows)]
-    let identity = game_root.to_string_lossy().to_lowercase().into_bytes();
+    {
+        let identity = game_root.to_string_lossy().to_lowercase().into_bytes();
+        format!("game-{}", &sha2_digest(&identity)[..32])
+    }
     #[cfg(unix)]
-    let identity = {
-        use std::os::unix::{ffi::OsStrExt as _, fs::MetadataExt as _};
-
+    {
+        use std::os::unix::fs::MetadataExt as _;
         let canonical = fs::canonicalize(game_root).unwrap_or_else(|_| game_root.to_owned());
-        let mut bytes = canonical.as_os_str().as_bytes().to_vec();
-        if let Ok(metadata) = fs::metadata(&canonical) {
-            // macOS renumbers volumes on every mount, which would make the same
-            // installation look new after a restart and orphan its baseline.
-            #[cfg(not(target_os = "macos"))]
-            bytes.extend_from_slice(&metadata.dev().to_le_bytes());
-            bytes.extend_from_slice(&metadata.ino().to_le_bytes());
-        }
-        bytes
-    };
-    format!("game-{}", &sha2_digest(&identity)[..32])
+        let metadata = fs::metadata(&canonical).ok();
+        unix_installation_id(
+            &canonical,
+            metadata
+                .as_ref()
+                .filter(|_| _platform != PatchPlatform::Darwin)
+                .map(|metadata| metadata.dev()),
+            metadata.as_ref().map(|metadata| metadata.ino()),
+        )
+    }
+}
+
+#[cfg(unix)]
+fn unix_installation_id(canonical: &Path, device: Option<u64>, inode: Option<u64>) -> String {
+    use std::os::unix::ffi::OsStrExt as _;
+    let mut bytes = canonical.as_os_str().as_bytes().to_vec();
+    if let Some(device) = device {
+        bytes.extend_from_slice(&device.to_le_bytes());
+    }
+    if let Some(inode) = inode {
+        bytes.extend_from_slice(&inode.to_le_bytes());
+    }
+    format!("game-{}", &sha2_digest(&bytes)[..32])
 }
 
 #[cfg(any(unix, windows))]
@@ -1970,6 +2116,140 @@ mod tests {
         cache["entries"]["data.win"]["signature"] = Value::String("stale".into());
         atomic_json(&runtime.hash_cache_path, &cache).unwrap();
         assert!(runtime.check_required_files(&cached_required).unwrap()["mod"].is_incompatible);
+    }
+
+    #[test]
+    fn reference_hash_checks_preserve_native_requirements_and_invalidate_stale_cache() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("game");
+        let resources = "DELTARUNE.app/Contents/Resources";
+        let data = format!("{resources}/chapter3_mac/game.ios");
+        let native = format!("{resources}/chapter3_mac/music.ogg");
+        fs::create_dir_all(game.join(resources).join("chapter3_mac")).unwrap();
+        fs::write(game.join(&data), b"mac").unwrap();
+        fs::write(game.join(&native), b"native music").unwrap();
+        let reference = root.path().join("reference");
+        let reference_file = reference.join("chapter3_windows/data.win");
+        fs::create_dir_all(reference_file.parent().unwrap()).unwrap();
+        fs::write(&reference_file, b"windows").unwrap();
+        let packet = root.path().join("mods/packet");
+        fs::create_dir_all(&packet).unwrap();
+        fs::write(packet.join("__deltaID.json"), r#"{"uniqueId":"mod"}"#).unwrap();
+        fs::write(packet.join("meta.toml"), "[metadata]\nname='Test'\n").unwrap();
+        fs::write(
+            packet.join("modding.xml"),
+            r#"<patch type="xdelta" patch="mod.xdelta" to="chapter3_windows/data.win"/>"#,
+        )
+        .unwrap();
+        let mut runtime = Runtime {
+            game_root: game,
+            mod_root: root.path().join("mods"),
+            tools_root: root.path().join("tools"),
+            hash_cache_path: root.path().join("hash.json"),
+            reference_root: Some(reference),
+            platform: PatchPlatform::Darwin,
+            platform_name: "darwin".into(),
+            arch: "arm64".into(),
+            definition: PlatformDefinition {
+                data_files: vec![data.clone()],
+                patch_layout: "deltarune-mac-resources".into(),
+                content_root: Some(resources.into()),
+            },
+        };
+        let requirements = vec![(
+            "mod".into(),
+            vec![
+                RequiredFile {
+                    file: Some("chapter3_windows/data.win".into()),
+                    checksum: Some(sha2_digest(b"windows")),
+                },
+                RequiredFile {
+                    file: Some(data.clone()),
+                    checksum: Some(sha2_digest(b"mac")),
+                },
+                RequiredFile {
+                    file: Some(native.clone()),
+                    checksum: Some(sha2_digest(b"native music")),
+                },
+            ],
+        )];
+        // Precalculation contains Mac bytes; the reference check must use a
+        // separate entry and never accept the native cache for this target.
+        runtime
+            .precalc_game_hashes("native-cache", |_| {}, || false)
+            .unwrap();
+        assert!(!runtime.check_required_files(&requirements).unwrap()["mod"].is_incompatible);
+        assert!(!runtime.check_required_files(&requirements).unwrap()["mod"].is_incompatible);
+        let cache = load_hash_cache(&runtime.hash_cache_path);
+        assert_eq!(cache.entries[&data].sha256, sha2_digest(b"mac"));
+        assert!(cache
+            .entries
+            .iter()
+            .any(|(key, entry)| key.starts_with("reference/")
+                && entry.sha256 == sha2_digest(b"windows")));
+
+        fs::write(&reference_file, b"another version").unwrap();
+        assert_eq!(
+            runtime.check_required_files(&requirements).unwrap()["mod"].hash_different_files,
+            ["chapter3_windows/data.win"]
+        );
+        fs::write(&reference_file, b"windows").unwrap();
+        fs::write(runtime.game_root.join(&native), b"other music").unwrap();
+        assert_eq!(
+            runtime.check_required_files(&requirements).unwrap()["mod"].hash_different_files,
+            [native.as_str()]
+        );
+        fs::write(runtime.game_root.join(&native), b"native music").unwrap();
+        fs::remove_file(&reference_file).unwrap();
+        assert!(runtime.check_required_files(&requirements).unwrap()["mod"].is_incompatible);
+        runtime.reference_root = None;
+        assert!(runtime.check_required_files(&requirements).unwrap()["mod"].is_incompatible);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linked_reference_files_are_rejected_before_hashing() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("game");
+        fs::create_dir(&game).unwrap();
+        let reference = root.path().join("reference");
+        fs::create_dir(&reference).unwrap();
+        let outside = root.path().join("outside");
+        fs::write(&outside, b"windows").unwrap();
+        std::os::unix::fs::symlink(&outside, reference.join("data.win")).unwrap();
+        let packet = root.path().join("mods/packet");
+        fs::create_dir_all(&packet).unwrap();
+        fs::write(packet.join("__deltaID.json"), r#"{"uniqueId":"mod"}"#).unwrap();
+        fs::write(packet.join("meta.toml"), "[metadata]\nname='Test'\n").unwrap();
+        fs::write(
+            packet.join("modding.xml"),
+            r#"<patch type="xdelta" patch="mod.xdelta" to="data.win"/>"#,
+        )
+        .unwrap();
+        let runtime = Runtime {
+            game_root: game,
+            mod_root: root.path().join("mods"),
+            tools_root: root.path().join("tools"),
+            hash_cache_path: root.path().join("hash.json"),
+            reference_root: Some(reference),
+            platform: PatchPlatform::Darwin,
+            platform_name: "darwin".into(),
+            arch: "arm64".into(),
+            definition: PlatformDefinition {
+                data_files: vec!["game.ios".into()],
+                patch_layout: "windows-root".into(),
+                content_root: None,
+            },
+        };
+        let required = [(
+            "mod".into(),
+            vec![RequiredFile {
+                file: Some("data.win".into()),
+                checksum: Some(sha2_digest(b"windows")),
+            }],
+        )];
+        assert!(runtime.check_required_files(&required).unwrap()["mod"].is_incompatible);
+        assert!(!runtime.hash_cache_path.exists());
     }
 
     #[test]
@@ -2254,6 +2534,219 @@ name = "Test"
             .unwrap();
         assert_eq!(fs::read(game.join("data.win")).unwrap(), b"original");
         assert!(!game.join(JOURNAL_NAME).exists());
+    }
+
+    #[cfg(unix)]
+    fn legacy_mac_recovery_fixture() -> (tempfile::TempDir, Runtime, LifecycleStorageRoots, String)
+    {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("game");
+        let packet = root.path().join("mods/one");
+        fs::create_dir(&game).unwrap();
+        fs::create_dir_all(&packet).unwrap();
+        fs::write(game.join("data.win"), b"original").unwrap();
+        fs::write(packet.join("new.bin"), b"patched").unwrap();
+        fs::write(packet.join("__deltaID.json"), r#"{"uniqueId":"id"}"#).unwrap();
+        fs::write(packet.join("meta.toml"), "[metadata]\nname='Test'\n").unwrap();
+        fs::write(
+            packet.join("modding.xml"),
+            r#"<patch type="override" patch="new.bin" to="data.win"/>"#,
+        )
+        .unwrap();
+        let mut runtime = Runtime {
+            game_root: game,
+            mod_root: root.path().join("mods"),
+            tools_root: root.path().join("tools"),
+            hash_cache_path: root.path().join("hash.json"),
+            reference_root: None,
+            platform: PatchPlatform::Linux,
+            platform_name: "linux".into(),
+            arch: "x64".into(),
+            definition: PlatformDefinition {
+                data_files: vec!["data.win".into()],
+                patch_layout: "windows-root".into(),
+                content_root: None,
+            },
+        };
+        let lifecycle = LifecycleStorageRoots {
+            store: root.path().join("store"),
+            workspace: root.path().join("workspace"),
+        };
+        let legacy_id = lifecycle_installation_id(&runtime.game_root, PatchPlatform::Linux);
+        // The Linux policy uses the old path + device + inode identity on Unix.
+        // This seeds real generations under that hash before switching policy.
+        runtime
+            .patch_staged_lifecycle(
+                &["id".into()],
+                "legacy-session",
+                &lifecycle.store,
+                &lifecycle.workspace,
+                |_| {},
+                || false,
+            )
+            .unwrap();
+        runtime.platform = PatchPlatform::Darwin;
+        (root, runtime, lifecycle, legacy_id)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_mac_identity_is_used_for_startup_restore_and_subsequent_patches() {
+        for startup in [false, true] {
+            let (_root, runtime, lifecycle, legacy_id) = legacy_mac_recovery_fixture();
+            assert_ne!(
+                legacy_id,
+                lifecycle_installation_id(&runtime.game_root, runtime.platform)
+            );
+            let (_, _, resolved) = runtime
+                .open_lifecycle_context(&lifecycle.store, &lifecycle.workspace)
+                .unwrap();
+            assert_eq!(resolved, legacy_id);
+            if startup {
+                runtime.recover_startup_lifecycle(&lifecycle).unwrap();
+                assert_eq!(
+                    fs::read(runtime.game_root.join("data.win")).unwrap(),
+                    b"original"
+                );
+            }
+            runtime
+                .patch_staged_lifecycle(
+                    &["id".into()],
+                    "new-session",
+                    &lifecycle.store,
+                    &lifecycle.workspace,
+                    |_| {},
+                    || false,
+                )
+                .unwrap();
+            assert_eq!(
+                fs::read(runtime.game_root.join("data.win")).unwrap(),
+                b"patched"
+            );
+            runtime
+                .uninstall_active_patch_set(
+                    "restore-new-session",
+                    &lifecycle.store,
+                    &lifecycle.workspace,
+                )
+                .unwrap();
+            assert_eq!(
+                fs::read(runtime.game_root.join("data.win")).unwrap(),
+                b"original"
+            );
+            let store = DurableLifecycleStore::open(&lifecycle.store).unwrap();
+            assert!(store.manifest(&legacy_id).unwrap().is_some());
+            assert!(store
+                .manifest(&lifecycle_installation_id(
+                    &runtime.game_root,
+                    runtime.platform
+                ))
+                .unwrap()
+                .is_none());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_mac_identity_never_matches_a_different_game_root() {
+        let (root, mut runtime, lifecycle, legacy_id) = legacy_mac_recovery_fixture();
+        let original_game = runtime.game_root.clone();
+        runtime.game_root = root.path().join("other-game");
+        fs::create_dir(&runtime.game_root).unwrap();
+        fs::write(runtime.game_root.join("data.win"), b"other-original").unwrap();
+        let (_, _, resolved) = runtime
+            .open_lifecycle_context(&lifecycle.store, &lifecycle.workspace)
+            .unwrap();
+        assert_ne!(resolved, legacy_id);
+        assert_eq!(
+            resolved,
+            lifecycle_installation_id(&runtime.game_root, runtime.platform)
+        );
+        runtime.recover_startup_lifecycle(&lifecycle).unwrap();
+        assert_eq!(
+            fs::read(runtime.game_root.join("data.win")).unwrap(),
+            b"other-original"
+        );
+        assert_eq!(
+            fs::read(original_game.join("data.win")).unwrap(),
+            b"patched"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn conflicting_mac_recovery_identities_block_baseline_adoption() {
+        let (_root, runtime, lifecycle, legacy_id) = legacy_mac_recovery_fixture();
+        let (store, mut workspace, _) = runtime
+            .open_lifecycle_context(&lifecycle.store, &lifecycle.workspace)
+            .unwrap();
+        workspace
+            .register_artifact_source("current-baseline", &runtime.game_root.join("data.win"))
+            .unwrap();
+        let files = vec![InstallFilePlan {
+            path: ValidatedRelativePath::parse("data.win").unwrap(),
+            path_identity_key: "data.win".into(),
+            sha256: sha2_digest(b"patched"),
+            size_bytes: 7,
+            expected_previous_sha256: Some(sha2_digest(b"patched")),
+            source: StagingSource::Artifact {
+                source_id: "current-baseline".into(),
+            },
+        }];
+        let current_id = lifecycle_installation_id(&runtime.game_root, runtime.platform);
+        let request = OperationRequest::new(
+            "conflicting-id",
+            "conflicting-id",
+            OperationIntent {
+                installation_id: current_id.clone(),
+                kind: LifecycleOperationKind::Install,
+                mod_instance_id: Some("active-patch-set".into()),
+                provider: Some(local_patch_provider().unwrap()),
+                archive_sha256: None,
+                file_plan_fingerprint: Some(file_plan_fingerprint(&files)),
+                profile_id: None,
+            },
+        )
+        .unwrap();
+        let plan = ValidatedInstallPlan::new(
+            request,
+            InstallMetadata {
+                instance_id: "active-patch-set".into(),
+                mod_id: "active-patch-set".into(),
+                display_name: "Conflicting baseline".into(),
+                version: Some("baseline".into()),
+                provider: local_patch_provider().unwrap(),
+                archive_sha256: None,
+            },
+            files,
+        )
+        .unwrap();
+        let mut publisher = ReleaseARuntime::new(store);
+        require_lifecycle_success(publisher.install(
+            plan,
+            lifecycle_identity("conflicting-id", "adopt"),
+            &mut workspace,
+        ))
+        .unwrap();
+        assert!(runtime.recover_startup_lifecycle(&lifecycle).is_err());
+        assert!(runtime
+            .patch_staged_lifecycle(
+                &["id".into()],
+                "blocked-session",
+                &lifecycle.store,
+                &lifecycle.workspace,
+                |_| {},
+                || false
+            )
+            .is_err());
+        assert_eq!(
+            fs::read(runtime.game_root.join("data.win")).unwrap(),
+            b"patched"
+        );
+        let store = DurableLifecycleStore::open(&lifecycle.store).unwrap();
+        assert!(store.manifest(&legacy_id).unwrap().is_some());
+        assert!(store.manifest(&current_id).unwrap().is_some());
+        assert!(store.operation_by_id("blocked-session").unwrap().is_none());
     }
 
     #[test]

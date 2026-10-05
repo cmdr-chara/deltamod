@@ -549,7 +549,7 @@ pub(super) fn stage_patch_outputs(
         ));
     }
 
-    for (target, patches) in g3m_groups(&plan) {
+    for (target, patches) in g3m_groups(&plan, runtime.platform) {
         check_cancel(&cancelled)?;
         let tool = g3m.as_ref().ok_or_else(|| {
             StagingError::new(StagingErrorCode::ToolUnavailable, Some(PatchMechanism::G3m))
@@ -666,24 +666,24 @@ fn g3m_tool(runtime: &Runtime) -> Result<ToolPath, StagingError> {
 }
 
 /// The unmodified file a merge target's patches were made against.
-struct BaseFile {
-    root: PathBuf,
-    relative: PathBuf,
+pub(super) struct BaseFile {
+    pub(super) root: PathBuf,
+    pub(super) relative: PathBuf,
 }
 
 /// Mods name targets in the primary platform's layout (`chapter3_windows/data.win`).
 /// When the platform mapping renames the data file (Mac `game.ios`), the bytes
 /// differ, so the patch is applied to the stored Windows reference copy instead.
-fn base_file(runtime: &Runtime, candidate: &PatchCandidate) -> Result<BaseFile, StagingError> {
+pub(super) fn base_file(
+    runtime: &Runtime,
+    candidate: &PatchCandidate,
+) -> Result<BaseFile, StagingError> {
     let invalid = || StagingError::new(StagingErrorCode::InvalidRequest, Some(PatchMechanism::G3m));
     let original = candidate.to.replace('\\', "/");
     let original = original.trim_start_matches("./");
     let original_relative = checked_relative(original).map_err(|_| invalid())?;
     let mapped_relative = checked_relative(&candidate.mapped_target).map_err(|_| invalid())?;
-    let renamed = !original_relative
-        .file_name()
-        .zip(mapped_relative.file_name())
-        .is_some_and(|(from, to)| from.eq_ignore_ascii_case(to));
+    let renamed = target_requires_reference(&original_relative, &mapped_relative);
     if !renamed {
         return Ok(BaseFile {
             root: runtime.game_root.clone(),
@@ -707,8 +707,15 @@ fn base_file(runtime: &Runtime, candidate: &PatchCandidate) -> Result<BaseFile, 
     }
 }
 
+pub(super) fn target_requires_reference(original: &Path, mapped: &Path) -> bool {
+    !original
+        .file_name()
+        .zip(mapped.file_name())
+        .is_some_and(|(from, to)| from.eq_ignore_ascii_case(to))
+}
+
 /// Groups merge patches by target, keeping selection order (low to high priority).
-fn g3m_groups(plan: &PatchPlan) -> Vec<(String, Vec<&Patch>)> {
+fn g3m_groups(plan: &PatchPlan, platform: PatchPlatform) -> Vec<(String, Vec<&Patch>)> {
     let mut groups: Vec<(String, Vec<&Patch>)> = Vec::new();
     for patch in plan
         .patches
@@ -716,7 +723,11 @@ fn g3m_groups(plan: &PatchPlan) -> Vec<(String, Vec<&Patch>)> {
         .filter(|patch| is_g3m(patch.candidate.patch_type))
     {
         let target = &patch.candidate.mapped_target;
-        match groups.iter_mut().find(|(key, _)| key == target) {
+        let key = target_key(target, platform);
+        match groups
+            .iter_mut()
+            .find(|(first, _)| target_key(first, platform) == key)
+        {
             Some((_, members)) => members.push(patch),
             None => groups.push((target.clone(), vec![patch])),
         }
@@ -1156,29 +1167,49 @@ mod tests {
         }
     }
 
-    /// Stands in for G3MTool: `apply` and `merge` concatenate the base file and
-    /// the patches, and a patch containing "bad" fails like a checksum mismatch.
+    /// A native executable exercises Linux's pinned /proc/self/fd launch path,
+    /// which cannot execute a CLOEXEC shebang script.
     #[cfg(unix)]
     fn install_fake_g3m(runtime: &Runtime) {
-        use std::os::unix::fs::PermissionsExt;
         let tool = runtime.tools_root.join("g3mtool/linux-x64/G3MTool");
         fs::create_dir_all(tool.parent().unwrap()).unwrap();
+        let source = tool.with_extension("rs");
         fs::write(
-            &tool,
-            r#"#!/bin/sh
-[ "$1" = patch ] || exit 2
-mode="$2"; data="$3"; shift 3
-out=""; parts=""
-if [ "$mode" = apply ]; then parts="$1"; out="$2"
-else while [ $# -gt 0 ]; do
-  if [ "$1" = -a ]; then out="$2"; shift 2; else parts="$parts $1"; shift; fi
-done; fi
-for part in $parts; do grep -q bad "$part" && { echo "checksum mismatch" >&2; exit 1; }; done
-cat "$data" $parts > "$out"
-"#,
+            &source,
+            r#"fn main() {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    assert_eq!(args[0], "patch");
+    let (parts, out) = if args[1] == "apply" {
+        (&args[3..4], &args[4])
+    } else {
+        assert_eq!(args[args.len() - 2], "-a");
+        (&args[3..args.len() - 2], &args[args.len() - 1])
+    };
+    let mut bytes = std::fs::read(&args[2]).unwrap();
+    for part in parts {
+        let patch = std::fs::read(part).unwrap();
+        if patch.windows(3).any(|window| window == b"bad") {
+            eprintln!("checksum mismatch");
+            std::process::exit(1);
+        }
+        bytes.extend(patch);
+    }
+    std::fs::write(out, bytes).unwrap();
+}"#,
         )
         .unwrap();
-        fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
+        let output = std::process::Command::new("rustc")
+            .args(["--crate-name", "fake_g3m", "--edition=2021"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&tool)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     fn add_packet(runtime: &Runtime, id: &str, patch: &[u8], to: &str) {
@@ -1234,6 +1265,39 @@ cat "$data" $parts > "$out"
 
     #[cfg(unix)]
     #[test]
+    fn mixed_case_merge_targets_follow_the_platform_and_keep_selection_order() {
+        for (platform, expected_count) in [(PatchPlatform::Win32, 1), (PatchPlatform::Linux, 2)] {
+            let (_root, mut runtime) = fixture("data.win", "override");
+            fs::remove_dir_all(runtime.mod_root.join("one")).unwrap();
+            // Two real files let a Linux host exercise both plan policies. A
+            // Windows filesystem naturally resolves the spellings to one file.
+            fs::write(runtime.game_root.join("DATA.WIN"), b"original").unwrap();
+            install_fake_g3m(&runtime);
+            runtime.platform = platform;
+            add_packet(&runtime, "a", b"+a", "data.win");
+            add_packet(&runtime, "b", b"+b", "DATA.WIN");
+            let staged = runtime
+                .stage_patch_outputs(&["b".into(), "a".into()], "mixed-case", |_| {}, || false)
+                .unwrap();
+            assert_eq!(staged.artifacts().len(), expected_count);
+            if platform == PatchPlatform::Win32 {
+                assert_eq!(staged.artifacts()[0].target().relative_path(), "DATA.WIN");
+                assert_eq!(
+                    fs::read(staged.artifacts()[0].path()).unwrap(),
+                    b"original+b+a"
+                );
+            }
+            staged.verify().unwrap();
+            assert_eq!(
+                fs::read(runtime.game_root.join("data.win")).unwrap(),
+                b"original"
+            );
+            staged.discard_verified().unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn g3m_failures_name_the_target_without_tool_output() {
         let (_root, mut runtime) = fixture("data.win", "override");
         fs::remove_dir_all(runtime.mod_root.join("one")).unwrap();
@@ -1285,6 +1349,11 @@ cat "$data" $parts > "$out"
         fs::create_dir_all(reference.join("chapter3_windows")).unwrap();
         fs::write(reference.join("chapter3_windows/data.win"), b"windows").unwrap();
         runtime.reference_root = Some(reference);
+        fs::write(runtime.mod_root.join("a/meta.toml"), format!(
+            "[[neededFiles]]\nfile='chapter3_windows/data.win'\nchecksum='{}'\n[metadata]\nname='Test'\n",
+            super::super::sha2_digest(b"windows"),
+        )).unwrap();
+        runtime.check_selected_legacy_mods(&["a".into()]).unwrap();
         runtime.packet_staging_readiness("a").unwrap();
         let staged = runtime
             .stage_patch_outputs(&["a".into()], "stage-1", |_| {}, || false)

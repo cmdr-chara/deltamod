@@ -38,6 +38,26 @@ pub(super) fn resolve(
     if selected.is_empty() {
         return Ok(Vec::new());
     }
+    let mut found = available_roots(runtime, selected)?;
+    let wanted_count = selected.iter().collect::<HashSet<_>>().len();
+    if found.len() != wanted_count || found.values().any(Option::is_none) {
+        return Err(Error::SelectionUnavailable);
+    }
+    let mut ordered = Vec::with_capacity(wanted_count);
+    for id in selected {
+        if let Some(Some(root)) = found.remove(id) {
+            ordered.push((id.clone(), root));
+        }
+    }
+    Ok(ordered)
+}
+
+/// Bounded catalogue lookup for hash-only callers, who may include identities
+/// without stored packets. Ambiguous identities cannot supply patch metadata.
+pub(super) fn available_roots(
+    runtime: &Runtime,
+    selected: &[String],
+) -> Result<HashMap<String, Option<PathBuf>>, Error> {
     require_directory(&runtime.mod_root, Error::ModStoreUnavailable)?;
     let wanted = selected.iter().map(String::as_str).collect::<HashSet<_>>();
     let mut found = HashMap::new();
@@ -57,22 +77,14 @@ pub(super) fn resolve(
         else {
             continue;
         };
-        if wanted.contains(identity.unique_id.as_str())
-            && found.insert(identity.unique_id, root).is_some()
-        {
-            return Err(Error::SelectionUnavailable);
+        if wanted.contains(identity.unique_id.as_str()) {
+            found
+                .entry(identity.unique_id)
+                .and_modify(|root| *root = None)
+                .or_insert(Some(root));
         }
     }
-    if found.len() != wanted.len() {
-        return Err(Error::SelectionUnavailable);
-    }
-    let mut ordered = Vec::with_capacity(wanted.len());
-    for id in selected {
-        if let Some(root) = found.remove(id) {
-            ordered.push((id.clone(), root));
-        }
-    }
-    Ok(ordered)
+    Ok(found)
 }
 
 fn relative_name(value: &str) -> Result<String, Error> {
