@@ -11,6 +11,20 @@ var commentPage = window._pageArguments.commentPage || 1;
 window._pageArguments = {};
 var isSendingComment = false;
 
+// GameBanana's Posts endpoints currently print PHP warnings before the JSON
+// body, which makes response.json() throw. Parse from the first line that
+// starts a JSON value instead.
+async function readGameBananaJson(response) {
+    const text = await response.text();
+    try {
+        return JSON.parse(text);
+    } catch {
+        const start = text.search(/^[[{]/m);
+        if (start < 0) throw new Error('GameBanana returned an unreadable response.');
+        return JSON.parse(text.slice(start));
+    }
+}
+
 function commentErrorMessage(error) {
     return String(error?.message || 'GameBanana could not post the comment. Please retry.')
         .replace(/^Error invoking remote method '[^']+': Error:\s*/i, '');
@@ -144,9 +158,9 @@ async function crawlComment(comment, div, depth = 0) {
     div.appendChild(commentDiv);
 
     if ((comment._nReplyCount || 0) > 0) {
-        var replies = await fetch('https://gamebanana.com/apiv11/Post/' + comment._idRow + '/Posts?_nPage=1&_nPerpage=20&' + new Date().getTime());
-        var repliesJson = await replies.json();
         try {
+            var replies = await fetch('https://gamebanana.com/apiv11/Post/' + comment._idRow + '/Posts?_nPage=1&_nPerpage=20&' + new Date().getTime());
+            var repliesJson = await readGameBananaJson(replies);
             for (let i = 0; i < repliesJson._aRecords.length; i++) {
                 const reply = repliesJson._aRecords[i];
                 await crawlComment(reply, div, depth + 1);
@@ -165,11 +179,11 @@ async function crawlComment(comment, div, depth = 0) {
     if (gbPic) {
         document.getElementById('myCommentBox').style.display = 'flex';
     }
-    var comments = await fetch('https://gamebanana.com/apiv11/' + gbModel + '/' + gbModID + '/Posts?_nPage=1&_nPerpage=30&_sSort=popular&' + new Date().getTime());
-    var commentsJson = await comments.json();
     var div = document.querySelector('.comments');
-
+    var commentsJson;
     try {
+        var comments = await fetch('https://gamebanana.com/apiv11/' + gbModel + '/' + gbModID + '/Posts?_nPage=1&_nPerpage=30&_sSort=popular&' + new Date().getTime());
+        commentsJson = await readGameBananaJson(comments);
         for (let i = 0; i < commentsJson._aRecords.length; i++) {
             const comment = commentsJson._aRecords[i];
             await crawlComment(comment, div, 0);
@@ -179,8 +193,9 @@ async function crawlComment(comment, div, depth = 0) {
         document.querySelector('.comments').innerHTML += '<p style="text-align: center;">Failed to load comments.</p>';
         console.error(e);
     }
-    if (commentsJson._aRecords.length === 0) {
-        document.getElementById('nextPageButton').style.display = 'none';
+    if (Array.isArray(commentsJson?._aRecords) && commentsJson._aRecords.length === 0) {
+        const nextPageButton = document.getElementById('nextPageButton');
+        if (nextPageButton) nextPageButton.style.display = 'none';
         document.querySelector('.comments').innerHTML += '<p style="text-align: center;">No more comments to load.</p>';
     }
 })();

@@ -256,10 +256,10 @@ describe('Tauri browser adapter', () => {
             rustPath: path.join(repo, 'src-tauri', 'src', 'main.rs')
         });
         expect(report.counts).toEqual({
-            rendererInvoke: 130,
+            rendererInvoke: 132,
             rendererEvents: 18,
-            rustKnown: 130,
-            rustImplemented: 124,
+            rustKnown: 132,
+            rustImplemented: 126,
             rustUnsupported: 6
         });
 
@@ -305,7 +305,7 @@ describe('Tauri browser adapter', () => {
             .map(command => command.name)
             .sort();
         expect(implemented).toEqual(expectedImplemented);
-        expect(implemented).toHaveLength(124);
+        expect(implemented).toHaveLength(126);
 
         const adapterCommands = extractSet(
             fs.readFileSync(path.join(repo, 'web', 'tauri-adapter.js'), 'utf8'),

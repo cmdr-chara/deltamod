@@ -9,6 +9,7 @@ use std::{
     process::{Child, Command, ExitStatus, Stdio},
     sync::{Arc, Mutex},
     thread,
+    time::{Duration, Instant},
 };
 
 const MAX_CATALOG_FILES: usize = 128;
@@ -185,10 +186,73 @@ impl ChildProcess for SystemChild {
 }
 impl ProcessSpawner for SystemProcessSpawner {
     fn spawn(&self, spec: &LaunchSpec) -> Result<Box<dyn ChildProcess>, LaunchError> {
-        Ok(Box::new(SystemChild(
-            spec.command().spawn().map_err(LaunchError::Io)?,
-        )))
+        let child = SystemChild(spec.command().spawn().map_err(LaunchError::Io)?);
+        match opened_bundle(spec) {
+            Some(bundle) => Ok(Box::new(BundleChild {
+                opener: child,
+                bundle,
+            })),
+            None => Ok(Box::new(child)),
+        }
     }
+}
+
+/// The app bundle passed to `open -W`, when this spec launches one.
+fn opened_bundle(spec: &LaunchSpec) -> Option<PathBuf> {
+    if spec.platform != Platform::Macos || spec.executable != Path::new("/usr/bin/open") {
+        return None;
+    }
+    let bundle = PathBuf::from(spec.args.last()?);
+    Some(fs::canonicalize(&bundle).unwrap_or(bundle))
+}
+
+/// `open -W` returns when the process it started exits, but GameMaker games
+/// such as DELTARUNE start a new runner process to switch chapters. The game is
+/// over only once no process from its bundle remains.
+struct BundleChild {
+    opener: SystemChild,
+    bundle: PathBuf,
+}
+
+/// How long the bundle must stay without processes before the game counts as
+/// closed; covers the gap while a chapter's runner replaces the previous one.
+const BUNDLE_EXIT_GRACE: Duration = Duration::from_secs(5);
+const BUNDLE_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+impl ChildProcess for BundleChild {
+    fn wait(&mut self) -> io::Result<ExitStatus> {
+        let status = self.opener.wait()?;
+        let executables = self.bundle.join("Contents/MacOS");
+        let mut idle_since = Instant::now();
+        while idle_since.elapsed() < BUNDLE_EXIT_GRACE {
+            thread::sleep(BUNDLE_POLL_INTERVAL);
+            if bundle_process_running(&executables)? {
+                idle_since = Instant::now();
+            }
+        }
+        Ok(status)
+    }
+    fn kill(&mut self) -> io::Result<()> {
+        self.opener.kill()
+    }
+}
+
+fn bundle_process_running(executables: &Path) -> io::Result<bool> {
+    let output = Command::new("/bin/ps").args(["-axo", "comm="]).output()?;
+    if !output.status.success() {
+        return Err(io::Error::other("ps failed"));
+    }
+    Ok(running_from(
+        &String::from_utf8_lossy(&output.stdout),
+        executables,
+    ))
+}
+
+fn running_from(process_list: &str, executables: &Path) -> bool {
+    process_list
+        .lines()
+        .map(|line| Path::new(line.trim()))
+        .any(|command| command.parent() == Some(executables))
 }
 
 pub struct OwnedChild {
@@ -1413,5 +1477,41 @@ mod tests {
         assert_eq!(spec.executable, PathBuf::from("/usr/bin/open"));
         assert_eq!(spec.args, vec!["-n", "-W", bundle.to_str().unwrap()]);
         assert_eq!(spec.cwd, root);
+    }
+}
+
+#[cfg(test)]
+mod bundle_wait_tests {
+    use super::*;
+
+    #[test]
+    fn only_executables_directly_in_the_bundle_count() {
+        let executables = Path::new("/Games/Copy/DELTARUNE.app/Contents/MacOS");
+        let list = "/usr/sbin/cfprefsd\n/Games/Copy/DELTARUNE.app/Contents/MacOS/Mac_Runner\n";
+        assert!(running_from(list, executables));
+        assert!(!running_from(
+            "/Applications/DELTARUNE.app/Contents/MacOS/Mac_Runner\n",
+            executables
+        ));
+        assert!(!running_from(
+            "/Games/Copy/DELTARUNE.app/Contents/MacOS/sub/helper\n",
+            executables
+        ));
+    }
+
+    #[test]
+    fn only_open_launches_wait_for_the_bundle() {
+        let root = std::env::temp_dir();
+        let open = LaunchSpec::new(Platform::Macos, "/usr/bin/open", &root)
+            .unwrap()
+            .arg("-n")
+            .arg("-W")
+            .arg("/Games/Copy/DELTARUNE.app");
+        assert_eq!(
+            opened_bundle(&open),
+            Some(PathBuf::from("/Games/Copy/DELTARUNE.app"))
+        );
+        let direct = LaunchSpec::new(Platform::Linux, "sh", &root).unwrap();
+        assert_eq!(opened_bundle(&direct), None);
     }
 }

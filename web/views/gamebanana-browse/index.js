@@ -21,6 +21,32 @@ const SHOP_PROVIDER_DEFS = Object.freeze([
     { id: 'moddb', name: 'ModDB (10 recent)' }
 ]);
 
+// GameBanana mod-manager tool rows whose packages Deltamod can import.
+// Deltamod packages carry a manifest; Deltahub/G3M packages are bare patches,
+// so the importer asks which chapter they target. Prefer Deltamod when both exist.
+const GAMEBANANA_DELTAMOD_TOOL_ID = 20575;
+const GAMEBANANA_DELTAHUB_TOOL_ID = 20615;
+
+function gameBananaToolIds(file) {
+    return (file?._aModManagerIntegrations || []).map(integration => integration._idToolRow);
+}
+
+function eligibleGameBananaDownloads(files) {
+    const downloadable = (files || []).filter(file =>
+        typeof file?._sDownloadUrl === 'string' && file._sDownloadUrl.trim());
+    const deltamod = downloadable.filter(file =>
+        gameBananaToolIds(file).includes(GAMEBANANA_DELTAMOD_TOOL_ID));
+    if (deltamod.length) return deltamod;
+    return downloadable.filter(file =>
+        gameBananaToolIds(file).includes(GAMEBANANA_DELTAHUB_TOOL_ID));
+}
+
+// Tauri rejects invokes with plain strings, so `.message` alone hides the backend reason.
+function describeError(error, fallback) {
+    if (typeof error === 'string' && error.trim()) return error;
+    return error?.message || fallback;
+}
+
 function gameSupportsProvider(game, provider) {
     if (!game || typeof game !== 'object') return false;
     if (provider === 'gamebanana') return Number(game?.gamebanana?.id) > 0;
@@ -719,7 +745,7 @@ async function dlmod(dlurl, buttonElem=null, modid, modmodel, currentItem = `Gam
         updateModDownloadStatus({ phase: 'failed', currentItem });
         await htmlAlert(
             'Download failed',
-            error?.message || 'The mod could not be downloaded or imported.',
+            describeError(error, 'The mod could not be downloaded or imported.'),
             [{ text: 'OK', resolveWith: 'ok' }]
         );
         return false;
@@ -1086,13 +1112,13 @@ async function renderMods(table, GB_API, filter, gameID) {
                         };
                         let dlpage;
                         try {
-                            const response = await fetchGameBananaCatalogDirect(`https://gamebanana.com/apiv11/${mod._sModelName}/${mod._idRow}/ProfilePage`);
+                            const response = await browseGameBananaCatalog(`https://gamebanana.com/apiv11/${mod._sModelName}/${mod._idRow}/ProfilePage`);
                             dlpage = response.payload;
                             if (!Array.isArray(dlpage?._aFiles)) throw new Error('GameBanana returned an invalid file list.');
                         } catch (error) {
                             resetDownloadButton();
                             if (isCurrentShopPage()) {
-                                await htmlAlert('Download failed', error?.message || 'The file list could not be loaded. Try again.', [{ text: 'OK', resolveWith: 'ok' }]);
+                                await htmlAlert('Download failed', describeError(error, 'The file list could not be loaded. Try again.'), [{ text: 'OK', resolveWith: 'ok' }]);
                             }
                             return;
                         }
@@ -1103,19 +1129,7 @@ async function renderMods(table, GB_API, filter, gameID) {
                         }
                         dlBtn.removeAttribute('aria-busy');
 
-                        var eligibleDownloads = [];
-
-                        dlpage._aFiles.forEach(file => {
-                            try {
-                                var mmo = file._aModManagerIntegrations.map(x => x._idToolRow);
-                                if (mmo.includes(20575) && typeof file._sDownloadUrl === 'string' && file._sDownloadUrl.trim()) {
-                                    eligibleDownloads.push(file);
-                                }
-                            }
-                            catch {
-                                //nothing, file is just not compatible
-                            }
-                        });
+                        var eligibleDownloads = eligibleGameBananaDownloads(dlpage._aFiles);
 
                         if (eligibleDownloads.length === 0) {
                             setDownloadButtonIcon(dlBtn, 'cancel');

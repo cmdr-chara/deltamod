@@ -6,8 +6,8 @@ its own license.
 ## G3MTool
 
 - Project: [y114git/G3MTool](https://github.com/y114git/G3MTool)
-- Pinned release: [1.2.5](https://github.com/y114git/G3MTool/releases/tag/1.2.5)
-- Pinned source revision: `4a7549d46f56f8de086112ad2b26cb1f53042521`
+- Pinned release: [CLI 1.3.0](https://github.com/y114git/G3MTool/releases/tag/2026.09.12) (tag `2026.09.12`)
+- Pinned source revision: `3a6bf08b98b700873636ebe9fab186e2d5121b4a`
 - License: GPL-3.0-only
 
 The unmodified G3MTool release files bundled with Deltamod Community include

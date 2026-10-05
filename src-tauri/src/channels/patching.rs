@@ -1,12 +1,35 @@
 use crate::{channels::runtime, error, state::AppState};
-use deltamod_patching_runtime::LifecycleStorageRoots;
+use deltamod_native_core::patch_plan::PatchPlatform;
+use deltamod_patching_runtime::{mac_bundle, LifecycleStorageRoots};
 use serde_json::{json, Value};
-use std::sync::atomic::Ordering;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::atomic::Ordering,
+};
 use tauri::{AppHandle, Emitter};
 
 fn operation_id(state: &AppState, prefix: &str) -> String {
     let sequence = state.patch_sequence.fetch_add(1, Ordering::Relaxed);
     format!("{prefix}-{}-{sequence}", std::process::id())
+}
+
+/// On macOS Deltamod patches only its own copy of the game bundle. Returns the
+/// bundle when the installation instead points at an original outside the
+/// app's data folder (typically /Applications), so patching can refuse it.
+fn original_mac_bundle(
+    platform: PatchPlatform,
+    content_root: Option<&str>,
+    game_root: &Path,
+    data_root: &Path,
+) -> Option<PathBuf> {
+    if platform != PatchPlatform::Darwin {
+        return None;
+    }
+    let bundle = mac_bundle::bundle_of(game_root, content_root?)?;
+    let managed = fs::canonicalize(data_root).unwrap_or_else(|_| data_root.to_owned());
+    let game = fs::canonicalize(game_root).unwrap_or_else(|_| game_root.to_owned());
+    (!game.starts_with(&managed)).then_some(bundle)
 }
 
 fn selected_mods(data: &[Value]) -> Result<Vec<String>, String> {
@@ -84,6 +107,21 @@ pub fn dispatch(
                 let _ = app.emit("audio", true);
                 let _ = app.emit("page", "main");
                 return Err("A selected mod is unavailable or incompatible with the active game installation.".into());
+            }
+            if let Some(bundle) = original_mac_bundle(
+                state.patching.platform,
+                state.patching.definition.content_root.as_deref(),
+                &state.patching.game_root,
+                &state.data_root.root,
+            ) {
+                let message = format!(
+                    "This installation uses your original game at \"{}\". To keep it untouched, Deltamod only applies mods to its own copy on macOS. Open Options → Installation → Install Manager, add the game again, and switch to the new installation.",
+                    bundle.display()
+                );
+                let _ = app.emit("gplog", json!({"log": message, "percent": -1.0}));
+                let _ = app.emit("audio", true);
+                let _ = app.emit("page", "main");
+                return Err(message);
             }
             state.patch_cancelled.store(false, Ordering::Release);
             let id = operation_id(state, "patch");
@@ -171,6 +209,46 @@ pub fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mac_patching_refuses_the_original_game_bundle() {
+        let data = std::env::temp_dir().join(format!("deltamod-data-{}", uuid::Uuid::new_v4()));
+        let managed = data.join("deltamod_system-1/deltaruneInstall");
+        fs::create_dir_all(&managed).unwrap();
+        let resources = Some("DELTARUNE.app/Contents/Resources");
+        assert_eq!(
+            original_mac_bundle(
+                PatchPlatform::Darwin,
+                resources,
+                Path::new("/Applications"),
+                &data
+            ),
+            Some(PathBuf::from("/Applications/DELTARUNE.app"))
+        );
+        assert_eq!(
+            original_mac_bundle(PatchPlatform::Darwin, resources, &managed, &data),
+            None
+        );
+        assert_eq!(
+            original_mac_bundle(
+                PatchPlatform::Win32,
+                resources,
+                Path::new("/Applications"),
+                &data
+            ),
+            None
+        );
+        assert_eq!(
+            original_mac_bundle(
+                PatchPlatform::Darwin,
+                None,
+                Path::new("/Applications"),
+                &data
+            ),
+            None
+        );
+        let _ = fs::remove_dir_all(data);
+    }
 
     #[test]
     fn selected_mods_rejects_invalid_and_deduplicates() {

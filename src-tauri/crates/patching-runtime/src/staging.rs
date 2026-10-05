@@ -1,12 +1,15 @@
 use super::{
-    checked_relative, progress_event, validate_operation_id, Error, PatchPlan, Progress, Runtime,
+    checked_relative, progress_event, validate_operation_id, Error, Patch, PatchPlan, Progress,
+    Runtime,
 };
 use deltamod_native_core::patch_plan::{
     validate_patch_plan, PatchCandidate, PatchPlanRequest, PatchPlatform, PatchType,
 };
 use deltamod_tools_runtime::{
-    copy_relative_regular_file_verified, inspect_directory_identity, inspect_regular_file,
-    SecurePathError, StablePathIdentity, VerifiedFile,
+    copy_relative_regular_file_verified, g3m_apply, g3m_merge, inspect_directory_identity,
+    inspect_regular_file, run_bounded_with_cancel_probe, RuntimeError as ToolRuntimeError,
+    SecurePathError, StablePathIdentity, ToolKind, ToolPath, VerifiedFile, DEFAULT_TIMEOUT,
+    MAX_OUTPUT_BYTES,
 };
 use serde::Serialize;
 use std::{
@@ -32,6 +35,7 @@ pub enum StagingErrorCode {
     OutputTooLarge,
     TargetChanged,
     WorkspaceChanged,
+    ReferenceUnavailable,
     Io,
 }
 
@@ -49,6 +53,7 @@ impl StagingErrorCode {
             Self::OutputTooLarge => "PATCH_STAGING_OUTPUT_TOO_LARGE",
             Self::TargetChanged => "PATCH_STAGING_TARGET_CHANGED",
             Self::WorkspaceChanged => "PATCH_STAGING_WORKSPACE_CHANGED",
+            Self::ReferenceUnavailable => "PATCH_STAGING_REFERENCE_UNAVAILABLE",
             Self::Io => "PATCH_STAGING_IO",
         }
     }
@@ -106,6 +111,9 @@ pub struct StagingError {
     code: StagingErrorCode,
     mechanism: Option<PatchMechanism>,
     diagnostic: Option<StagingDiagnostic>,
+    /// A validated, mod-relative game file named in user-facing messages.
+    /// Tool output and absolute paths are never stored here.
+    target: Option<String>,
 }
 
 impl StagingError {
@@ -114,7 +122,14 @@ impl StagingError {
             code,
             mechanism,
             diagnostic: mechanism.map(|value| StagingDiagnostic::stable(value, code)),
+            target: None,
         }
+    }
+
+    fn for_target(code: StagingErrorCode, mechanism: PatchMechanism, target: &str) -> Self {
+        let mut error = Self::new(code, Some(mechanism));
+        error.target = Some(target.chars().take(256).collect());
+        error
     }
 
     fn from_runtime(error: Error) -> Self {
@@ -171,7 +186,18 @@ impl fmt::Display for StagingError {
                 write!(formatter, "The {mechanism} is unavailable.")
             }
             StagingErrorCode::ToolTimeout => write!(formatter, "The {mechanism} timed out."),
-            StagingErrorCode::ToolFailed => write!(formatter, "The {mechanism} failed."),
+            StagingErrorCode::ToolFailed => match &self.target {
+                Some(target) => write!(
+                    formatter,
+                    "The {mechanism} could not apply this mod to \"{target}\". The mod may target a different game version than your files."
+                ),
+                None => write!(formatter, "The {mechanism} failed."),
+            },
+            StagingErrorCode::ReferenceUnavailable => write!(
+                formatter,
+                "This mod patches the Windows game file \"{}\". On this platform it needs your unmodified Windows game files: add them in Options under \"Windows reference files\".",
+                self.target.as_deref().unwrap_or("data.win")
+            ),
             StagingErrorCode::InputChanged => {
                 formatter.write_str("A patch input changed during staging.")
             }
@@ -444,7 +470,12 @@ pub(super) fn stage_patch_outputs(
     let candidates = runtime
         .selection_candidates(selected)
         .map_err(StagingError::from_runtime)?;
-    validate_mechanisms(&candidates)?;
+    validate_mechanisms(runtime, &candidates)?;
+    let g3m = candidates
+        .iter()
+        .any(|candidate| is_g3m(candidate.patch_type))
+        .then(|| g3m_tool(runtime))
+        .transpose()?;
     let plan = runtime
         .build_plan_from_candidates(candidates, false)
         .map_err(StagingError::from_runtime)?;
@@ -457,7 +488,11 @@ pub(super) fn stage_patch_outputs(
     let mut artifacts = Vec::with_capacity(plan.operation_count);
     let mut completed = 0_usize;
 
-    for patch in &plan.patches {
+    for patch in plan
+        .patches
+        .iter()
+        .filter(|patch| !is_g3m(patch.candidate.patch_type))
+    {
         check_cancel(&cancelled)?;
         let (output_directory, output) = operation_paths(workspace.path(), completed)?;
         let patch_relative = checked_relative(&patch.candidate.patch).map_err(|_| {
@@ -514,6 +549,44 @@ pub(super) fn stage_patch_outputs(
         ));
     }
 
+    for (target, patches) in g3m_groups(&plan) {
+        check_cancel(&cancelled)?;
+        let tool = g3m.as_ref().ok_or_else(|| {
+            StagingError::new(StagingErrorCode::ToolUnavailable, Some(PatchMechanism::G3m))
+        })?;
+        let (output_directory, output) = operation_paths(workspace.path(), completed)?;
+        let produced = run_g3m_group(runtime, tool, &patches, &cancelled)?;
+        fs::rename(produced.path(), &output).map_err(StagingError::io)?;
+        let built = inspect_regular_file(&output, MAX_STAGED_ARTIFACT_BYTES)
+            .map_err(|error| StagingError::from_secure(error, StagingErrorCode::InvalidOutput))?;
+        let target_precondition = capture_target_precondition(&plan.game_root, &target)?;
+        let expected_target_sha256 = match &target_precondition.expected {
+            ExpectedTarget::Absent => None,
+            ExpectedTarget::Present(file) => Some(file.sha256().to_owned()),
+        };
+        artifacts.push(StagedArtifact {
+            target: PatchTargetIdentity {
+                relative_path: target.replace('\\', "/"),
+            },
+            path: output,
+            sha256: built.sha256().to_owned(),
+            size: built.size(),
+            expected_target_sha256,
+            output_directory,
+            output_identity: built.identity().clone(),
+            target_precondition,
+        });
+        completed += 1;
+        emit(progress_event(
+            operation_id,
+            "staging",
+            completed,
+            plan.operation_count,
+            Some(target),
+            None,
+        ));
+    }
+
     artifacts.sort_by(|left, right| left.target.cmp(&right.target));
     let result = StagedPatchSet {
         workspace,
@@ -557,19 +630,224 @@ pub(super) fn runtime_error(error: Error) -> StagingError {
     StagingError::from_runtime(error)
 }
 
-pub(super) fn validate_mechanisms(candidates: &[PatchCandidate]) -> Result<(), StagingError> {
+/// Checks that every selected patch can be staged on this machine without
+/// reading any patch body: G3MTool must be packaged and each merge target must
+/// have a base file. UndertaleModCli scripts stay unsupported.
+pub(super) fn validate_mechanisms(
+    runtime: &Runtime,
+    candidates: &[PatchCandidate],
+) -> Result<(), StagingError> {
     for candidate in candidates {
-        let mechanism = match candidate.patch_type {
-            PatchType::Override | PatchType::Copy => continue,
-            PatchType::Xdelta | PatchType::G3mPatch => PatchMechanism::G3m,
-            PatchType::Csx => PatchMechanism::Csx,
-        };
-        return Err(StagingError::new(
-            StagingErrorCode::SandboxUnavailable,
-            Some(mechanism),
-        ));
+        match candidate.patch_type {
+            PatchType::Override | PatchType::Copy => {}
+            PatchType::Xdelta | PatchType::G3mPatch => {
+                g3m_tool(runtime)?;
+                base_file(runtime, candidate)?;
+            }
+            PatchType::Csx => {
+                return Err(StagingError::new(
+                    StagingErrorCode::SandboxUnavailable,
+                    Some(PatchMechanism::Csx),
+                ));
+            }
+        }
     }
     Ok(())
+}
+
+const fn is_g3m(patch_type: PatchType) -> bool {
+    matches!(patch_type, PatchType::Xdelta | PatchType::G3mPatch)
+}
+
+fn g3m_tool(runtime: &Runtime) -> Result<ToolPath, StagingError> {
+    runtime.tool(ToolKind::G3mTool).map_err(|_| {
+        StagingError::new(StagingErrorCode::ToolUnavailable, Some(PatchMechanism::G3m))
+    })
+}
+
+/// The unmodified file a merge target's patches were made against.
+struct BaseFile {
+    root: PathBuf,
+    relative: PathBuf,
+}
+
+/// Mods name targets in the primary platform's layout (`chapter3_windows/data.win`).
+/// When the platform mapping renames the data file (Mac `game.ios`), the bytes
+/// differ, so the patch is applied to the stored Windows reference copy instead.
+fn base_file(runtime: &Runtime, candidate: &PatchCandidate) -> Result<BaseFile, StagingError> {
+    let invalid = || StagingError::new(StagingErrorCode::InvalidRequest, Some(PatchMechanism::G3m));
+    let original = candidate.to.replace('\\', "/");
+    let original = original.trim_start_matches("./");
+    let original_relative = checked_relative(original).map_err(|_| invalid())?;
+    let mapped_relative = checked_relative(&candidate.mapped_target).map_err(|_| invalid())?;
+    let renamed = !original_relative
+        .file_name()
+        .zip(mapped_relative.file_name())
+        .is_some_and(|(from, to)| from.eq_ignore_ascii_case(to));
+    if !renamed {
+        return Ok(BaseFile {
+            root: runtime.game_root.clone(),
+            relative: mapped_relative,
+        });
+    }
+    let missing = || {
+        StagingError::for_target(
+            StagingErrorCode::ReferenceUnavailable,
+            PatchMechanism::G3m,
+            original,
+        )
+    };
+    let root = runtime.reference_root.clone().ok_or_else(missing)?;
+    match fs::symlink_metadata(root.join(&original_relative)) {
+        Ok(metadata) if metadata.is_file() => Ok(BaseFile {
+            root,
+            relative: original_relative,
+        }),
+        _ => Err(missing()),
+    }
+}
+
+/// Groups merge patches by target, keeping selection order (low to high priority).
+fn g3m_groups(plan: &PatchPlan) -> Vec<(String, Vec<&Patch>)> {
+    let mut groups: Vec<(String, Vec<&Patch>)> = Vec::new();
+    for patch in plan
+        .patches
+        .iter()
+        .filter(|patch| is_g3m(patch.candidate.patch_type))
+    {
+        let target = &patch.candidate.mapped_target;
+        match groups.iter_mut().find(|(key, _)| key == target) {
+            Some((_, members)) => members.push(patch),
+            None => groups.push((target.clone(), vec![patch])),
+        }
+    }
+    groups
+}
+
+/// A G3MTool result in a private scratch directory that is removed on drop.
+struct ProducedFile {
+    _scratch: tempfile::TempDir,
+    path: PathBuf,
+}
+
+impl ProducedFile {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+/// Copies the base file and every approved patch into a private scratch
+/// directory, then runs G3MTool there. Nothing below the game root is written.
+fn run_g3m_group(
+    runtime: &Runtime,
+    tool: &ToolPath,
+    patches: &[&Patch],
+    cancelled: &impl Fn() -> bool,
+) -> Result<ProducedFile, StagingError> {
+    let first = patches.first().ok_or_else(invalid_request)?;
+    let original = first.candidate.to.replace('\\', "/");
+    let original = original.trim_start_matches("./").to_owned();
+    let base = base_file(runtime, &first.candidate)?;
+    let scratch = tempfile::Builder::new()
+        .prefix("deltamod-g3m-")
+        .tempdir()
+        .map_err(StagingError::io)?;
+    // G3MTool picks its readers by extension (.win/.ios, .xdelta/.g3mpatch).
+    let data_extension = data_extension(&base.relative);
+    let base_copy = scratch.path().join(format!("base.{data_extension}"));
+    copy_relative_regular_file_verified(
+        &base.root,
+        &base.relative,
+        &base_copy,
+        MAX_STAGED_ARTIFACT_BYTES,
+    )
+    .map_err(|error| StagingError::from_secure(error, StagingErrorCode::InputChanged))?;
+
+    let mut patch_copies = Vec::with_capacity(patches.len());
+    for (index, patch) in patches.iter().enumerate() {
+        let relative = checked_relative(&patch.candidate.patch).map_err(|_| invalid_request())?;
+        if patch.candidate.mod_root.join(&relative) != patch.source {
+            return Err(StagingError::new(
+                StagingErrorCode::InputChanged,
+                Some(PatchMechanism::G3m),
+            ));
+        }
+        let extension = match patch.candidate.patch_type {
+            PatchType::G3mPatch => "g3mpatch",
+            _ => "xdelta",
+        };
+        let copy = scratch.path().join(format!("patch-{index:03}.{extension}"));
+        let copied = copy_relative_regular_file_verified(
+            &patch.candidate.mod_root,
+            &relative,
+            &copy,
+            MAX_STAGED_ARTIFACT_BYTES,
+        )
+        .map_err(|error| StagingError::from_secure(error, StagingErrorCode::InputChanged))?;
+        if copied.sha256() != patch.source_sha256 {
+            return Err(StagingError::new(
+                StagingErrorCode::InputChanged,
+                Some(PatchMechanism::G3m),
+            ));
+        }
+        patch_copies.push(copy);
+    }
+
+    let produced = scratch.path().join(format!("output.{data_extension}"));
+    let spec = match patch_copies.as_slice() {
+        [single] => g3m_apply(tool, scratch.path(), &base_copy, single, &produced),
+        many => g3m_merge(tool, scratch.path(), &base_copy, many, &produced),
+    };
+    let output = run_bounded_with_cancel_probe(&spec, DEFAULT_TIMEOUT, MAX_OUTPUT_BYTES, cancelled)
+        .map_err(|error| match error {
+            ToolRuntimeError::Cancelled { .. } => {
+                StagingError::new(StagingErrorCode::Cancelled, None)
+            }
+            ToolRuntimeError::Timeout { .. } => {
+                StagingError::new(StagingErrorCode::ToolTimeout, Some(PatchMechanism::G3m))
+            }
+            _ => StagingError::new(StagingErrorCode::ToolFailed, Some(PatchMechanism::G3m)),
+        })?;
+    if output.timed_out {
+        return Err(StagingError::new(
+            StagingErrorCode::ToolTimeout,
+            Some(PatchMechanism::G3m),
+        ));
+    }
+    if !output.status.success() {
+        return Err(StagingError::for_target(
+            StagingErrorCode::ToolFailed,
+            PatchMechanism::G3m,
+            &original,
+        ));
+    }
+    match fs::symlink_metadata(&produced) {
+        Ok(metadata) if metadata.is_file() => {}
+        _ => {
+            return Err(StagingError::new(
+                StagingErrorCode::InvalidOutput,
+                Some(PatchMechanism::G3m),
+            ))
+        }
+    }
+    Ok(ProducedFile {
+        _scratch: scratch,
+        path: produced,
+    })
+}
+
+fn data_extension(relative: &Path) -> &'static str {
+    match relative
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("ios") => "ios",
+        Some("unx") => "unx",
+        Some("droid") => "droid",
+        _ => "win",
+    }
 }
 
 fn operation_paths(workspace: &Path, index: usize) -> Result<(PathBuf, PathBuf), StagingError> {
@@ -812,6 +1090,7 @@ mod tests {
             mod_root: mods,
             tools_root: root.path().join("missing-tools"),
             hash_cache_path: root.path().join("hash.json"),
+            reference_root: None,
             platform: PatchPlatform::Linux,
             platform_name: "linux".into(),
             arch: "x64".into(),
@@ -850,24 +1129,182 @@ mod tests {
     }
 
     #[test]
-    fn all_external_mechanisms_fail_closed_before_tool_lookup() {
-        for (kind, source, mechanism) in [
-            ("g3m", "patch.bin", PatchMechanism::G3m),
-            ("csx", "script.csx", PatchMechanism::Csx),
+    fn unavailable_mechanisms_fail_closed_before_reading_patches() {
+        for (kind, source, mechanism, code) in [
+            (
+                "g3m",
+                "patch.bin",
+                PatchMechanism::G3m,
+                StagingErrorCode::ToolUnavailable,
+            ),
+            (
+                "csx",
+                "script.csx",
+                PatchMechanism::Csx,
+                StagingErrorCode::SandboxUnavailable,
+            ),
         ] {
             let (_root, runtime) = fixture("data.win", kind);
             fs::remove_file(runtime.mod_root.join("one").join(source)).unwrap();
             let error = runtime
                 .stage_patch_outputs(&["id".into()], "stage-1", |_| {}, || false)
                 .unwrap_err();
-            assert_eq!(error.code(), StagingErrorCode::SandboxUnavailable);
+            assert_eq!(error.code(), code);
             assert_eq!(error.mechanism(), Some(mechanism));
-            assert_eq!(
-                error.diagnostic().unwrap().detail(),
-                "PATCH_STAGING_SANDBOX_UNAVAILABLE"
-            );
+            assert_eq!(error.diagnostic().unwrap().detail(), code.as_str());
             assert!(!runtime.game_root.join(super::super::JOURNAL_NAME).exists());
         }
+    }
+
+    /// Stands in for G3MTool: `apply` and `merge` concatenate the base file and
+    /// the patches, and a patch containing "bad" fails like a checksum mismatch.
+    #[cfg(unix)]
+    fn install_fake_g3m(runtime: &Runtime) {
+        use std::os::unix::fs::PermissionsExt;
+        let tool = runtime.tools_root.join("g3mtool/linux-x64/G3MTool");
+        fs::create_dir_all(tool.parent().unwrap()).unwrap();
+        fs::write(
+            &tool,
+            r#"#!/bin/sh
+[ "$1" = patch ] || exit 2
+mode="$2"; data="$3"; shift 3
+out=""; parts=""
+if [ "$mode" = apply ]; then parts="$1"; out="$2"
+else while [ $# -gt 0 ]; do
+  if [ "$1" = -a ]; then out="$2"; shift 2; else parts="$parts $1"; shift; fi
+done; fi
+for part in $parts; do grep -q bad "$part" && { echo "checksum mismatch" >&2; exit 1; }; done
+cat "$data" $parts > "$out"
+"#,
+        )
+        .unwrap();
+        fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    fn add_packet(runtime: &Runtime, id: &str, patch: &[u8], to: &str) {
+        let packet = runtime.mod_root.join(id);
+        fs::create_dir_all(&packet).unwrap();
+        fs::write(packet.join("mod.xdelta"), patch).unwrap();
+        fs::write(
+            packet.join("__deltaID.json"),
+            format!(r#"{{"uniqueId":"{id}"}}"#),
+        )
+        .unwrap();
+        fs::write(packet.join("meta.toml"), "[metadata]\nname='Test'\n").unwrap();
+        fs::write(
+            packet.join("modding.xml"),
+            format!(r#"<root><patch type="xdelta" patch="mod.xdelta" to="{to}"/></root>"#),
+        )
+        .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn g3m_patches_are_applied_and_merged_on_a_private_copy() {
+        let (_root, runtime) = fixture("data.win", "override");
+        fs::remove_dir_all(runtime.mod_root.join("one")).unwrap();
+        install_fake_g3m(&runtime);
+        add_packet(&runtime, "a", b"+a", "data.win");
+        let single = runtime
+            .stage_patch_outputs(&["a".into()], "stage-1", |_| {}, || false)
+            .unwrap();
+        assert_eq!(single.artifacts().len(), 1);
+        assert_eq!(single.artifacts()[0].target().relative_path(), "data.win");
+        assert_eq!(
+            fs::read(single.artifacts()[0].path()).unwrap(),
+            b"original+a"
+        );
+        single.discard_verified().unwrap();
+
+        add_packet(&runtime, "b", b"+b", "data.win");
+        let merged = runtime
+            .stage_patch_outputs(&["a".into(), "b".into()], "stage-2", |_| {}, || false)
+            .unwrap();
+        assert_eq!(merged.artifacts().len(), 1);
+        assert_eq!(
+            fs::read(merged.artifacts()[0].path()).unwrap(),
+            b"original+a+b"
+        );
+        assert!(merged.verify().is_ok());
+        assert_eq!(
+            fs::read(runtime.game_root.join("data.win")).unwrap(),
+            b"original"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn g3m_failures_name_the_target_without_tool_output() {
+        let (_root, mut runtime) = fixture("data.win", "override");
+        fs::remove_dir_all(runtime.mod_root.join("one")).unwrap();
+        install_fake_g3m(&runtime);
+        add_packet(&runtime, "a", b"bad", "data.win");
+        let error = runtime
+            .stage_patch_outputs(&["a".into()], "stage-1", |_| {}, || false)
+            .unwrap_err();
+        assert_eq!(error.code(), StagingErrorCode::ToolFailed);
+        let message = error.to_string();
+        assert!(message.contains("\"data.win\""), "{message}");
+        assert!(!message.contains("checksum"), "{message}");
+        runtime.tools_root = runtime.tools_root.join("elsewhere");
+        assert_eq!(
+            runtime.packet_staging_readiness("a").unwrap_err().code(),
+            StagingErrorCode::ToolUnavailable
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mac_data_file_patches_use_the_windows_reference_copy() {
+        let (root, mut runtime) = fixture("data.win", "override");
+        fs::remove_dir_all(runtime.mod_root.join("one")).unwrap();
+        install_fake_g3m(&runtime);
+        let resources = "DELTARUNE.app/Contents/Resources";
+        fs::create_dir_all(runtime.game_root.join(resources).join("chapter3_mac")).unwrap();
+        fs::write(
+            runtime
+                .game_root
+                .join(resources)
+                .join("chapter3_mac/game.ios"),
+            b"mac",
+        )
+        .unwrap();
+        runtime.platform = PatchPlatform::Darwin;
+        runtime.definition = PlatformDefinition {
+            data_files: vec![format!("{resources}/game.ios")],
+            patch_layout: "deltarune-mac-resources".into(),
+            content_root: Some(resources.into()),
+        };
+        add_packet(&runtime, "a", b"+a", "./chapter3_windows/data.win");
+
+        let error = runtime.packet_staging_readiness("a").unwrap_err();
+        assert_eq!(error.code(), StagingErrorCode::ReferenceUnavailable);
+        assert!(error.to_string().contains("chapter3_windows/data.win"));
+
+        let reference = root.path().join("reference");
+        fs::create_dir_all(reference.join("chapter3_windows")).unwrap();
+        fs::write(reference.join("chapter3_windows/data.win"), b"windows").unwrap();
+        runtime.reference_root = Some(reference);
+        runtime.packet_staging_readiness("a").unwrap();
+        let staged = runtime
+            .stage_patch_outputs(&["a".into()], "stage-1", |_| {}, || false)
+            .unwrap();
+        let artifact = &staged.artifacts()[0];
+        assert_eq!(
+            artifact.target().relative_path(),
+            format!("{resources}/chapter3_mac/game.ios")
+        );
+        assert_eq!(fs::read(artifact.path()).unwrap(), b"windows+a");
+        assert_eq!(
+            fs::read(
+                runtime
+                    .game_root
+                    .join(resources)
+                    .join("chapter3_mac/game.ios")
+            )
+            .unwrap(),
+            b"mac"
+        );
     }
 
     #[test]

@@ -9,6 +9,7 @@ pub mod nexus_download;
 pub mod nexus_oauth;
 pub mod patching;
 pub mod protocol;
+pub mod reference_files;
 pub mod runtime;
 pub mod system;
 pub mod updater;

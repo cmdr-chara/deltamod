@@ -1218,7 +1218,7 @@ gamebanana_model = "Mod"
     }
 
     #[test]
-    fn catalogue_reports_external_patch_blockers_even_with_hash_checks_disabled() {
+    fn catalogue_reports_patch_blockers_even_with_hash_checks_disabled() {
         let (state, root) = state();
         let packet = import_variant_packet(&state, &root);
         for enabled in [false, true] {
@@ -1228,12 +1228,7 @@ gamebanana_model = "Mod"
                 .unwrap()
                 .unique_flags
                 .insert("HASHCHECKS".into(), enabled);
-            for (kind, blocked) in [
-                ("override", false),
-                ("xdelta", true),
-                ("g3mpatch", true),
-                ("csx", true),
-            ] {
+            for kind in ["override", "xdelta", "g3mpatch", "csx"] {
                 fs::write(
                     packet.join("modding.xml"),
                     format!(r#"<mod><patch type="{kind}" patch="new.bin" to="data.win"/></mod>"#),
@@ -1241,13 +1236,22 @@ gamebanana_model = "Mod"
                 .unwrap();
                 let result = dispatch(&state, "getModList", &[]).unwrap().unwrap();
                 let record = &result["modList"][0];
-                assert_eq!(record["isIncompatible"], json!(blocked), "{kind}");
                 assert!(record.get("_patchSupportError").is_none());
-                if blocked {
-                    assert!(record["incompatibilityReason"]
-                        .as_str()
-                        .unwrap()
-                        .contains("cannot safely run"));
+                let reason = record["incompatibilityReason"].as_str().unwrap_or("");
+                match kind {
+                    "override" => assert_eq!(record["isIncompatible"], json!(false)),
+                    // UndertaleModCli scripts still have no confined staging path.
+                    "csx" => {
+                        assert_eq!(record["isIncompatible"], json!(true));
+                        assert!(reason.contains("cannot safely run"));
+                    }
+                    // G3MTool mods stage when the packaged tool exists; otherwise
+                    // the reason names the missing tool, never a blanket block.
+                    _ => {
+                        if record["isIncompatible"] == json!(true) {
+                            assert!(reason.contains("G3MTool is unavailable"), "{reason}");
+                        }
+                    }
                 }
             }
         }
