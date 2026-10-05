@@ -24,8 +24,15 @@ fn reference_candidates() -> Vec<String> {
 }
 
 fn current_root(state: &AppState) -> Option<PathBuf> {
+    let index = state
+        .profile_runtime
+        .legacy_system_index()
+        .ok()?
+        .as_u64()
+        .and_then(|value| u32::try_from(value).ok())?;
     let game = super::runtime::active_game_id(state)?;
-    crate::state::reference_files_root(&state.data_root, &game)
+    let installation = format!("deltamod_system-{index}");
+    crate::state::reference_files_root(&state.data_root, &game, &installation)
 }
 
 /// True when this platform renames the game's data file, so `.xdelta` mods
@@ -169,7 +176,7 @@ mod tests {
     fn publishing_replaces_the_previous_set_atomically() {
         let dir = std::env::temp_dir().join(format!("deltamod-ref-{}", uuid::Uuid::new_v4()));
         let source = dir.join("windows");
-        let root = dir.join("reference-files/toby.deltarune");
+        let root = dir.join("reference-files/toby.deltarune/deltamod_system-0");
         data_file(&source.join("chapter3_windows/data.win"), b"three");
         data_file(&root.join("chapter1_windows/data.win"), b"old");
         let files = present_files(&source);
