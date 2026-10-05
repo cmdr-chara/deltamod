@@ -1744,6 +1744,9 @@ fn lifecycle_installation_id(game_root: &Path) -> String {
         let canonical = fs::canonicalize(game_root).unwrap_or_else(|_| game_root.to_owned());
         let mut bytes = canonical.as_os_str().as_bytes().to_vec();
         if let Ok(metadata) = fs::metadata(&canonical) {
+            // macOS renumbers volumes on every mount, which would make the same
+            // installation look new after a restart and orphan its baseline.
+            #[cfg(not(target_os = "macos"))]
             bytes.extend_from_slice(&metadata.dev().to_le_bytes());
             bytes.extend_from_slice(&metadata.ino().to_le_bytes());
         }

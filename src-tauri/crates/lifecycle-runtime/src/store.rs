@@ -6,8 +6,8 @@ use crate::{
         RecoveryRemovalReceipt, RetentionSnapshot,
     },
     store_identity::{
-        configure_no_follow, inspect_path, verify_opened_path, IdentityError, StableObjectIdentity,
-        StoreObjectKind,
+        configure_no_follow, inspect_path, is_legacy_mac_volume_id, verify_opened_path,
+        IdentityError, StableObjectIdentity, StoreObjectKind,
     },
     valid_id, valid_sha256, FaultInjector, FaultPoint, JournalCheckpointKind, MonotonicClock,
     NoFaults, SystemClock, TrustedClock,
@@ -953,9 +953,9 @@ impl DurableLifecycleStore {
             .map_err(|_| StoreError::StoreIdentityChanged("store lock binding"))?
             .clone();
         let log = self.bound_log_identity()?;
-        if expected.root != self.identity.root
-            || lock.as_ref() != Some(&expected.lock)
-            || log.as_ref() != Some(&expected.log)
+        if !same_persisted_object(&expected.root, Some(&self.identity.root))
+            || !same_persisted_object(&expected.lock, lock.as_ref())
+            || !same_persisted_object(&expected.log, log.as_ref())
         {
             return Err(StoreError::StoreIdentityChanged("persisted store identity"));
         }
@@ -2987,6 +2987,19 @@ impl LifecycleTransactionStore for DurableLifecycleStore {
     }
 }
 
+/// Whether a store object recorded in persisted state is the one bound now.
+/// A volume id written by an earlier macOS version was a boot-specific device
+/// number, so only its file id can still be compared.
+fn same_persisted_object(
+    expected: &StableObjectIdentity,
+    current: Option<&StableObjectIdentity>,
+) -> bool {
+    current.is_some_and(|current| {
+        current == expected
+            || (is_legacy_mac_volume_id(expected.volume_id) && current.file_id == expected.file_id)
+    })
+}
+
 fn next_store_sequence(current: u64) -> Result<u64, StoreError> {
     current.checked_add(1).ok_or(StoreError::SequenceExhausted)
 }
@@ -3518,6 +3531,40 @@ mod tests {
         assert!(matches!(
             replay_frames(&impossible_tail, u64::MAX),
             Err(StoreError::Corrupt("frames after exhausted sequence"))
+        ));
+    }
+}
+
+#[cfg(test)]
+mod persisted_identity_tests {
+    use super::*;
+
+    fn identity(volume_id: u128, file_id: u128) -> StableObjectIdentity {
+        StableObjectIdentity { volume_id, file_id }
+    }
+
+    #[test]
+    fn persisted_objects_must_match_exactly_by_default() {
+        let current = identity(1 << 127 | 7, 42);
+        assert!(same_persisted_object(&current.clone(), Some(&current)));
+        assert!(!same_persisted_object(
+            &identity(1 << 127 | 8, 42),
+            Some(&current)
+        ));
+        assert!(!same_persisted_object(&current, None));
+    }
+
+    #[test]
+    fn legacy_device_numbers_compare_by_file_on_macos_only() {
+        let current = identity(1 << 127 | 7, 42);
+        let legacy = identity(16_777_229, 42);
+        assert_eq!(
+            same_persisted_object(&legacy, Some(&current)),
+            cfg!(target_os = "macos")
+        );
+        assert!(!same_persisted_object(
+            &identity(16_777_229, 43),
+            Some(&current)
         ));
     }
 }
