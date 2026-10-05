@@ -641,6 +641,12 @@ pub(super) fn validate_mechanisms(
         match candidate.patch_type {
             PatchType::Override | PatchType::Copy => {}
             PatchType::Xdelta | PatchType::G3mPatch => {
+                if !g3m_execution_confined() {
+                    return Err(StagingError::new(
+                        StagingErrorCode::SandboxUnavailable,
+                        Some(PatchMechanism::G3m),
+                    ));
+                }
                 g3m_tool(runtime)?;
                 base_file(runtime, candidate)?;
             }
@@ -657,6 +663,13 @@ pub(super) fn validate_mechanisms(
 
 const fn is_g3m(patch_type: PatchType) -> bool {
     matches!(patch_type, PatchType::Xdelta | PatchType::G3mPatch)
+}
+
+/// Production builds remain fail-closed until G3MTool has a verified OS
+/// confinement boundary. Private staging and process-tree ownership do not
+/// substitute for a sandbox. Unit tests still exercise the staging machinery.
+const fn g3m_execution_confined() -> bool {
+    cfg!(test)
 }
 
 fn g3m_tool(runtime: &Runtime) -> Result<ToolPath, StagingError> {
