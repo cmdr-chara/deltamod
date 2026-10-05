@@ -569,7 +569,10 @@ fn patching_runtime(
         reference_root: store
             .get("gamePid")
             .and_then(serde_json::Value::as_str)
-            .and_then(|id| reference_files_root(root, id)),
+            .and_then(|id| {
+                let installation = store_path.parent()?.file_name()?.to_str()?;
+                reference_files_root(root, id, installation)
+            }),
         platform,
         platform_name: match std::env::consts::OS {
             "windows" => "win32",
@@ -589,14 +592,25 @@ fn patching_runtime(
 
 /// Where "Add Windows reference files" stores a game's unmodified primary-platform files.
 /// The folder may not exist yet; patching checks for each file when it is needed.
-pub(crate) fn reference_files_root(root: &DataRoot, game_id: &str) -> Option<PathBuf> {
-    let safe = !game_id.is_empty()
-        && game_id.len() <= 128
-        && !game_id.starts_with('.')
-        && game_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'));
-    safe.then(|| root.root.join("reference-files").join(game_id))
+pub(crate) fn reference_files_root(
+    root: &DataRoot,
+    game_id: &str,
+    installation_id: &str,
+) -> Option<PathBuf> {
+    let safe_component = |value: &str| {
+        !value.is_empty()
+            && value.len() <= 128
+            && !value.starts_with('.')
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+    };
+    (safe_component(game_id) && safe_component(installation_id)).then(|| {
+        root.root
+            .join("reference-files")
+            .join(game_id)
+            .join(installation_id)
+    })
 }
 
 fn patch_definition(
