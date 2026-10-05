@@ -947,7 +947,20 @@ impl Runtime {
             runtime.install(plan, identity, &mut workspace)
         };
         require_lifecycle_success(outcome)?;
-        self.reseal_mac_bundle();
+        if let Err(signing_error) = self.reseal_mac_bundle() {
+            let rollback = self.uninstall_active_patch_set(
+                operation_id,
+                lifecycle_store_root,
+                lifecycle_workspace_root,
+            );
+            let _ = staged.discard_verified();
+            return Err(match rollback {
+                Ok(()) => signing_error,
+                Err(rollback_error) => Error::Transaction(format!(
+                    "{signing_error}; rollback after signing failure failed: {rollback_error}"
+                )),
+            });
+        }
         staged
             .discard_verified()
             .map_err(|error| Error::Staging(error.to_string()))?;
@@ -1025,16 +1038,15 @@ impl Runtime {
             lifecycle_identity(&restore_operation, "restore"),
             &mut workspace,
         ))?;
-        self.reseal_mac_bundle();
+        self.reseal_mac_bundle()?;
         Ok(())
     }
 
     /// Re-signs the macOS game bundle after its resources were replaced or
-    /// restored. Signing failure is logged rather than blocking play: the
-    /// published files are already durable and recoverable.
-    fn reseal_mac_bundle(&self) {
+    /// restored. Signing failure is part of the transaction result.
+    fn reseal_mac_bundle(&self) -> Result<(), Error> {
         if self.platform != PatchPlatform::Darwin {
-            return;
+            return Ok(());
         }
         let Some(bundle) = self
             .definition
@@ -1043,11 +1055,10 @@ impl Runtime {
             .and_then(|root| mac_bundle::bundle_of(&self.game_root, root))
             .filter(|bundle| bundle.is_dir())
         else {
-            return;
+            return Ok(());
         };
-        if let Err(error) = mac_bundle::reseal(&bundle) {
-            eprintln!("[mac] {error}");
-        }
+        mac_bundle::reseal(&bundle)
+            .map_err(|error| Error::Transaction(format!("macOS bundle reseal failed: {error}")))
     }
 
     #[cfg(not(any(unix, windows)))]
