@@ -476,6 +476,11 @@ pub fn dispatch(
                     "main"
                 },
             );
+            // The patching runtime is built from the active installation at
+            // startup; reload it when that installation was just (re)created.
+            if created && Some(index) == profile.current_index.or(Some(0)) {
+                schedule_restart(app.clone());
+            }
             json!(created)
         }
         "repairInstallation" => {
