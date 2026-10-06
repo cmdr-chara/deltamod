@@ -48,19 +48,32 @@ fn validate_archive(path: PathBuf) -> Result<PathBuf, &'static str> {
 }
 
 fn validate_launch_marker(path: PathBuf) -> Result<HandoffIntent, &'static str> {
-    if !path.is_absolute() { return Err("The Deltamod launch marker path is not absolute."); }
-    let metadata = fs::symlink_metadata(&path).map_err(|_| "The Deltamod launch marker is no longer available.")?;
+    if !path.is_absolute() {
+        return Err("The Deltamod launch marker path is not absolute.");
+    }
+    let metadata = fs::symlink_metadata(&path)
+        .map_err(|_| "The Deltamod launch marker is no longer available.")?;
     if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 128 {
         return Err("The Deltamod launch marker is invalid.");
     }
-    let marker = fs::canonicalize(&path).map_err(|_| "The Deltamod launch marker could not be resolved.")?;
+    let marker =
+        fs::canonicalize(&path).map_err(|_| "The Deltamod launch marker could not be resolved.")?;
     let bytes = fs::read(&marker).map_err(|_| "The Deltamod launch marker could not be read.")?;
-    if bytes == LAUNCH_MARKER { return Ok(HandoffIntent::Launch(marker)); }
+    if bytes == LAUNCH_MARKER {
+        return Ok(HandoffIntent::Launch(marker));
+    }
     if let Some(payload) = bytes.strip_prefix(SELECT_MARKER_PREFIX) {
-        let text = std::str::from_utf8(payload).map_err(|_| "The Deltamod installation marker is invalid.")?;
-        let index_text = text.strip_suffix('\n').ok_or("The Deltamod installation marker is invalid.")?;
-        let index = index_text.parse::<u32>().map_err(|_| "The Deltamod installation marker is invalid.")?;
-        if index > MAX_LEGACY_INSTALLATION_INDEX { return Err("The Deltamod installation marker is out of range."); }
+        let text = std::str::from_utf8(payload)
+            .map_err(|_| "The Deltamod installation marker is invalid.")?;
+        let index_text = text
+            .strip_suffix('\n')
+            .ok_or("The Deltamod installation marker is invalid.")?;
+        let index = index_text
+            .parse::<u32>()
+            .map_err(|_| "The Deltamod installation marker is invalid.")?;
+        if index > MAX_LEGACY_INSTALLATION_INDEX {
+            return Err("The Deltamod installation marker is out of range.");
+        }
         return Ok(HandoffIntent::SelectInstallation { index, marker });
     }
     Err("The Deltamod launch marker is not trusted.")
@@ -85,7 +98,10 @@ where
                 let _ = fs::remove_file(marker);
             }
             Ok(HandoffIntent::SelectInstallation { index, marker }) => {
-                let result = app.state::<state::AppState>().profile_runtime.legacy_change_system_index(index);
+                let result = app
+                    .state::<state::AppState>()
+                    .profile_runtime
+                    .legacy_change_system_index(index);
                 let _ = fs::remove_file(marker);
                 match result {
                     Ok(()) => {
@@ -215,7 +231,10 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let marker = root.path().join("test.deltamod-open");
         fs::write(&marker, LAUNCH_MARKER).unwrap();
-        assert_eq!(parse_handoff_arg(marker.clone().into_os_string()).unwrap(), HandoffIntent::Launch(marker));
+        assert_eq!(
+            parse_handoff_arg(marker.clone().into_os_string()).unwrap(),
+            HandoffIntent::Launch(marker)
+        );
     }
 
     #[test]
@@ -223,6 +242,9 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let marker = root.path().join("test.deltamod-open");
         fs::write(&marker, b"deltamod-community-select-v1\n7\n").unwrap();
-        assert_eq!(parse_handoff_arg(marker.clone().into_os_string()).unwrap(), HandoffIntent::SelectInstallation { index: 7, marker });
+        assert_eq!(
+            parse_handoff_arg(marker.clone().into_os_string()).unwrap(),
+            HandoffIntent::SelectInstallation { index: 7, marker }
+        );
     }
 }
