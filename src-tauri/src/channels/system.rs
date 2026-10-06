@@ -239,6 +239,9 @@ fn installation_link_filename(name: &str, index: u32) -> String {
 }
 
 fn create_install_link(app: &AppHandle, state: &AppState, data: &[Value]) -> Result<Value, String> {
+    if data.len() != 1 {
+        return Err(error::invalid("createInstallLink"));
+    }
     let index = data
         .first()
         .and_then(Value::as_u64)
