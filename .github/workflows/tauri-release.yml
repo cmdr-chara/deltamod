@@ -42,6 +42,8 @@ jobs:
       unsigned_preview: ${{ steps.release.outputs.unsigned_preview }}
       validation: ${{ steps.release.outputs.validation }}
       candidate_sha: ${{ steps.release.outputs.candidate_sha }}
+      windows_signing: ${{ steps.signing.outputs.windows_signing }}
+      macos_signing: ${{ steps.signing.outputs.macos_signing }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -181,7 +183,8 @@ jobs:
           echo "unsigned_preview=$unsigned_preview" >> "$GITHUB_OUTPUT"
           echo "validation=$validation" >> "$GITHUB_OUTPUT"
           echo "candidate_sha=$candidate_sha" >> "$GITHUB_OUTPUT"
-      - name: Require release-signing credentials
+      - name: Require updater signing and select optional publisher signing
+        id: signing
         if: steps.release.outputs.unsigned_preview != 'true'
         shell: bash
         env:
@@ -200,17 +203,28 @@ jobs:
           required=(
             TAURI_SIGNING_PRIVATE_KEY
             TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-            WINDOWS_CERTIFICATE
-            WINDOWS_CERTIFICATE_PASSWORD
-            APPLE_CERTIFICATE
-            APPLE_CERTIFICATE_PASSWORD
-            KEYCHAIN_PASSWORD
-            APPLE_ID
-            APPLE_PASSWORD
-            APPLE_TEAM_ID
           )
           for name in "${required[@]}"; do
             test -n "${!name:-}" || { printf 'Missing required release credential: %s\n' "$name" >&2; exit 1; }
+          done
+          # Publisher identity is optional; updater authenticity is not. A
+          # partially configured publisher must fail, never silently downgrade.
+          for platform in windows macos; do
+            if [ "$platform" = windows ]; then
+              credentials=(WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD)
+            else
+              credentials=(APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID)
+            fi
+            configured=false
+            for name in "${credentials[@]}"; do
+              if [ -n "${!name:-}" ]; then configured=true; fi
+            done
+            if [ "$configured" = true ]; then
+              for name in "${credentials[@]}"; do
+                test -n "${!name:-}" || { printf 'Incomplete %s publisher signing: missing %s\n' "$platform" "$name" >&2; exit 1; }
+              done
+            fi
+            echo "${platform}_signing=$configured" >> "$GITHUB_OUTPUT"
           done
       - run: cargo fmt --all --check --manifest-path native/Cargo.toml
       - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
@@ -320,12 +334,17 @@ jobs:
           config="$RUNNER_TEMP/deltamod-platform-signing.json"
           if [ "${{ needs.validate.outputs.unsigned_preview }}" = true ]; then
             printf '%s\n' '{"bundle":{"createUpdaterArtifacts":false}}' > "$config"
+          elif [ "$RUNNER_OS" = macOS ] && [ "${{ needs.validate.outputs.macos_signing }}" != true ]; then
+            # Ad-hoc signing supports Apple Silicon without claiming Apple trust.
+            # Leave createUpdaterArtifacts enabled by the platform config.
+            printf '%s\n' '{"bundle":{"macOS":{"signingIdentity":"-"}}}' > "$config"
+            echo 'APPLE_SIGNING_IDENTITY=-' >> "$GITHUB_ENV"
           else
             printf '%s\n' '{}' > "$config"
           fi
           printf 'TAURI_PLATFORM_SIGNING_CONFIG=%s\n' "$config" >> "$GITHUB_ENV"
       - name: Import Windows publisher certificate
-        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
+        if: runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -356,7 +375,7 @@ jobs:
             if (Test-Path -LiteralPath $pfxPath) { Remove-Item -LiteralPath $pfxPath -Force }
           }
       - name: Import Apple Developer ID certificate
-        if: runner.os == 'macOS' && needs.validate.outputs.unsigned_preview != 'true'
+        if: runner.os == 'macOS' && needs.validate.outputs.macos_signing == 'true'
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -384,12 +403,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ needs.validate.outputs.macos_signing == 'true' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ needs.validate.outputs.macos_signing == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ needs.validate.outputs.macos_signing == 'true' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ needs.validate.outputs.macos_signing == 'true' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ needs.validate.outputs.macos_signing == 'true' && secrets.APPLE_TEAM_ID || '' }}
         with:
           projectPath: .
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config ${{ env.TAURI_PLATFORM_SIGNING_CONFIG }}
@@ -416,7 +435,7 @@ jobs:
         if: needs.validate.outputs.unsigned_preview == 'true'
         run: node scripts/verify-tauri-package.js "src-tauri/target/${{ matrix.target }}/release/bundle" "${{ matrix.target }}" --unsigned
       - name: Verify Windows publisher signatures
-        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
+        if: runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -432,7 +451,7 @@ jobs:
             }
           }
       - name: Verify macOS signature and notarization
-        if: runner.os == 'macOS' && needs.validate.outputs.unsigned_preview != 'true'
+        if: runner.os == 'macOS' && needs.validate.outputs.macos_signing == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -440,8 +459,8 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app"
           spctl --assess --type execute --verbose=2 "$app"
           xcrun stapler validate "$app"
-      - name: Verify Windows preview is intentionally unsigned
-        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview == 'true'
+      - name: Verify Windows packages without publisher signing
+        if: runner.os == 'Windows' && needs.validate.outputs.windows_signing != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -449,25 +468,28 @@ jobs:
             Get-Item -LiteralPath "src-tauri/target/${{ matrix.target }}/release/deltamod-tauri-shell.exe"
             Get-ChildItem -LiteralPath "src-tauri/target/${{ matrix.target }}/release/bundle/nsis" -Filter '*.exe' -File | Select-Object -First 1
           )
-          if ($targets.Count -ne 2 -or $targets -contains $null) { throw 'Windows preview targets are incomplete.' }
+          if ($targets.Count -ne 2 -or $targets -contains $null) { throw 'Windows package targets are incomplete.' }
           foreach ($target in $targets) {
             $signature = Get-AuthenticodeSignature -LiteralPath $target.FullName
             if ($signature.Status -ne 'NotSigned') {
-              throw "Unsigned preview artifact $($target.Name) unexpectedly has signature status $($signature.Status)."
+              throw "Publisher-unsigned artifact $($target.Name) unexpectedly has signature status $($signature.Status)."
             }
           }
-      - name: Verify macOS preview is not notarized
-        if: runner.os == 'macOS' && needs.validate.outputs.unsigned_preview == 'true'
+      - name: Verify macOS packages without Developer ID
+        if: runner.os == 'macOS' && needs.validate.outputs.macos_signing != 'true'
         shell: bash
         run: |
           set -euo pipefail
           app="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Deltamod Community.app"
+          if [ "${{ needs.validate.outputs.unsigned_preview }}" != true ]; then
+            codesign --verify --deep --strict --verbose=2 "$app"
+          fi
           if codesign -dv --verbose=4 "$app" 2>&1 | grep -q '^Authority=Developer ID Application:'; then
-            printf '%s\n' 'Unsigned preview unexpectedly contains a Developer ID signature.' >&2
+            printf '%s\n' 'Publisher-unsigned package unexpectedly contains a Developer ID signature.' >&2
             exit 1
           fi
           if xcrun stapler validate "$app"; then
-            printf '%s\n' 'Unsigned preview unexpectedly contains a notarization ticket.' >&2
+            printf '%s\n' 'Publisher-unsigned package unexpectedly contains a notarization ticket.' >&2
             exit 1
           fi
       - name: Install, smoke, and uninstall Windows NSIS package
@@ -650,7 +672,7 @@ jobs:
         if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
         run: npm run build:installer
       - name: Sign and verify Deltamod-themed setup shell
-        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
+        if: runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -664,6 +686,13 @@ jobs:
           if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $env:DELTAMOD_WINDOWS_CERT_THUMBPRINT) {
             throw 'The branded setup publisher signature is invalid.'
           }
+      - name: Verify branded setup without publisher signing
+        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true' && needs.validate.outputs.windows_signing != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $signature = Get-AuthenticodeSignature -LiteralPath 'dist/Deltamod Community Setup.exe'
+          if ($signature.Status -ne 'NotSigned') { throw 'Unexpected publisher signature on the branded setup.' }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact }}
@@ -784,6 +813,24 @@ jobs:
 
           EOF
           tail -n +2 preview-changes.md | sed "s/community-v${RELEASE_VERSION}/${RELEASE_TAG}/g" >> release-notes.md
+      - name: Disclose release signing status
+        if: needs.validate.outputs.unsigned_preview != 'true'
+        shell: bash
+        env:
+          WINDOWS_SIGNING: ${{ needs.validate.outputs.windows_signing }}
+          MACOS_SIGNING: ${{ needs.validate.outputs.macos_signing }}
+        run: |
+          set -euo pipefail
+          {
+            printf '\n## Signing and download verification\n\n'
+            printf '%s\n' 'Windows and macOS updater packages carry mandatory Tauri signatures. Linux .deb installation is manual. SHA256SUMS.txt checks file integrity; GitHub attestations identify the build workflow.'
+            if [ "$WINDOWS_SIGNING" != true ]; then
+              printf '\n%s\n' '**Windows:** No Authenticode publisher certificate. SmartScreen or unknown-publisher warnings are expected.'
+            fi
+            if [ "$MACOS_SIGNING" != true ]; then
+              printf '\n%s\n' '**macOS:** Ad-hoc signed, not Apple Developer ID signed or notarized. Gatekeeper may block the first launch; approve this specific app in Privacy & Security after verifying the download. Do not disable Gatekeeper globally.'
+            fi
+          } >> release-notes.md
       - name: Record unsigned release validation
         if: needs.validate.outputs.validation == 'true'
         shell: bash
@@ -817,7 +864,7 @@ jobs:
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0)
           test "${#artifacts[@]}" -eq 26
-          gh release create "$RELEASE_TAG" "${artifacts[@]}" --verify-tag --latest --notes-file release-notes.md --title "Deltamod Community ${RELEASE_TAG#community-v}"
+          gh release create "$RELEASE_TAG" "${artifacts[@]}" --verify-tag --latest --prerelease=false --notes-file release-notes.md --title "Deltamod Community ${RELEASE_TAG#community-v}"
       - name: Publish isolated signed updater rehearsal
         if: needs.validate.outputs.validation != 'true' && needs.validate.outputs.rehearsal == 'true'
         env:

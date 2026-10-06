@@ -16,4 +16,4 @@ Keep generated `web/`, downloaded tools, native build output, personal game file
 
 ## Completion
 
-Complete the requested change with affected runtime/IPC/recovery contracts checked, relevant regression coverage, and synchronized documentation. State which operating systems and packaged flows actually ran. Never weaken signing, provenance, or release gates to turn a build into a stable-release claim. Game-data erasure and release publication are not routine validation steps.
+Complete the requested change with affected runtime/IPC/recovery contracts checked, relevant regression coverage, and synchronized documentation. State which operating systems and packaged flows actually ran. Never weaken updater signatures, provenance, or package verification to turn a build into a stable-release claim. Platform publisher certificates are optional under the maintainer-approved policy in `docs/RELEASE-GATE.md`; preserve its signing checks and user-facing disclosures. Game-data erasure and release publication are not routine validation steps.

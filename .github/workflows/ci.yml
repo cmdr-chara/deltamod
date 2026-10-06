@@ -15,7 +15,7 @@ on:
         type: boolean
         default: false
       stable_release:
-        description: 'Attempt a signed stable release from DeltaMaster after CI; fails if required signing credentials are unavailable'
+        description: 'Attempt a signed stable release from DeltaMaster after CI; requires updater signing, not paid platform certificates'
         type: boolean
         default: false
 
@@ -63,7 +63,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/actionlint"
           tar -xzf "$archive" -C "$RUNNER_TEMP/actionlint" actionlint
           "$RUNNER_TEMP/actionlint/actionlint" -shellcheck= -pyflakes= .github/workflows/*.yml
-          node --test scripts/ci/gate.test.cjs
+          node --test scripts/ci/gate.test.cjs scripts/ci/release-signing.test.cjs
       - run: npm run verify:tauri-only
       - run: npm run typecheck
       - run: npm run security:audit
@@ -444,28 +444,12 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
         run: |
           set -euo pipefail
           required=(
             TAURI_SIGNING_PRIVATE_KEY
             TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-            WINDOWS_CERTIFICATE
-            WINDOWS_CERTIFICATE_PASSWORD
-            APPLE_CERTIFICATE
-            APPLE_CERTIFICATE_PASSWORD
-            KEYCHAIN_PASSWORD
-            APPLE_ID
-            APPLE_PASSWORD
-            APPLE_TEAM_ID
           )
           missing=()
           for name in "${required[@]}"; do
@@ -474,11 +458,11 @@ jobs:
           if [ "${#missing[@]}" -eq 0 ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
           elif [ "${{ steps.candidate.outputs.explicit_stable }}" = true ]; then
-            printf 'Stable release blocked: missing required signing credentials (%s). No prerelease or unsigned stable release will be substituted.\n' "$(IFS=,; echo "${missing[*]}")" >&2
+            printf 'Stable release blocked: missing required updater-signing credentials (%s). No prerelease or unsigned stable release will be substituted.\n' "$(IFS=,; echo "${missing[*]}")" >&2
             exit 1
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
-            printf 'Signing credentials unavailable (%s); running unsigned release validation instead of creating a stable tag.\n' "$(IFS=,; echo "${missing[*]}")"
+            printf 'Updater signing credentials unavailable (%s); running unsigned release validation instead of creating a stable tag.\n' "$(IFS=,; echo "${missing[*]}")"
           fi
 
       - name: Dispatch unsigned release validation

@@ -36,7 +36,7 @@ function run(command, args, env = process.env) {
 }
 
 const targetDir = path.join(root, 'src-tauri', 'target-installer');
-const releaseUrl = `https://github.com/cmdr-chara/deltamod/releases/download/community-v${packageInfo.version}/Deltamod.Community_${packageInfo.version}_x64-setup.exe`;
+const releaseUrl = `https://github.com/cmdr-chara/deltamod/releases/download/community-v${packageInfo.version}/Deltamod-Community_${packageInfo.version}_${windowsTarget}.exe`;
 const env = {
     ...process.env,
     CARGO_TARGET_DIR: targetDir,
