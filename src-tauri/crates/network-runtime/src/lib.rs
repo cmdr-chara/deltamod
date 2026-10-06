@@ -1175,6 +1175,7 @@ impl<'a> GameBanana<'a> {
     }
 
     /// Fetch the provider profile used to discover compatible mod files.
+    /// The model and item id are validated before the authenticated request.
     pub async fn submission_profile<T: for<'de> Deserialize<'de>>(
         &self,
         model: &str,
