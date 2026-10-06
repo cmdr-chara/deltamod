@@ -22,6 +22,7 @@ const PUBLIC_RENDERER_EVENTS = Object.freeze([
     'protocol-download-progress',
     'profile-import-progress',
     'game-import-progress',
+    'collection-restore-progress',
     'hash-progress',
     'winResAlert',
     'leave-controller-mode',
@@ -285,7 +286,6 @@ describe('Tauri browser adapter', () => {
 
         const expectedUnsupported = [
             'createInstallLink',
-            'gamebanana_downloadAllInCollection',
             'initialize',
             'npsCallback',
             'rebootDev',
