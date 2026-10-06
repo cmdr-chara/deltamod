@@ -1,4 +1,5 @@
-use crate::{channels::auth, error, state::AppState};
+use crate::{error, state::AppState};
+use deltamod_credentials_adapter::{CredentialKind, Secret};
 use deltamod_archive_import_runtime::{
     import_archive_with_source, DuplicateDecision, ImportError, LegacySourceMetadata, Limits,
 };
@@ -122,6 +123,17 @@ fn import_mod<D: DialogBackend + ChoiceBackend>(
     let selected =
         validate_dialog_selection(&request, selected).map_err(|_| error::invalid("importMod"))?;
     run_import(dialogs, &selected, packet_root, None, || false)
+}
+
+fn gamebanana_token(state: &AppState) -> Result<String, String> {
+    state
+        .credentials
+        .as_ref()
+        .ok_or_else(|| "CREDENTIALS_UNAVAILABLE".to_owned())?
+        .load(CredentialKind::GameBananaCookies)
+        .map_err(|_| "CREDENTIALS_UNAVAILABLE".to_owned())?
+        .map(|secret| secret.expose().to_owned())
+        .ok_or_else(|| "CREDENTIALS_NOT_FOUND".to_owned())
 }
 
 fn optional_source_metadata(data: &[Value]) -> Result<Option<LegacySourceMetadata>, String> {
@@ -383,6 +395,7 @@ fn choose_collection_file<D: ChoiceBackend>(
     Ok(selected.and_then(|index| candidates.get(index).cloned()))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_collection_progress(
     app: &AppHandle,
     operation_id: &str,
@@ -420,7 +433,7 @@ fn restore_gamebanana_collection<D: DialogBackend + ChoiceBackend>(
             .ok_or_else(|| error::invalid("gamebanana_downloadAllInCollection"))?,
     )
     .ok_or_else(|| error::invalid("gamebanana_downloadAllInCollection"))?;
-    let token = auth::token(state)?;
+    let token = gamebanana_token(state)?;
     let operation_id = Uuid::new_v4().simple().to_string();
     emit_collection_progress(
         app,
