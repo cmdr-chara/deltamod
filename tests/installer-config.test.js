@@ -99,8 +99,8 @@ describe('Windows installer branding', () => {
         expect(workflow).toContain('release_version="${preview_version%%-run-*}"');
         expect(workflow).toContain('(?:-run-[1-9]\\\\d*)?');
         expect(workflow).toContain('{"bundle":{"createUpdaterArtifacts":false}}');
-        expect(workflow).toContain('Verify Windows preview is intentionally unsigned');
-        expect(workflow).toContain('Verify macOS preview is not notarized');
+        expect(workflow).toContain('Verify Windows packages without publisher signing');
+        expect(workflow).toContain('Verify macOS packages without Developer ID');
         expect(workflow).toContain('yes | hdiutil attach');
         expect(workflow).toContain('attach_status="${PIPESTATUS[1]}"');
         expect(workflow).toContain('Stage unsigned Windows manual-download installer');
