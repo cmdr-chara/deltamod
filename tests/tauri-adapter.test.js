@@ -259,8 +259,8 @@ describe('Tauri browser adapter', () => {
             rendererInvoke: 130,
             rendererEvents: 18,
             rustKnown: 130,
-            rustImplemented: 124,
-            rustUnsupported: 6
+            rustImplemented: 125,
+            rustUnsupported: 5
         });
 
         const preloadEvents = report.renderer.events.map(event => event.name);
