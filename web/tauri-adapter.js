@@ -46,6 +46,7 @@
         'gamebanana_deleteCollection',
         'gamebanana_getCollections',
         'gamebanana_importToCollection',
+        'gamebanana_downloadAllInCollection',
         'gbLikeMod',
         'getAvailableGames',
         'getCurrentGameInfo',
@@ -153,6 +154,7 @@
         'page', 'audio', 'gplog', 'updateAvailable', 'themeChange', 'refresh',
         'finishedPatch', 'dlmodURL-progress',
         'protocol-download-progress', 'profile-import-progress', 'game-import-progress',
+        'collection-restore-progress',
         'hash-progress', 'winResAlert', 'leave-controller-mode', 'mod-source-progress',
         'installer-progress', 'updater-status', 'updater-progress'
     ]);

@@ -629,6 +629,7 @@ impl FromStr for BackendChannel {
             | "gamebanana_createCollection"
             | "gamebanana_deleteCollection"
             | "gamebanana_importToCollection"
+            | "gamebanana_downloadAllInCollection"
             | "chooseTheme"
             | "importOfficialProfile"
             | "undertaleModTool:choose"
@@ -662,7 +663,6 @@ impl FromStr for BackendChannel {
             "rebootDev"
             | "createInstallLink"
             | "undertaleModTool:openInstallation"
-            | "gamebanana_downloadAllInCollection"
             | "npsCallback"
             | "initialize" => Self::Unsupported(channel.to_owned()),
             _ => return Err(()),

@@ -1,8 +1,9 @@
-use crate::{error, state::AppState};
+use crate::{channels::auth, error, state::AppState};
 use deltamod_archive_import_runtime::{
     import_archive_with_source, DuplicateDecision, ImportError, LegacySourceMetadata, Limits,
 };
 use deltamod_game_download_runtime::CancellationToken;
+use deltamod_network_runtime::GameBanana;
 use deltamod_network_runtime::import_download::{
     validate_download_url, DownloadPolicy, HostAllowlist,
 };
@@ -18,6 +19,10 @@ use uuid::Uuid;
 const PROTOCOL_DOWNLOAD_FAILED: &str = "The GameBanana one-click download failed.";
 const PROTOCOL_IMPORT_FAILED: &str = "The downloaded GameBanana mod could not be imported.";
 const MAX_PROTOCOL_ID: u32 = 2_000_000_000;
+const MAX_COLLECTION_PAGES: u32 = 64;
+const MAX_COLLECTION_ITEMS: usize = 256;
+const MAX_COLLECTION_FILES: usize = 128;
+const GAMEBANANA_TOOL_ID: u64 = 20_575;
 
 pub(crate) struct ProtocolImportRequest<'a> {
     pub item_id: u32,
@@ -139,31 +144,19 @@ fn optional_source_metadata(data: &[Value]) -> Result<Option<LegacySourceMetadat
     .map_err(|_| error::invalid("dlmodURL"))
 }
 
-fn download_mod<D: ChoiceBackend>(
+fn download_and_import<D: ChoiceBackend>(
     app: &AppHandle,
     state: &AppState,
     dialogs: &D,
-    data: &[Value],
+    url: &str,
+    operation_id: String,
+    source: Option<&LegacySourceMetadata>,
 ) -> Result<Value, String> {
-    let url = data
-        .first()
-        .and_then(Value::as_str)
-        .ok_or_else(|| error::invalid("dlmodURL"))?;
-    let operation_id = data
-        .get(1)
-        .and_then(|value| match value {
-            Value::String(value) => Some(value.clone()),
-            Value::Number(value) => Some(value.to_string()),
-            _ => None,
-        })
-        .filter(|value| valid_operation_id(value))
-        .ok_or_else(|| error::invalid("dlmodURL"))?;
     if let Err(network_error) = validate_download_url(url, HostAllowlist::GAMEBANANA) {
         let message = network_error.to_string();
         emit_download_error(app, &operation_id, &message);
         return Err(message);
     }
-    let source = optional_source_metadata(data)?;
     let (_, cancel) = watch::channel(false);
     let runtime = state
         .network_runtime
@@ -218,7 +211,7 @@ fn download_mod<D: ChoiceBackend>(
         dialogs,
         &downloaded.path,
         &state.data_root.root.join("packets"),
-        source.as_ref(),
+        source,
         || *cancel.borrow(),
     );
     match result {
@@ -248,7 +241,353 @@ fn download_mod<D: ChoiceBackend>(
     }
 }
 
+fn download_mod<D: ChoiceBackend>(
+    app: &AppHandle,
+    state: &AppState,
+    dialogs: &D,
+    data: &[Value],
+) -> Result<Value, String> {
+    let url = data
+        .first()
+        .and_then(Value::as_str)
+        .ok_or_else(|| error::invalid("dlmodURL"))?;
+    let operation_id = data
+        .get(1)
+        .and_then(|value| match value {
+            Value::String(value) => Some(value.clone()),
+            Value::Number(value) => Some(value.to_string()),
+            _ => None,
+        })
+        .filter(|value| valid_operation_id(value))
+        .ok_or_else(|| error::invalid("dlmodURL"))?;
+    let source = optional_source_metadata(data)?;
+    download_and_import(app, state, dialogs, url, operation_id, source.as_ref())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CollectionFileCandidate {
+    file_id: u32,
+    url: String,
+    label: String,
+}
+
+fn provider_id(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_str()?.parse::<u64>().ok())
+        .filter(|id| *id > 0 && *id <= u64::from(MAX_PROTOCOL_ID))
+}
+
+fn safe_collection_model(value: &Value) -> Option<String> {
+    let model = value.as_str()?.trim();
+    if model.is_empty()
+        || model.len() > 32
+        || !model
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphabetic())
+        || !model.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    Some(model.to_owned())
+}
+
+fn normalized_collection_download_url(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let normalized = if let Some(file) = raw.strip_prefix("https://gamebanana.com/dl/") {
+        format!("https://gamebanana.com/mmdl/{file}")
+    } else if let Some(file) = raw.strip_prefix("https://files.gamebanana.com/dl/") {
+        format!("https://files.gamebanana.com/mmdl/{file}")
+    } else {
+        raw.to_owned()
+    };
+    validate_download_url(&normalized, HostAllowlist::GAMEBANANA).ok()?;
+    protocol_source_file_id(&normalized)?;
+    Some(normalized)
+}
+
+fn collection_file_candidates(profile: &Value) -> Result<Vec<CollectionFileCandidate>, String> {
+    let Some(files) = profile.get("_aFiles").and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    if files.len() > MAX_COLLECTION_FILES {
+        return Err("GAMEBANANA_COLLECTION_TOO_MANY_FILES".to_owned());
+    }
+    let mut candidates = Vec::new();
+    for file in files {
+        let integrated = file
+            .get("_aModManagerIntegrations")
+            .and_then(Value::as_array)
+            .is_some_and(|integrations| {
+                integrations.iter().any(|integration| {
+                    provider_id(integration.get("_idToolRow").unwrap_or(&Value::Null))
+                        == Some(GAMEBANANA_TOOL_ID)
+                })
+            });
+        if !integrated {
+            continue;
+        }
+        let Some(url) = file
+            .get("_sDownloadUrl")
+            .and_then(Value::as_str)
+            .and_then(normalized_collection_download_url)
+        else {
+            continue;
+        };
+        let Some(file_id) = protocol_source_file_id(&url) else {
+            continue;
+        };
+        let label = file
+            .get("_sFile")
+            .and_then(Value::as_str)
+            .map(|value| {
+                value
+                    .chars()
+                    .filter(|character| !character.is_control())
+                    .take(80)
+                    .collect::<String>()
+            })
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| format!("GameBanana file {file_id}"));
+        candidates.push(CollectionFileCandidate {
+            file_id,
+            url,
+            label,
+        });
+    }
+    Ok(candidates)
+}
+
+fn choose_collection_file<D: ChoiceBackend>(
+    dialogs: &D,
+    candidates: &[CollectionFileCandidate],
+) -> Result<Option<CollectionFileCandidate>, String> {
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    if candidates.len() == 1 {
+        return Ok(candidates.first().cloned());
+    }
+    let choices = candidates
+        .iter()
+        .map(|candidate| candidate.label.clone())
+        .collect::<Vec<_>>();
+    let selected = dialogs
+        .choose(
+            "Choose GameBanana file",
+            "This collection item has multiple Deltamod-compatible files. Choose which one to restore.",
+            &choices,
+        )
+        .map_err(|_| error::internal())?;
+    Ok(selected.and_then(|index| candidates.get(index).cloned()))
+}
+
+fn emit_collection_progress(
+    app: &AppHandle,
+    operation_id: &str,
+    collection_id: u64,
+    phase: &str,
+    completed: usize,
+    total: usize,
+    current_item: Option<&str>,
+    imported: usize,
+    skipped: usize,
+) {
+    let _ = app.emit(
+        "collection-restore-progress",
+        json!({
+            "operationId": operation_id,
+            "collectionId": collection_id,
+            "phase": phase,
+            "completed": completed,
+            "total": total,
+            "currentItem": current_item,
+            "imported": imported,
+            "skipped": skipped
+        }),
+    );
+}
+
+fn restore_gamebanana_collection<D: DialogBackend + ChoiceBackend>(
+    app: &AppHandle,
+    state: &AppState,
+    dialogs: &D,
+    data: &[Value],
+) -> Result<Value, String> {
+    let collection_id = provider_id(
+        data.first()
+            .ok_or_else(|| error::invalid("gamebanana_downloadAllInCollection"))?,
+    )
+    .ok_or_else(|| error::invalid("gamebanana_downloadAllInCollection"))?;
+    let token = auth::token(state)?;
+    let operation_id = Uuid::new_v4().simple().to_string();
+    emit_collection_progress(
+        app,
+        &operation_id,
+        collection_id,
+        "resolving",
+        0,
+        0,
+        None,
+        0,
+        0,
+    );
+
+    let api = GameBanana {
+        client: &state.network,
+        token: Some(token),
+    };
+    let mut records = Vec::new();
+    let mut complete = false;
+    for page in 1..=MAX_COLLECTION_PAGES {
+        let response = {
+            let runtime = state
+                .network_runtime
+                .lock()
+                .map_err(|_| error::internal())?;
+            runtime
+                .block_on(api.collection_items::<Value>(collection_id, page))
+                .map_err(|_| "GAMEBANANA_COLLECTION_REQUEST_FAILED".to_owned())?
+        };
+        let page_records = response
+            .get("_aRecords")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "GAMEBANANA_COLLECTION_RESPONSE_INVALID".to_owned())?;
+        if records.len().saturating_add(page_records.len()) > MAX_COLLECTION_ITEMS {
+            return Err("GAMEBANANA_COLLECTION_TOO_MANY_ITEMS".to_owned());
+        }
+        records.extend(page_records.iter().cloned());
+        complete = response
+            .pointer("/_aMetadata/_bIsComplete")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        if complete || page_records.is_empty() {
+            break;
+        }
+    }
+    if !complete && !records.is_empty() {
+        return Err("GAMEBANANA_COLLECTION_TOO_MANY_PAGES".to_owned());
+    }
+
+    let total = records.len();
+    let mut imported = 0usize;
+    let mut skipped = Vec::new();
+    for (index, record) in records.iter().enumerate() {
+        let item_id = record.get("_idRow").and_then(provider_id);
+        let model = record
+            .get("_sModelName")
+            .and_then(safe_collection_model);
+        let current_item = match (item_id, model.as_deref()) {
+            (Some(item_id), Some(model)) => format!("{model} {item_id}"),
+            _ => "invalid GameBanana collection item".to_owned(),
+        };
+        emit_collection_progress(
+            app,
+            &operation_id,
+            collection_id,
+            "resolving",
+            index,
+            total,
+            Some(&current_item),
+            imported,
+            skipped.len(),
+        );
+        let (Some(item_id), Some(model)) = (item_id, model) else {
+            skipped.push("invalid-record".to_owned());
+            continue;
+        };
+        let profile = {
+            let runtime = state
+                .network_runtime
+                .lock()
+                .map_err(|_| error::internal())?;
+            runtime
+                .block_on(api.submission_profile::<Value>(&model, item_id))
+        };
+        let profile = match profile {
+            Ok(profile) => profile,
+            Err(_) => {
+                skipped.push(format!("{current_item}: profile-request-failed"));
+                continue;
+            }
+        };
+        let candidates = match collection_file_candidates(&profile) {
+            Ok(candidates) => candidates,
+            Err(reason) => {
+                skipped.push(format!("{current_item}: {reason}"));
+                continue;
+            }
+        };
+        let Some(candidate) = choose_collection_file(dialogs, &candidates)? else {
+            skipped.push(format!("{current_item}: no-compatible-file"));
+            continue;
+        };
+        let source = match LegacySourceMetadata::new(item_id.to_string(), model.clone()) {
+            Ok(source) => source,
+            Err(_) => {
+                skipped.push(format!("{current_item}: invalid-source"));
+                continue;
+            }
+        };
+        emit_collection_progress(
+            app,
+            &operation_id,
+            collection_id,
+            "downloading",
+            index,
+            total,
+            Some(&current_item),
+            imported,
+            skipped.len(),
+        );
+        let item_operation = Uuid::new_v4().simple().to_string();
+        match download_and_import(
+            app,
+            state,
+            dialogs,
+            &candidate.url,
+            item_operation,
+            Some(&source),
+        ) {
+            Ok(Value::Bool(true)) => imported += 1,
+            Ok(_) | Err(_) => skipped.push(format!("{current_item}: import-failed")),
+        }
+        emit_collection_progress(
+            app,
+            &operation_id,
+            collection_id,
+            "item-complete",
+            index.saturating_add(1),
+            total,
+            Some(&current_item),
+            imported,
+            skipped.len(),
+        );
+    }
+    emit_collection_progress(
+        app,
+        &operation_id,
+        collection_id,
+        "complete",
+        total,
+        total,
+        None,
+        imported,
+        skipped.len(),
+    );
+    Ok(json!({
+        "done": true,
+        "operationId": operation_id,
+        "collectionId": collection_id,
+        "imported": imported,
+        "skipped": skipped.len(),
+        "skippedMods": skipped
+    }))
+}
+
 fn protocol_operation_id() -> String {
+ -> String {
     Uuid::new_v4().to_string()
 }
 
@@ -583,6 +922,9 @@ pub fn dispatch<D: DialogBackend + ChoiceBackend>(
     match channel {
         "importMod" => import_mod(&_state.data_root.root.join("packets"), dialogs).map(Some),
         "dlmodURL" => download_mod(app, _state, dialogs, data).map(Some),
+        "gamebanana_downloadAllInCollection" => {
+            restore_gamebanana_collection(app, _state, dialogs, data).map(Some)
+        },
         "downloadGame" => download_game(app, _state, data).map(Some),
         "cancelGameImport" => {
             let operations = _state
