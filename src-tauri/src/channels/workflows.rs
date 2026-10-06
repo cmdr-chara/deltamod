@@ -879,8 +879,14 @@ mod tests {
         SteamFixture::game(&common.join("Game"));
         let source = steam_source_in_folders(&game, Vec::new()).unwrap();
         let expected = fs::canonicalize(common.join("Game")).unwrap();
-        assert_eq!(picked_steam_source(&common, &source, &game), Some(expected.clone()));
-        assert_eq!(picked_steam_source(&expected, &source, &game), Some(expected));
+        assert_eq!(
+            picked_steam_source(&common, &source, &game),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            picked_steam_source(&expected, &source, &game),
+            Some(expected)
+        );
         assert!(picked_steam_source(&fixture.0.join("missing"), &source, &game).is_none());
     }
 
