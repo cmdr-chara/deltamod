@@ -416,7 +416,17 @@ mod tests {
         assert_eq!(steam_app_id("391540"), Some(391540));
         assert_eq!(steam_app_id("000391540"), Some(391540));
         assert_eq!(steam_app_id("4294967295"), Some(u32::MAX));
-        for value in ["", "0", "+1", "-1", " 1", "1 ", "4294967296", "1/args", "１２３"] {
+        for value in [
+            "",
+            "0",
+            "+1",
+            "-1",
+            " 1",
+            "1 ",
+            "4294967296",
+            "1/args",
+            "１２３",
+        ] {
             assert_eq!(steam_app_id(value), None, "{value}");
         }
     }
@@ -457,7 +467,10 @@ mod tests {
             r#""AppState" { "appid" "391540" "installdir" "Game" "#,
             r#""AppState" { "appid" "391540" "installdir" "Game" } }"#,
         ] {
-            assert!(steam_manifest_install_dir(input, 391540).is_none(), "{input}");
+            assert!(
+                steam_manifest_install_dir(input, 391540).is_none(),
+                "{input}"
+            );
         }
         let oversized = format!(
             "{}\"AppState\" {{ \"appid\" \"391540\" \"installdir\" \"Game\" }}",
@@ -496,7 +509,13 @@ mod tests {
             assert!(!valid_steam_install_dir(value), "{value:?}");
         }
         assert!(!valid_steam_install_dir(&"x".repeat(256)));
-        for value in ["UNDERTALE", "Renamed Game", "Deltarune 日本語", "Game.v2", "COM10"] {
+        for value in [
+            "UNDERTALE",
+            "Renamed Game",
+            "Deltarune 日本語",
+            "Game.v2",
+            "COM10",
+        ] {
             assert!(valid_steam_install_dir(value), "{value:?}");
         }
         for value in ["../Game", "Game:stream", "CON"] {
@@ -577,7 +596,9 @@ mod tests {
             r#""AppState" { "appid" "391540" "installdir" "Missing" }"#,
         ] {
             DiscoveryFixture::manifest(&common, input);
-            assert!(steam_installation_candidates([common.clone()], 391540, "UNDERTALE").is_empty());
+            assert!(
+                steam_installation_candidates([common.clone()], 391540, "UNDERTALE").is_empty()
+            );
         }
         DiscoveryFixture::manifest(&common, &" ".repeat(MAX_VDF_BYTES + 1));
         assert!(steam_installation_candidates([common], 391540, "UNDERTALE").is_empty());
