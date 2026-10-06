@@ -3,7 +3,6 @@ use deltamod_archive_import_runtime::{
     import_archive_with_source, DuplicateDecision, ImportError, LegacySourceMetadata, Limits,
 };
 use deltamod_game_download_runtime::CancellationToken;
-use deltamod_network_runtime::GameBanana;
 use deltamod_network_runtime::import_download::{
     validate_download_url, DownloadPolicy, HostAllowlist,
 };
@@ -15,6 +14,7 @@ use std::{cell::RefCell, collections::HashMap, fs};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::watch;
 use uuid::Uuid;
+use deltamod_network_runtime::GameBanana;
 
 const PROTOCOL_DOWNLOAD_FAILED: &str = "The GameBanana one-click download failed.";
 const PROTOCOL_IMPORT_FAILED: &str = "The downloaded GameBanana mod could not be imported.";
@@ -475,9 +475,7 @@ fn restore_gamebanana_collection<D: DialogBackend + ChoiceBackend>(
     let mut skipped = Vec::new();
     for (index, record) in records.iter().enumerate() {
         let item_id = record.get("_idRow").and_then(provider_id);
-        let model = record
-            .get("_sModelName")
-            .and_then(safe_collection_model);
+        let model = record.get("_sModelName").and_then(safe_collection_model);
         let current_item = match (item_id, model.as_deref()) {
             (Some(item_id), Some(model)) => format!("{model} {item_id}"),
             _ => "invalid GameBanana collection item".to_owned(),
@@ -502,8 +500,7 @@ fn restore_gamebanana_collection<D: DialogBackend + ChoiceBackend>(
                 .network_runtime
                 .lock()
                 .map_err(|_| error::internal())?;
-            runtime
-                .block_on(api.submission_profile::<Value>(&model, item_id))
+            runtime.block_on(api.submission_profile::<Value>(&model, item_id))
         };
         let profile = match profile {
             Ok(profile) => profile,
@@ -923,7 +920,7 @@ pub fn dispatch<D: DialogBackend + ChoiceBackend>(
         "dlmodURL" => download_mod(app, _state, dialogs, data).map(Some),
         "gamebanana_downloadAllInCollection" => {
             restore_gamebanana_collection(app, _state, dialogs, data).map(Some)
-        },
+        }
         "downloadGame" => download_game(app, _state, data).map(Some),
         "cancelGameImport" => {
             let operations = _state
