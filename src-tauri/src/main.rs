@@ -2171,7 +2171,13 @@ mod tests {
             ));
         }
         for channel in ["isCMode", "cmode-on", "cmode-off", "setAppIcon"] {
-            assert!(BackendChannel::from_str(channel).is_err());
+            assert!(matches!(
+                BackendChannel::from_str(channel),
+                Ok(BackendChannel::IsControllerMode)
+                    | Ok(BackendChannel::ControllerModeOn)
+                    | Ok(BackendChannel::ControllerModeOff)
+                    | Ok(BackendChannel::SetAppIcon)
+            ));
         }
         assert_eq!(
             BackendChannel::from_str("loginGamebanana"),

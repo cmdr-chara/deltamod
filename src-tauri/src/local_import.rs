@@ -275,8 +275,9 @@ mod tests {
     fn valid_launch_marker_is_accepted_only_from_cli_temp_scope() {
         let root = std::env::temp_dir().join(HANDOFF_DIRECTORY);
         fs::create_dir_all(&root).unwrap();
-        let marker = root.join(format!("test-{}.deltamod-open", std::process::id()));
-        fs::write(&marker, LAUNCH_MARKER).unwrap();
+        let marker_path = root.join(format!("test-{}.deltamod-open", std::process::id()));
+        fs::write(&marker_path, LAUNCH_MARKER).unwrap();
+        let marker = fs::canonicalize(&marker_path).unwrap();
         assert_eq!(
             parse_handoff_arg(marker.clone().into_os_string()).unwrap(),
             HandoffIntent::Launch(marker.clone())
@@ -296,8 +297,9 @@ mod tests {
     #[test]
     fn installation_marker_selects_a_bounded_index() {
         let root = test_root("select");
-        let marker = root.join("test.deltamod-open");
-        fs::write(&marker, b"deltamod-community-select-v1\n7\n").unwrap();
+        let marker_path = root.join("test.deltamod-open");
+        fs::write(&marker_path, b"deltamod-community-select-v1\n7\n").unwrap();
+        let marker = fs::canonicalize(&marker_path).unwrap();
         assert_eq!(
             parse_handoff_arg(marker.clone().into_os_string()).unwrap(),
             HandoffIntent::SelectInstallation { index: 7, marker }

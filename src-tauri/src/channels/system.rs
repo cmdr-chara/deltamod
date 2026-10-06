@@ -217,13 +217,18 @@ fn flag_name(value: &str) -> Option<String> {
 }
 
 fn sanitize_installation_name(value: &str) -> String {
-    value
+    let sanitized = value
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.'))
         .take(64)
         .collect::<String>()
         .trim()
-        .to_owned()
+        .to_owned();
+    if sanitized.chars().any(|c| c.is_ascii_alphanumeric()) {
+        sanitized
+    } else {
+        String::new()
+    }
 }
 
 fn installation_link_filename(name: &str, index: u32) -> String {
