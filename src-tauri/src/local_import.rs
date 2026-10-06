@@ -122,6 +122,8 @@ where
                     .and_then(|value| value.as_u64())
                     .and_then(|value| u32::try_from(value).ok());
                 if current == Some(index) {
+                    // A selector only changes the active installation; it never
+                    // launches the game as a side effect.
                     let _ = app.emit("refresh", json!({}));
                     let _ = app.emit("page", "main");
                     focus_main(app);
@@ -256,6 +258,19 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    fn test_root(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "deltamod-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
     #[test]
     fn valid_launch_marker_is_accepted_only_from_cli_temp_scope() {
         let root = std::env::temp_dir().join(HANDOFF_DIRECTORY);
@@ -264,35 +279,38 @@ mod tests {
         fs::write(&marker, LAUNCH_MARKER).unwrap();
         assert_eq!(
             parse_handoff_arg(marker.clone().into_os_string()).unwrap(),
-            HandoffIntent::Launch(marker)
+            HandoffIntent::Launch(marker.clone())
         );
         fs::remove_file(marker).unwrap();
     }
 
     #[test]
     fn launch_marker_outside_cli_temp_scope_is_rejected() {
-        let root = tempfile::tempdir().unwrap();
-        let marker = root.path().join("test.deltamod-open");
+        let root = test_root("outside-launch");
+        let marker = root.join("test.deltamod-open");
         fs::write(&marker, LAUNCH_MARKER).unwrap();
         assert!(parse_handoff_arg(marker.into_os_string()).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn installation_marker_selects_a_bounded_index() {
-        let root = tempfile::tempdir().unwrap();
-        let marker = root.path().join("test.deltamod-open");
+        let root = test_root("select");
+        let marker = root.join("test.deltamod-open");
         fs::write(&marker, b"deltamod-community-select-v1\n7\n").unwrap();
         assert_eq!(
             parse_handoff_arg(marker.clone().into_os_string()).unwrap(),
             HandoffIntent::SelectInstallation { index: 7, marker }
         );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn installation_marker_rejects_out_of_range_indices() {
-        let root = tempfile::tempdir().unwrap();
-        let marker = root.path().join("test.deltamod-open");
+        let root = test_root("select-range");
+        let marker = root.join("test.deltamod-open");
         fs::write(&marker, b"deltamod-community-select-v1\n256\n").unwrap();
         assert!(parse_handoff_arg(marker.into_os_string()).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 }
