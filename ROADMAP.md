@@ -228,8 +228,9 @@ reimport, bounded/alias-safe shared persistence, signed streaming updater budget
 responsive cancellation/status and renderer progress. Intel macOS joins full-shell
 CI. See [implementation and evidence](docs/RECOVERY-UPDATER-HARDENING.md).
 
-Still required: explicit intervention/UI for ambiguous v1 recovery, installation shortcuts, tool-opening parity, coverage-guided native fuzzing,
-and installed/signed updater and rollback evidence on the supported platforms.
+Still required: explicit intervention/UI for ambiguous v1 recovery, installation shortcuts,
+tool-opening parity, coverage-guided native fuzzing, and installed/signed updater and
+rollback evidence on the supported platforms.
 Source implementation and static parity do not satisfy those release gates.
 
 ## Codebase audit — next work

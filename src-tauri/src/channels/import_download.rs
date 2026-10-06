@@ -958,6 +958,79 @@ mod tests {
     }
 
     #[test]
+    fn collection_download_urls_are_normalized_and_bounded() {
+        assert_eq!(
+            normalized_collection_download_url("https://gamebanana.com/dl/456"),
+            Some("https://gamebanana.com/mmdl/456".to_owned())
+        );
+        assert_eq!(
+            normalized_collection_download_url("https://files.gamebanana.com/dl/789"),
+            Some("https://files.gamebanana.com/mmdl/789".to_owned())
+        );
+        for url in [
+            "http://gamebanana.com/dl/456",
+            "https://gamebanana.com/dl/456/extra",
+            "https://evil.example/mmdl/456",
+            "https://gamebanana.com/mods/123",
+        ] {
+            assert_eq!(normalized_collection_download_url(url), None, "{url}");
+        }
+    }
+
+    #[test]
+    fn collection_file_candidates_require_the_deltamod_integration() {
+        let profile = json!({
+            "_aFiles": [
+                {
+                    "_idRow": 99,
+                    "_sFile": "ignored.zip",
+                    "_sDownloadUrl": "https://gamebanana.com/dl/999",
+                    "_aModManagerIntegrations": [{"_idToolRow": 123}]
+                },
+                {
+                    "_idRow": 456,
+                    "_sFile": "restore.zip",
+                    "_sDownloadUrl": "https://gamebanana.com/dl/456",
+                    "_aModManagerIntegrations": [{"_idToolRow": 20575}]
+                },
+                {
+                    "_idRow": 457,
+                    "_sFile": "unsafe.zip",
+                    "_sDownloadUrl": "https://evil.example/dl/457",
+                    "_aModManagerIntegrations": [{"_idToolRow": 20575}]
+                }
+            ]
+        });
+        let candidates = collection_file_candidates(&profile).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].file_id, 456);
+        assert_eq!(candidates[0].url, "https://gamebanana.com/mmdl/456");
+    }
+
+    #[test]
+    fn collection_file_choice_uses_the_native_choice_backend() {
+        let candidates = vec![
+            CollectionFileCandidate {
+                file_id: 456,
+                url: "https://gamebanana.com/mmdl/456".to_owned(),
+                label: "first.zip".to_owned(),
+            },
+            CollectionFileCandidate {
+                file_id: 457,
+                url: "https://gamebanana.com/mmdl/457".to_owned(),
+                label: "second.zip".to_owned(),
+            },
+        ];
+        let selected = choose_collection_file(&TestDialogs(Some(1)), &candidates)
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.file_id, 457);
+        assert!(choose_collection_file(&TestDialogs(None), &candidates)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
     fn legacy_download_ids_are_bounded() {
         assert!(valid_operation_id("abc123"));
         assert!(valid_operation_id("A"));
