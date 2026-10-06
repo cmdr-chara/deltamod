@@ -305,7 +305,7 @@ describe('Tauri browser adapter', () => {
             .map(command => command.name)
             .sort();
         expect(implemented).toEqual(expectedImplemented);
-        expect(implemented).toHaveLength(124);
+        expect(implemented).toHaveLength(125);
 
         const adapterCommands = extractSet(
             fs.readFileSync(path.join(repo, 'web', 'tauri-adapter.js'), 'utf8'),
