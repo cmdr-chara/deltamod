@@ -6,6 +6,7 @@ use deltamod_game_download_runtime::CancellationToken;
 use deltamod_network_runtime::import_download::{
     validate_download_url, DownloadPolicy, HostAllowlist,
 };
+use deltamod_network_runtime::GameBanana;
 use deltamod_tauri_os_adapters::{
     validate_dialog_selection, ChoiceBackend, DialogBackend, DialogFilter, DialogRequest,
 };
@@ -14,7 +15,6 @@ use std::{cell::RefCell, collections::HashMap, fs};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::watch;
 use uuid::Uuid;
-use deltamod_network_runtime::GameBanana;
 
 const PROTOCOL_DOWNLOAD_FAILED: &str = "The GameBanana one-click download failed.";
 const PROTOCOL_IMPORT_FAILED: &str = "The downloaded GameBanana mod could not be imported.";
