@@ -82,7 +82,6 @@
     { "path": "tests/undertale-mod-tool.test.js", "layer": "domain", "runtime": "shared", "retained": true },
     { "path": "tests/updater-manifest.test.js", "layer": "security", "runtime": "shared", "retained": true },
     { "path": "tests/versioning.test.js", "layer": "domain", "runtime": "shared", "retained": true },
-    { "path": "tests/window-zoom.test.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/e2e/chara-replay.spec.js", "layer": "renderer", "runtime": "shared", "retained": true },
     { "path": "tests/e2e/tauri-localization.spec.js", "layer": "shell-tauri", "runtime": "tauri", "retained": true },
     { "path": "tests/e2e/tauri-themes.spec.js", "layer": "shell-tauri", "runtime": "tauri", "retained": true }
