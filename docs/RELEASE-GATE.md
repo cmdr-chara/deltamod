@@ -50,9 +50,13 @@ identity, updater-signature, notarization, or stable-publication requirements be
 Stable publication and signed rehearsal fail before compilation unless the repository
 provides the Tauri updater key, an exportable Windows code-signing PFX, and an Apple
 Developer ID Application certificate plus notarization credentials. Main-branch CI
-checks for those prerequisites before creating a stable tag. If one is absent, it
-leaves the stable tag namespace untouched and dispatches unsigned release validation
-instead. Secret names are validated without printing their values. Windows imports the PFX into the disposable
+checks for those prerequisites before creating a stable tag. Ordinary release-relevant
+pushes fall back to unsigned release validation when a prerequisite is absent. An
+explicit stable request, either `Community CI` with `stable_release=true` or a
+`[stable-release]` commit marker, fails instead of silently downgrading to validation.
+The lower-level `Community Tauri Release` workflow defaults to `validation`; its
+`stable` mode accepts only an existing `community-v*` tag created by the gated
+Community CI flow. Secret names are validated without printing their values. Windows imports the PFX into the disposable
 runner certificate store, signs with SHA-256 and a timestamp, then verifies the shell,
 NSIS package, and branded bootstrapper against the imported thumbprint. macOS imports
 the Developer ID certificate into a disposable keychain and requires `codesign`,

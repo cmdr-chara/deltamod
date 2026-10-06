@@ -14,6 +14,10 @@ on:
         description: 'Also build and measure an unsigned Windows diagnostic package (not a release)'
         type: boolean
         default: false
+      stable_release:
+        description: 'Attempt a signed stable release from DeltaMaster after CI; fails if required signing credentials are unavailable'
+        type: boolean
+        default: false
 
 # Superseded PR checks can stop. Main-branch release preparation cannot.
 concurrency:
@@ -357,7 +361,9 @@ jobs:
 
   prepare-stable-release:
     needs: ci-result
-    if: github.event_name == 'push' && github.ref == 'refs/heads/DeltaMaster'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/DeltaMaster') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/DeltaMaster' && inputs.stable_release)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
@@ -383,6 +389,7 @@ jobs:
         env:
           VALIDATED_SHA: ${{ github.sha }}
           BEFORE_SHA: ${{ github.event.before }}
+          MANUAL_STABLE_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.stable_release || false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -396,8 +403,14 @@ jobs:
           fi
 
           force_release=false
-          if git log -1 --format=%B "$VALIDATED_SHA" | grep -Fq '[stable-release]'; then
+          explicit_stable=false
+          if [ "$MANUAL_STABLE_RELEASE" = true ]; then
             force_release=true
+            explicit_stable=true
+            echo "Explicit stable release requested from Community CI."
+          elif git log -1 --format=%B "$VALIDATED_SHA" | grep -Fq '[stable-release]'; then
+            force_release=true
+            explicit_stable=true
             echo "Explicit stable release requested by commit marker."
           fi
 
@@ -423,6 +436,7 @@ jobs:
           fi
 
           echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "explicit_stable=$explicit_stable" >> "$GITHUB_OUTPUT"
 
       - name: Select signed publication or unsigned release validation
         if: steps.candidate.outputs.release == 'true'
@@ -459,6 +473,9 @@ jobs:
           done
           if [ "${#missing[@]}" -eq 0 ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.candidate.outputs.explicit_stable }}" = true ]; then
+            printf 'Stable release blocked: missing required signing credentials (%s). No prerelease or unsigned stable release will be substituted.\n' "$(IFS=,; echo "${missing[*]}")" >&2
+            exit 1
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
             printf 'Signing credentials unavailable (%s); running unsigned release validation instead of creating a stable tag.\n' "$(IFS=,; echo "${missing[*]}")"
@@ -599,4 +616,4 @@ jobs:
           fi
           git tag "$TAG" "$release_sha"
           git push origin "refs/tags/$TAG"
-          gh workflow run tauri-release.yml --ref "$TAG"
+          gh workflow run tauri-release.yml --ref "$TAG" -f release_mode=stable
