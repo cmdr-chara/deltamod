@@ -10,7 +10,7 @@
 
 ## Task-specific guidance
 
-Use [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the affected JavaScript, renderer, native-worker, or Tauri check lane. Use the committed toolchain and dependency locks. Consult [SECURITY.md](SECURITY.md) for security work and [docs/RELEASE-GATE.md](docs/RELEASE-GATE.md) only for packaging, updater, or release changes.
+Use [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for setup and the affected JavaScript, renderer, native-worker, or Tauri check lane. Use the committed toolchain and dependency locks. Consult [.github/SECURITY.md](.github/SECURITY.md) for security work and [docs/RELEASE-GATE.md](docs/RELEASE-GATE.md) only for packaging, updater, or release changes.
 
 Keep generated `web/`, downloaded tools, native build output, personal game files, and transient test artifacts out of ordinary source edits. Change generators or acquisition manifests rather than patching staged output.
 
