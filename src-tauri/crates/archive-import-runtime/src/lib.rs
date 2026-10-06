@@ -1222,8 +1222,8 @@ fn read_manifest(root: &Path, max_bytes: u64) -> Result<Manifest, ImportError> {
             fs::metadata(&path).map_err(|_| ImportError::Manifest("root meta.toml is missing"))?;
         if !metadata.is_file() || metadata.len() == 0 || metadata.len() > max_bytes {
             return Err(ImportError::Manifest(
-            "legacy meta.json has an invalid size",
-        ));
+                "legacy meta.json has an invalid size",
+            ));
         }
         let text = fs::read_to_string(path)
             .map_err(|_| ImportError::Manifest("legacy meta.json is not UTF-8"))?;
