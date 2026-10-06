@@ -76,7 +76,7 @@ Electron/Tauri desktop comparison remains unchanged.
   journal containment, backup preservation, kernel leases and in-flight updater
   cancellation/budgets. Ambiguous v1 recovery still requires intervention; real
   installed-updater and platform acceptance remain open.
-- Finish collection restore, installation shortcuts and UndertaleModTool installation
+- Collection restore is implemented through the bounded Tauri provider/archive pipeline; finish installation shortcuts and UndertaleModTool installation
   opening. Those three controls remain capability-gated. Retired channel names are
   explicitly rejected at the native boundary for stale-client safety.
 - Run full native shell tests and installed-package checks on Windows, Linux and both
