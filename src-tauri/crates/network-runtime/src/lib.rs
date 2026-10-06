@@ -1163,10 +1163,7 @@ impl<'a> GameBanana<'a> {
         collection_id: u64,
         page: u32,
     ) -> Result<T, RuntimeError> {
-        if collection_id == 0
-            || collection_id > 2_000_000_000
-            || !(1..=64).contains(&page)
-        {
+        if collection_id == 0 || collection_id > 2_000_000_000 || !(1..=64).contains(&page) {
             return Err(RuntimeError::InvalidInput(
                 "invalid GameBanana collection page".into(),
             ));

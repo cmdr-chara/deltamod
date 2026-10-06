@@ -587,7 +587,6 @@ fn restore_gamebanana_collection<D: DialogBackend + ChoiceBackend>(
 }
 
 fn protocol_operation_id() -> String {
- -> String {
     Uuid::new_v4().to_string()
 }
 
