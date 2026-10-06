@@ -1,7 +1,10 @@
 {
   "schemaVersion": 1,
   "name": "Deltamod Tauri capability smoke",
-  "requiredModes": ["dev", "packaged"],
+  "requiredModes": [
+    "dev",
+    "packaged"
+  ],
   "executable": {
     "argument": "--executable",
     "environmentVariable": "DELTAMOD_TAURI_EXECUTABLE",
@@ -14,7 +17,14 @@
     "fixtureGameRequired": true,
     "realInstallationForbidden": true
   },
-  "capture": ["invoke", "arguments", "result", "error", "events", "uiState"],
+  "capture": [
+    "invoke",
+    "arguments",
+    "result",
+    "error",
+    "events",
+    "uiState"
+  ],
   "steps": [
     {
       "id": "launch-runtime-identity",
@@ -31,7 +41,9 @@
       "id": "mods-import-list-remove",
       "area": "mods",
       "channel": "importMod",
-      "data": ["fixture://mods/smoke-mod.zip"],
+      "data": [
+        "fixture://mods/smoke-mod.zip"
+      ],
       "expected": {
         "result": "fixture mod can be listed, toggled, configured, and removed",
         "event": "refresh after each persisted mutation",
@@ -42,7 +54,9 @@
       "id": "themes-import-activate-delete",
       "area": "themes",
       "channel": "importTheme",
-      "data": ["fixture://themes/smoke-theme.zip"],
+      "data": [
+        "fixture://themes/smoke-theme.zip"
+      ],
       "expected": {
         "result": "fixture theme can be imported, renamed, activated, and deleted",
         "event": "themeChange after each persisted theme mutation",
@@ -53,7 +67,9 @@
       "id": "install-disposable-profile",
       "area": "install",
       "channel": "importInstallation",
-      "data": ["fixture://games/deltarune"],
+      "data": [
+        "fixture://games/deltarune"
+      ],
       "expected": {
         "result": "disposable installation can be imported, renamed, selected, and removed",
         "event": "installer-progress is bounded and monotonic when emitted",
@@ -64,7 +80,10 @@
       "id": "patch-success",
       "area": "patch",
       "channel": "patchAndRun",
-      "data": ["fixture-installation", "fixture-mod-set"],
+      "data": [
+        "fixture-installation",
+        "fixture-mod-set"
+      ],
       "expected": {
         "result": "validated fixture output is published atomically",
         "event": "hash-progress, gplog, then finishedPatch",
@@ -75,7 +94,10 @@
       "id": "patch-forced-rollback",
       "area": "patch",
       "channel": "patchAndRun",
-      "data": ["fixture-installation", "fixture-forced-failure"],
+      "data": [
+        "fixture-installation",
+        "fixture-forced-failure"
+      ],
       "expected": {
         "result": "structured failure with the previous fixture state restored",
         "event": "bounded gplog failure without finishedPatch",
@@ -86,7 +108,9 @@
       "id": "game-fixture-lifecycle",
       "area": "game",
       "channel": "startGame",
-      "data": ["fixture-installation"],
+      "data": [
+        "fixture-installation"
+      ],
       "expected": {
         "result": "mock game process starts and exits without touching a real installation",
         "event": "audio and page lifecycle events",
@@ -97,7 +121,12 @@
       "id": "provider-deterministic-browse",
       "area": "network",
       "channel": "modSources:browse",
-      "data": [{ "provider": "fixture", "query": "smoke" }],
+      "data": [
+        {
+          "provider": "fixture",
+          "query": "smoke"
+        }
+      ],
       "expected": {
         "result": "normalized provider response or bounded structured provider error",
         "event": "mod-source-progress for fixture downloads",
@@ -116,14 +145,16 @@
       }
     },
     {
-      "id": "unsupported-command-explicit-failure",
-      "area": "launch",
-      "channel": "undertaleModTool:openInstallation",
-      "data": [0],
+      "id": "desktop-installation-link",
+      "area": "install",
+      "channel": "createInstallLink",
+      "data": [
+        0
+      ],
       "expected": {
-        "result": "TAURI_COMMAND_UNAVAILABLE:undertaleModTool:openInstallation",
+        "result": "bounded desktop .deltamod-open launch marker is created",
         "event": "none",
-        "ui": "unsupported control is hidden or disabled and never reports success"
+        "ui": "the link launches Deltamod and selects the requested installation"
       }
     }
   ]

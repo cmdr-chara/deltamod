@@ -4,6 +4,7 @@ use deltamod_lifecycle_runtime::{
     DurableLifecycleStore, OsLifecycleWorkspace, RetentionBackend,
 };
 use deltamod_product_contracts::RetentionPolicy;
+use deltamod_profile_install_runtime::MAX_LEGACY_INSTALLATION_INDEX;
 use deltamod_tauri_os_adapters::{validate_https_external, ValidatedFolder};
 use serde_json::{json, Value};
 use std::{
@@ -13,7 +14,7 @@ use std::{
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 const DELTAMOD_CLI_RELEASES_URL: &str = "https://github.com/deltamodders/deltamodCLI/releases";
@@ -212,6 +213,29 @@ fn flag_name(value: &str) -> Option<String> {
     }
 }
 
+fn create_install_link(app: &AppHandle, state: &AppState, data: &[Value]) -> Result<Value, String> {
+    let index = data.first().and_then(Value::as_u64).ok_or_else(|| error::invalid("createInstallLink"))?;
+    let index = u32::try_from(index).map_err(|_| error::invalid("createInstallLink"))?;
+    if index > MAX_LEGACY_INSTALLATION_INDEX { return Err("installation index is out of range".to_owned()); }
+    let profile = state.profile_runtime.legacy_profile_folder(index)
+        .map_err(|_| "installation is unavailable".to_owned())?;
+    let name = fs::read_to_string(profile.join("_cname"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "Installation".to_owned());
+    let safe_name = name.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.')).take(64).collect::<String>().trim().to_owned();
+    let safe_name = if safe_name.is_empty() { "Installation" } else { &safe_name };
+    let desktop = app.path().desktop_dir().map_err(|_| "desktop directory is unavailable".to_owned())?;
+    let metadata = fs::symlink_metadata(&desktop).map_err(|_| "desktop directory is unavailable".to_owned())?;
+    if !metadata.is_dir() || is_link_or_reparse(&metadata) { return Err("desktop directory is unsafe".to_owned()); }
+    let path = desktop.join(format!("Deltamod - {safe_name}.deltamod-open"));
+    let mut file = OpenOptions::new().write(true).create_new(true).open(&path).map_err(|_| "desktop link already exists or cannot be created".to_owned())?;
+    writeln!(file, "deltamod-community-select-v1")?;
+    writeln!(file, "{index}")?;
+    file.sync_all().map_err(|_| "desktop link could not be synced".to_owned())?;
+    Ok(json!({"created": true, "index": index, "path": path}))
+}
+
 pub fn dispatch(
     app: &AppHandle,
     state: &AppState,
@@ -219,6 +243,7 @@ pub fn dispatch(
     data: &[Value],
 ) -> Result<Option<Value>, String> {
     match channel {
+        "createInstallLink" => create_install_link(app, state, data).map(Some),
         "benchmark:rendererReady" => mark_benchmark_renderer_ready(state, data).map(Some),
         "storage:getUsage" => {
             let cache_bytes = state

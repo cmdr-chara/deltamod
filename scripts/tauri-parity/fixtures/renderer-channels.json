@@ -28,7 +28,6 @@
     "toggleFullscreen",
     "cmode-on",
     "cmode-off",
-    "rebootDev",
     "chooseTheme",
     "setTheme",
     "setAppIcon",
@@ -108,7 +107,6 @@
     "openInstallationFolder",
     "undertaleModTool:status",
     "undertaleModTool:choose",
-    "undertaleModTool:openInstallation",
     "openSysFolder",
     "openModFolder",
     "getUniqueFlag",
@@ -119,7 +117,6 @@
     "storage:deleteRecoveryData",
     "fetchSharedVariable",
     "isBaked",
-    "npsCallback",
     "executeArgumentCmd",
     "openFlagDatabase",
     "browseFile",
@@ -129,7 +126,6 @@
     "cancel-update",
     "ignore-update",
     "updater-status",
-    "initialize",
     "installDeltamodCLI"
   ],
   "events": [

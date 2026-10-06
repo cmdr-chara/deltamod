@@ -341,6 +341,7 @@ pub fn stage_mod_archive<C: Fn() -> bool>(
     )?;
     validate_tree(staging.path(), limits, &cancelled)?;
     let content_root = identify_content_root(staging.path())?;
+    normalize_legacy_manifest(&content_root, limits.max_manifest_bytes)?;
     let manifest = read_manifest(&content_root, limits.max_manifest_bytes)?;
     if !content_root.join("modding.xml").is_file() {
         return Err(ImportError::Manifest("root modding.xml is missing"));
@@ -484,6 +485,7 @@ where
     )?;
     validate_tree(staging.path(), limits, &cancelled)?;
     let content_root = identify_content_root(staging.path())?;
+    normalize_legacy_manifest(&content_root, limits.max_manifest_bytes)?;
     let manifest = read_manifest(&content_root, limits.max_manifest_bytes)?;
     if !content_root.join("modding.xml").is_file() {
         return Err(ImportError::Manifest("root modding.xml is missing"));
@@ -1101,34 +1103,113 @@ fn identify_content_root(staging: &Path) -> Result<PathBuf, ImportError> {
     }
 }
 
-fn read_manifest(root: &Path, max_bytes: u64) -> Result<Manifest, ImportError> {
-    let path = root.join("meta.toml");
-    let metadata =
-        fs::metadata(&path).map_err(|_| ImportError::Manifest("root meta.toml is missing"))?;
-    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > max_bytes {
-        return Err(ImportError::Manifest("meta.toml has an invalid size"));
+fn json_to_toml(value: serde_json::Value) -> Result<toml::Value, ImportError> {
+    match value {
+        serde_json::Value::Null => Err(ImportError::Manifest("legacy JSON contains null")),
+        serde_json::Value::Bool(value) => Ok(toml::Value::Boolean(value)),
+        serde_json::Value::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                Ok(toml::Value::Integer(value))
+            } else if let Some(value) = value.as_u64().and_then(|value| i64::try_from(value).ok()) {
+                Ok(toml::Value::Integer(value))
+            } else {
+                value.as_f64().map(toml::Value::Float)
+                    .ok_or(ImportError::Manifest("legacy JSON contains an invalid number"))
+            }
+        }
+        serde_json::Value::String(value) => Ok(toml::Value::String(value)),
+        serde_json::Value::Array(values) => values.into_iter().map(json_to_toml)
+            .collect::<Result<Vec<_>, _>>().map(toml::Value::Array),
+        serde_json::Value::Object(values) => values.into_iter()
+            .map(|(key, value)| Ok((key, json_to_toml(value)?)))
+            .collect::<Result<toml::map::Map<_, _>, ImportError>>()
+            .map(toml::Value::Table),
     }
-    let text =
-        fs::read_to_string(path).map_err(|_| ImportError::Manifest("meta.toml is not UTF-8"))?;
-    let value = toml::from_str::<toml::Value>(&text)
-        .map_err(|_| ImportError::Manifest("meta.toml is invalid"))?;
-    let metadata = value
-        .get("metadata")
-        .and_then(toml::Value::as_table)
+}
+
+fn normalize_legacy_manifest(root: &Path, max_bytes: u64) -> Result<(), ImportError> {
+    let json_path = root.join("meta.json");
+    let wrapper_path = root.join("_deltamodInfo.json");
+    let icon_path = root.join("icon.png");
+    let wrapper_icon_path = root.join("_icon.png");
+    let toml_path = root.join("meta.toml");
+    if !json_path.exists() && wrapper_path.exists() {
+        fs::rename(&wrapper_path, &json_path)?;
+    }
+    if !icon_path.exists() && wrapper_icon_path.exists() {
+        fs::rename(&wrapper_icon_path, &icon_path)?;
+    }
+    if toml_path.exists() || !json_path.exists() {
+        return Ok(());
+    }
+    let metadata = fs::metadata(&json_path)
+        .map_err(|_| ImportError::Manifest("legacy meta.json is missing"))?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > max_bytes {
+        return Err(ImportError::Manifest("legacy meta.json has an invalid size"));
+    }
+    let text = fs::read_to_string(&json_path)
+        .map_err(|_| ImportError::Manifest("legacy meta.json is not UTF-8"))?;
+    let mut value = serde_json::from_str::<serde_json::Value>(&text)
+        .map_err(|_| ImportError::Manifest("legacy meta.json is invalid"))?;
+    if let Some(metadata) = value.get_mut("metadata").and_then(serde_json::Value::as_object_mut) {
+        if let Some(color) = metadata.remove("color") {
+            if let Some(root) = value.as_object_mut() {
+                root.insert("color".to_owned(), color);
+            }
+        }
+        if !metadata.contains_key("game") {
+            if let Some(demo_mod) = metadata.get("demoMod").and_then(serde_json::Value::as_bool) {
+                metadata.insert("game".to_owned(), serde_json::Value::String(
+                    if demo_mod { "toby.deltarune.demo".to_owned() } else { "toby.deltarune".to_owned() }
+                ));
+            }
+        }
+    }
+    let toml = toml::to_string_pretty(&json_to_toml(value)?)
+        .map_err(|_| ImportError::Manifest("legacy meta.json could not be converted"))?;
+    if toml.len() as u64 > max_bytes {
+        return Err(ImportError::Manifest("converted meta.toml is too large"));
+    }
+    let mut output = OpenOptions::new().write(true).create_new(true).open(&toml_path)?;
+    output.write_all(toml.as_bytes())?;
+    output.sync_all()?;
+    fs::remove_file(json_path)?;
+    Ok(())
+}
+
+fn read_manifest(root: &Path, max_bytes: u64) -> Result<Manifest, ImportError> {
+    let toml_path = root.join("meta.toml");
+    let json_path = root.join("meta.json");
+    let legacy_path = root.join("_deltamodInfo.json");
+    let value = if toml_path.exists() {
+        let metadata = fs::metadata(&toml_path)
+            .map_err(|_| ImportError::Manifest("root meta.toml is missing"))?;
+        if !metadata.is_file() || metadata.len() == 0 || metadata.len() > max_bytes {
+            return Err(ImportError::Manifest("meta.toml has an invalid size"));
+        }
+        let text = fs::read_to_string(&toml_path)
+            .map_err(|_| ImportError::Manifest("meta.toml is not UTF-8"))?;
+        toml::from_str::<toml::Value>(&text)
+            .map_err(|_| ImportError::Manifest("meta.toml is invalid"))?
+    } else {
+        let path = if json_path.exists() { json_path } else { legacy_path };
+        let metadata = fs::metadata(&path)
+            .map_err(|_| ImportError::Manifest("root meta.toml is missing"))?;
+        if !metadata.is_file() || metadata.len() == 0 || metadata.len() > max_bytes {
+            return Err(ImportError::Manifest("legacy meta.json has an invalid size"));
+        }
+        let text = fs::read_to_string(path)
+            .map_err(|_| ImportError::Manifest("legacy meta.json is not UTF-8"))?;
+        json_to_toml(serde_json::from_str::<serde_json::Value>(&text)
+            .map_err(|_| ImportError::Manifest("legacy meta.json is invalid"))?)?
+    };
+    let metadata = value.get("metadata").and_then(toml::Value::as_table)
         .ok_or(ImportError::Manifest("metadata table is missing"))?;
-    let package_id = metadata
-        .get("packageID")
-        .and_then(toml::Value::as_str)
+    let package_id = metadata.get("packageID").and_then(toml::Value::as_str)
         .ok_or(ImportError::Manifest("metadata.packageID is missing"))?;
-    if package_id == "und.und.und"
-        || package_id.is_empty()
-        || package_id.len() > 128
-        || !package_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
-        || package_id.starts_with('.')
-        || package_id.ends_with('.')
-    {
+    if package_id == "und.und.und" || package_id.is_empty() || package_id.len() > 128
+        || !package_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+        || package_id.starts_with('.') || package_id.ends_with('.') {
         return Err(ImportError::Manifest("metadata.packageID is unsafe"));
     }
     if !metadata.contains_key("game") && !metadata.contains_key("demoMod") {
@@ -1136,10 +1217,7 @@ fn read_manifest(root: &Path, max_bytes: u64) -> Result<Manifest, ImportError> {
     }
     Ok(Manifest {
         package_id: package_id.into(),
-        version: metadata
-            .get("version")
-            .and_then(toml::Value::as_str)
-            .map(str::to_owned),
+        version: metadata.get("version").and_then(toml::Value::as_str).map(str::to_owned),
     })
 }
 
@@ -1205,6 +1283,33 @@ mod tests {
             ),
             ("mod/modding.xml", b"<mod/>"),
         ]
+    }
+
+    #[test]
+    fn legacy_json_manifest_is_converted_before_publish() {
+        let archive = zip_fixture(&[
+            ("mod/meta.json", br#"{"metadata":{"packageID":"legacy.safe","demoMod":false,"version":"1"}}"#),
+            ("mod/modding.xml", b"<mod/>"),
+        ]);
+        let packets = tempfile::tempdir().unwrap();
+        let result = import_archive(archive.path(), packets.path(), Limits::default(), || false, |_| DuplicateDecision::Cancel).unwrap();
+        assert_eq!(result.package_id, "legacy.safe");
+        assert!(result.destination.join("meta.toml").is_file());
+        assert!(!result.destination.join("meta.json").exists());
+    }
+
+    #[test]
+    fn legacy_wrapper_manifest_and_icon_names_are_accepted() {
+        let archive = zip_fixture(&[
+            ("mod/_deltamodInfo.json", br#"{"metadata":{"packageID":"wrapped.safe","demoMod":true}}"#),
+            ("mod/_icon.png", b"png"),
+            ("mod/modding.xml", b"<mod/>"),
+        ]);
+        let packets = tempfile::tempdir().unwrap();
+        let result = import_archive(archive.path(), packets.path(), Limits::default(), || false, |_| DuplicateDecision::Cancel).unwrap();
+        assert_eq!(result.package_id, "wrapped.safe");
+        assert!(result.destination.join("meta.toml").is_file());
+        assert!(result.destination.join("icon.png").is_file());
     }
 
     fn tar_fixture() -> Vec<u8> {

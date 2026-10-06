@@ -38,7 +38,7 @@ This is an implemented source change, not a signed release or a completed securi
 | Integrated `npm test` | 449 Vitest tests passed in 61 files, plus secure-updater checks and 36 Node audit tests |
 | Generated-input coverage | 20,000 deterministic JavaScript cases and 10,000 deterministic VDF cases. Not coverage-guided fuzzing |
 | `npm run typecheck` | Passed |
-| `npm run verify:tauri:contract` and parity harness | Passed. 129 invoke channels, 18 events, 123 implemented classifications and six explicit rejections. Static evidence only |
+| `npm run verify:tauri:contract` and parity harness | Passed. 129 invoke channels, 19 events, 123 implemented classifications and six explicit rejections. Static evidence only |
 | Rust credentials and updater/launch runtime | 30 tests and strict all-target Clippy passed on Linux x64 with locked dependencies |
 | Native workers | All five debug worker binaries built on Linux x64 |
 | Formatting | Full Tauri workspace `cargo fmt --all --check` passed |

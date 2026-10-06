@@ -226,6 +226,53 @@ const setInterval = (handler, delay, ...args) => {
                     tippy(reimportBtn, { content: 'Re-import from a clean game folder', placement: 'top', delay: [500, 0] });
                 }
 
+                let shortcutBtn = document.createElement('button');
+                shortcutBtn.style.padding = '4px';
+                shortcutBtn.style.textAlign = 'center';
+                shortcutBtn = adaptForIcons(shortcutBtn);
+                shortcutBtn.innerHTML = icon('forward', '18px');
+                shortcutBtn.title = 'Create shortcut on desktop';
+                shortcutBtn.setAttribute('aria-label', 'Create shortcut on desktop');
+                const canCreateShortcut = window.deltamodBackend.isCommandAvailable('createInstallLink');
+                shortcutBtn.disabled = !canCreateShortcut;
+                if (!canCreateShortcut) {
+                    shortcutBtn.title = 'Desktop shortcut creation is unavailable in this app build';
+                }
+                shortcutBtn.onclick = async () => {
+                    if (!(await window.deltamodBackend.invoke('isPackaged', []))) {
+                        await htmlAlert(
+                            'Error',
+                            'This feature is only available when Deltamod is packaged.',
+                            [{ text: 'Ok', resolveWith: 'ok' }]
+                        );
+                        return;
+                    }
+                    try {
+                        const result = await window.deltamodBackend.invoke('createInstallLink', [
+                            install.index,
+                        ]);
+                        if (!result?.created) throw new Error('The desktop link was not created.');
+                        await htmlAlert(
+                            'Desktop link created',
+                            'A Deltamod shortcut was added to your desktop.',
+                            [{ text: 'OK', resolveWith: 'ok' }]
+                        );
+                    } catch (error) {
+                        await htmlAlert(
+                            'Could not create desktop link',
+                            error?.message || String(error),
+                            [{ text: 'OK', resolveWith: 'ok' }]
+                        );
+                    }
+                };
+                tippy(shortcutBtn, {
+                    content: canCreateShortcut
+                        ? 'Create shortcut on desktop'
+                        : 'Desktop shortcut creation is unavailable in this app build',
+                    placement: 'top',
+                    delay: [500, 0],
+                });
+
                 let openBtn = document.createElement('button');
                 openBtn.style.padding = '4px';
                 openBtn.style.textAlign = 'center';
@@ -245,83 +292,8 @@ const setInterval = (handler, delay, ...args) => {
                     delay: [500, 0],
                 });
 
-                let editBtn = document.createElement('button');
-                editBtn.style.padding = '4px';
-                editBtn.style.textAlign = 'center';
-                editBtn = adaptForIcons(editBtn);
-                editBtn.innerHTML = icon('terminal', '18px');
-                editBtn.setAttribute('aria-label', 'Edit a safe game-data copy in UndertaleModTool');
-                const canLaunchUndertaleModTool = window.deltamodBackend
-                    .isCommandAvailable('undertaleModTool:openInstallation');
-                editBtn.disabled = !install.canOpenInUndertaleModTool || !canLaunchUndertaleModTool;
-                if (!canLaunchUndertaleModTool) {
-                    editBtn.title = 'UndertaleModTool launch is unavailable in this app build';
-                }
-                editBtn.onclick = async () => {
-                    try {
-                        const result = await window.communityAPI.tools
-                            .openInstallationInUndertaleModTool(install.index.toString());
-                        if (!result?.launched && !result?.canceled) {
-                            throw new Error('UndertaleModTool did not start.');
-                        }
-                    } catch (error) {
-                        await htmlAlert(
-                            'Could not open UndertaleModTool',
-                            error?.message || String(error),
-                            [{ text: 'OK', resolveWith: 'ok' }]
-                        );
-                    }
-                };
-                tippy(editBtn, {
-                    content: install.canOpenInUndertaleModTool
-                        ? (canLaunchUndertaleModTool
-                            ? 'Create a safe copy for UndertaleModTool; export changes back as a Community mod'
-                            : 'UndertaleModTool launch is unavailable in this app build')
-                        : 'Repair this installation before creating an UndertaleModTool workspace',
-                    placement: 'top',
-                    delay: [500, 0],
-                });
-
-                let shortcutBtn = document.createElement('button');
-                shortcutBtn.style.padding = '4px';
-                shortcutBtn.style.textAlign = 'center';
-                shortcutBtn = adaptForIcons(shortcutBtn);
-                shortcutBtn.innerHTML = icon('forward', '18px');
-                shortcutBtn.title = 'Create shortcut on desktop';
-                shortcutBtn.setAttribute('aria-label', 'Create shortcut on desktop');
-                const canCreateShortcut = window.deltamodBackend.isCommandAvailable('createInstallLink');
-                shortcutBtn.disabled = !canCreateShortcut;
-                if (!canCreateShortcut) {
-                    shortcutBtn.title = 'Desktop shortcut creation is unavailable in this app build';
-                }
-
-                shortcutBtn.onclick = async () => {
-                    if (!(await window.deltamodBackend.invoke('isPackaged', []))) {
-                        await htmlAlert(
-                            'Error',
-                            'This feature is only available when Deltamod is packaged.',
-                            [{ text: 'Ok', resolveWith: 'ok' }]
-                        );
-                        return;
-                    }
-
-                    await window.deltamodBackend.invoke('createInstallLink', [
-                        install.index.toString(),
-                        install.name || `Install #${install.index + 1}`,
-                    ]);
-                };
-
-                tippy(shortcutBtn, {
-                    content: canCreateShortcut
-                        ? 'Create shortcut on desktop'
-                        : 'Desktop shortcut creation is unavailable in this app build',
-                    placement: 'top',
-                    delay: [500, 0],
-                });
-
                 buttonsDiv.appendChild(shortcutBtn);
                 buttonsDiv.appendChild(openBtn);
-                buttonsDiv.appendChild(editBtn);
 
                 goCell.appendChild(buttonsDiv);
 

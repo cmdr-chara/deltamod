@@ -523,7 +523,6 @@ enum BackendChannel {
     ToggleFullscreen,
     Version,
     Implemented(String),
-    Unsupported(String),
 }
 
 impl FromStr for BackendChannel {
@@ -630,6 +629,7 @@ impl FromStr for BackendChannel {
             | "gamebanana_deleteCollection"
             | "gamebanana_importToCollection"
             | "gamebanana_downloadAllInCollection"
+            | "createInstallLink"
             | "chooseTheme"
             | "importOfficialProfile"
             | "undertaleModTool:choose"
@@ -660,11 +660,6 @@ impl FromStr for BackendChannel {
             | "cancel-update"
             | "ignore-update"
             | "updater-status" => Self::Implemented(channel.to_owned()),
-            "rebootDev"
-            | "createInstallLink"
-            | "undertaleModTool:openInstallation"
-            | "npsCallback"
-            | "initialize" => Self::Unsupported(channel.to_owned()),
             _ => return Err(()),
         };
         Ok(known)
@@ -1112,7 +1107,6 @@ fn dispatch(
             emit_runtime_events(app, &state);
             Ok(value)
         }
-        BackendChannel::Unsupported(name) => Err(error::unavailable(&name)),
     }
 }
 
@@ -2177,10 +2171,7 @@ mod tests {
             ));
         }
         for channel in ["isCMode", "cmode-on", "cmode-off", "setAppIcon"] {
-            assert!(!matches!(
-                BackendChannel::from_str(channel),
-                Ok(BackendChannel::Unsupported(_))
-            ));
+            assert!(BackendChannel::from_str(channel).is_err());
         }
         assert_eq!(
             BackendChannel::from_str("loginGamebanana"),

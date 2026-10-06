@@ -18,7 +18,6 @@ describe('Tauri renderer capability gates', () => {
             expect(options).toContain(`isCommandAvailable('${channel}')`);
         }
         expect(installations).toContain("isCommandAvailable('createInstallLink')");
-        expect(installations).toContain("isCommandAvailable('undertaleModTool:openInstallation')");
         expect(shop).toContain("isCommandAvailable('modSources:downloadNexus')");
         expect(collections).toContain("isCommandAvailable('gamebanana_downloadAllInCollection')");
     });

@@ -27,6 +27,7 @@
         'benchmark:rendererReady',
         'browseFile',
         'cancelGameImport',
+        'createInstallLink',
         'cancelOfficialProfileImport',
         'changeSystemIndex',
         'chooseTheme',
@@ -300,7 +301,6 @@
         tools: Object.freeze({
             undertaleModToolStatus: () => invoke('undertaleModTool:status'),
             chooseUndertaleModTool: () => invoke('undertaleModTool:choose'),
-            openInstallationInUndertaleModTool: index => invoke('undertaleModTool:openInstallation', [index])
         }),
         modSources: Object.freeze({
             providers: () => invoke('modSources:getProviders'),
