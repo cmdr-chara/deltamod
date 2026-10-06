@@ -258,7 +258,7 @@ describe('Tauri browser adapter', () => {
         });
         expect(report.counts).toEqual({
             rendererInvoke: 130,
-            rendererEvents: 18,
+            rendererEvents: 19,
             rustKnown: 130,
             rustImplemented: 125,
             rustUnsupported: 5
