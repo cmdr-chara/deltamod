@@ -253,11 +253,11 @@ describe('Tauri browser adapter', () => {
             rustPath: path.join(repo, 'src-tauri', 'src', 'main.rs')
         });
         expect(report.counts).toEqual({
-            rendererInvoke: 130,
+            rendererInvoke: 126,
             rendererEvents: 19,
-            rustKnown: 130,
-            rustImplemented: 125,
-            rustUnsupported: 5
+            rustKnown: 126,
+            rustImplemented: 126,
+            rustUnsupported: 0
         });
 
         const preloadEvents = report.renderer.events.map(event => event.name);
