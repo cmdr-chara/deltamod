@@ -1123,6 +1123,12 @@ fn dispatch_domain(
     data: &[Value],
 ) -> Result<Value, String> {
     let dialogs = deltamod_tauri_os_adapters::tauri_adapter::TauriDialogBackend::new(app);
+    if name == "gamebanana_downloadAllInCollection" {
+        let token = channels::auth::token(state)?;
+        return channels::import_download::restore_gamebanana_collection(
+            app, state, &dialogs, token, data,
+        );
+    }
     if let Some(value) = channels::dialogs::dispatch(app, state, &dialogs, name, data)? {
         return Ok(value);
     }
