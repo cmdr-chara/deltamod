@@ -6,6 +6,7 @@ use deltamod_lifecycle_runtime::{
 use deltamod_product_contracts::RetentionPolicy;
 use deltamod_profile_install_runtime::MAX_LEGACY_INSTALLATION_INDEX;
 use deltamod_tauri_os_adapters::{validate_https_external, ValidatedFolder};
+use deltamod_tools_runtime::read_relative_regular_file;
 use serde_json::{json, Value};
 use std::{
     ffi::OsStr,
@@ -25,6 +26,8 @@ const BENCHMARK_READY_ENV: &str = "DELTAMOD_BENCHMARK_READY_FILE";
 const BENCHMARK_PROFILE_ENV: &str = "DELTAMOD_BENCHMARK_PROFILE";
 const MODS_INSTALLATION: &str = "local-mod-library";
 const PACKETS_INSTALLATION: &str = "local-packet-library";
+const SELECT_MARKER_PREFIX: &str = "deltamod-community-select-v1\n";
+const MAX_INSTALLATION_NAME_BYTES: u64 = 256;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FixedPathError {
@@ -213,6 +216,28 @@ fn flag_name(value: &str) -> Option<String> {
     }
 }
 
+fn sanitize_installation_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.'))
+        .take(64)
+        .collect::<String>()
+        .trim()
+        .to_owned()
+}
+
+fn installation_link_filename(name: &str, index: u32) -> String {
+    let safe_name = sanitize_installation_name(name);
+    let safe_name = if safe_name.is_empty() {
+        "Installation"
+    } else {
+        safe_name.as_str()
+    };
+    // Include the stable profile index even when names match. This keeps two
+    // installations with the same display name from colliding on the desktop.
+    format!("Deltamod - {safe_name} - {index}.deltamod-open")
+}
+
 fn create_install_link(app: &AppHandle, state: &AppState, data: &[Value]) -> Result<Value, String> {
     let index = data
         .first()
@@ -222,26 +247,29 @@ fn create_install_link(app: &AppHandle, state: &AppState, data: &[Value]) -> Res
     if index > MAX_LEGACY_INSTALLATION_INDEX {
         return Err("installation index is out of range".to_owned());
     }
-    let profile = state
+    let profile_store = state.profile()?;
+    let registry_name = profile_store
+        .installations
+        .iter()
+        .find(|record| record.index == Some(index))
+        .ok_or_else(|| "installation is not registered".to_owned())?
+        .name
+        .as_deref()
+        .unwrap_or("Installation");
+    state
         .profile_runtime
         .legacy_profile_folder(index)
         .map_err(|_| "installation is unavailable".to_owned())?;
-    let name = fs::read_to_string(profile.join("_cname"))
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "Installation".to_owned());
-    let safe_name = name
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.'))
-        .take(64)
-        .collect::<String>()
-        .trim()
-        .to_owned();
-    let safe_name = if safe_name.is_empty() {
-        "Installation"
-    } else {
-        &safe_name
-    };
+    let relative_name = PathBuf::from(format!("deltamod_system-{index}/_cname"));
+    let name = read_relative_regular_file(
+        &state.data_root.root,
+        &relative_name,
+        MAX_INSTALLATION_NAME_BYTES,
+    )
+    .ok()
+    .and_then(|bytes| String::from_utf8(bytes).ok())
+    .filter(|value| !value.trim().is_empty())
+    .unwrap_or_else(|| registry_name.to_owned());
     let desktop = app
         .path()
         .desktop_dir()
@@ -251,16 +279,25 @@ fn create_install_link(app: &AppHandle, state: &AppState, data: &[Value]) -> Res
     if !metadata.is_dir() || is_link_or_reparse(&metadata) {
         return Err("desktop directory is unsafe".to_owned());
     }
-    let path = desktop.join(format!("Deltamod - {safe_name}.deltamod-open"));
+    let path = desktop.join(installation_link_filename(&name, index));
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&path)
         .map_err(|_| "desktop link already exists or cannot be created".to_owned())?;
-    writeln!(file, "deltamod-community-select-v1")?;
-    writeln!(file, "{index}")?;
-    file.sync_all()
-        .map_err(|_| "desktop link could not be synced".to_owned())?;
+    let write_result = (|| -> Result<(), String> {
+        file.write_all(SELECT_MARKER_PREFIX.as_bytes())
+            .map_err(|_| "desktop link could not be written".to_owned())?;
+        writeln!(file, "{index}").map_err(|_| "desktop link could not be written".to_owned())?;
+        file.sync_all()
+            .map_err(|_| "desktop link could not be synced".to_owned())?;
+        Ok(())
+    })();
+    if let Err(error) = write_result {
+        drop(file);
+        let _ = fs::remove_file(&path);
+        return Err(error);
+    }
     Ok(json!({"created": true, "index": index, "path": path}))
 }
 
@@ -573,7 +610,8 @@ fn directory_usage(root: &Path) -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        deltamod_cli_releases_url, flag_database_path, flag_name, require_no_renderer_arguments,
+        deltamod_cli_releases_url, flag_database_path, flag_name, installation_link_filename,
+        require_no_renderer_arguments, sanitize_installation_name,
         validate_flag_database_candidate, FixedPathError, DELTAMOD_CLI_RELEASES_URL,
         FLAG_DATABASE_FILE, UNIQUE_SYSTEM_DIRECTORY,
     };
@@ -667,6 +705,25 @@ mod tests {
         assert_eq!(flag_name("hashchecks").as_deref(), Some("HASHCHECKS"));
         assert_eq!(flag_name("CONTROLLER").as_deref(), Some("CONTROLLER"));
         assert_eq!(flag_name("1invalid"), None);
+    }
+
+    #[test]
+    fn installation_link_names_are_bounded_and_unique_per_index() {
+        let long = format!("unsafe/{}", "x".repeat(512));
+        let first = installation_link_filename(&long, 3);
+        let second = installation_link_filename(&long, 4);
+        assert_ne!(first, second);
+        assert!(first.len() <= 128);
+        assert!(!first.contains('/'));
+        assert_eq!(sanitize_installation_name("  A/B?  "), "AB");
+    }
+
+    #[test]
+    fn empty_or_unsafe_installation_names_get_a_safe_fallback() {
+        assert_eq!(
+            installation_link_filename("../../", 7),
+            "Deltamod - Installation - 7.deltamod-open"
+        );
     }
 
     #[test]

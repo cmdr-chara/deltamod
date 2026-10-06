@@ -2,13 +2,14 @@ use crate::{channels, state};
 use deltamod_profile_install_runtime::MAX_LEGACY_INSTALLATION_INDEX;
 use deltamod_tauri_os_adapters::ChoiceBackend;
 use serde_json::{json, Value};
-use std::{ffi::OsString, fs, path::PathBuf};
+use std::{ffi::OsString, fs, io::Read, path::PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 const MAX_ARCHIVE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const LAUNCH_MARKER: &[u8] = b"deltamod-community-open-v1\n";
 const SELECT_MARKER_PREFIX: &[u8] = b"deltamod-community-select-v1\n";
+const HANDOFF_DIRECTORY: &str = "Deltamod Community CLI";
 
 #[derive(Debug, Eq, PartialEq)]
 enum HandoffIntent {
@@ -58,8 +59,23 @@ fn validate_launch_marker(path: PathBuf) -> Result<HandoffIntent, &'static str> 
     }
     let marker =
         fs::canonicalize(&path).map_err(|_| "The Deltamod launch marker could not be resolved.")?;
-    let bytes = fs::read(&marker).map_err(|_| "The Deltamod launch marker could not be read.")?;
+    let mut file =
+        fs::File::open(&marker).map_err(|_| "The Deltamod launch marker could not be read.")?;
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take(129)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "The Deltamod launch marker could not be read.")?;
+    if bytes.len() > 128 {
+        return Err("The Deltamod launch marker is invalid.");
+    }
     if bytes == LAUNCH_MARKER {
+        let handoff_root = std::env::temp_dir().join(HANDOFF_DIRECTORY);
+        let handoff_root = fs::canonicalize(handoff_root)
+            .map_err(|_| "The Deltamod CLI handoff directory is unavailable.")?;
+        if marker.parent() != Some(handoff_root.as_path()) {
+            return Err("The Deltamod launch marker is not trusted.");
+        }
         return Ok(HandoffIntent::Launch(marker));
     }
     if let Some(payload) = bytes.strip_prefix(SELECT_MARKER_PREFIX) {
@@ -97,19 +113,33 @@ where
                 focus_main(app);
                 let _ = fs::remove_file(marker);
             }
-            Ok(HandoffIntent::SelectInstallation { index, marker }) => {
-                let result = app
-                    .state::<state::AppState>()
+            Ok(HandoffIntent::SelectInstallation { index, marker: _ }) => {
+                let state = app.state::<state::AppState>();
+                let current = state
                     .profile_runtime
-                    .legacy_change_system_index(index);
-                let _ = fs::remove_file(marker);
-                match result {
+                    .legacy_system_index()
+                    .ok()
+                    .and_then(|value| value.as_u64())
+                    .and_then(|value| u32::try_from(value).ok());
+                if current == Some(index) {
+                    let _ = app.emit("refresh", json!({}));
+                    let _ = app.emit("page", "main");
+                    focus_main(app);
+                    continue;
+                }
+                match state.profile_runtime.legacy_change_system_index(index) {
                     Ok(()) => {
-                        let _ = app.emit("refresh", json!({}));
-                        let _ = app.emit("page", "main");
-                        focus_main(app);
+                        // `game_store_path` and the patch runtime are initialized from
+                        // the selected profile at startup. Restart once so the selected
+                        // profile becomes authoritative; on restart this guard sees the
+                        // same index and avoids a restart loop. The desktop marker is
+                        // intentionally retained for future reuse.
+                        app.restart();
                     }
-                    Err(error) => show_error(app, &error),
+                    Err(error) => {
+                        let message = error.to_string();
+                        show_error(app, &message);
+                    }
                 }
             }
             Ok(HandoffIntent::Import(path)) => schedule_import(app.clone(), path),
@@ -227,14 +257,24 @@ mod tests {
     }
 
     #[test]
-    fn valid_launch_marker_is_accepted() {
-        let root = tempfile::tempdir().unwrap();
-        let marker = root.path().join("test.deltamod-open");
+    fn valid_launch_marker_is_accepted_only_from_cli_temp_scope() {
+        let root = std::env::temp_dir().join(HANDOFF_DIRECTORY);
+        fs::create_dir_all(&root).unwrap();
+        let marker = root.join(format!("test-{}.deltamod-open", std::process::id()));
         fs::write(&marker, LAUNCH_MARKER).unwrap();
         assert_eq!(
             parse_handoff_arg(marker.clone().into_os_string()).unwrap(),
             HandoffIntent::Launch(marker)
         );
+        fs::remove_file(marker).unwrap();
+    }
+
+    #[test]
+    fn launch_marker_outside_cli_temp_scope_is_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        let marker = root.path().join("test.deltamod-open");
+        fs::write(&marker, LAUNCH_MARKER).unwrap();
+        assert!(parse_handoff_arg(marker.into_os_string()).is_err());
     }
 
     #[test]
@@ -246,5 +286,13 @@ mod tests {
             parse_handoff_arg(marker.clone().into_os_string()).unwrap(),
             HandoffIntent::SelectInstallation { index: 7, marker }
         );
+    }
+
+    #[test]
+    fn installation_marker_rejects_out_of_range_indices() {
+        let root = tempfile::tempdir().unwrap();
+        let marker = root.path().join("test.deltamod-open");
+        fs::write(&marker, b"deltamod-community-select-v1\n256\n").unwrap();
+        assert!(parse_handoff_arg(marker.into_os_string()).is_err());
     }
 }
