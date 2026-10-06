@@ -17,8 +17,10 @@ function verify(root) {
         const name = key.split('node_modules/').at(-1);
         if (name && isElectron(name)) errors.push(`Obsolete lockfile package: ${name}`);
     }
-    for (const relative of ['node/Runner.js', 'node/IPCHandlers.js', 'web/preload.js', 'web/dlmodal/preload.js',
-        'web/views/electron-tracer', 'scripts/legacy', '.github/workflows/release.yml']) {
+    for (const relative of ['node/Runner.js', 'node/IPCHandlers.js', 'node/WindowZoom.js',
+        'web/preload.js', 'web/dlmodal/preload.js', 'web/views/electron-tracer',
+        'scripts/legacy', 'installbuilder', 'build/installer/leftImage.png',
+        'build/installer/slide.png', '.github/workflows/release.yml']) {
         if (fs.existsSync(path.join(root, relative))) errors.push(`Obsolete runtime path: ${relative}`);
     }
     const runtimeImport = /(?:require\s*\(\s*|from\s*|import\s*\(\s*)['"](?:electron|electron-updater|electron-builder)['"]/;

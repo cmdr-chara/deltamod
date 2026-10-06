@@ -115,15 +115,6 @@ declare global {
                     executableName: string | null;
                     canceled: boolean;
                 }>;
-                openInstallationInUndertaleModTool(installationIndex: string): Promise<{
-                    launched: boolean;
-                    canceled?: boolean;
-                    executableName?: string;
-                    dataFileName?: string;
-                    workspacePath?: string;
-                    sourceSha256?: string;
-                    workCopy?: boolean;
-                }>;
             };
             modSources: {
                 providers(): Promise<Array<{

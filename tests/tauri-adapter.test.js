@@ -280,8 +280,7 @@ describe('Tauri browser adapter', () => {
             expect(publicRustCommands).not.toContain(command);
         }
 
-        const expectedUnsupported = [
-        ];
+        const expectedUnsupported = [];
         const unsupported = report.rust.publicChannels
             .filter(command => command.classification === 'unsupported')
             .map(command => command.name)
