@@ -396,19 +396,40 @@ jobs:
           identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -n 1)"
           test -n "$identity" || { printf '%s\n' 'No Developer ID Application identity was imported.' >&2; exit 1; }
           printf 'APPLE_SIGNING_IDENTITY=%s\n' "$identity" >> "$GITHUB_ENV"
-      - name: Build signed update-capable bundle
-        if: runner.os != 'Linux' && needs.validate.outputs.unsigned_preview != 'true'
+      - name: Build Windows update-capable bundle
+        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ needs.validate.outputs.macos_signing == 'true' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ needs.validate.outputs.macos_signing == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+        with:
+          projectPath: .
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config ${{ env.TAURI_PLATFORM_SIGNING_CONFIG }}
+      - name: Build Developer ID-signed update-capable bundle
+        if: runner.os == 'macOS' && needs.validate.outputs.unsigned_preview != 'true' && needs.validate.outputs.macos_signing == 'true'
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ needs.validate.outputs.macos_signing == 'true' && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ needs.validate.outputs.macos_signing == 'true' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ needs.validate.outputs.macos_signing == 'true' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: .
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config ${{ env.TAURI_PLATFORM_SIGNING_CONFIG }}
+      - name: Build ad-hoc macOS update-capable bundle
+        if: runner.os == 'macOS' && needs.validate.outputs.unsigned_preview != 'true' && needs.validate.outputs.macos_signing != 'true'
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: '-'
         with:
           projectPath: .
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config ${{ env.TAURI_PLATFORM_SIGNING_CONFIG }}

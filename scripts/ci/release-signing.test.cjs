@@ -136,7 +136,17 @@ test('publisher checks depend on publisher credentials, not the stable channel',
     ]) {
         assert.ok(step(release, name).includes(`needs.validate.outputs.${platform}_signing == 'true'`));
     }
-    assert.match(step(release, 'Build signed update-capable bundle'), /TAURI_SIGNING_PRIVATE_KEY: \$\{\{ secrets\.TAURI_SIGNING_PRIVATE_KEY \}\}/);
+    for (const name of [
+        'Build Windows update-capable bundle',
+        'Build Developer ID-signed update-capable bundle',
+        'Build ad-hoc macOS update-capable bundle'
+    ]) {
+        assert.match(step(release, name), /TAURI_SIGNING_PRIVATE_KEY: \$\{\{ secrets\.TAURI_SIGNING_PRIVATE_KEY \}\}/);
+    }
+    assert.doesNotMatch(step(release, 'Build Windows update-capable bundle'), /APPLE_CERTIFICATE/);
+    assert.match(step(release, 'Build Developer ID-signed update-capable bundle'), /APPLE_CERTIFICATE: \$\{\{ secrets\.APPLE_CERTIFICATE \}\}/);
+    assert.doesNotMatch(step(release, 'Build ad-hoc macOS update-capable bundle'), /APPLE_CERTIFICATE/);
+    assert.match(step(release, 'Build ad-hoc macOS update-capable bundle'), /APPLE_SIGNING_IDENTITY: '-'/);
     assert.match(step(release, 'Prepare signed updater metadata'), /generate-tauri-updater-manifest\.js/);
     assert.match(step(release, 'Disclose release signing status'), /SmartScreen/);
     assert.match(step(release, 'Disclose release signing status'), /Gatekeeper/);
