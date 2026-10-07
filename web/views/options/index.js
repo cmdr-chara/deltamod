@@ -335,7 +335,7 @@ async function addReferenceFileRows() {
         return;
     }
     const files = Array.isArray(status?.files) ? status.files : [];
-    if (!status?.needed && files.length === 0) return;
+    if (!IS_MAC || (!status?.needed && files.length === 0)) return;
 
     const summary = summarizeReferenceFiles(files);
     const description = localize('reference_desc', '');
@@ -739,7 +739,7 @@ window.currentPageStack.cat = async function(cat) {
 
             break;
         case 'mac':
-            await addMacSupportRows();
+            if (IS_MAC) await addMacSupportRows();
             break;
         case 'inst':
             var isSteam = await window.deltamodBackend.invoke('isCurrentIndexSteam', []);

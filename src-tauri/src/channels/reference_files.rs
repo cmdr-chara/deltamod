@@ -71,6 +71,10 @@ fn status(state: &AppState) -> Value {
 }
 
 fn choose<D: DialogBackend>(dialogs: &D, state: &AppState) -> Result<Value, String> {
+    // Only platforms that rename the game's data file (macOS) use reference files.
+    if !needed(state) {
+        return Err(error::unavailable("referenceFiles:choose"));
+    }
     let root = current_root(state).ok_or_else(|| error::unavailable("referenceFiles:choose"))?;
     let request = DialogRequest::folder("Choose your Windows DELTARUNE folder");
     let Some(selected) = dialogs.pick(&request).map_err(|_| error::internal())? else {
