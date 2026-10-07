@@ -106,8 +106,10 @@ describe('Windows installer branding', () => {
         expect(workflow).toContain('Stage unsigned Windows manual-download installer');
         expect(workflow).toContain('manual-release/*');
         expect(workflow).toContain('test ! -e release-artifacts/latest.json');
-        expect(workflow).toContain('--title "Deltamod Community ${RELEASE_VERSION} (Unsigned Tauri Preview)"');
-        expect(workflow).toContain('--prerelease');
-        expect(workflow).not.toContain('--latest --prerelease');
+        const previewPublish = workflow.slice(workflow.indexOf('- name: Publish unsigned Tauri preview'));
+        expect(previewPublish).toContain('--title "Deltamod Community ${RELEASE_VERSION} (Unsigned Tauri Preview)"');
+        expect(previewPublish).toContain('--prerelease');
+        expect(previewPublish).not.toContain('--latest');
+        expect(workflow).toContain('--latest --prerelease=false');
     });
 });
