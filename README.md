@@ -22,11 +22,11 @@
   &nbsp;•&nbsp;
   <a href="#supported-games-and-platforms">Compatibility</a>
   &nbsp;•&nbsp;
-  <a href="./SUPPORT.md">Get help</a>
+  <a href="./.github/SUPPORT.md">Get help</a>
 </p>
 
 <p align="center">
-  <img src="./art/thumbnail.png" alt="Deltamod Community artwork">
+  <img src="./docs/assets/thumbnail.png" alt="Deltamod Community artwork">
 </p>
 
 ## Why Deltamod Community?
@@ -119,20 +119,20 @@ Always check the mod author's compatibility notes. A supported game does not mea
 ### Discover and install mods
 
 <p align="center">
-  <img src="./art/readme/deltamod-mod-shop.gif" width="960" alt="Deltamod Community browsing mods and following import progress">
+  <img src="./docs/assets/readme/deltamod-mod-shop.gif" width="960" alt="Deltamod Community browsing mods and following import progress">
 </p>
 
 ### Manage separate setups
 
 <p align="center">
-  <img src="./art/readme/deltamod-app-tour.gif" width="960" alt="Deltamod Community navigating installed mods, installations, and collections">
+  <img src="./docs/assets/readme/deltamod-app-tour.gif" width="960" alt="Deltamod Community navigating installed mods, installations, and collections">
 </p>
 
 <details>
 <summary><strong>Personalize the app</strong></summary>
 
 <p align="center">
-  <img src="./art/readme/deltamod-personalization.gif" width="960" alt="Selecting a Deltamod theme and changing the interface language">
+  <img src="./docs/assets/readme/deltamod-personalization.gif" width="960" alt="Selecting a Deltamod theme and changing the interface language">
 </p>
 
 Deltamod Community includes community themes and eight interface languages.
@@ -192,9 +192,9 @@ Deltamod adds validation, staging, and recovery around supported operations, but
 
 ## Help and contributing
 
-- Read [SUPPORT.md](./SUPPORT.md) or [open a bug report](https://github.com/cmdr-chara/deltamod/issues/new/choose).
-- Read [CONTRIBUTING.md](./CONTRIBUTING.md) before proposing a change.
-- Report security vulnerabilities privately by following [SECURITY.md](./SECURITY.md).
+- Read [SUPPORT.md](./.github/SUPPORT.md) or [open a bug report](https://github.com/cmdr-chara/deltamod/issues/new/choose).
+- Read [CONTRIBUTING.md](./.github/CONTRIBUTING.md) before proposing a change.
+- Report security vulnerabilities privately by following [SECURITY.md](./.github/SECURITY.md).
 
 Never upload copyrighted game files, passwords, tokens, or other private data when requesting help.
 
@@ -238,7 +238,7 @@ Deltamod uses **OAuth 2.0 Authorization Code with PKCE S256** for Nexus Mods sig
 
 Nexus catalogue browsing uses a **bounded result page** of 50 items and fetches only the requested page. Quota handling honors `Retry-After` and quota reset metadata so requests can pause and retry instead of repeatedly hitting the API while limited.
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for native checks and [RELEASE-GATE.md](./docs/RELEASE-GATE.md) for release requirements.
+See [CONTRIBUTING.md](./.github/CONTRIBUTING.md) for native checks and [RELEASE-GATE.md](./docs/RELEASE-GATE.md) for release requirements.
 
 </details>
 
@@ -250,7 +250,7 @@ The project is not affiliated with or endorsed by Toby Fox. Patching uses [G3MTo
 
 ## License and attribution
 
-Deltamod Community is licensed under the [European Union Public Licence 1.2](./LICENSE.txt). Attribution, ownership boundaries, provenance, and bundled third-party software are documented in [NOTICE.md](./NOTICE.md), [COPYRIGHT.md](./COPYRIGHT.md), [PROVENANCE.md](./PROVENANCE.md), and [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+Deltamod Community is licensed under the [European Union Public Licence 1.2](./LICENSE.txt). Attribution, ownership boundaries, provenance, and bundled third-party software are documented in [NOTICE.md](./docs/legal/NOTICE.md), [COPYRIGHT.md](./docs/legal/COPYRIGHT.md), [PROVENANCE.md](./docs/legal/PROVENANCE.md), and [THIRD_PARTY_NOTICES.md](./docs/legal/THIRD_PARTY_NOTICES.md).
 
 ---
 

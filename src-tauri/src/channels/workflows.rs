@@ -2,7 +2,10 @@ use crate::{error, state::AppState};
 use deltamod_installations_domain::{Edition, GamePlatform, InstallationId, Ownership};
 use deltamod_profile_install_runtime::{PatchPlanInput, ProgressEvent, Runtime as ProfileRuntime};
 use deltamod_tauri_os_adapters::{DialogBackend, DialogRequest, ValidatedFolder};
-use deltamod_updater_launch_runtime::steam_discovery::{steam_library_roots, MAX_VDF_BYTES};
+use deltamod_updater_launch_runtime::steam_discovery::{
+    steam_app_id, steam_installation_candidates, steam_library_roots, valid_steam_install_dir,
+    MAX_VDF_BYTES,
+};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::{
@@ -206,7 +209,21 @@ fn steam_common_folders() -> Vec<PathBuf> {
     common
 }
 
-fn steam_source(game: &Value) -> Option<(PathBuf, String)> {
+struct SteamSource {
+    path: Option<PathBuf>,
+    folder: String,
+    app_id: String,
+}
+
+fn steam_app_id_value(value: &Value) -> Option<u32> {
+    match value {
+        Value::String(value) => steam_app_id(value),
+        Value::Number(value) => u32::try_from(value.as_u64()?).ok().filter(|id| *id > 0),
+        _ => None,
+    }
+}
+
+fn steam_source_in_folders(game: &Value, common_folders: Vec<PathBuf>) -> Option<SteamSource> {
     let data = game
         .get("availableFeatures")?
         .as_array()?
@@ -214,20 +231,41 @@ fn steam_source(game: &Value) -> Option<(PathBuf, String)> {
         .find(|feature| feature.get("feat").and_then(Value::as_str) == Some("steam"))?
         .get("data")?;
     let folder = data.get("folder")?.as_str()?;
-    let app_id = data.get("appid")?.as_str()?.to_owned();
-    if !safe_relative(folder) || !app_id.bytes().all(|byte| byte.is_ascii_digit()) {
+    if !valid_steam_install_dir(folder) {
         return None;
     }
-    let candidates = steam_common_folders()
+    let app_id = steam_app_id_value(data.get("appid")?)?;
+    let source = steam_installation_candidates(common_folders, app_id, folder)
         .into_iter()
-        .map(|common| common.join(folder))
-        .collect::<Vec<_>>();
-    let source = candidates
-        .iter()
-        .find(|candidate| candidate.is_dir())
-        .cloned()
-        .or_else(|| candidates.into_iter().next())?;
-    Some((source, app_id))
+        .find(|candidate| resolve_game_folder(candidate, game).is_some());
+    // No available library is a discovery miss, not invalid catalogue metadata.
+    // Retain the identity so the native picker remains reachable on every OS.
+    Some(SteamSource {
+        path: source,
+        folder: folder.to_owned(),
+        app_id: app_id.to_string(),
+    })
+}
+
+fn steam_source(game: &Value) -> Option<SteamSource> {
+    steam_source_in_folders(game, steam_common_folders())
+}
+
+fn picked_steam_source(selected: &Path, source: &SteamSource, game: &Value) -> Option<PathBuf> {
+    // The native picker may return the installation itself (including a renamed
+    // Steam directory) or steamapps/common. Never derive a path from renderer data.
+    let direct = resolve_game_folder(selected, game).is_some();
+    let common = if direct { selected.parent()? } else { selected };
+    let selected = fs::canonicalize(selected).ok()?;
+    steam_installation_candidates(
+        [common.to_path_buf()],
+        steam_app_id(&source.app_id)?,
+        &source.folder,
+    )
+    .into_iter()
+    .find(|candidate| {
+        (!direct || candidate == &selected) && resolve_game_folder(candidate, game).is_some()
+    })
 }
 
 fn schedule_restart(app: AppHandle) {
@@ -370,29 +408,30 @@ pub fn dispatch(
             }
             let game = game_definition(&state._assets.app, &game_id, "createNewInstallation")?;
             let (source, steam_app_id) = if steam {
-                let (mut source, app_id) = steam_source(&game)
+                let discovered = steam_source(&game)
                     .ok_or_else(|| error::unavailable("createNewInstallation"))?;
-                if !source.is_dir() {
+                let source = if let Some(source) = discovered.path.as_ref() {
+                    source.clone()
+                } else {
                     let dialogs =
                         deltamod_tauri_os_adapters::tauri_adapter::TauriDialogBackend::new(app);
                     let Some(common) = dialogs
-                        .pick(&DialogRequest::folder("Select the Steam common folder"))
+                        .pick(&DialogRequest::folder(
+                            "Select the Steam game or common folder",
+                        ))
                         .map_err(|_| error::internal())?
                     else {
                         return Ok(Some(json!(false)));
                     };
-                    let folder = source
-                        .file_name()
-                        .ok_or_else(|| error::invalid("createNewInstallation"))?
-                        .to_owned();
-                    source = if common.file_name() == Some(folder.as_os_str()) {
-                        common
-                    } else {
-                        common.join(folder)
+                    let Some(source) = picked_steam_source(&common, &discovered, &game) else {
+                        return Ok(Some(json!(false)));
                     };
-                }
+                    source
+                };
+                let app_id = discovered.app_id;
                 if state.profile()?.installations.iter().any(|record| {
-                    record.extra.get("steamAppId").and_then(Value::as_str) == Some(&app_id)
+                    record.extra.get("steamAppId").and_then(steam_app_id_value)
+                        == steam_app_id(&app_id)
                 }) {
                     return Ok(Some(json!(false)));
                 }
@@ -764,5 +803,155 @@ mod tests {
             "#,
         );
         assert!(roots.is_empty());
+    }
+
+    fn steam_game_fixture(app_id: Value) -> Value {
+        json!({
+            "availableFeatures": [{"feat":"steam", "data":{"folder":"Game", "appid":app_id}}],
+            "platforms": {
+                "win32": {"executable":"GAME.exe", "dataFiles":["data.win"]},
+                "linux": {"executable":"runner", "dataFiles":["data.win"]},
+                "darwin": {
+                    "executable":"Game.app/Contents/MacOS/runner",
+                    "dataFiles":["Game.app/Contents/Resources/game.ios"],
+                    "bundle":"Game.app"
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn steam_discovery_miss_preserves_identity_for_the_manual_picker() {
+        for id in [json!("391540"), json!(391540), json!("000391540")] {
+            assert_eq!(steam_app_id_value(&id), Some(391540));
+            let source = steam_source_in_folders(&steam_game_fixture(id), Vec::new()).unwrap();
+            assert!(source.path.is_none());
+            assert_eq!(source.folder, "Game");
+            assert_eq!(source.app_id, "391540");
+        }
+    }
+
+    #[test]
+    fn steam_catalogue_rejects_ids_that_cannot_be_launched() {
+        for id in [
+            json!(""),
+            json!("0"),
+            json!(0),
+            json!(-1),
+            json!("+1"),
+            json!(4294967296_u64),
+            json!(true),
+        ] {
+            assert!(steam_source_in_folders(&steam_game_fixture(id), Vec::new()).is_none());
+        }
+        let mut game = steam_game_fixture(json!("391540"));
+        game["availableFeatures"][0]["data"]["folder"] = json!("../outside");
+        assert!(steam_source_in_folders(&game, Vec::new()).is_none());
+    }
+
+    struct SteamFixture(PathBuf);
+    impl SteamFixture {
+        fn new() -> Self {
+            use std::sync::atomic::AtomicU64;
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "deltamod-steam-workflow-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn game(path: &Path) {
+            fs::create_dir_all(path.join("Game.app/Contents/MacOS")).unwrap();
+            fs::create_dir_all(path.join("Game.app/Contents/Resources")).unwrap();
+            for name in [
+                "GAME.exe",
+                "runner",
+                "data.win",
+                "Game.app/Contents/MacOS/runner",
+                "Game.app/Contents/Resources/game.ios",
+            ] {
+                fs::write(path.join(name), b"test-only fixture").unwrap();
+            }
+        }
+    }
+    impl Drop for SteamFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn stale_game_folder_does_not_shadow_a_valid_later_library() {
+        let fixture = SteamFixture::new();
+        let first = fixture.0.join("first/steamapps/common");
+        let second = fixture.0.join("second/steamapps/common");
+        fs::create_dir_all(first.join("Game")).unwrap();
+        SteamFixture::game(&second.join("Game"));
+        let expected = fs::canonicalize(second.join("Game")).unwrap();
+        let source =
+            steam_source_in_folders(&steam_game_fixture(json!("391540")), vec![first, second])
+                .unwrap();
+        assert_eq!(source.path, Some(expected));
+    }
+
+    #[test]
+    fn picker_accepts_a_common_folder_or_the_valid_game_itself() {
+        let fixture = SteamFixture::new();
+        let common = fixture.0.join("steamapps/common");
+        let game = steam_game_fixture(json!("391540"));
+        SteamFixture::game(&common.join("Game"));
+        let source = steam_source_in_folders(&game, Vec::new()).unwrap();
+        let expected = fs::canonicalize(common.join("Game")).unwrap();
+        assert_eq!(
+            picked_steam_source(&common, &source, &game),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            picked_steam_source(&expected, &source, &game),
+            Some(expected)
+        );
+        assert!(picked_steam_source(&fixture.0.join("missing"), &source, &game).is_none());
+    }
+
+    #[test]
+    fn picker_and_auto_discovery_accept_a_manifest_selected_directory() {
+        let fixture = SteamFixture::new();
+        let common = fixture.0.join("steamapps/common");
+        SteamFixture::game(&common.join("Renamed Game"));
+        fs::write(
+            common.parent().unwrap().join("appmanifest_391540.acf"),
+            r#""AppState" { "appid" "391540" "installdir" "Renamed Game" }"#,
+        )
+        .unwrap();
+        let game = steam_game_fixture(json!("391540"));
+        let source = steam_source_in_folders(&game, vec![common.clone()]).unwrap();
+        let expected = fs::canonicalize(common.join("Renamed Game")).unwrap();
+        assert_eq!(source.path, Some(expected.clone()));
+        assert_eq!(picked_steam_source(&common, &source, &game), Some(expected));
+    }
+
+    #[test]
+    fn direct_picker_does_not_bypass_an_invalid_or_mismatched_manifest() {
+        let fixture = SteamFixture::new();
+        let common = fixture.0.join("steamapps/common");
+        let selected = common.join("Game");
+        SteamFixture::game(&selected);
+        SteamFixture::game(&common.join("Other"));
+        let game = steam_game_fixture(json!("391540"));
+        let source = steam_source_in_folders(&game, Vec::new()).unwrap();
+        for contents in [
+            "invalid",
+            r#""AppState" { "appid" "7" "installdir" "Game" }"#,
+            r#""AppState" { "appid" "391540" "installdir" "Other" }"#,
+        ] {
+            fs::write(
+                common.parent().unwrap().join("appmanifest_391540.acf"),
+                contents,
+            )
+            .unwrap();
+            assert!(picked_steam_source(&selected, &source, &game).is_none());
+        }
     }
 }

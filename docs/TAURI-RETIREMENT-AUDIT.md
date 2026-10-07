@@ -4,6 +4,11 @@ Base: `DeltaMaster@d451315768e9043cdf5b2b635398a2350f3f1745`.
 Implementation commit: `c0e76c9e02101bffb2c2656388e9c0322e64829c`.
 This is an implemented source change, not a signed release or a completed security audit.
 
+> 2026-10-06 follow-up: the current public bridge is 126/126 implemented with
+> zero unsupported commands, and native CI passes on Windows x64, Linux x64,
+> macOS x64, and macOS arm64. Historical validation counts below remain the
+> 2026-09-28 snapshot.
+
 ## Implemented
 
 - Removed Electron runtime modules, preload/tracer windows, destructive legacy launch
@@ -38,7 +43,7 @@ This is an implemented source change, not a signed release or a completed securi
 | Integrated `npm test` | 449 Vitest tests passed in 61 files, plus secure-updater checks and 36 Node audit tests |
 | Generated-input coverage | 20,000 deterministic JavaScript cases and 10,000 deterministic VDF cases. Not coverage-guided fuzzing |
 | `npm run typecheck` | Passed |
-| `npm run verify:tauri:contract` and parity harness | Passed. 129 invoke channels, 18 events, 123 implemented classifications and six explicit rejections. Static evidence only |
+| `npm run verify:tauri:contract` and parity harness | Passed. 129 invoke channels, 19 events, 123 implemented classifications and six explicit rejections. Static evidence only |
 | Rust credentials and updater/launch runtime | 30 tests and strict all-target Clippy passed on Linux x64 with locked dependencies |
 | Native workers | All five debug worker binaries built on Linux x64 |
 | Formatting | Full Tauri workspace `cargo fmt --all --check` passed |
@@ -76,12 +81,13 @@ Electron/Tauri desktop comparison remains unchanged.
   journal containment, backup preservation, kernel leases and in-flight updater
   cancellation/budgets. Ambiguous v1 recovery still requires intervention; real
   installed-updater and platform acceptance remain open.
-- Finish collection restore, installation shortcuts and UndertaleModTool installation
-  opening. Those three controls remain capability-gated. Retired channel names are
-  explicitly rejected at the native boundary for stale-client safety.
-- Run full native shell tests and installed-package checks on Windows, Linux and both
-  macOS architectures. macOS arm64 CSX remains deliberately unavailable. Steam fake-
-  platform tests do not establish real client/protocol behavior on those machines.
+- Collection restore and installation shortcuts are implemented through bounded
+  native flows. The obsolete UndertaleModTool installation-opening bridge and other
+  legacy-only public callbacks were retired; current parity is 126/126 implemented
+  with zero unsupported public commands.
+- Full native CI now passes on Windows x64, Linux x64, macOS x64, and macOS arm64.
+  Signed installed-app, updater, protocol, and real-client acceptance remain required;
+  macOS arm64 CSX remains deliberately unavailable.
 - Complete signed updater, platform publisher/notarization, data-preservation and
   rollback gates before stable release. Source retirement does not waive them.
 - Expand coverage-guided native fuzzing and adversarial recovery testing. This audit

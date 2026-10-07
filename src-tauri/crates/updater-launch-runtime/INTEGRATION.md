@@ -28,6 +28,44 @@ The selected `store.json` path must be refreshed when the installation index cha
 
 Use `SteamUri::run(app_id)` or `SteamUri::parse` before passing the value to a `SteamOpener`. Parsing accepts only validated `steam://run/<id>` and Electron-compatible `steam://rungameid/<id>` URIs. `SystemSteamOpener` maps to `explorer.exe <uri>` on Windows, `open <uri>` on macOS, and `xdg-open <uri>` elsewhere, always as explicit argv rather than a shell string. Replace it with an application opener when the host needs telemetry or Tauri URI handling.
 
+### Discovery and manual selection — 2026-10-06
+
+`steam_discovery::steam_installation_candidates` reads bounded
+`appmanifest_<appid>.acf` records with Community's VDF parser. A unique matching
+`AppState` supplies a single portable installation-directory name. Invalid,
+ambiguous, oversized, or linked manifests are rejected; only a missing manifest
+permits the catalogue-folder fallback. Missing libraries are skipped and available
+aliases are deduplicated. Discovery is read-only: profile/lifecycle code still owns
+publication and recovery.
+
+The shell checks all discovered candidates against the game definition instead of
+accepting the first existing directory. When no library is found, the shell retains
+the Steam identity for the native folder picker. Both a common directory and
+its game directory are accepted, but directly selecting the game does not bypass
+a present manifest's identity or directory selection. Numeric and string app IDs
+are normalized to the launcher's nonzero `u32` domain before duplicate detection.
+
+This slice adds 15 regression tests: nine in the shared discovery module and six
+in the shell workflows. One shared test is Unix-only. Synthetic Windows, Linux,
+and macOS layouts are not evidence of installed Steam launches on those systems.
+
+Validation during preparation: original Git blob identity checks, clean patch
+application, source-diff review, and `git diff --check`. Rust compilation, rustfmt,
+Clippy, and test execution were not available in the editing environment. Run the
+following focused checks from the repository root before treating this slice as
+validated:
+
+```text
+rustfmt --edition 2021 --check src-tauri/crates/updater-launch-runtime/src/steam_discovery.rs src-tauri/src/channels/workflows.rs
+cargo test --manifest-path src-tauri/Cargo.toml --locked -p deltamod-updater-launch-runtime steam_discovery::tests::
+cargo test --manifest-path src-tauri/Cargo.toml --locked -p deltamod-tauri-shell channels::workflows::tests::
+```
+
+The existing Steam handoff and patch-retention policy is unchanged. Windows
+registry-root discovery, real installed launches on all supported systems, and
+Steam game-lifetime/restart recovery remain open. This does not complete Steam
+parity or Release E, and does not implement PR #123's macOS patching work.
+
 ## Updates
 
 `Updater::fire_update`, `Updater::start_update`, and `Updater::ignore_update` implement the Electron channel lifecycle. `fire_update` returns the legacy boolean and emits `UpdateEvent::Available` with the legacy `update`, `version`, and `release_name` fields. Every transition emits `UpdateEvent::Status`; downloads emit bounded `UpdateEvent::Progress` values with operation ID `community-update` and phase `download`. `Updater::status` is suitable for an `updater-status` query channel.

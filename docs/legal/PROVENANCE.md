@@ -1,12 +1,12 @@
 # Source Provenance
 
-This document records the source and licensing provenance of Deltamod Community. It is an evidence record for maintainers and contributors; it does not replace [`LICENSE.txt`](./LICENSE.txt) and is not legal advice.
+This document records the source and licensing provenance of Deltamod Community. It is an evidence record for maintainers and contributors; it does not replace [`LICENSE.txt`](../../LICENSE.txt) and is not legal advice.
 
 ## Project origin
 
 Deltamod Community is an independent modified fork of the upstream [`deltamodders/deltamod`](https://github.com/deltamodders/deltamod) project.
 
-The software in this repository remains distributed under the **European Union Public Licence v1.2 (EUPL-1.2)** except where a separately identified third-party component or asset carries its own applicable terms. The authoritative licence text for this repository is [`LICENSE.txt`](./LICENSE.txt).
+The software in this repository remains distributed under the **European Union Public Licence v1.2 (EUPL-1.2)** except where a separately identified third-party component or asset carries its own applicable terms. The authoritative licence text for this repository is [`LICENSE.txt`](../../LICENSE.txt).
 
 Git commit history is the authoritative record of individual modifications, authorship metadata, and modification dates.
 

@@ -4,6 +4,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const verifier = path.join(__dirname, '..', 'scripts', 'verify-tauri-package.js');
+const packageVersion = require('../package.json').version;
 
 function runVerifier(bundle, ...args) {
     return spawnSync(process.execPath, [verifier, bundle, 'x86_64-pc-windows-msvc', ...args], {
@@ -15,7 +16,7 @@ describe('Tauri package updater policy', () => {
     test('accepts an unsigned manual-download package only in explicit preview mode', () => {
         const bundle = fs.mkdtempSync(path.join(os.tmpdir(), 'deltamod-unsigned-package-'));
         try {
-            const installer = path.join(bundle, 'Deltamod Community_2.0.18_x64-setup.exe');
+            const installer = path.join(bundle, `Deltamod Community_${packageVersion}_x64-setup.exe`);
             fs.writeFileSync(installer, Buffer.alloc(1024 * 1024));
 
             const preview = runVerifier(bundle, '--unsigned');

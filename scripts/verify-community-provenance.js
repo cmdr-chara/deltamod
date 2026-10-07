@@ -8,7 +8,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
-const registryPath = path.join(root, 'provenance', 'community-original-work.json');
+const registryPath = path.join(root, 'docs', 'provenance', 'community-original-work.json');
 const expectedCopyright = 'SPDX-FileCopyrightText: 2026 cmdr-chara';
 const expectedLicense = 'SPDX-License-Identifier: EUPL-1.2';
 const requireHistory = process.env.REQUIRE_PROVENANCE_HISTORY === '1';

@@ -2,7 +2,7 @@
 
 Deltamod Community is distributed under the **European Union Public Licence v1.2 (EUPL-1.2)** except where a file, dependency, asset, or other component is explicitly identified as carrying separate applicable terms.
 
-[`LICENSE.txt`](./LICENSE.txt) is the controlling licence text for EUPL-covered material. This document is a compliance guide: it does **not** replace the EUPL, add restrictions to it, or grant permissions beyond it.
+[`LICENSE.txt`](../../LICENSE.txt) is the controlling licence text for EUPL-covered material. This document is a compliance guide: it does **not** replace the EUPL, add restrictions to it, or grant permissions beyond it.
 
 ## Covered work
 
@@ -14,7 +14,7 @@ See [`PROVENANCE.md`](./PROVENANCE.md) for the recorded upstream licensing bound
 
 ## Community copyright and original-work evidence
 
-Selected Community-originated files carry explicit `SPDX-FileCopyrightText` and `SPDX-License-Identifier` notices. Their first-introduction evidence is recorded in [`ORIGINAL_WORK.md`](./ORIGINAL_WORK.md) and the machine-readable [`provenance/community-original-work.json`](./provenance/community-original-work.json) registry.
+Selected Community-originated files carry explicit `SPDX-FileCopyrightText` and `SPDX-License-Identifier` notices. Their first-introduction evidence is recorded in [`ORIGINAL_WORK.md`](./ORIGINAL_WORK.md) and the machine-readable [`../provenance/community-original-work.json`](../provenance/community-original-work.json) registry.
 
 [`COPYRIGHT.md`](./COPYRIGHT.md) explains the ownership boundary. The registry is intentionally conservative and non-exhaustive: it records whole-file origin only where Git history supports that claim and does not assert ownership of inherited or mixed-history upstream files.
 
@@ -47,7 +47,7 @@ By submitting a contribution for inclusion, the contributor represents that they
 
 Do not submit copied code, assets, generated material, or other content whose licence is incompatible, unclear, or cannot be satisfied by this repository. If a contribution contains separately licensed material, identify it clearly and preserve every required notice.
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the contribution workflow.
+See [`CONTRIBUTING.md`](../../.github/CONTRIBUTING.md) for the contribution workflow.
 
 ## Trademarks, names, and branding
 
@@ -65,6 +65,6 @@ This section is only a pointer to the EUPL's termination rule; it does not add a
 
 ## Precedence
 
-If this guide conflicts with [`LICENSE.txt`](./LICENSE.txt), the EUPL text controls for EUPL-covered material. If a separately licensed component carries its own valid notice or licence, those applicable terms control for that component.
+If this guide conflicts with [`LICENSE.txt`](../../LICENSE.txt), the EUPL text controls for EUPL-covered material. If a separately licensed component carries its own valid notice or licence, those applicable terms control for that component.
 
 For legal decisions about a particular distribution, contribution, or dispute, obtain advice from a qualified lawyer in the relevant jurisdiction.

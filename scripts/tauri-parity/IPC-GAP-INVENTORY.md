@@ -2,7 +2,7 @@
 
 This inventory records renderer-facing Electron event contracts and requires a reachable, non-test Rust producer before an event is counted as implemented. A literal in a comment, a `#[cfg(test)]` item, or an uncalled helper is not production evidence. `tests/tauri-parity-classification.test.js` enforces that rule for the final two gaps.
 
-Current public bridge baseline: 129 invoke channels (123 implemented, 6 explicitly unsupported) and 18 renderer event channels. The final renderer-event gap count is **0**. Command classification is tracked separately and can still make a broader parity gate fail as the migration evolves.
+Current public bridge baseline: 126 invoke channels (126 implemented, 0 explicitly unsupported) and 19 renderer event channels. The final renderer-event gap count is **0**. Command classification is tracked separately and can still make a broader parity gate fail as the migration evolves.
 
 | Renderer event | Tauri production path | Status |
 | --- | --- | --- |
@@ -15,6 +15,7 @@ Current public bridge baseline: 129 invoke channels (123 implemented, 6 explicit
 | `protocol-download-progress` | validated OS/startup protocol handoff → serialized renderer-ready worker → `run_protocol_import` → `download_allowlisted` callback | Present (D2g) |
 | `profile-import-progress` | `channels::dialogs` profile import event drain | Present |
 | `game-import-progress` | game download/import callbacks in `channels::import_download` and `channels::workflows` | Present |
+| `collection-restore-progress` | bounded GameBanana collection restore callbacks in `channels::import_download` | Present |
 | `winResAlert` | main-window resize coalescer in `main.rs` | Present |
 | `leave-controller-mode` | controller-only native `Exit Controller Mode` menu item with F11 accelerator → `on_menu_event` | Present (D2g) |
 | `mod-source-progress` | Nexus download/import callback in `channels::nexus_download` | Present |

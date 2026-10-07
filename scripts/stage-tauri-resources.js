@@ -27,5 +27,8 @@ for (const [sourceRoot, destinationRoot] of sources) {
   fs.cpSync(path.join(sourceRoot, candidates[0].name), path.join(destinationRoot, candidates[0].name), { recursive: true, errorOnExist: true });
 }
 function directoryName(value) { return path.basename(value); }
-for (const file of ['NOTICE.md', 'THIRD_PARTY_NOTICES.md']) fs.copyFileSync(path.join(root, file), path.join(root, 'src-tauri', 'resources', file));
+const legalRoot = path.join(root, 'docs', 'legal');
+for (const file of ['NOTICE.md', 'THIRD_PARTY_NOTICES.md']) {
+  fs.copyFileSync(path.join(legalRoot, file), path.join(root, 'src-tauri', 'resources', file));
+}
 console.log(`Staged checksum-verified third-party resources for ${platformTarget}.`);

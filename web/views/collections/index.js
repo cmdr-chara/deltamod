@@ -84,14 +84,40 @@ const setInterval = (handler, delay, ...args) => {
         download.title = canRestoreCollection
             ? 'Restore collection'
             : 'Collection restore is unavailable in this app build';
+        var restoreStatus = document.createElement("span");
+        restoreStatus.className = "collection-restore-status";
+        restoreStatus.innerText = canRestoreCollection ? "Ready" : "Unavailable";
+        actiontd.appendChild(restoreStatus);
         download.addEventListener('click', async () => {
+            if (!canRestoreCollection) return;
             download.disabled = true;
-            var resp = await invoke('gamebanana_downloadAllInCollection', [collection.id]);
-            await htmlAlert("Done", `Collection restore complete! Skipped ${(resp && (resp.skipped ?? resp.skippedMods ?? 0))} mods in download process.`, [{
-                text: "Ok",
-                resolveWith: 'ok'
-            }]);
-            download.disabled = false;
+            restoreStatus.innerText = "Preparing…";
+            const stopProgress = window.deltamodBackend.on('collection-restore-progress', progress => {
+                if (String(progress?.collectionId) !== String(collection.id)) return;
+                const total = Number(progress.total || 0);
+                const completed = Number(progress.completed || 0);
+                const suffix = total > 0 ? ` ${Math.min(completed, total)}/${total}` : "";
+                restoreStatus.innerText = `${progress.phase || "Working"}${suffix}`;
+            });
+            try {
+                var resp = await invoke('gamebanana_downloadAllInCollection', [collection.id]);
+                const imported = Number(resp?.imported || 0);
+                const skipped = Number(resp?.skipped || resp?.skippedMods?.length || 0);
+                restoreStatus.innerText = `Restored ${imported}, skipped ${skipped}`;
+                await htmlAlert("Collection restored", `Restored ${imported} mods. Skipped ${skipped} items that were unavailable or declined.`, [{
+                    text: "Ok",
+                    resolveWith: 'ok'
+                }]);
+            } catch (error) {
+                restoreStatus.innerText = "Restore failed";
+                await htmlAlert("Collection restore failed", String(error?.message || error), [{
+                    text: "Ok",
+                    resolveWith: 'ok'
+                }]);
+            } finally {
+                stopProgress();
+                download.disabled = false;
+            }
         });
         actiontd.appendChild(download);
         tr.appendChild(actiontd);

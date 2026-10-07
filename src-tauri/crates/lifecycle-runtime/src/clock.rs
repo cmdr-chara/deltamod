@@ -73,7 +73,7 @@ impl ManualClock {
 
     pub fn advance(&self, delta_ms: u64) -> Option<u64> {
         self.now_ms
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
                 current.checked_add(delta_ms)
             })
             .ok()

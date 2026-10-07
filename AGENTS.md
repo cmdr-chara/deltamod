@@ -10,10 +10,10 @@
 
 ## Task-specific guidance
 
-Use [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the affected JavaScript, renderer, native-worker, or Tauri check lane. Use the committed toolchain and dependency locks. Consult [SECURITY.md](SECURITY.md) for security work and [docs/RELEASE-GATE.md](docs/RELEASE-GATE.md) only for packaging, updater, or release changes.
+Use [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for setup and the affected JavaScript, renderer, native-worker, or Tauri check lane. Use the committed toolchain and dependency locks. Consult [.github/SECURITY.md](.github/SECURITY.md) for security work and [docs/RELEASE-GATE.md](docs/RELEASE-GATE.md) only for packaging, updater, or release changes.
 
 Keep generated `web/`, downloaded tools, native build output, personal game files, and transient test artifacts out of ordinary source edits. Change generators or acquisition manifests rather than patching staged output.
 
 ## Completion
 
-Complete the requested change with affected runtime/IPC/recovery contracts checked, relevant regression coverage, and synchronized documentation. State which operating systems and packaged flows actually ran. Never weaken signing, provenance, or release gates to turn a build into a stable-release claim. Game-data erasure and release publication are not routine validation steps.
+Complete the requested change with affected runtime/IPC/recovery contracts checked, relevant regression coverage, and synchronized documentation. State which operating systems and packaged flows actually ran. Never weaken updater signatures, provenance, or package verification to turn a build into a stable-release claim. Platform publisher signing is intentionally not used; preserve mandatory Tauri updater signatures, ad-hoc macOS signing, publisher-unsigned verification, and the user-facing disclosures in `docs/RELEASE-GATE.md`. Game-data erasure and release publication are not routine validation steps.

@@ -20,7 +20,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -31,9 +31,14 @@ jobs:
         timeout-minutes: 5
         run: node scripts/retry-command.js --label "npm ci" -- npm ci --no-audit --no-fund
       - run: npm run build:boot
-      - name: Install Chromium and system dependencies
-        timeout-minutes: 5
-        run: node scripts/retry-command.js --label "Playwright installation" -- npx playwright install --with-deps chromium
+      - name: Install Chromium on Windows
+        if: runner.os == 'Windows'
+        timeout-minutes: 10
+        run: node scripts/retry-command.js --label "Playwright Chromium installation" -- npx playwright install chromium
+      - name: Install Chromium and system dependencies on Linux
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: node scripts/retry-command.js --label "Playwright Chromium installation" -- npx playwright install --with-deps chromium
       # The four-platform Community CI matrix owns unit tests and native builds.
       - name: Original UI behavior and theme contracts
         env:

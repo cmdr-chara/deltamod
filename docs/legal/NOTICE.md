@@ -12,7 +12,7 @@ Deltamod Community is not affiliated with, sponsored by, or endorsed by DELTAMod
 
 ## Software licence
 
-Unless a component or asset is separately identified with other applicable terms, the software in this repository is distributed under the **European Union Public Licence v1.2 (EUPL-1.2)**. See [`LICENSE.txt`](./LICENSE.txt) for the full licence text.
+Unless a component or asset is separately identified with other applicable terms, the software in this repository is distributed under the **European Union Public Licence v1.2 (EUPL-1.2)**. See [`LICENSE.txt`](../../LICENSE.txt) for the full licence text.
 
 This repository contains modifications to the upstream work. The Git history records the authors and dates of those modifications.
 

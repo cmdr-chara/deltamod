@@ -1,6 +1,6 @@
 # Tauri Release Gate
 
-This gate applies to the stable Tauri release. Electron runtime and packaging have been removed from the source tree. Preserve the last existing Electron release as a historical rollback artifact until every check below is green. Source retirement is not evidence of a signed, platform-verified stable Tauri release. No Electron release workflow remains.
+This gate applies to the stable Tauri release. Electron runtime and packaging have been removed from the source tree. Preserve the last existing Electron release as a historical rollback artifact until every check below is green. Source retirement is not evidence of an updater-signed, platform-verified stable Tauri release. No Electron release workflow remains.
 
 Unsigned Tauri previews use tags named `community-tauri-preview-v*`. They are
 GitHub prereleases for manual testing only: updater artifacts and `latest.json`
@@ -11,8 +11,8 @@ notarization is intentionally absent. A preview never satisfies this stable gate
 an exact `DeltaMaster` SHA, builds all four platform packages, installs and smokes
 them, verifies that signing/updater artifacts are absent, and retains a checksum
 manifest. This mode exists so release packaging can stay continuously verified when
-external signing credentials are unavailable. It does not satisfy the publisher-
-identity, updater-signature, notarization, or stable-publication requirements below.
+the updater signing key is unavailable. It does not satisfy the updater-signature
+or stable-publication requirements below. Platform publisher signing is intentionally not used.
 
 ## Required parity checks
 
@@ -47,25 +47,31 @@ identity, updater-signature, notarization, or stable-publication requirements be
 
 ## External signing prerequisites
 
-Stable publication and signed rehearsal fail before compilation unless the repository
-provides the Tauri updater key, an exportable Windows code-signing PFX, and an Apple
-Developer ID Application certificate plus notarization credentials. Main-branch CI
-checks for those prerequisites before creating a stable tag. If one is absent, it
-leaves the stable tag namespace untouched and dispatches unsigned release validation
-instead. Secret names are validated without printing their values. Windows imports the PFX into the disposable
-runner certificate store, signs with SHA-256 and a timestamp, then verifies the shell,
-NSIS package, and branded bootstrapper against the imported thumbprint. macOS imports
-the Developer ID certificate into a disposable keychain and requires `codesign`,
-Gatekeeper, and stapled-ticket validation on both architectures.
+Stable publication and signed rehearsal require only the Tauri updater signing key:
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+Main-branch CI checks those credentials before creating a stable tag. An explicit
+stable request fails if updater signing is unavailable.
 
-Certificates, private keys, Apple credentials, and their passwords are external
-release authority and must never be committed. A maintainer may explicitly request the
-stable publication path on a `DeltaMaster` push by including `[stable-release]` in
-the commit message. That marker only bypasses the "application files changed" filter.
-It does not bypass CI, signing credentials, package verification, updater signatures,
-notarization, provenance, or any other stable-release gate. If the Windows certificate is hardware-
-backed or cloud-held rather than exportable, replace the PFX import with the issuer's
-Tauri `signCommand` integration and retain the same post-build publisher checks.
+Platform publisher signing is intentionally not part of the release workflow.
+Stable Windows executables remain publisher-unsigned. Stable macOS applications use
+ad-hoc signing (`signingIdentity: "-"`) so Apple Silicon can run the bundle without
+claiming a verified publisher identity or notarization. The workflow verifies that
+Windows artifacts have no Authenticode publisher signature and macOS artifacts have
+neither Developer ID authority nor a stapled notarization ticket.
+
+Release notes disclose the expected Windows SmartScreen/unknown-publisher warning and
+macOS Gatekeeper restrictions. Users may approve the specific verified macOS app in
+Privacy & Security; never recommend globally disabling Gatekeeper.
+
+Tauri updater signatures remain mandatory and use the existing trusted public key.
+They are included for exactly the Windows x64 and two macOS targets in `latest.json`;
+Linux `.deb` remains a manual download. Stable publication explicitly uses
+`--latest --prerelease=false`; previews remain prereleases and never replace the
+stable updater endpoint.
+
+The `[stable-release]` marker only bypasses the application-changes filter; it does
+not bypass updater signing, package verification, installed smoke tests, provenance,
+checksums, or attestations.
 
 ## Artifact and license checks
 

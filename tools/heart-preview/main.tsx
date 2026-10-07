@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 
-import { DeltamodBootScreen } from "../web/components/DeltamodBootScreen";
+import { DeltamodBootScreen } from "../../web/components/DeltamodBootScreen";
 import "./preview.css";
 
 type ThemeDefinition = {
@@ -12,7 +12,7 @@ type ThemeDefinition = {
 };
 
 const themeFiles = import.meta.glob<ThemeDefinition>(
-  "../web/themes/data/*.theme.json",
+  "../../web/themes/data/*.theme.json",
   { eager: true, import: "default" },
 );
 

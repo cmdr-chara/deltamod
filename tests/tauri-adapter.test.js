@@ -22,6 +22,7 @@ const PUBLIC_RENDERER_EVENTS = Object.freeze([
     'protocol-download-progress',
     'profile-import-progress',
     'game-import-progress',
+    'collection-restore-progress',
     'hash-progress',
     'winResAlert',
     'leave-controller-mode',
@@ -185,15 +186,11 @@ describe('Tauri browser adapter', () => {
         const root = tauriRoot();
         installTauriAdapter(root);
         await root.communityAPI.app.version();
-        await root.communityAPI.tools.openInstallationInUndertaleModTool('2');
         root.preloadAPI.onHashProgress(vi.fn());
         root.preloadAPI.onGameImportProgress(vi.fn());
         root.preloadAPI.onUpdaterProgress(vi.fn());
         expect(root.__TAURI__.core.invoke).toHaveBeenNthCalledWith(1, 'backend_invoke', {
             channel: 'version', data: []
-        });
-        expect(root.__TAURI__.core.invoke).toHaveBeenNthCalledWith(2, 'backend_invoke', {
-            channel: 'undertaleModTool:openInstallation', data: ['2']
         });
         expect(root.__TAURI__.event.listen).toHaveBeenCalledWith('hash-progress', expect.any(Function));
         expect(root.__TAURI__.event.listen).toHaveBeenCalledWith(
@@ -256,11 +253,11 @@ describe('Tauri browser adapter', () => {
             rustPath: path.join(repo, 'src-tauri', 'src', 'main.rs')
         });
         expect(report.counts).toEqual({
-            rendererInvoke: 132,
-            rendererEvents: 18,
-            rustKnown: 132,
-            rustImplemented: 126,
-            rustUnsupported: 6
+            rendererInvoke: 128,
+            rendererEvents: 19,
+            rustKnown: 128,
+            rustImplemented: 128,
+            rustUnsupported: 0
         });
 
         const preloadEvents = report.renderer.events.map(event => event.name);
@@ -283,14 +280,7 @@ describe('Tauri browser adapter', () => {
             expect(publicRustCommands).not.toContain(command);
         }
 
-        const expectedUnsupported = [
-            'createInstallLink',
-            'gamebanana_downloadAllInCollection',
-            'initialize',
-            'npsCallback',
-            'rebootDev',
-            'undertaleModTool:openInstallation'
-        ];
+        const expectedUnsupported = [];
         const unsupported = report.rust.publicChannels
             .filter(command => command.classification === 'unsupported')
             .map(command => command.name)
@@ -305,7 +295,7 @@ describe('Tauri browser adapter', () => {
             .map(command => command.name)
             .sort();
         expect(implemented).toEqual(expectedImplemented);
-        expect(implemented).toHaveLength(126);
+        expect(implemented).toHaveLength(128);
 
         const adapterCommands = extractSet(
             fs.readFileSync(path.join(repo, 'web', 'tauri-adapter.js'), 'utf8'),
@@ -414,10 +404,10 @@ describe('Tauri browser adapter', () => {
         const root = tauriRoot();
         installTauriAdapter(root);
 
-        await root.deltamodBackend.invoke('undertaleModTool:openInstallation', ['2']);
+        await root.deltamodBackend.invoke('createInstallLink', [2]);
         await root.deltamodBackend.invoke('unknown-command');
         expect(root.__TAURI__.core.invoke).toHaveBeenNthCalledWith(1, 'backend_invoke', {
-            channel: 'undertaleModTool:openInstallation', data: ['2']
+            channel: 'createInstallLink', data: [2]
         });
         expect(root.__TAURI__.core.invoke).toHaveBeenNthCalledWith(2, 'backend_invoke', {
             channel: 'unknown-command', data: []

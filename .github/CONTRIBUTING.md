@@ -80,7 +80,7 @@ cargo clippy --workspace --all-targets --locked --manifest-path src-tauri/Cargo.
 cargo test --workspace --locked --manifest-path src-tauri/Cargo.toml
 ```
 
-Release changes must also satisfy [RELEASE-GATE.md](./docs/RELEASE-GATE.md).
+Release changes must also satisfy [RELEASE-GATE.md](../docs/RELEASE-GATE.md).
 
 ## Contribution licensing
 
@@ -90,9 +90,9 @@ You retain copyright in your contribution. Submission does **not** assign your c
 
 Do not submit code, assets, generated material, or other content copied from sources with incompatible, unclear, or unsatisfied licensing terms. Preserve required copyright, licence, attribution, patent, trademark, and SPDX notices, and identify separately licensed material in the pull request.
 
-If you add a new file that should be recorded as Community-original work, add an in-file SPDX copyright/licence notice and update [`ORIGINAL_WORK.md`](./ORIGINAL_WORK.md) plus [`provenance/community-original-work.json`](./provenance/community-original-work.json). Do not register inherited or mixed-history files as whole-file Community originals.
+If you add a new file that should be recorded as Community-original work, add an in-file SPDX copyright/licence notice and update [`ORIGINAL_WORK.md`](../docs/legal/ORIGINAL_WORK.md) plus [`docs/provenance/community-original-work.json`](../docs/provenance/community-original-work.json). Do not register inherited or mixed-history files as whole-file Community originals.
 
-Read [LICENSING.md](./LICENSING.md) for the repository's licensing and compliance guide, [COPYRIGHT.md](./COPYRIGHT.md) for ownership boundaries, and [PROVENANCE.md](./PROVENANCE.md) before importing code from upstream or other projects.
+Read [LICENSING.md](../docs/legal/LICENSING.md) for the repository's licensing and compliance guide, [COPYRIGHT.md](../docs/legal/COPYRIGHT.md) for ownership boundaries, and [PROVENANCE.md](../docs/legal/PROVENANCE.md) before importing code from upstream or other projects.
 
 ## Pull requests
 

@@ -216,7 +216,7 @@ fn credentials(
         .ok_or_else(|| "CREDENTIALS_UNAVAILABLE".to_owned())
 }
 
-fn token(state: &AppState) -> Result<String, String> {
+pub(crate) fn token(state: &AppState) -> Result<String, String> {
     credentials(state)?
         .load(CredentialKind::GameBananaCookies)
         .map_err(|_| "CREDENTIALS_UNAVAILABLE".to_owned())?

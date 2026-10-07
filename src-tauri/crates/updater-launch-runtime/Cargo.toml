@@ -12,7 +12,7 @@ tauri-adapter = ["dep:base64", "dep:minisign-verify", "dep:reqwest", "dep:tokio"
 [dependencies]
 serde_json = "1"
 base64 = { version = "0.23", optional = true }
-minisign-verify = { version = "=0.2.5", optional = true }
+minisign-verify = { version = "=0.3.0", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"], optional = true }
 tokio = { version = "1", features = ["rt", "time", "macros"], optional = true }
 

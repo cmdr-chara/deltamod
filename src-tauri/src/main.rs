@@ -523,7 +523,6 @@ enum BackendChannel {
     ToggleFullscreen,
     Version,
     Implemented(String),
-    Unsupported(String),
 }
 
 impl FromStr for BackendChannel {
@@ -629,6 +628,8 @@ impl FromStr for BackendChannel {
             | "gamebanana_createCollection"
             | "gamebanana_deleteCollection"
             | "gamebanana_importToCollection"
+            | "gamebanana_downloadAllInCollection"
+            | "createInstallLink"
             | "chooseTheme"
             | "importOfficialProfile"
             | "undertaleModTool:choose"
@@ -661,12 +662,6 @@ impl FromStr for BackendChannel {
             | "cancel-update"
             | "ignore-update"
             | "updater-status" => Self::Implemented(channel.to_owned()),
-            "rebootDev"
-            | "createInstallLink"
-            | "undertaleModTool:openInstallation"
-            | "gamebanana_downloadAllInCollection"
-            | "npsCallback"
-            | "initialize" => Self::Unsupported(channel.to_owned()),
             _ => return Err(()),
         };
         Ok(known)
@@ -1114,7 +1109,6 @@ fn dispatch(
             emit_runtime_events(app, &state);
             Ok(value)
         }
-        BackendChannel::Unsupported(name) => Err(error::unavailable(&name)),
     }
 }
 
@@ -1125,6 +1119,12 @@ fn dispatch_domain(
     data: &[Value],
 ) -> Result<Value, String> {
     let dialogs = deltamod_tauri_os_adapters::tauri_adapter::TauriDialogBackend::new(app);
+    if name == "gamebanana_downloadAllInCollection" {
+        let token = channels::auth::token(state)?;
+        return channels::import_download::restore_gamebanana_collection(
+            app, state, &dialogs, token, data,
+        );
+    }
     if let Some(value) = channels::dialogs::dispatch(app, state, &dialogs, name, data)? {
         return Ok(value);
     }
@@ -2176,9 +2176,12 @@ mod tests {
             ));
         }
         for channel in ["isCMode", "cmode-on", "cmode-off", "setAppIcon"] {
-            assert!(!matches!(
+            assert!(matches!(
                 BackendChannel::from_str(channel),
-                Ok(BackendChannel::Unsupported(_))
+                Ok(BackendChannel::IsControllerMode)
+                    | Ok(BackendChannel::ControllerModeOn)
+                    | Ok(BackendChannel::ControllerModeOff)
+                    | Ok(BackendChannel::SetAppIcon)
             ));
         }
         assert_eq!(

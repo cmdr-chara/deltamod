@@ -13,7 +13,7 @@
     "build:boot": "vite build --config vite.boot.config.js",
     "dev": "node scripts/tauri-command.js dev",
     "predev": "npm run build:tauri:prepare",
-    "preview:heart": "vite --host 127.0.0.1 --open /preview-heart/",
+    "preview:heart": "vite --host 127.0.0.1 --open /tools/heart-preview/",
     "verify:secure-updater": "node scripts/verify-secure-updater-config.js --self-test && node scripts/verify-secure-updater-config.js",
     "test": "npm run verify:tauri-only && npm run verify:secure-updater && npm run test:audit && vitest run",
     "test:audit": "node --test scripts/tauri-parity/test/audit-contract.test.js scripts/tauri-parity/test/audit-updater.test.js",
@@ -62,13 +62,13 @@
   "license": "EUPL-1.2",
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@tauri-apps/cli": "2.11.5",
-    "@types/node": "^26.6.2",
+    "@tauri-apps/cli": "2.12.1",
+    "@types/node": "^26.6.4",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.3.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.1",
-    "vitest": "^5.0.2"
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
   },
   "dependencies": {
     "@chainsafe/xdelta3-node": "^1.0.2",

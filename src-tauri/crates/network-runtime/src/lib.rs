@@ -1156,6 +1156,38 @@ impl<'a> GameBanana<'a> {
             )
             .await
     }
+
+    /// Fetch one bounded page of a private GameBanana collection.
+    pub async fn collection_items<T: for<'de> Deserialize<'de>>(
+        &self,
+        collection_id: u64,
+        page: u32,
+    ) -> Result<T, RuntimeError> {
+        if collection_id == 0 || collection_id > 2_000_000_000 || !(1..=64).contains(&page) {
+            return Err(RuntimeError::InvalidInput(
+                "invalid GameBanana collection page".into(),
+            ));
+        }
+        let url = format!(
+            "https://gamebanana.com/apiv13/Collection/{collection_id}/Items?_nPage={page}&_sDirection=DESC&_sNameOperator=contains"
+        );
+        self.collections(&url).await
+    }
+
+    /// Fetch the provider profile used to discover compatible mod files.
+    /// The model and item id are validated before the authenticated request.
+    pub async fn submission_profile<T: for<'de> Deserialize<'de>>(
+        &self,
+        model: &str,
+        item_id: u64,
+    ) -> Result<T, RuntimeError> {
+        validate_model_and_id(model, item_id)?;
+        self.collections(&format!(
+            "https://gamebanana.com/apiv13/{model}/{item_id}/ProfilePage"
+        ))
+        .await
+    }
+
     pub async fn user<T: for<'de> Deserialize<'de>>(&self, url: &str) -> Result<T, RuntimeError> {
         self.client
             .json(Provider::GameBanana, url, self.token.as_deref())

@@ -14,6 +14,10 @@ on:
         description: 'Also build and measure an unsigned Windows diagnostic package (not a release)'
         type: boolean
         default: false
+      stable_release:
+        description: 'Attempt a signed stable release from DeltaMaster after CI; requires updater signing, not paid platform certificates'
+        type: boolean
+        default: false
 
 # Superseded PR checks can stop. Main-branch release preparation cannot.
 concurrency:
@@ -32,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -59,7 +63,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/actionlint"
           tar -xzf "$archive" -C "$RUNNER_TEMP/actionlint" actionlint
           "$RUNNER_TEMP/actionlint/actionlint" -shellcheck= -pyflakes= .github/workflows/*.yml
-          node --test scripts/ci/gate.test.cjs
+          node --test scripts/ci/gate.test.cjs scripts/ci/release-signing.test.cjs
       - run: npm run verify:tauri-only
       - run: npm run typecheck
       - run: npm run security:audit
@@ -88,7 +92,7 @@ jobs:
     env:
       TAURI_BUILD_TARGET: ${{ matrix.target }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -232,7 +236,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -253,7 +257,7 @@ jobs:
       TAURI_BUILD_TARGET: x86_64-pc-windows-msvc
       BENCHMARK_INCLUDED_REVISION: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -357,7 +361,9 @@ jobs:
 
   prepare-stable-release:
     needs: ci-result
-    if: github.event_name == 'push' && github.ref == 'refs/heads/DeltaMaster'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/DeltaMaster') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/DeltaMaster' && inputs.stable_release)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
@@ -368,7 +374,7 @@ jobs:
       actions: write
     steps:
       - name: Check out the exact validated revision
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -383,6 +389,7 @@ jobs:
         env:
           VALIDATED_SHA: ${{ github.sha }}
           BEFORE_SHA: ${{ github.event.before }}
+          MANUAL_STABLE_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.stable_release || false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -396,8 +403,14 @@ jobs:
           fi
 
           force_release=false
-          if git log -1 --format=%B "$VALIDATED_SHA" | grep -Fq '[stable-release]'; then
+          explicit_stable=false
+          if [ "$MANUAL_STABLE_RELEASE" = true ]; then
             force_release=true
+            explicit_stable=true
+            echo "Explicit stable release requested from Community CI."
+          elif git log -1 --format=%B "$VALIDATED_SHA" | grep -Fq '[stable-release]'; then
+            force_release=true
+            explicit_stable=true
             echo "Explicit stable release requested by commit marker."
           fi
 
@@ -423,6 +436,7 @@ jobs:
           fi
 
           echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "explicit_stable=$explicit_stable" >> "$GITHUB_OUTPUT"
 
       - name: Select signed publication or unsigned release validation
         if: steps.candidate.outputs.release == 'true'
@@ -430,28 +444,12 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
         run: |
           set -euo pipefail
           required=(
             TAURI_SIGNING_PRIVATE_KEY
             TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-            WINDOWS_CERTIFICATE
-            WINDOWS_CERTIFICATE_PASSWORD
-            APPLE_CERTIFICATE
-            APPLE_CERTIFICATE_PASSWORD
-            KEYCHAIN_PASSWORD
-            APPLE_ID
-            APPLE_PASSWORD
-            APPLE_TEAM_ID
           )
           missing=()
           for name in "${required[@]}"; do
@@ -459,9 +457,12 @@ jobs:
           done
           if [ "${#missing[@]}" -eq 0 ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.candidate.outputs.explicit_stable }}" = true ]; then
+            printf 'Stable release blocked: missing required updater-signing credentials (%s). No prerelease or unsigned stable release will be substituted.\n' "$(IFS=,; echo "${missing[*]}")" >&2
+            exit 1
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
-            printf 'Signing credentials unavailable (%s); running unsigned release validation instead of creating a stable tag.\n' "$(IFS=,; echo "${missing[*]}")"
+            printf 'Updater signing credentials unavailable (%s); running unsigned release validation instead of creating a stable tag.\n' "$(IFS=,; echo "${missing[*]}")"
           fi
 
       - name: Dispatch unsigned release validation
@@ -599,4 +600,4 @@ jobs:
           fi
           git tag "$TAG" "$release_sha"
           git push origin "refs/tags/$TAG"
-          gh workflow run tauri-release.yml --ref "$TAG"
+          gh workflow run tauri-release.yml --ref "$TAG" -f release_mode=stable

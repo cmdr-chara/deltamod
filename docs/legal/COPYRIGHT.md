@@ -11,7 +11,7 @@ Selected files whose introduction is conservatively documented in Git history ca
 - `SPDX-FileCopyrightText: 2026 cmdr-chara`
 - `SPDX-License-Identifier: EUPL-1.2`
 
-The machine-readable evidence registry is [`provenance/community-original-work.json`](./provenance/community-original-work.json), with a human-readable explanation in [`ORIGINAL_WORK.md`](./ORIGINAL_WORK.md).
+The machine-readable evidence registry is [`../provenance/community-original-work.json`](../provenance/community-original-work.json), with a human-readable explanation in [`ORIGINAL_WORK.md`](./ORIGINAL_WORK.md).
 
 This registry is intentionally conservative and non-exhaustive. A file is not excluded from copyright protection merely because it is not listed there.
 
@@ -25,7 +25,7 @@ EUPL-1.2 requires applicable copyright, licence, patent, trademark, and warranty
 
 Upstream Deltamod work remains attributable to its respective authors and contributors. Third-party dependencies, tools, assets, services, trademarks, game content, and separately licensed components remain subject to their own applicable rights and terms.
 
-See [`PROVENANCE.md`](./PROVENANCE.md), [`NOTICE.md`](./NOTICE.md), [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md), and [`LICENSE.txt`](./LICENSE.txt) for the broader licensing boundary.
+See [`PROVENANCE.md`](./PROVENANCE.md), [`NOTICE.md`](./NOTICE.md), [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md), and [`LICENSE.txt`](../../LICENSE.txt) for the broader licensing boundary.
 
 ## No authorship inference from filenames
 

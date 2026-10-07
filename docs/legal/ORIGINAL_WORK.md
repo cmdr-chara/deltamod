@@ -14,7 +14,7 @@ A file is registered here only when:
 4. the file carries an in-file `SPDX-License-Identifier: EUPL-1.2` notice; and
 5. the repository provenance check verifies the record against Git history.
 
-The machine-readable source of truth is [`provenance/community-original-work.json`](./provenance/community-original-work.json).
+The machine-readable source of truth is [`../provenance/community-original-work.json`](../provenance/community-original-work.json).
 
 ## Registered files
 
