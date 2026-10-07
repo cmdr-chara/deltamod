@@ -12,6 +12,33 @@ G3MTool and UndertaleModTool are never Cargo dependencies and never linked into 
 
 The current Electron package remains the reference implementation and rollback artifact until `docs/RELEASE-GATE.md` passes. Do not remove Electron scripts, assets, or release jobs as part of the first stable Tauri release.
 
+## Patch and recovery compatibility
+
+macOS patch startup, restoration, and publication resolve the existing lifecycle
+installation key before adopting a baseline. Legacy keys are matched using the
+recorded game-directory path and inode, including the legacy device number in
+journals from an earlier boot. Known manifest-only baselines and interrupted
+leases also participate in this lookup. Existing keys, manifests, leases, and
+recovery generations are retained; the transition does not rewrite durable
+contracts. Conflicting keys for the same game block patching and preserve both
+sets of recovery state.
+
+Legacy macOS root identities are bound to the currently opened directory pins
+using the canonical path and inode. Current stable volume identities still require
+an exact match, and directory replacement remains an error. Newly recorded games
+use the stable macOS installation key. Windows and Linux identity policies remain
+unchanged.
+
+Windows xdelta/G3M merge grouping uses the same case-insensitive target identity
+as plan validation and output verification, retaining the first target spelling
+and selected patch order. Case-sensitive platforms retain separate targets.
+
+On macOS, compatibility checks consult the packet's bounded, metadata-only patch
+plan and use the same base-file resolver as G3M staging for reference-backed
+targets. Other required files continue to use installed game bytes. Reference
+hash-cache entries are separate from native entries and include the reference
+root path; missing, linked, and changed files are checked before cache reuse.
+
 Tauri-only means the native shell and privileged backend capabilities are Rust and
 the Electron/Node runtime is absent. The existing web renderer remains shared
 HTML/CSS/JavaScript so its fast renderer tests survive the migration.

@@ -164,6 +164,7 @@ UndertaleModTool `.csx` patches are supported on Windows x64, Linux x64, and Int
 
 - **Managed copy.** When you add DELTARUNE on a Mac, Deltamod copies only `DELTARUNE.app` into its own data folder and patches that copy. The game in `/Applications` is never changed, and Deltamod refuses to patch an installation that points at it.
 - **Windows reference files.** Most DELTARUNE mods are xdelta patches made against the Windows `data.win`. The Mac `game.ios` files are packed differently, so those patches do not apply to them directly. Under **Options → Installation → Windows reference files**, choose a Windows copy of the same game version once. Deltamod applies mods to those `data.win` files with G3MTool and installs the result in the copy as `game.ios`. Mods that only replace files, such as music, do not need them.
+- **Game-version checks.** For a mod's reference-backed patch targets, required-file checks use the Windows reference copy. Other required files are checked in the managed game copy. A missing, unsafe, or mismatching reference file still blocks the mod when hash checks are enabled.
 - **Re-signing.** Changing files inside an app bundle breaks its signature, so Deltamod clears the quarantine flag on the copy and ad-hoc re-signs it with `codesign` after every patch and restore.
 - **Saves are shared.** The copy and the original game both use `~/Library/Application Support/com.tobyfox.deltarune`. Back up your saves before trying new mods.
 
