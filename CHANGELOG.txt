@@ -1,3 +1,11 @@
+# Deltamod Community 2.0.24
+
+Released 2026-10-07.
+
+## Changes
+
+- fix(ci): unblock stable release validation [stable-release] (`22244bc`).
+
 # Deltamod Community 2.0.18
 
 Planned stable release.
