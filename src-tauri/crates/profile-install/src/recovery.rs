@@ -183,6 +183,16 @@ impl Runtime {
                     .join(format!("deltamod_system-{index}"))
                     .join(game)
             }
+            ("legacy-bundle-create", [profile, game, bundle]) => {
+                let index = legacy_index(profile)?;
+                if *game != "deltaruneInstall" || !valid_bundle_name(bundle) {
+                    return Err(invalid("invalid managed game bundle"));
+                }
+                self.root
+                    .join(format!("deltamod_system-{index}"))
+                    .join(game)
+                    .join(bundle)
+            }
             _ => return Err(invalid("invalid copy kind or destination")),
         };
         if !same_path(path, &expected) {
@@ -483,6 +493,16 @@ fn legacy_index(name: &str) -> Result<u32, RuntimeError> {
             *index <= MAX_LEGACY_INSTALLATION_INDEX && name == format!("deltamod_system-{index}")
         })
         .ok_or_else(|| invalid("invalid legacy profile index"))
+}
+
+/// A macOS application bundle name such as `DELTARUNE.app`: one path component.
+pub(super) fn valid_bundle_name(name: &str) -> bool {
+    name.len() > 4
+        && name.len() <= 128
+        && name.ends_with(".app")
+        && !name.starts_with('.')
+        && !name.contains(['/', '\\'])
+        && !name.chars().any(char::is_control)
 }
 
 #[cfg(test)]

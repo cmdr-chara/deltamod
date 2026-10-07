@@ -237,3 +237,119 @@ fn real_boundary_rediscovers_an_interrupted_workspace_after_restart() {
         .unwrap();
     assert!(fs::read_dir(workspace_root).unwrap().next().is_none());
 }
+
+#[test]
+fn persisted_roots_preserve_interrupted_generation_recovery() {
+    use deltamod_lifecycle_runtime::{
+        FaultInjector, FaultPoint, InjectedFault, JournalCheckpointKind, ManualClock,
+        StartupRecoveryOutcome,
+    };
+    use deltamod_product_contracts::MutationCheckpoint;
+    use std::sync::Arc;
+
+    struct CrashBeforeOutputCheckpoint;
+    impl FaultInjector for CrashBeforeOutputCheckpoint {
+        fn check(&mut self, point: &FaultPoint) -> Result<(), InjectedFault> {
+            if *point
+                == FaultPoint::BeforeJournalCas(JournalCheckpointKind::Mutation {
+                    index: 0,
+                    checkpoint: MutationCheckpoint::OutputVerified,
+                })
+            {
+                panic!("simulated process exit after publication");
+            }
+            Ok(())
+        }
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let game = root.path().join("game");
+    let work = root.path().join("work");
+    let store_root = root.path().join("store");
+    for path in [&game, &work, &store_root] {
+        fs::create_dir(path).unwrap();
+    }
+    fs::create_dir(game.join("mods")).unwrap();
+    let original = root.path().join("original");
+    let patched = root.path().join("patched");
+    fs::write(&original, b"original").unwrap();
+    fs::write(&patched, b"patched").unwrap();
+    let clock = ManualClock::new(1);
+    let store =
+        DurableLifecycleStore::open_with_clock(&store_root, Arc::new(clock.clone())).unwrap();
+    let mut workspace = OsLifecycleWorkspace::open(game.clone(), work.clone()).unwrap();
+    let recorded_root = workspace.transaction_root_identity().unwrap();
+    #[cfg(target_os = "macos")]
+    let recorded_root = {
+        let mut root = recorded_root;
+        // Emulate a journal recorded with a boot-local device number while the
+        // opened directory is identified by the new stable volume digest.
+        root.volume_id = "16777229".into();
+        root
+    };
+    workspace.bind_persisted_roots(&recorded_root, &[]).unwrap();
+    workspace
+        .register_artifact_source("original", &original)
+        .unwrap();
+    workspace
+        .register_artifact_source("patched", &patched)
+        .unwrap();
+    let mut runtime = ReleaseARuntime::new(store);
+    success(runtime.install(
+        install_plan(
+            "baseline",
+            "baseline",
+            LifecycleOperationKind::Install,
+            "baseline",
+            "original",
+            &digest(b"original"),
+            8,
+        ),
+        identity("baseline-lease", "baseline-generation"),
+        &mut workspace,
+    ));
+    runtime
+        .store_mut()
+        .set_fault_injector(CrashBeforeOutputCheckpoint);
+    let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime.update(
+            install_plan(
+                "interrupted",
+                "interrupted",
+                LifecycleOperationKind::Update,
+                "patched",
+                "patched",
+                &digest(b"patched"),
+                7,
+            ),
+            identity("patch-lease", "patch-generation"),
+            &mut workspace,
+        )
+    }));
+    assert!(crashed.is_err());
+    assert_eq!(fs::read(game.join("mods/a.dat")).unwrap(), b"patched");
+    drop(runtime);
+    drop(workspace);
+    clock.advance(120_000).unwrap();
+    let store =
+        DurableLifecycleStore::open_with_clock(&store_root, Arc::new(clock.clone())).unwrap();
+    let journals = store.journals().unwrap();
+    let mut workspace = OsLifecycleWorkspace::open(game.clone(), work).unwrap();
+    workspace
+        .bind_persisted_roots(&recorded_root, &journals)
+        .unwrap();
+    let mut runtime = ReleaseARuntime::new(store);
+    let outcomes = runtime.recover_startup_installation(
+        "restart-owner",
+        "game",
+        120_001,
+        60_000,
+        |_| "restart-lease".into(),
+        &mut workspace,
+    );
+    assert!(matches!(
+        outcomes.as_slice(),
+        [StartupRecoveryOutcome::Recovered { .. }]
+    ));
+    assert_eq!(fs::read(game.join("mods/a.dat")).unwrap(), b"original");
+}

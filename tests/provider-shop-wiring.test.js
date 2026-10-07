@@ -82,12 +82,13 @@ function downloadHarness(outcome) {
     window.deltamodBackend = { invoke: async (channel, args) => {
         expect(channel).toBe('dlmodURL');
         window.currentPageStack.qms[args[1]]({ progress: 42, downloaded: 42, total: 100 });
-        if (outcome instanceof Error) throw outcome;
+        if (outcome instanceof Error || typeof outcome === 'string') throw outcome;
         return outcome;
     } };
     const action = renderer.slice(renderer.indexOf('async function dlmod('), renderer.indexOf('window.currentPageStack.dlmod ='));
     expect(action).toContain('finally');
-    const dlmod = runInNewContext('let gameBananaDownloadActive = false; let pageActive = true; ' + action + '; dlmod', {
+    const describeError = renderer.slice(renderer.indexOf('function describeError('), renderer.indexOf('function gameSupportsProvider('));
+    const dlmod = runInNewContext('let gameBananaDownloadActive = false; let pageActive = true; ' + describeError + action + '; dlmod', {
         window, document: { querySelectorAll: () => buttons },
         isCurrentShopPage: () => state.current,
         setDownloadButtonIcon: (button, icon) => icons.push(icon),
@@ -122,12 +123,13 @@ describe('mod download completion and retry', () => {
         expect(Object.keys(h.window.currentPageStack.qms)).toEqual([]);
     });
     it('shows errors and malformed acknowledgements without disabling retry', async () => {
-        for (const outcome of [null, undefined, new Error('Archive rejected')]) {
+        for (const outcome of [null, undefined, new Error('Archive rejected'), 'ARCHIVE_UNSUPPORTED: RAR archives are not supported']) {
             const h = downloadHarness(outcome);
             expect(await h.dlmod('https://gamebanana.com/mmdl/1', h.button, 1, 'Mod')).toBe(false);
             expect(h.phases.at(-1)).toBe('failed');
             expect(h.phases).not.toContain('complete');
             expect(h.alerts).toHaveLength(1);
+            if (typeof outcome === 'string') expect(h.alerts[0][1]).toBe(outcome);
             expect(h.button.disabled).toBe(false);
         }
     });
@@ -139,5 +141,32 @@ describe('mod download completion and retry', () => {
         expect(h.phases).not.toContain('complete');
         expect(Object.keys(h.window.currentPageStack.qms)).toEqual([]);
         expect(h.buttons.map(b => b.disabled)).toEqual([false, true]);
+    });
+});
+
+describe('GameBanana download eligibility', () => {
+    const { runInNewContext } = require('node:vm');
+    const source = renderer.slice(
+        renderer.indexOf('const GAMEBANANA_DELTAMOD_TOOL_ID'),
+        renderer.indexOf('// Tauri rejects invokes')
+    );
+    const eligible = runInNewContext(source + '; eligibleGameBananaDownloads');
+    const file = (id, ...tools) => ({
+        _idRow: id,
+        _sDownloadUrl: `https://gamebanana.com/dl/${id}`,
+        _aModManagerIntegrations: tools.map(tool => ({ _idToolRow: tool }))
+    });
+
+    it('prefers Deltamod packages when a mod offers both', () => {
+        const files = [file(1, 20615), file(2, 20575, 20615)];
+        expect(eligible(files).map(f => f._idRow)).toEqual([2]);
+    });
+    it('falls back to Deltahub packages for Deltahub-only mods', () => {
+        expect(eligible([file(1, 20615), file(2)]).map(f => f._idRow)).toEqual([1]);
+    });
+    it('ignores files without integrations or download URLs', () => {
+        const broken = { _idRow: 3, _aModManagerIntegrations: [{ _idToolRow: 20575 }] };
+        expect(eligible([file(1), broken, { _idRow: 4 }])).toEqual([]);
+        expect(eligible(undefined)).toEqual([]);
     });
 });

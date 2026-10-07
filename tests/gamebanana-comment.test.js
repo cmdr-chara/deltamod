@@ -33,3 +33,23 @@ describe('GameBanana comment requests', () => {
         expect(() => normalizeCommentTarget(0, 'Mod')).toThrow();
     });
 });
+
+describe('GameBanana comment responses', () => {
+    const { readFileSync } = require('node:fs');
+    const { runInNewContext } = require('node:vm');
+    const page = readFileSync(require('node:path').join(__dirname, '../web/views/gamebanana-leave-comment/index.js'), 'utf8');
+    const source = page.slice(page.indexOf('async function readGameBananaJson('), page.indexOf('function commentErrorMessage('));
+    const read = runInNewContext(source + '; readGameBananaJson');
+    const response = text => ({ text: async () => text });
+
+    it('parses clean JSON', async () => {
+        expect(await read(response('{"_aRecords":[1]}'))).toEqual({ _aRecords: [1] });
+    });
+    it('skips PHP warnings that GameBanana prints before the body', async () => {
+        const body = '\n<b>Warning</b>: Undefined array key "images" in Cacher.php on line 87\n{\n    "_aRecords": [{"_idRow": 5}]\n}';
+        expect(await read(response(body))).toEqual({ _aRecords: [{ _idRow: 5 }] });
+    });
+    it('reports a response with no JSON body', async () => {
+        await expect(read(response('Warning: database offline'))).rejects.toThrow('unreadable');
+    });
+});

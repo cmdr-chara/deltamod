@@ -147,6 +147,8 @@
         'toggleModState',
         'undertaleModTool:choose',
         'undertaleModTool:status',
+        'referenceFiles:status',
+        'referenceFiles:choose',
         'updater-status',
         'validateGamebananaToken',
         'version'
@@ -301,6 +303,8 @@
         tools: Object.freeze({
             undertaleModToolStatus: () => invoke('undertaleModTool:status'),
             chooseUndertaleModTool: () => invoke('undertaleModTool:choose'),
+            referenceFilesStatus: () => invoke('referenceFiles:status'),
+            chooseReferenceFiles: () => invoke('referenceFiles:choose')
         }),
         modSources: Object.freeze({
             providers: () => invoke('modSources:getProviders'),

@@ -37,7 +37,6 @@ const REQUIRED_FILES = Object.freeze([
     'LICENSE',
     'SECURITY.md',
     'THIRD_PARTY_NOTICES.md',
-    'GameSpecificData',
     'licenses'
 ]);
 

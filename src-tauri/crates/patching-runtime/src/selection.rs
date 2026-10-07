@@ -38,6 +38,26 @@ pub(super) fn resolve(
     if selected.is_empty() {
         return Ok(Vec::new());
     }
+    let mut found = available_roots(runtime, selected)?;
+    let wanted_count = selected.iter().collect::<HashSet<_>>().len();
+    if found.len() != wanted_count || found.values().any(Option::is_none) {
+        return Err(Error::SelectionUnavailable);
+    }
+    let mut ordered = Vec::with_capacity(wanted_count);
+    for id in selected {
+        if let Some(Some(root)) = found.remove(id) {
+            ordered.push((id.clone(), root));
+        }
+    }
+    Ok(ordered)
+}
+
+/// Bounded catalogue lookup for hash-only callers, who may include identities
+/// without stored packets. Ambiguous identities cannot supply patch metadata.
+pub(super) fn available_roots(
+    runtime: &Runtime,
+    selected: &[String],
+) -> Result<HashMap<String, Option<PathBuf>>, Error> {
     require_directory(&runtime.mod_root, Error::ModStoreUnavailable)?;
     let wanted = selected.iter().map(String::as_str).collect::<HashSet<_>>();
     let mut found = HashMap::new();
@@ -57,22 +77,14 @@ pub(super) fn resolve(
         else {
             continue;
         };
-        if wanted.contains(identity.unique_id.as_str())
-            && found.insert(identity.unique_id, root).is_some()
-        {
-            return Err(Error::SelectionUnavailable);
+        if wanted.contains(identity.unique_id.as_str()) {
+            found
+                .entry(identity.unique_id)
+                .and_modify(|root| *root = None)
+                .or_insert(Some(root));
         }
     }
-    if found.len() != wanted.len() {
-        return Err(Error::SelectionUnavailable);
-    }
-    let mut ordered = Vec::with_capacity(wanted.len());
-    for id in selected {
-        if let Some(root) = found.remove(id) {
-            ordered.push((id.clone(), root));
-        }
-    }
-    Ok(ordered)
+    Ok(found)
 }
 
 fn relative_name(value: &str) -> Result<String, Error> {
@@ -178,6 +190,7 @@ mod tests {
             mod_root: temp.path().join("mods"),
             tools_root: temp.path().join("absent-tools"),
             hash_cache_path: temp.path().join("hashes.json"),
+            reference_root: None,
             platform: PatchPlatform::Linux,
             platform_name: "linux".into(),
             arch: "x64".into(),
@@ -318,7 +331,13 @@ mod tests {
         let (_temp, runtime) = fixture();
         let root = packet(&runtime, "one", "one", "one.bin");
         assert!(runtime.packet_staging_readiness("one").is_ok());
-        for kind in ["xdelta", "g3mpatch", "csx"] {
+        // This fixture packages no tools: G3MTool mods report the missing tool,
+        // UndertaleModCli scripts stay unsupported. Neither reads the patch.
+        for (kind, code) in [
+            ("xdelta", StagingErrorCode::ToolUnavailable),
+            ("g3mpatch", StagingErrorCode::ToolUnavailable),
+            ("csx", StagingErrorCode::SandboxUnavailable),
+        ] {
             fs::write(
                 root.join("modding.xml"),
                 format!(r#"<patch type="{kind}" patch="absent.csx" to="one.bin"/>"#),
@@ -326,14 +345,14 @@ mod tests {
             .unwrap();
             assert_eq!(
                 runtime.packet_staging_readiness("one").unwrap_err().code(),
-                StagingErrorCode::SandboxUnavailable
+                code
             );
             assert_eq!(
                 runtime
                     .stage_patch_outputs(&["one".into()], "check", |_| {}, || false)
                     .unwrap_err()
                     .code(),
-                StagingErrorCode::SandboxUnavailable
+                code
             );
         }
         assert!(runtime.packet_staging_readiness("../one").is_err());

@@ -1,6 +1,7 @@
 use crate::{error, state::AppState};
 use deltamod_archive_import_runtime::{
-    import_archive_with_source, DuplicateDecision, ImportError, LegacySourceMetadata, Limits,
+    import_archive_with_resolver, DuplicateDecision, ImportError, LegacySourceMetadata, Limits,
+    RawPackage, RawPlan, MAX_CHAPTER, ROOT_DATA,
 };
 use deltamod_game_download_runtime::CancellationToken;
 use deltamod_network_runtime::import_download::{
@@ -35,6 +36,7 @@ fn valid_operation_id(value: &str) -> bool {
 }
 
 fn emit_download_error(app: &AppHandle, operation_id: &str, message: &str) {
+    eprintln!("[dlmodURL] operation {operation_id} failed: {message}");
     let _ = app.emit(
         "dlmodURL-progress",
         json!({
@@ -76,6 +78,103 @@ fn duplicate_decision<D: ChoiceBackend>(
     }
 }
 
+fn chapter_label(chapter: u8) -> String {
+    if chapter == ROOT_DATA {
+        "Chapter select (root data.win)".to_owned()
+    } else {
+        format!("Chapter {chapter}")
+    }
+}
+
+/// Builds the manifest plan for a Deltahub package. Patches whose file name
+/// names a chapter are taken as-is; otherwise the user confirms the chapter,
+/// with the README's chapter offered first.
+fn raw_package_plan<D: ChoiceBackend>(
+    dialogs: &D,
+    package: &RawPackage,
+    source: Option<&LegacySourceMetadata>,
+) -> Result<Option<RawPlan>, String> {
+    let mut chapters = Vec::with_capacity(package.patches.len());
+    for patch in &package.patches {
+        if let Some(chapter) = patch.chapter_from_name {
+            chapters.push(chapter);
+            continue;
+        }
+        let suggested = package.suggested_chapter(patch);
+        let mut options = suggested.into_iter().collect::<Vec<_>>();
+        options.extend(
+            (1..=MAX_CHAPTER)
+                .chain([ROOT_DATA])
+                .filter(|c| Some(*c) != suggested),
+        );
+        let file_name = patch.path.rsplit('/').next().unwrap_or(&patch.path);
+        let hint = match suggested {
+            Some(chapter) => format!(
+                "Its README points to {}, so that is offered first.",
+                chapter_label(chapter)
+            ),
+            None => "Check the mod's GameBanana page if you are unsure.".to_owned(),
+        };
+        let message = format!(
+            "This mod was packaged for Deltahub and does not say which chapter \"{file_name}\" patches.\n\n{hint}\n\nWhich chapter does it patch?"
+        );
+        let labels = options
+            .iter()
+            .copied()
+            .map(chapter_label)
+            .collect::<Vec<_>>();
+        match dialogs
+            .choose("Choose the mod's chapter", &message, &labels)
+            .map_err(|_| error::internal())?
+        {
+            Some(index) => chapters.push(*options.get(index).ok_or_else(error::internal)?),
+            None => return Ok(None),
+        }
+    }
+
+    let first_stem = package
+        .patches
+        .first()
+        .map(|patch| patch.path.rsplit('/').next().unwrap_or(&patch.path))
+        .and_then(|name| name.rsplit_once('.').map(|(stem, _)| stem))
+        .unwrap_or("mod");
+    let name = first_stem
+        .split(['_', '-', ' '])
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let mut chars = word.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().chain(chars).collect::<String>())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let safe_id = |text: &str| {
+        text.chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+            .take(64)
+            .collect::<String>()
+            .to_ascii_lowercase()
+    };
+    let package_id = match source.map(|source| safe_id(&source.gamebanana_id)) {
+        Some(id) if !id.is_empty() => format!("gb.{id}"),
+        _ => {
+            let stem = safe_id(first_stem);
+            format!("local.{}", if stem.is_empty() { "mod" } else { &stem })
+        }
+    };
+    Ok(Some(RawPlan {
+        package_id,
+        name: if name.is_empty() {
+            "Imported mod".into()
+        } else {
+            name
+        },
+        chapters,
+    }))
+}
+
 pub(crate) fn run_import<D: ChoiceBackend, C: Fn() -> bool>(
     dialogs: &D,
     archive: &std::path::Path,
@@ -84,7 +183,7 @@ pub(crate) fn run_import<D: ChoiceBackend, C: Fn() -> bool>(
     cancelled: C,
 ) -> Result<Value, String> {
     let choice_error = RefCell::new(None);
-    let result = import_archive_with_source(
+    let result = import_archive_with_resolver(
         archive,
         packet_root,
         Limits::default(),
@@ -95,6 +194,13 @@ pub(crate) fn run_import<D: ChoiceBackend, C: Fn() -> bool>(
             Err(message) => {
                 *choice_error.borrow_mut() = Some(message);
                 DuplicateDecision::Cancel
+            }
+        },
+        |package| match raw_package_plan(dialogs, package, source) {
+            Ok(plan) => plan,
+            Err(message) => {
+                *choice_error.borrow_mut() = Some(message);
+                None
             }
         },
     );
@@ -949,6 +1055,51 @@ mod tests {
         fn choose(&self, _: &str, _: &str, _: &[String]) -> Result<Option<usize>, AdapterError> {
             Ok(self.0)
         }
+    }
+
+    fn raw_package(name_chapter: Option<u8>, readme_chapter: Option<u8>) -> RawPackage {
+        RawPackage {
+            patches: vec![deltamod_archive_import_runtime::RawPatch {
+                path: "kaizo_knight.xdelta".into(),
+                chapter_from_name: name_chapter,
+            }],
+            music: Vec::new(),
+            chapter_from_readme: readme_chapter,
+        }
+    }
+
+    #[test]
+    fn raw_package_prompt_offers_the_readme_chapter_first() {
+        let source = LegacySourceMetadata::new("662826", "Mod").unwrap();
+        let plan = raw_package_plan(
+            &TestDialogs(Some(0)),
+            &raw_package(None, Some(3)),
+            Some(&source),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(plan.chapters, [3]);
+        assert_eq!(plan.package_id, "gb.662826");
+        assert_eq!(plan.name, "Kaizo Knight");
+        // Without a hint the list starts at Chapter 1; cancelling cancels the import.
+        let plan = raw_package_plan(&TestDialogs(Some(1)), &raw_package(None, None), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(plan.chapters, [2]);
+        assert_eq!(plan.package_id, "local.kaizo_knight");
+        assert_eq!(
+            raw_package_plan(&TestDialogs(None), &raw_package(None, Some(3)), None).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn raw_package_named_patches_skip_the_prompt() {
+        // TestDialogs(None) would cancel if asked, so a plan proves no prompt appeared.
+        let plan = raw_package_plan(&TestDialogs(None), &raw_package(Some(4), Some(3)), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(plan.chapters, [4]);
     }
 
     #[test]

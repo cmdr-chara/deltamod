@@ -6,7 +6,7 @@ use crate::{
     DurableMutationGuard, LifecycleWorkspace, StagingSource, WorkspaceRoots,
 };
 use deltamod_product_contracts::{
-    FilesystemBoundaryError, LifecycleFilesystemBoundary, LifecycleMutationGuard,
+    FilesystemBoundaryError, LifecycleFilesystemBoundary, LifecycleJournal, LifecycleMutationGuard,
     MutationFenceError, ObservationSnapshot, ObservedFileState, PublicationReceipt,
     RootBoundObservation, RootIdentity, ValidatedMutationReconciliation,
     ValidatedMutationTransition, ValidatedRelativePath,
@@ -29,7 +29,7 @@ use std::{
 use crate::store_identity::{
     configure_no_follow, inspect_opened, verify_opened_path, IdentityError, StableObjectIdentity,
 };
-use crate::store_identity::{inspect_path, StoreObjectKind};
+use crate::store_identity::{inspect_path, is_legacy_mac_volume_id, StoreObjectKind};
 
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const WORKSPACE_MARKER: &str = ".deltamod-workspace.json";
@@ -192,6 +192,62 @@ impl OsLifecycleWorkspace {
             #[cfg(unix)]
             workspace_root_pin,
         })
+    }
+
+    /// Matches a recorded root to this opened, pinned game directory. Legacy
+    /// macOS device numbers are boot-local, so compatibility additionally binds
+    /// the canonical path and inode; stable volume identities still match exactly.
+    pub fn matches_persisted_transaction_root(&self, expected: &RootIdentity) -> bool {
+        same_persisted_root(expected, &self.transaction_identity)
+    }
+
+    /// Retain the validated journal identities while the directory pins continue
+    /// to enforce the current filesystem objects. This avoids rewriting recovery
+    /// contracts or losing legacy leases during the macOS identity transition.
+    pub fn bind_persisted_roots(
+        &mut self,
+        transaction_root: &RootIdentity,
+        journals: &[LifecycleJournal],
+    ) -> Result<(), FilesystemBoundaryError> {
+        let current = self.transaction_root_identity()?;
+        if !same_persisted_root(transaction_root, &current) {
+            return Err(FilesystemBoundaryError::RootIdentityChanged);
+        }
+        for journal in journals {
+            if !same_persisted_root(&journal.transaction_root, &current)
+                || &journal.transaction_root != transaction_root
+                || journals
+                    .first()
+                    .is_some_and(|first| journal.installation_id != first.installation_id)
+            {
+                return Err(FilesystemBoundaryError::RootIdentityChanged);
+            }
+            if let Some(workspace) = self.active.get_mut(&journal.operation_id) {
+                if !same_persisted_root(&journal.staging_root, &workspace.roots.staging)
+                    || !same_persisted_root(&journal.backup_root, &workspace.roots.backup)
+                {
+                    return Err(FilesystemBoundaryError::RootIdentityChanged);
+                }
+                workspace.roots = WorkspaceRoots {
+                    transaction: journal.transaction_root.clone(),
+                    staging: journal.staging_root.clone(),
+                    backup: journal.backup_root.clone(),
+                };
+            }
+            if let Some(backup) = self
+                .recovery_backups
+                .get_mut(&journal.recovery_generation_id)
+            {
+                if backup.operation_id != journal.operation_id
+                    || !same_persisted_root(&journal.backup_root, &backup.identity)
+                {
+                    return Err(FilesystemBoundaryError::RootIdentityChanged);
+                }
+                backup.identity = journal.backup_root.clone();
+            }
+        }
+        self.transaction_identity = transaction_root.clone();
+        Ok(())
     }
 
     pub fn register_artifact_source(
@@ -1401,6 +1457,16 @@ fn ensure_marker_shell(
     Ok(())
 }
 
+fn same_persisted_root(expected: &RootIdentity, current: &RootIdentity) -> bool {
+    expected == current
+        || (expected
+            .volume_id
+            .parse::<u128>()
+            .is_ok_and(is_legacy_mac_volume_id)
+            && expected.canonical_path_sha256 == current.canonical_path_sha256
+            && expected.file_id == current.file_id)
+}
+
 fn root_identity(path: &Path) -> Result<RootIdentity, FilesystemBoundaryError> {
     let canonical = canonical_directory(path)?;
     let identity = inspect_path(&canonical, StoreObjectKind::Directory).map_err(map_identity)?;
@@ -1724,4 +1790,51 @@ fn is_reparse(metadata: &fs::Metadata) -> bool {
 #[cfg(unix)]
 fn is_reparse(_metadata: &fs::Metadata) -> bool {
     false
+}
+
+#[cfg(test)]
+mod persisted_root_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_root_matching_requires_the_same_path_and_file_on_macos_only() {
+        let current = RootIdentity {
+            canonical_path_sha256: "a".repeat(64),
+            volume_id: (1_u128 << 127 | 7).to_string(),
+            file_id: "42".into(),
+        };
+        assert!(same_persisted_root(&current, &current));
+        let mut legacy = current.clone();
+        legacy.volume_id = "16777229".into();
+        assert_eq!(
+            same_persisted_root(&legacy, &current),
+            cfg!(target_os = "macos")
+        );
+        legacy.canonical_path_sha256 = "b".repeat(64);
+        assert!(!same_persisted_root(&legacy, &current));
+        legacy.canonical_path_sha256 = current.canonical_path_sha256.clone();
+        legacy.file_id = "43".into();
+        assert!(!same_persisted_root(&legacy, &current));
+        let mut other_volume = current.clone();
+        other_volume.volume_id = (1_u128 << 127 | 8).to_string();
+        assert!(!same_persisted_root(&other_volume, &current));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn binding_a_legacy_root_still_rejects_replacement_of_the_opened_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("game");
+        let work = root.path().join("work");
+        fs::create_dir(&game).unwrap();
+        fs::create_dir(&work).unwrap();
+        let mut workspace = OsLifecycleWorkspace::open(game.clone(), work).unwrap();
+        let mut legacy = workspace.transaction_root_identity().unwrap();
+        legacy.volume_id = "16777229".into();
+        workspace.bind_persisted_roots(&legacy, &[]).unwrap();
+        assert_eq!(workspace.transaction_root_identity().unwrap(), legacy);
+        fs::rename(&game, root.path().join("previous-game")).unwrap();
+        fs::create_dir(&game).unwrap();
+        assert!(workspace.transaction_root_identity().is_err());
+    }
 }

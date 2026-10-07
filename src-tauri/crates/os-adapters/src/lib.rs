@@ -41,6 +41,9 @@ impl std::error::Error for AdapterError {}
 pub enum DialogKind {
     File,
     Folder,
+    /// A macOS application bundle (`*.app`). Folder pickers cannot select
+    /// bundles, so this uses a file picker that treats them as single items.
+    AppBundle,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -100,6 +103,17 @@ impl DialogRequest {
             filters: Vec::new(),
         }
     }
+    pub fn app_bundle(title: impl Into<String>) -> Self {
+        Self {
+            kind: DialogKind::AppBundle,
+            title: title.into(),
+            default_path: Some(PathBuf::from("/Applications")),
+            filters: vec![DialogFilter {
+                name: "Application".into(),
+                extensions: vec!["app".into()],
+            }],
+        }
+    }
 
     pub fn filter(mut self, filter: DialogFilter) -> Self {
         self.filters.push(filter);
@@ -134,6 +148,12 @@ pub fn validate_dialog_selection(
     let expected_type = match request.kind {
         DialogKind::File => metadata.is_file(),
         DialogKind::Folder => metadata.is_dir(),
+        DialogKind::AppBundle => {
+            metadata.is_dir()
+                && selected
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("app"))
+        }
     };
     if !expected_type {
         return Err(AdapterError::InvalidSelection);
@@ -397,7 +417,7 @@ pub mod tauri_adapter {
                 builder = builder.add_filter(&filter.name, &extensions);
             }
             let selected = match request.kind {
-                DialogKind::File => builder.blocking_pick_file(),
+                DialogKind::File | DialogKind::AppBundle => builder.blocking_pick_file(),
                 DialogKind::Folder => builder.blocking_pick_folder(),
             };
             selected
@@ -480,6 +500,23 @@ mod tests {
             Some("C:\\Delta".into())
         );
     }
+    #[test]
+    fn app_bundle_selection_requires_an_app_directory() {
+        let root = std::env::temp_dir().join(format!("deltamod-app-bundle-{}", std::process::id()));
+        let app = root.join("DELTARUNE.app");
+        fs::create_dir_all(&app).unwrap();
+        fs::create_dir_all(root.join("Folder")).unwrap();
+        fs::write(root.join("file.app"), b"not a bundle").unwrap();
+        let request = DialogRequest::app_bundle("Choose the game app");
+        assert_eq!(
+            validate_dialog_selection(&request, &app).unwrap(),
+            fs::canonicalize(&app).unwrap()
+        );
+        assert!(validate_dialog_selection(&request, root.join("Folder")).is_err());
+        assert!(validate_dialog_selection(&request, root.join("file.app")).is_err());
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn folder_must_be_canonical_child_of_approved_root() {
         let root = std::env::temp_dir().join(format!("deltamod-adapter-{}", std::process::id()));

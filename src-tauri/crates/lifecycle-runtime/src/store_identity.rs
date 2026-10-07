@@ -199,9 +199,53 @@ fn stable_opened_identity(
         return Err(IdentityError::Unsafe);
     }
     Ok(StableObjectIdentity {
-        volume_id: u128::from(metadata.dev()),
+        volume_id: unix_volume_id(file, &metadata),
         file_id: u128::from(metadata.ino()),
     })
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn unix_volume_id(_file: &File, metadata: &Metadata) -> u128 {
+    use std::os::unix::fs::MetadataExt as _;
+
+    u128::from(metadata.dev())
+}
+
+/// macOS numbers volumes (`st_dev`, `f_fsid`) as they are mounted, so the same
+/// volume can get a different number after a restart and persisted identities
+/// would no longer match. The mount point is stable, so identify the volume by
+/// a digest of it instead.
+#[cfg(target_os = "macos")]
+fn unix_volume_id(file: &File, metadata: &Metadata) -> u128 {
+    use sha2::{Digest as _, Sha256};
+    use std::os::unix::fs::MetadataExt as _;
+
+    let Ok(stat) = rustix::fs::fstatfs(file) else {
+        return u128::from(metadata.dev());
+    };
+    let mount: Vec<u8> = stat
+        .f_mntonname
+        .iter()
+        .take_while(|byte| **byte != 0)
+        .map(|byte| *byte as u8)
+        .collect();
+    let digest = Sha256::digest(&mount);
+    let mut id = [0_u8; 16];
+    id.copy_from_slice(&digest[..16]);
+    // Never collide with a raw device number written by an earlier version.
+    u128::from_be_bytes(id) | (1 << 127)
+}
+
+/// Device numbers written before macOS volume ids were mount-point digests.
+/// They are only meaningful within the boot that recorded them.
+#[cfg(target_os = "macos")]
+pub(crate) fn is_legacy_mac_volume_id(volume_id: u128) -> bool {
+    volume_id <= u128::from(u64::MAX)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn is_legacy_mac_volume_id(_volume_id: u128) -> bool {
+    false
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -431,5 +475,21 @@ mod tests {
             inspect_path(&symlink_path, StoreObjectKind::RegularFile),
             Err(IdentityError::Unsafe)
         ));
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod mac_volume_tests {
+    use super::*;
+
+    #[test]
+    fn mac_volume_ids_are_stable_digests_not_device_numbers() {
+        let dir = std::env::temp_dir();
+        let file = File::open(&dir).unwrap();
+        let first = stable_opened_identity(&file, StoreObjectKind::Directory).unwrap();
+        let again =
+            stable_opened_identity(&File::open(&dir).unwrap(), StoreObjectKind::Directory).unwrap();
+        assert_eq!(first, again);
+        assert!(!is_legacy_mac_volume_id(first.volume_id));
     }
 }

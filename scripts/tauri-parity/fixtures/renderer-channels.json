@@ -107,6 +107,8 @@
     "openInstallationFolder",
     "undertaleModTool:status",
     "undertaleModTool:choose",
+    "referenceFiles:status",
+    "referenceFiles:choose",
     "openSysFolder",
     "openModFolder",
     "getUniqueFlag",
