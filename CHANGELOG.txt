@@ -1,3 +1,13 @@
+# Deltamod Community 2.0.25
+
+Released 2026-10-07.
+
+## Changes
+
+- fix(release): isolate ad-hoc macOS signing from certificate import [stable-release] (`c3009fb`).
+- fix(release): remove platform publisher signing paths [stable-release] (`dfe98d3`).
+- test: align installer checks with certificate-free release [stable-release] (`3b32b91`).
+
 # Deltamod Community 2.0.18
 
 Planned stable release.
