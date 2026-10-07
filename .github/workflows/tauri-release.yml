@@ -42,8 +42,6 @@ jobs:
       unsigned_preview: ${{ steps.release.outputs.unsigned_preview }}
       validation: ${{ steps.release.outputs.validation }}
       candidate_sha: ${{ steps.release.outputs.candidate_sha }}
-      windows_signing: ${{ steps.signing.outputs.windows_signing }}
-      macos_signing: ${{ steps.signing.outputs.macos_signing }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -183,48 +181,17 @@ jobs:
           echo "unsigned_preview=$unsigned_preview" >> "$GITHUB_OUTPUT"
           echo "validation=$validation" >> "$GITHUB_OUTPUT"
           echo "candidate_sha=$candidate_sha" >> "$GITHUB_OUTPUT"
-      - name: Require updater signing and select optional publisher signing
-        id: signing
+      - name: Require updater signing credentials
         if: steps.release.outputs.unsigned_preview != 'true'
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          required=(
-            TAURI_SIGNING_PRIVATE_KEY
-            TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-          )
+          required=(TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD)
           for name in "${required[@]}"; do
             test -n "${!name:-}" || { printf 'Missing required release credential: %s\n' "$name" >&2; exit 1; }
-          done
-          # Publisher identity is optional; updater authenticity is not. A
-          # partially configured publisher must fail, never silently downgrade.
-          for platform in windows macos; do
-            if [ "$platform" = windows ]; then
-              credentials=(WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD)
-            else
-              credentials=(APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID)
-            fi
-            configured=false
-            for name in "${credentials[@]}"; do
-              if [ -n "${!name:-}" ]; then configured=true; fi
-            done
-            if [ "$configured" = true ]; then
-              for name in "${credentials[@]}"; do
-                test -n "${!name:-}" || { printf 'Incomplete %s publisher signing: missing %s\n' "$platform" "$name" >&2; exit 1; }
-              done
-            fi
-            echo "${platform}_signing=$configured" >> "$GITHUB_OUTPUT"
           done
       - run: cargo fmt --all --check --manifest-path native/Cargo.toml
       - run: cargo clippy --workspace --all-targets --locked --manifest-path native/Cargo.toml -- -D warnings
@@ -334,68 +301,13 @@ jobs:
           config="$RUNNER_TEMP/deltamod-platform-signing.json"
           if [ "${{ needs.validate.outputs.unsigned_preview }}" = true ]; then
             printf '%s\n' '{"bundle":{"createUpdaterArtifacts":false}}' > "$config"
-          elif [ "$RUNNER_OS" = macOS ] && [ "${{ needs.validate.outputs.macos_signing }}" != true ]; then
-            # Ad-hoc signing supports Apple Silicon without claiming Apple trust.
-            # Leave createUpdaterArtifacts enabled by the platform config.
+          elif [ "$RUNNER_OS" = macOS ]; then
             printf '%s\n' '{"bundle":{"macOS":{"signingIdentity":"-"}}}' > "$config"
             echo 'APPLE_SIGNING_IDENTITY=-' >> "$GITHUB_ENV"
           else
             printf '%s\n' '{}' > "$config"
           fi
           printf 'TAURI_PLATFORM_SIGNING_CONFIG=%s\n' "$config" >> "$GITHUB_ENV"
-      - name: Import Windows publisher certificate
-        if: runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $pfxPath = Join-Path $env:RUNNER_TEMP 'deltamod-publisher.pfx'
-          try {
-            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
-            $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
-            $imported = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation 'Cert:\CurrentUser\My' -Password $password
-            $certificate = $imported | Where-Object {
-              $_.HasPrivateKey -and ($_.EnhancedKeyUsageList.ObjectId.Value -contains '1.3.6.1.5.5.7.3.3')
-            } | Select-Object -First 1
-            if (-not $certificate) { throw 'The imported PFX has no code-signing private key.' }
-            [ordered]@{
-              bundle = [ordered]@{
-                windows = [ordered]@{
-                  certificateThumbprint = $certificate.Thumbprint
-                  digestAlgorithm = 'sha256'
-                  timestampUrl = 'http://timestamp.digicert.com'
-                }
-              }
-            } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $env:TAURI_PLATFORM_SIGNING_CONFIG -Encoding utf8
-            "DELTAMOD_WINDOWS_CERT_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          }
-          finally {
-            if (Test-Path -LiteralPath $pfxPath) { Remove-Item -LiteralPath $pfxPath -Force }
-          }
-      - name: Import Apple Developer ID certificate
-        if: runner.os == 'macOS' && needs.validate.outputs.macos_signing == 'true'
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          set -euo pipefail
-          certificate="$RUNNER_TEMP/deltamod-developer-id.p12"
-          keychain="$RUNNER_TEMP/deltamod-release.keychain-db"
-          trap 'rm -f -- "$certificate"' EXIT
-          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
-          security default-keychain -s "$keychain"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
-          security set-keychain-settings -t 3600 -u "$keychain"
-          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
-          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -n 1)"
-          test -n "$identity" || { printf '%s\n' 'No Developer ID Application identity was imported.' >&2; exit 1; }
-          printf 'APPLE_SIGNING_IDENTITY=%s\n' "$identity" >> "$GITHUB_ENV"
       - name: Build Windows update-capable bundle
         if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
@@ -406,24 +318,8 @@ jobs:
         with:
           projectPath: .
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config ${{ env.TAURI_PLATFORM_SIGNING_CONFIG }}
-      - name: Build Developer ID-signed update-capable bundle
-        if: runner.os == 'macOS' && needs.validate.outputs.unsigned_preview != 'true' && needs.validate.outputs.macos_signing == 'true'
-        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        with:
-          projectPath: .
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config ${{ env.TAURI_PLATFORM_SIGNING_CONFIG }}
       - name: Build ad-hoc macOS update-capable bundle
-        if: runner.os == 'macOS' && needs.validate.outputs.unsigned_preview != 'true' && needs.validate.outputs.macos_signing != 'true'
+        if: runner.os == 'macOS' && needs.validate.outputs.unsigned_preview != 'true'
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -455,33 +351,8 @@ jobs:
       - name: Verify unsigned preview package
         if: needs.validate.outputs.unsigned_preview == 'true'
         run: node scripts/verify-tauri-package.js "src-tauri/target/${{ matrix.target }}/release/bundle" "${{ matrix.target }}" --unsigned
-      - name: Verify Windows publisher signatures
-        if: runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $targets = @(
-            Get-Item -LiteralPath "src-tauri/target/${{ matrix.target }}/release/deltamod-tauri-shell.exe"
-            Get-ChildItem -LiteralPath "src-tauri/target/${{ matrix.target }}/release/bundle/nsis" -Filter '*.exe' -File | Select-Object -First 1
-          )
-          if ($targets.Count -ne 2 -or $targets -contains $null) { throw 'Windows signing targets are incomplete.' }
-          foreach ($target in $targets) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $target.FullName
-            if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $env:DELTAMOD_WINDOWS_CERT_THUMBPRINT) {
-              throw "Publisher signature verification failed for $($target.Name)."
-            }
-          }
-      - name: Verify macOS signature and notarization
-        if: runner.os == 'macOS' && needs.validate.outputs.macos_signing == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          app="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Deltamod Community.app"
-          codesign --verify --deep --strict --verbose=2 "$app"
-          spctl --assess --type execute --verbose=2 "$app"
-          xcrun stapler validate "$app"
-      - name: Verify Windows packages without publisher signing
-        if: runner.os == 'Windows' && needs.validate.outputs.windows_signing != 'true'
+      - name: Verify Windows packages are publisher-unsigned
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -496,8 +367,8 @@ jobs:
               throw "Publisher-unsigned artifact $($target.Name) unexpectedly has signature status $($signature.Status)."
             }
           }
-      - name: Verify macOS packages without Developer ID
-        if: runner.os == 'macOS' && needs.validate.outputs.macos_signing != 'true'
+      - name: Verify macOS packages use no Developer ID
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
@@ -692,23 +563,8 @@ jobs:
       - name: Build Deltamod-themed setup shell
         if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
         run: npm run build:installer
-      - name: Sign and verify Deltamod-themed setup shell
-        if: runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $signtool = Get-ChildItem -LiteralPath "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter 'signtool.exe' -File -Recurse |
-            Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $signtool) { throw 'signtool.exe was not found.' }
-          $setup = (Resolve-Path -LiteralPath 'dist/Deltamod Community Setup.exe').Path
-          & $signtool.FullName sign /sha1 $env:DELTAMOD_WINDOWS_CERT_THUMBPRINT /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /v $setup
-          if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit code $LASTEXITCODE" }
-          $signature = Get-AuthenticodeSignature -LiteralPath $setup
-          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $env:DELTAMOD_WINDOWS_CERT_THUMBPRINT) {
-            throw 'The branded setup publisher signature is invalid.'
-          }
-      - name: Verify branded setup without publisher signing
-        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true' && needs.validate.outputs.windows_signing != 'true'
+      - name: Verify branded setup is publisher-unsigned
+        if: runner.os == 'Windows' && needs.validate.outputs.unsigned_preview != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -837,20 +693,13 @@ jobs:
       - name: Disclose release signing status
         if: needs.validate.outputs.unsigned_preview != 'true'
         shell: bash
-        env:
-          WINDOWS_SIGNING: ${{ needs.validate.outputs.windows_signing }}
-          MACOS_SIGNING: ${{ needs.validate.outputs.macos_signing }}
         run: |
           set -euo pipefail
           {
             printf '\n## Signing and download verification\n\n'
-            printf '%s\n' 'Windows and macOS updater packages carry mandatory Tauri signatures. Linux .deb installation is manual. SHA256SUMS.txt checks file integrity; GitHub attestations identify the build workflow.'
-            if [ "$WINDOWS_SIGNING" != true ]; then
-              printf '\n%s\n' '**Windows:** No Authenticode publisher certificate. SmartScreen or unknown-publisher warnings are expected.'
-            fi
-            if [ "$MACOS_SIGNING" != true ]; then
-              printf '\n%s\n' '**macOS:** Ad-hoc signed, not Apple Developer ID signed or notarized. Gatekeeper may block the first launch; approve this specific app in Privacy & Security after verifying the download. Do not disable Gatekeeper globally.'
-            fi
+            printf '%s\n' 'Windows and macOS updater packages carry mandatory Tauri updater signatures. Linux .deb installation is manual. SHA256SUMS.txt checks file integrity; GitHub attestations identify the build workflow.'
+            printf '\n%s\n' '**Windows:** No Authenticode publisher signing is used. SmartScreen or unknown-publisher warnings are expected.'
+            printf '\n%s\n' '**macOS:** Builds are ad-hoc signed, not Developer ID signed or notarized. Gatekeeper may block the first launch; approve this specific app in Privacy & Security after verifying the download. Do not disable Gatekeeper globally.'
           } >> release-notes.md
       - name: Record unsigned release validation
         if: needs.validate.outputs.validation == 'true'
@@ -876,7 +725,7 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: release-artifacts/*
-      - name: Publish stable signed release
+      - name: Publish stable updater-signed release
         if: needs.validate.outputs.validation != 'true' && needs.validate.outputs.rehearsal != 'true' && needs.validate.outputs.unsigned_preview != 'true'
         env:
           GH_TOKEN: ${{ github.token }}

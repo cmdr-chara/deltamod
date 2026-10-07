@@ -12,7 +12,7 @@ an exact `DeltaMaster` SHA, builds all four platform packages, installs and smok
 them, verifies that signing/updater artifacts are absent, and retains a checksum
 manifest. This mode exists so release packaging can stay continuously verified when
 the updater signing key is unavailable. It does not satisfy the updater-signature
-or stable-publication requirements below. Optional publisher identity is separate.
+or stable-publication requirements below. Platform publisher signing is intentionally not used.
 
 ## Required parity checks
 
@@ -47,47 +47,31 @@ or stable-publication requirements below. Optional publisher identity is separat
 
 ## External signing prerequisites
 
-The maintainer-approved stable policy separates **mandatory updater signatures**
-from **optional platform publisher certificates**. Stable builds may ship without
-paid Windows/Apple certificates; they must not be mislabeled as unsigned previews.
-All package, installed-smoke, target, checksum, provenance, and updater gates remain.
+Stable publication and signed rehearsal require only the Tauri updater signing key:
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+Main-branch CI checks those credentials before creating a stable tag. An explicit
+stable request fails if updater signing is unavailable.
 
-Stable publication and signed rehearsal require `TAURI_SIGNING_PRIVATE_KEY` and
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Main-branch CI checks those credentials before
-creating a stable tag. Ordinary release-relevant pushes may fall back to unsigned
-validation when they are missing. An explicit stable request (`Community CI` with
-`stable_release=true`, or a `[stable-release]` commit marker) fails instead.
-The lower-level `Community Tauri Release` workflow defaults to `validation`; its
-`stable` mode uses an existing `community-v*` tag from the gated Community CI flow.
+Platform publisher signing is intentionally not part of the release workflow.
+Stable Windows executables remain publisher-unsigned. Stable macOS applications use
+ad-hoc signing (`signingIdentity: "-"`) so Apple Silicon can run the bundle without
+claiming a verified publisher identity or notarization. The workflow verifies that
+Windows artifacts have no Authenticode publisher signature and macOS artifacts have
+neither Developer ID authority nor a stapled notarization ticket.
 
-Publisher signing is selected independently per platform. An entirely absent group
-is optional; a partially configured group or an invalid certificate fails the build
-rather than silently falling back to an untrusted identity:
+Release notes disclose the expected Windows SmartScreen/unknown-publisher warning and
+macOS Gatekeeper restrictions. Users may approve the specific verified macOS app in
+Privacy & Security; never recommend globally disabling Gatekeeper.
 
-- Windows: `WINDOWS_CERTIFICATE` and `WINDOWS_CERTIFICATE_PASSWORD`. When configured,
-  import the PFX, sign with SHA-256 and a timestamp, and verify the shell, NSIS package,
-  and branded bootstrapper against the imported thumbprint. Otherwise verify that
-  those executables have no Authenticode publisher signature.
-- macOS: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `KEYCHAIN_PASSWORD`,
-  `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID`. When configured, import the
-  Developer ID certificate and require codesign, Gatekeeper, and stapled-ticket
-  validation. Otherwise use and verify an ad-hoc signature for stable builds,
-  including Apple Silicon, and verify that no Developer ID or notarization is claimed.
+Tauri updater signatures remain mandatory and use the existing trusted public key.
+They are included for exactly the Windows x64 and two macOS targets in `latest.json`;
+Linux `.deb` remains a manual download. Stable publication explicitly uses
+`--latest --prerelease=false`; previews remain prereleases and never replace the
+stable updater endpoint.
 
-Without publisher certificates, release notes must disclose Windows SmartScreen
-warnings and macOS Gatekeeper restrictions. Users may need to approve the specific
-verified app in Privacy & Security; never recommend globally disabling Gatekeeper.
-Ad-hoc signing is not Apple publisher verification. Tauri update signatures remain
-mandatory, use the existing trusted public key, and are included for exactly the
-Windows x64 and two macOS targets in `latest.json`. Linux `.deb` remains manual.
-Stable publication explicitly uses `--latest --prerelease=false`; previews remain
-prereleases and never replace the stable updater endpoint.
-
-Certificates, private keys, Apple credentials, and passwords must never be committed
-or printed. The `[stable-release]` marker only bypasses the application-changes
-filter; it does not bypass any applicable verification. If a configured Windows
-certificate is hardware-backed or cloud-held, use the issuer's Tauri `signCommand`
-integration and retain the same post-build publisher checks.
+The `[stable-release]` marker only bypasses the application-changes filter; it does
+not bypass updater signing, package verification, installed smoke tests, provenance,
+checksums, or attestations.
 
 ## Artifact and license checks
 

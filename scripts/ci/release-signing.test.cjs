@@ -14,11 +14,6 @@ const root = path.resolve(__dirname, '../..');
 const release = fs.readFileSync(path.join(root, '.github/workflows/tauri-release.yml'), 'utf8');
 const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
 const updater = { TAURI_SIGNING_PRIVATE_KEY: 'test-key', TAURI_SIGNING_PRIVATE_KEY_PASSWORD: 'test-password' };
-const windows = { WINDOWS_CERTIFICATE: 'test-pfx', WINDOWS_CERTIFICATE_PASSWORD: 'test-pfx-password' };
-const macos = Object.fromEntries([
-    'APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'KEYCHAIN_PASSWORD',
-    'APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID'
-].map(name => [name, `test-${name}`]));
 
 function step(workflow, name) {
     const marker = `      - name: ${name}\n`;
@@ -49,7 +44,6 @@ function runScript(source, environment = {}) {
             cwd: root,
             encoding: 'utf8',
             timeout: 5000,
-            // Do not inherit real signing credentials into regression tests.
             env: { PATH: process.env.PATH, RUNNER_TEMP: dir, GITHUB_OUTPUT: output, GITHUB_ENV: path.join(dir, 'env'), ...environment }
         });
         assert.ifError(result.error);
@@ -61,37 +55,20 @@ function runScript(source, environment = {}) {
     }
 }
 
-const signing = script(step(release, 'Require updater signing and select optional publisher signing'));
-
-for (const [name, credentials, expected] of [
-    ['updater only', updater, 'windows_signing=false\nmacos_signing=false\n'],
-    ['Windows publisher', { ...updater, ...windows }, 'windows_signing=true\nmacos_signing=false\n'],
-    ['Apple publisher', { ...updater, ...macos }, 'windows_signing=false\nmacos_signing=true\n'],
-    ['both publishers', { ...updater, ...windows, ...macos }, 'windows_signing=true\nmacos_signing=true\n']
-]) {
-    test(`release credentials: ${name}`, () => {
-        const result = runScript(signing, credentials);
-        assert.equal(result.status, 0, result.stderr);
-        assert.equal(result.values, expected);
-        for (const secret of Object.values(credentials)) assert.ok(!(result.stdout + result.stderr).includes(secret));
-    });
-}
-
-test('updater credentials are mandatory even with both publisher certificates', () => {
-    const result = runScript(signing, { ...windows, ...macos });
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /TAURI_SIGNING_PRIVATE_KEY/);
+test('stable release requires only Tauri updater signing credentials', () => {
+    const signing = script(step(release, 'Require updater signing credentials'));
+    assert.equal(runScript(signing, updater).status, 0);
+    const missing = runScript(signing);
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /TAURI_SIGNING_PRIVATE_KEY/);
 });
 
-test('partially configured publishers fail instead of silently downgrading', () => {
-    for (const credentials of [{ ...updater, WINDOWS_CERTIFICATE: 'partial' }, { ...updater, APPLE_ID: 'partial' }]) {
-        const result = runScript(signing, credentials);
-        assert.notEqual(result.status, 0);
-        assert.match(result.stderr, /Incomplete .* publisher signing/);
-    }
+test('platform publisher credential paths are absent', () => {
+    assert.doesNotMatch(release, /CERTIFICATE|KEYCHAIN_PASSWORD|APPLE_ID|APPLE_PASSWORD|APPLE_TEAM_ID/);
+    assert.doesNotMatch(release, /Import Windows publisher|Import Apple Developer ID|Developer ID-signed/);
 });
 
-test('CI selects stable with updater credentials and no paid certificates', () => {
+test('CI selects stable with updater credentials only', () => {
     const source = script(step(ci, 'Select signed publication or unsigned release validation'), {
         'steps.candidate.outputs.explicit_stable': 'true'
     });
@@ -100,70 +77,41 @@ test('CI selects stable with updater credentials and no paid certificates', () =
     assert.equal(result.values, 'publish=true\n');
 });
 
-test('explicit stable requests never downgrade when the updater key is missing', () => {
+test('explicit stable requests never downgrade when updater signing is missing', () => {
     const block = step(ci, 'Select signed publication or unsigned release validation');
     const explicit = runScript(script(block, { 'steps.candidate.outputs.explicit_stable': 'true' }));
     assert.notEqual(explicit.status, 0);
     assert.match(explicit.stderr, /Stable release blocked/);
-    const ordinary = runScript(script(block, { 'steps.candidate.outputs.explicit_stable': 'false' }));
-    assert.equal(ordinary.status, 0);
-    assert.equal(ordinary.values, 'publish=false\n');
 });
 
-test('ad-hoc macOS signing does not disable signed updater artifacts', () => {
+test('stable macOS uses ad-hoc app signing while retaining updater artifacts', () => {
     const block = step(release, 'Prepare platform signing configuration');
-    const result = runScript(script(block, {
-        'needs.validate.outputs.unsigned_preview': 'false',
-        'needs.validate.outputs.macos_signing': 'false'
-    }), { RUNNER_OS: 'macOS' });
-    assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(result.config, { bundle: { macOS: { signingIdentity: '-' } } });
-    const preview = runScript(script(block, {
-        'needs.validate.outputs.unsigned_preview': 'true',
-        'needs.validate.outputs.macos_signing': ''
-    }), { RUNNER_OS: 'macOS' });
+    const stable = runScript(script(block, { 'needs.validate.outputs.unsigned_preview': 'false' }), { RUNNER_OS: 'macOS' });
+    assert.equal(stable.status, 0, stable.stderr);
+    assert.deepEqual(stable.config, { bundle: { macOS: { signingIdentity: '-' } } });
+    const preview = runScript(script(block, { 'needs.validate.outputs.unsigned_preview': 'true' }), { RUNNER_OS: 'macOS' });
     assert.equal(preview.status, 0);
     assert.deepEqual(preview.config, { bundle: { createUpdaterArtifacts: false } });
 });
 
-test('publisher checks depend on publisher credentials, not the stable channel', () => {
-    for (const [name, platform] of [
-        ['Import Windows publisher certificate', 'windows'],
-        ['Verify Windows publisher signatures', 'windows'],
-        ['Sign and verify Deltamod-themed setup shell', 'windows'],
-        ['Import Apple Developer ID certificate', 'macos'],
-        ['Verify macOS signature and notarization', 'macos']
-    ]) {
-        assert.ok(step(release, name).includes(`needs.validate.outputs.${platform}_signing == 'true'`));
+test('Windows and macOS stable builders carry only updater signing inputs', () => {
+    for (const name of ['Build Windows update-capable bundle', 'Build ad-hoc macOS update-capable bundle']) {
+        const block = step(release, name);
+        assert.match(block, /TAURI_SIGNING_PRIVATE_KEY: \$\{\{ secrets\.TAURI_SIGNING_PRIVATE_KEY \}\}/);
+        assert.doesNotMatch(block, /CERTIFICATE|KEYCHAIN|NOTAR|APPLE_ID|APPLE_PASSWORD|APPLE_TEAM_ID/);
     }
-    for (const name of [
-        'Build Windows update-capable bundle',
-        'Build Developer ID-signed update-capable bundle',
-        'Build ad-hoc macOS update-capable bundle'
-    ]) {
-        assert.match(step(release, name), /TAURI_SIGNING_PRIVATE_KEY: \$\{\{ secrets\.TAURI_SIGNING_PRIVATE_KEY \}\}/);
-    }
-    assert.doesNotMatch(step(release, 'Build Windows update-capable bundle'), /APPLE_CERTIFICATE/);
-    assert.match(step(release, 'Build Developer ID-signed update-capable bundle'), /APPLE_CERTIFICATE: \$\{\{ secrets\.APPLE_CERTIFICATE \}\}/);
-    assert.doesNotMatch(step(release, 'Build ad-hoc macOS update-capable bundle'), /APPLE_CERTIFICATE/);
     assert.match(step(release, 'Build ad-hoc macOS update-capable bundle'), /APPLE_SIGNING_IDENTITY: '-'/);
-    assert.match(step(release, 'Prepare signed updater metadata'), /generate-tauri-updater-manifest\.js/);
-    assert.match(step(release, 'Disclose release signing status'), /SmartScreen/);
-    assert.match(step(release, 'Disclose release signing status'), /Gatekeeper/);
 });
 
-test('stable is Latest, previews remain prereleases, all package jobs still gate publication', () => {
+test('stable packages verify absence of publisher identity', () => {
+    assert.match(step(release, 'Verify Windows packages are publisher-unsigned'), /Get-AuthenticodeSignature/);
+    assert.match(step(release, 'Verify macOS packages use no Developer ID'), /Developer ID Application/);
+    assert.match(step(release, 'Verify branded setup is publisher-unsigned'), /NotSigned/);
+});
+
+test('stable is Latest and previews remain prereleases', () => {
     assert.match(release, /publish:\n    needs: \[validate, package, third-party-source\]/);
-    assert.match(step(release, 'Publish stable signed release'), /--latest --prerelease=false/);
+    assert.match(step(release, 'Publish stable updater-signed release'), /--latest --prerelease=false/);
     assert.match(step(release, 'Publish unsigned Tauri preview'), /--prerelease\s/);
     assert.match(ci, /gh workflow run tauri-release\.yml --ref "\$TAG" -f release_mode=stable/);
-});
-
-test('branded Windows setup downloads the exact asset staged for the release', () => {
-    const builder = fs.readFileSync(path.join(root, 'scripts/build-installer.js'), 'utf8');
-    const template = /const releaseUrl = `([^`]+)`/.exec(builder)?.[1];
-    assert.ok(template);
-    const url = template.replaceAll('${packageInfo.version}', '2.0.23').replaceAll('${windowsTarget}', 'x86_64-pc-windows-msvc');
-    assert.equal(url, 'https://github.com/cmdr-chara/deltamod/releases/download/community-v2.0.23/Deltamod-Community_2.0.23_x86_64-pc-windows-msvc.exe');
-    assert.match(step(release, 'Stage uniquely named updater release asset'), /Deltamod-Community_\$\{version\}_\$\{BUILD_TARGET\}\$\{extension\}/);
 });
