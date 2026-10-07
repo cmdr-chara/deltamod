@@ -1,3 +1,167 @@
+# Deltamod Community 2.0.23
+
+Released 2026-10-07.
+
+## Changes
+
+- build(deps-dev): bump @tauri-apps/cli from 2.11.4 to 2.11.5 (`c82b6c7`).
+- build(deps): bump thiserror from 2.0.20 to 2.0.21 in /native (`f7e6a30`).
+- build(deps): bump tauri-plugin-single-instance in /src-tauri (`a800ccf`).
+- build(deps): bump hyper-util from 0.1.20 to 0.1.21 in /src-tauri (`6fdb540`).
+- build(deps): bump tauri-plugin-updater in /src-tauri (`ba3a447`).
+- build(deps-dev): bump vite from 8.3.0 to 8.3.1 (`091fe70`).
+- Merge pull request #95 from cmdr-chara/dependabot/npm_and_yarn/vite-8.3.1 (`33c63f9`).
+- build(deps): bump actions/upload-artifact from 4.6.2 to 7.0.1 (`509a60e`).
+- build(deps): update dtolnay/rust-toolchain requirement to 6bed0761d98439e5a578e2877258200ad565ba87 (`45918db`).
+- build(deps): bump tauri-apps/tauri-action from 0.6.2 to 1.0.0 (`4be514f`).
+- build(deps): bump actions/download-artifact from 4.3.0 to 8.0.1 (`5a192b0`).
+- build(deps): bump actions/setup-node from 6 to 7 (`67f9d1c`).
+- build(deps-dev): bump vitest from 5.0.1 to 5.0.2 (`69db8d1`).
+- Merge pull request #103 from cmdr-chara/dependabot/cargo/src-tauri/tauri-plugin-updater-2.12.0 (`5f0e55a`).
+- Merge pull request #100 from cmdr-chara/dependabot/cargo/src-tauri/hyper-util-0.1.21 (`2a3767f`).
+- Merge pull request #99 from cmdr-chara/dependabot/cargo/src-tauri/tauri-plugin-single-instance-2.4.5 (`44c2f10`).
+- Merge pull request #98 from cmdr-chara/dependabot/cargo/native/thiserror-2.0.21 (`cd82893`).
+- Merge pull request #96 from cmdr-chara/dependabot/npm_and_yarn/tauri-apps/cli-2.11.5 (`d8b3935`).
+- build(deps): bump thiserror from 2.0.20 to 2.0.21 in /src-tauri (`bbf1bb2`).
+- build(deps): bump tauri from 2.11.5 to 2.11.6 in /src-tauri (`da9145b`).
+- build(deps-dev): bump @types/node from 26.6.1 to 26.6.2 (`ef4a37f`).
+- Merge pull request #101 from cmdr-chara/dependabot/cargo/src-tauri/thiserror-2.0.21 (`d1f77d0`).
+- Merge pull request #102 from cmdr-chara/dependabot/cargo/src-tauri/tauri-2.11.6 (`80ef5df`).
+- Merge pull request #94 from cmdr-chara/dependabot/npm_and_yarn/types/node-26.6.2 (`2b144c9`).
+- Merge pull request #110 from cmdr-chara/dependabot/npm_and_yarn/vitest-5.0.2 (`da79b76`).
+- Merge pull request #109 from cmdr-chara/dependabot/github_actions/actions/upload-artifact-7.0.1 (`860b2a4`).
+- Merge pull request #108 from cmdr-chara/dependabot/github_actions/tauri-apps/tauri-action-1.0.0 (`383b84a`).
+- Merge pull request #107 from cmdr-chara/dependabot/github_actions/dtolnay/rust-toolchain-6bed0761d98439e5a578e2877258200ad565ba87 (`8419173`).
+- Merge pull request #106 from cmdr-chara/dependabot/github_actions/actions/setup-node-7 (`d54b12f`).
+- Merge pull request #105 from cmdr-chara/dependabot/github_actions/actions/download-artifact-8.0.1 (`45a0b7f`).
+- ci: record 2.0.11 bootstrap status [skip ci] (`b2f41a4`).
+- ci: record 2.0.11 bootstrap validation [skip ci] (`79bc878`).
+- ci: auto-merge green Dependabot pull requests (`b6074e4`).
+- ci: lint Dependabot auto-merge workflow (`2d13486`).
+- docs: document Dependabot auto-merge trust boundary (`b655a2b`).
+- Merge pull request #111 from cmdr-chara/chore/dependabot-automerge (`039881e`).
+- ci: add unsigned release validation mode (`0a5131d`).
+- ci: pin release jobs to validated commit (`dc054a7`).
+- ci: keep validation artifacts non-publishing (`f720a5c`).
+- ci: validate release when signing credentials are absent (`baf56fd`).
+- ci: remove obsolete 2.0.11 bootstrap workflow (`7f4fa45`).
+- ci: remove obsolete bootstrap status (`cbdb5aa`).
+- ci: lint release workflow (`718daf3`).
+- docs: document release validation fallback (`b3c9b50`).
+- docs: distinguish release validation from signing (`765fbe8`).
+- Merge pull request #112 from cmdr-chara/fix/release-validation-ci (`7af7fd8`).
+- release: dispatch validated 2.0.18 preview (`93b7a9e`).
+- Merge pull request #113 from cmdr-chara/release/preview-2.0.18-run-10 (`1d23aef`).
+- ci: allow dispatched preview releases from immutable tags (`6b96339`).
+- docs: explain preview release dispatch (`adb7781`).
+- Merge pull request #114 from cmdr-chara/fix/preview-workflow-dispatch (`72eca0f`).
+- release: publish validated 2.0.18 preview run 11 (#115) (`d3f5933`).
+- build(deps): bump undici in the npm_and_yarn group across 1 directory (`42e2b6b`).
+- fix: enforce native identity and picker boundaries (#116) (`bde02fb`).
+- Merge pull request #117 from cmdr-chara/dependabot/npm_and_yarn/npm_and_yarn-e184a88377 (`814ecc3`).
+- ci: add explicit stable release trigger (`a1d3db6`).
+- docs: document stable release trigger (`de498c6`).
+- style: apply rustfmt to os adapter regression (`4a5bb3d`).
+- ci: add explicit stable release trigger [stable-release] (`00cf5f3`).
+- ci: normalize preview release metadata (`37b59be`).
+- fix: repair release metadata workflow (`2277e26`).
+- ci: normalize preview release metadata (`0fcc544`).
+- build(deps-dev): bump @tauri-apps/cli from 2.11.5 to 2.12.1 (`3181fdf`).
+- build(deps-dev): bump vitest from 5.0.2 to 5.0.3 (`851da13`).
+- build(deps): bump tauri-plugin-updater in /src-tauri (`7216da8`).
+- build(deps): bump tauri-build from 2.6.3 to 2.7.1 in /src-tauri (`e9d3c33`).
+- build(deps): bump tauri-plugin-dialog from 2.7.3 to 2.8.1 in /src-tauri (`ed7f5c2`).
+- build(deps): bump tauri from 2.11.6 to 2.12.1 in /src-tauri (`86a3b26`).
+- build(deps): bump minisign-verify from 0.2.5 to 0.3.0 in /src-tauri (`b416f81`).
+- build(deps): bump actions/checkout from 6.1.0 to 7.0.1 (`8e96bad`).
+- fix(ci): update deprecated atomic API (`b4187a6`).
+- Merge pull request #124 from cmdr-chara/dependabot/npm_and_yarn/tauri-apps/cli-2.12.1 (`13dab52`).
+- Merge pull request #126 from cmdr-chara/dependabot/npm_and_yarn/vitest-5.0.3 (`f66dbe6`).
+- Merge pull request #128 from cmdr-chara/dependabot/cargo/src-tauri/tauri-plugin-updater-2.13.1 (`902dbb1`).
+- Merge pull request #130 from cmdr-chara/dependabot/cargo/src-tauri/tauri-plugin-dialog-2.8.1 (`0d60239`).
+- Merge pull request #131 from cmdr-chara/dependabot/cargo/src-tauri/tauri-2.12.1 (`18009cc`).
+- Merge pull request #132 from cmdr-chara/dependabot/cargo/src-tauri/minisign-verify-0.3.0 (`ca2e675`).
+- Merge pull request #133 from cmdr-chara/dependabot/github_actions/actions/checkout-7.0.1 (`cdce747`).
+- build(deps-dev): bump @types/node from 26.6.2 to 26.6.4 (`a6ea4a3`).
+- build(deps-dev): bump vite from 8.3.1 to 8.3.2 (`461b66b`).
+- Merge DeltaMaster into Dependabot @types/node update (`deaf8d3`).
+- Merge pull request #125 from cmdr-chara/dependabot/npm_and_yarn/types/node-26.6.4 (`c2092d5`).
+- Merge DeltaMaster into Dependabot Vite update (`c140c49`).
+- Merge pull request #127 from cmdr-chara/dependabot/npm_and_yarn/vite-8.3.2 (`5599ac8`).
+- fix(deps): resolve merged Cargo lock entries (`bc8ae9b`).
+- Merge DeltaMaster into Dependabot tauri-build update (`7aeaf7d`).
+- ci: expose resolved dependency lock diff (`5442226`).
+- fix(deps): normalize resolved Cargo lock references (`f7342b5`).
+- Merge final DeltaMaster dependency state (`3402f18`).
+- Merge pull request #129 from cmdr-chara/dependabot/cargo/src-tauri/tauri-build-2.7.1 (`44080d2`).
+- ci: validate merged Dependabot updates (`c4c2a23`).
+- fix(steam): resolve manifest-backed installations and preserve picker fallback (`1bccfb6`).
+- style: apply Rust formatting (`5564835`).
+- fix(security): update source-map-js to 1.2.2 (`94d279e`).
+- style: finish Rust formatting (`52dae4d`).
+- feat: restore GameBanana collections safely (`23c801f`).
+- test: cover collection restore selection and URL bounds (`1ec7294`).
+- fix: close collection restore syntax and formatting (`e1f049b`).
+- style: apply collection restore formatting (`6884f6a`).
+- style: match collection restore import ordering (`6738fc7`).
+- test: update parity counts for collection restore (`2b83b2f`).
+- test: include collection restore progress contract (`22f5ce2`).
+- test: publish collection restore progress event fixture (`055fc01`).
+- docs: close collection restore audit gap (`5bc7eae`).
+- docs: clarify bounded provider profile validation (`50e0d45`).
+- test: update implemented command total (`ae9613d`).
+- fix: keep collection restore portable across Rust test harnesses (`4378ec1`).
+- style: sort collection restore credential imports (`3c4d64c`).
+- fix: keep credential access at the Tauri dispatch boundary (`71f5f70`).
+- feat: harden legacy mod compatibility and retire dead bridges (`c746fcb`).
+- style: format native compatibility changes (`ff5bb06`).
+- style: finish archive importer formatting (`db372ef`).
+- test: align parity expectations with retired bridges (`30a8423`).
+- fix: harden compatibility conversion and install handoff (`a48a2c1`).
+- fix: validate install link payloads (`bf6a9ea`).
+- test: keep handoff tests dependency-free (`95127f8`).
+- test: make legacy import regressions portable (`36bc60c`).
+- test: align native handoff contracts across platforms (`ceae07c`).
+- chore: retire stale desktop surfaces (`a9f46e9`).
+- chore: remove retired desktop artifacts (`798d11d`).
+- chore: remove retired desktop artifacts (`4c05981`).
+- chore: remove retired desktop artifacts (`1b950d2`).
+- chore: remove retired desktop artifacts (`d17aa66`).
+- chore: remove retired desktop artifacts (`73010ee`).
+- test: drop retired window zoom classification (`d0736cd`).
+- chore: organize repository support files (`9887b3f`).
+- chore: remove relocated root files (`149bcc4`).
+- chore: remove relocated root files (`7a2931c`).
+- chore: remove relocated root files (`216986c`).
+- chore: remove relocated root files (`61d760b`).
+- chore: remove relocated root files (`9464709`).
+- chore: remove relocated root files (`7801f60`).
+- chore: remove relocated root files (`6408dae`).
+- chore: remove relocated root files (`01d2084`).
+- chore: remove relocated root files (`21f1808`).
+- chore: remove relocated root files (`e177add`).
+- chore: remove relocated root files (`c2bd007`).
+- chore: remove relocated root files (`7d367df`).
+- chore: remove relocated root files (`466f9ef`).
+- chore: remove relocated root files (`76cfc67`).
+- chore: remove relocated root files (`00456dd`).
+- chore: remove relocated root files (`5c5d373`).
+- chore: remove relocated root files (`8491981`).
+- chore: remove relocated root files (`ee5f87c`).
+- chore: remove relocated root files (`bea7478`).
+- chore: remove relocated root files (`16b6229`).
+- chore: remove relocated root files (`f3f24cf`).
+- chore: remove relocated root files (`95f30ed`).
+- chore: remove relocated root files (`8c9c622`).
+- fix: keep heart preview outside product typecheck (`28587fe`).
+- chore: relocate heart preview tooling (`be15576`).
+- chore: relocate heart preview tooling (`46f6f4c`).
+- chore: relocate heart preview tooling (`57b4735`).
+- ci: make stable release requests explicit (`7fb7375`).
+- fix(release): publish updater-signed stable builds without paid certificates [stable-release] (`e22ef45`).
+- test: align installer assertions with stable signing policy [stable-release] (`fef0d1c`).
+- test: scope preview latest assertion correctly [stable-release] (`cfbfbc6`).
+
 # Deltamod Community 2.0.18
 
 Planned stable release.
