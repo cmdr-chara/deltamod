@@ -31,6 +31,12 @@ async function openShop(page, options = {}) {
             };
             window.communityAPI.modSources = { browse: async request => {
                 if (request.url.includes('/TopSubs')) return { ok: true, result: { payload: [] } };
+                // The native provider serves file lists through the same mocked connection.
+                if (request.url.includes('/ProfilePage')) {
+                    const response = await window.fetch(request.url);
+                    if (!response.ok) return { ok: false, error: { message: `GameBanana returned HTTP ${response.status}.` } };
+                    return { ok: true, result: { payload: await response.json() } };
+                }
                 const number = Number(new URL(request.url).searchParams.get('_nPage'));
                 window.__shop.requests.push(number);
                 if (window.__shop.failPages.includes(number)) throw new Error(`Page ${number} is unavailable.`);

@@ -1112,7 +1112,14 @@ async function renderMods(table, GB_API, filter, gameID) {
                         };
                         let dlpage;
                         try {
-                            const response = await browseGameBananaCatalog(`https://gamebanana.com/apiv11/${mod._sModelName}/${mod._idRow}/ProfilePage`);
+                            const profileUrl = `https://gamebanana.com/apiv11/${mod._sModelName}/${mod._idRow}/ProfilePage`;
+                            let response;
+                            try {
+                                response = await fetchGameBananaCatalogDirect(profileUrl);
+                            } catch {
+                                // The native provider is serialized, so it is only the fallback.
+                                response = await browseGameBananaCatalog(profileUrl);
+                            }
                             dlpage = response.payload;
                             if (!Array.isArray(dlpage?._aFiles)) throw new Error('GameBanana returned an invalid file list.');
                         } catch (error) {
